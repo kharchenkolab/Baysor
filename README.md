@@ -1,2 +1,2 @@
 # Baysor
-**B**ayesian **S**egmentation **o**f **S**patial T**r**anscriptomics Data
+**B**a**y**esian **S**egmentation **o**f **S**patial T**r**anscriptomics Data
