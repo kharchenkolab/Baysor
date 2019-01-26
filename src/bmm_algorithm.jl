@@ -16,9 +16,9 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
     data.assignment[point_ind] = component_id
 end
 
-function drop_unused_components!(data::BmmData)
+function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
     non_noise_ids = findall(data.assignment .> 0)
-    existed_ids = [i for (i,c) in enumerate(data.components) if (c.n_samples > 1 || !c.can_be_dropped)]
+    existed_ids = [i for (i,c) in enumerate(data.components) if (c.n_samples >= min_n_samples || (!c.can_be_dropped && !force))]
     id_map = zeros(Int, length(data.components))
     id_map[existed_ids] = 1:length(existed_ids)
 
@@ -32,20 +32,25 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Array{Int, 1}, 1}, point_ind::Int)::Array{Int, 1} =
     [x for x in Set(assignment[adjacent_points[point_ind]]) if x > 0]
 
-function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}})
+function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-30)
     for i in 1:size(data.x, 1)
         x, y, gene = (data.x[i, [:x, :y, :gene]]...,)
         adj_classes = adjacent_component_ids(data.assignment, data.adjacent_points, i)
+
         adj_global = get(adj_classes_global, i, Int[]);
         if length(adj_global) > 0
             append!(adj_classes, adj_global)
         end
 
-        # denses = Float64[c.prior_probability * c.param_likelihood * pdf(c, x, y, gene) for c in data.components[adj_classes]]
         denses = Float64[c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
 
-        if sum(denses) .< 1e-30
+        if sum(denses) .< noise_density_threshold
             assign!(data, i, 0) # Noise class
+            continue
+        end
+
+        if !stochastic
+            assign!(data, i, adj_classes[findmax(denses)[2]])
             continue
         end
 
@@ -109,8 +114,6 @@ end
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, history_step::Int=0, new_component_frac::Float64=0.05,
               return_assignment_history::Bool=false)
-    @show "SFS"
-
     ts = now()
 
     if verbose
@@ -170,6 +173,21 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return res
 end
 
+function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300)
+    for i in 1:max_n_iters
+        prev_assignment = deepcopy(bmm_res.assignment)
+        drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
+        expect_dirichlet_spatial!(bmm_res, stochastic=false)
+        maximize!(bmm_res, min_molecules_per_cell)
+
+        if (minimum(num_of_molecules_per_cell(bmm_res)) >= min_molecules_per_cell) && all(bmm_res.assignment .== prev_assignment)
+            break
+        end
+    end
+
+    return bmm_res;
+end
+
 function run_bmm(df_spatial::DataFrame; initial_params::InitialParams=nothing, n_cells_init::Int=1000, cov_mult::Real=2, prior_deg_freedom::Int=10,
                  use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, kwargs...)
     if initial_params === nothing
@@ -182,13 +200,13 @@ function run_bmm(df_spatial::DataFrame; initial_params::InitialParams=nothing, n
     use_cell_size_prior=(use_cell_type_size_prior || use_global_size_prior);
 
     bm_data = initial_distributions(df_spatial, initial_params, size_prior=size_priors, use_cell_size_prior=use_cell_size_prior);
-    return run_bmm(bm_data; prior_deg_freedom=prior_deg_freedom, use_cell_type_size_prior=use_cell_type_size_prior,
-                   use_global_size_prior=use_global_size_prior, kwargs...)
+    return run_bmm!(bm_data; prior_deg_freedom=prior_deg_freedom, use_cell_type_size_prior=use_cell_type_size_prior,
+                    use_global_size_prior=use_global_size_prior, kwargs...)
 end
 
-function run_bmm(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10, log_step::Int=1, smooth_expression::Bool=false, n_prin_comps::Int=20,
-                 use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, n_bmm_iters_per_step::Int=3, return_assignment_history::Bool=false,
-                 kwargs...)
+function run_bmm!(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10, log_step::Int=1, smooth_expression::Bool=false, n_prin_comps::Int=20,
+                  use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, n_bmm_iters_per_step::Int=3, return_assignment_history::Bool=false,
+                  kwargs...)
     neighbors_by_molecule_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
     @time for it in 1:n_iters
         if it % log_step == 0
@@ -206,6 +224,8 @@ function run_bmm(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10,
             bm_data = bmm!(bm_data; min_molecules_per_cell=min_molecules_per_cell, n_iters=n_bmm_iters_per_step, verbose=false, kwargs...);
         end
     end
+
+    refine_bmm_result!(bm_data, min_molecules_per_cell)
 
     if return_assignment_history
         return bm_data, neighbors_by_molecule_per_iteration
