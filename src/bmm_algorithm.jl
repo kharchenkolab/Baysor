@@ -134,6 +134,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         expect_dirichlet_spatial!(data, adj_classes_global)
         maximize!(data, min_molecules_per_cell) # TODO: Should we use min_molecules_per_cell as n_prior?
 
+        trace_n_components!(data, min_molecules_per_cell);
+
         drop_unused_components!(data)
 
         adj_classes_global = Dict{Int, Array{Int, 1}}()

@@ -33,6 +33,8 @@ mutable struct BmmData
 
     gene_probs_given_single_transcript::Array{Float64, 2};
 
+    tracer::Dict{String, Any};
+
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, distribution_sampler::Component,
                      assignment::Array{Int, 1}; k_neighbors::Int=20)
         for c in components
@@ -46,7 +48,7 @@ mutable struct BmmData
         n_genes = maximum(composition_data(x))
 
         self = new(components, deepcopy(x), p_data, composition_data(x), adjacent_points, deepcopy(distribution_sampler), zeros(Int, length(assignment)),
-                   position_knn_tree, knn_neighbors, ones(n_genes, n_genes) ./ n_genes)
+                   position_knn_tree, knn_neighbors, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}())
 
         for (i, l) in enumerate(assignment)
             assign!(self, i, l)

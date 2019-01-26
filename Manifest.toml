@@ -259,6 +259,12 @@ version = "0.10.2"
 deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 
+[[GR]]
+deps = ["Base64", "DelimitedFiles", "LinearAlgebra", "Pkg", "Printf", "Random", "Serialization", "Sockets", "Test"]
+git-tree-sha1 = "3c62c19ddf86ff016829fdac1663cd3c75558c34"
+uuid = "28b8d3ca-fb5f-59d9-8090-bfdbd6d07a71"
+version = "0.37.0"
+
 [[Gadfly]]
 deps = ["Base64", "CategoricalArrays", "Colors", "Compat", "Compose", "Contour", "CoupledFields", "DataStructures", "Dates", "Distributions", "DocStringExtensions", "Hexagons", "IndirectArrays", "IterTools", "JSON", "Juno", "KernelDensity", "LibGit2", "LinearAlgebra", "Loess", "Measures", "Printf", "Random", "Requires", "Showoff", "Statistics", "StatsBase", "Test"]
 git-tree-sha1 = "ee709588c71eb62ce53cecf5a594bdefd6f2a9be"
@@ -538,6 +544,24 @@ version = "0.2.16"
 [[Pkg]]
 deps = ["Dates", "LibGit2", "Markdown", "Printf", "REPL", "Random", "SHA", "UUIDs"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+
+[[PlotThemes]]
+deps = ["PlotUtils", "Requires", "Test"]
+git-tree-sha1 = "f3afd2d58e1f6ac9be2cea46e4a9083ccc1d990b"
+uuid = "ccf2f8ad-2431-5c83-bf29-c5338b663b6a"
+version = "0.3.0"
+
+[[PlotUtils]]
+deps = ["Colors", "Dates", "Printf", "Random", "Reexport", "Test"]
+git-tree-sha1 = "fd28f30a294a38ec847de95d8ac7ac916ccd7c06"
+uuid = "995b91a9-d308-5afd-9ec6-746e21dbc043"
+version = "0.5.5"
+
+[[Plots]]
+deps = ["Base64", "Contour", "Dates", "FixedPointNumbers", "GR", "JSON", "LinearAlgebra", "Measures", "NaNMath", "Pkg", "PlotThemes", "PlotUtils", "Printf", "REPL", "Random", "RecipesBase", "Reexport", "Requires", "Showoff", "SparseArrays", "StaticArrays", "Statistics", "StatsBase", "Test", "UUIDs"]
+git-tree-sha1 = "40e65916a51e3d6fc53f031a3f0ef2fd46e5d442"
+uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+version = "0.22.5"
 
 [[PositiveFactorizations]]
 deps = ["LinearAlgebra", "Test"]

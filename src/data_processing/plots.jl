@@ -4,6 +4,7 @@ using Random
 
 import Colors
 import MultivariateStats
+import Plots
 
 plot_cell_borders_chull(bmm_data::BmmData; kwargs...) = plot_cell_borders_chull(bmm_data.x, bmm_data.assignment; kwargs...)
 function plot_cell_borders_chull(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)
@@ -36,6 +37,25 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::DataFrame, 
     )
 
     return fig
+end
+
+function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
+    if !("n_components" in keys(tracer)) || length(tracer["n_components"]) == 0
+        error("No data about #components per iteration was stored")
+    end
+
+    n_components_per_iter = hcat(collect.(values.(tracer["n_components"]))...);
+    labels = collect(keys(tracer["n_components"][1]));
+
+    n_components_per_iter = n_components_per_iter[sortperm(labels),:]
+    labels = sort(labels)
+
+    p = Plots.plot(legendtitle="Min #molecules", title="Convergence")
+    for i in 1:size(n_components_per_iter, 1)
+        p = Plots.plot!(n_components_per_iter[i,:], label="$(labels[i])")
+    end
+
+    return p
 end
 
 ### Gene composition visualization

@@ -15,6 +15,7 @@ include("component.jl")
 include("models.jl")
 include("distribution_samplers.jl")
 include("history_analysis.jl")
+include("tracing.jl")
 include("bmm_algorithm.jl")
 include("smoothing.jl")
 
