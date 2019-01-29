@@ -21,20 +21,20 @@ function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int
     return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
 end
 
-function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::DataFrame, df_centers=nothing; point_size=5pt, color=:gene, edge_width=0.1pt,
-                                    raster=false, center_size::Real=50.0, polygon_line_width=1pt)
-
-    layers = [layer(polygons, x=:x, y=:y, group=:c, Geom.polygon(preserve_order=true, fill=false), Theme(line_width=polygon_line_width, lowlight_color=x->colorant"black")),
-              layer(df_spatial, x=:x, y=:y, color=color, Theme(highlight_width=edge_width, point_size=point_size))]
-
-    if df_centers !== nothing
-        layers = vcat([layer(df_centers, x=:x, y=:y, size=repeat([center_size], inner=size(df_centers, 1)), Theme(default_color=colorant"black"))], layers)
+function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}, df_centers=nothing; point_size=2, color=:gene,
+                                    center_size::Real=50.0, polygon_line_width=1, size=(1000, 1000))
+    if typeof(color) === Symbol
+        color = df_spatial[color]
     end
 
-    fig = plot(
-        layers...,
-        Coord.cartesian(raster=raster, xmin=minimum(df_spatial[:x]), ymin=minimum(df_spatial[:y]), xmax=maximum(df_spatial[:x]), ymax=maximum(df_spatial[:y]))
-    )
+    fig = Plots.scatter(df_spatial[:x], df_spatial[:y], color=color, markerstrokewidth=0, markersize=point_size, alpha=0.5, legend=false, size=size)
+    for pg in polygons
+        Plots.plot!(Plots.Shape(pg[:,1], pg[:,2]), fill=(0, 0.0), linewidth=polygon_line_width)
+    end
+
+    if df_centers !== nothing
+        Plots.scatter!(df_centers[:x], df_centers[:y], color="black", markerstrokewidth=0, markersize=center_size, legend=false)
+    end
 
     return fig
 end
