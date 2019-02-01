@@ -93,9 +93,9 @@ version = "0.9.5"
 
 [[Compat]]
 deps = ["Base64", "Dates", "DelimitedFiles", "Distributed", "InteractiveUtils", "LibGit2", "Libdl", "LinearAlgebra", "Markdown", "Mmap", "Pkg", "Printf", "REPL", "Random", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "Test", "UUIDs", "Unicode"]
-git-tree-sha1 = "ec61a16eed883ad0cfa002d7489b3ce6d039bb9a"
+git-tree-sha1 = "49269e311ffe11ac5b334681d212329002a9832a"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "1.4.0"
+version = "1.5.1"
 
 [[ComputationalResources]]
 deps = ["Test"]
@@ -113,9 +113,9 @@ version = "0.0.2+"
 
 [[Conda]]
 deps = ["Compat", "JSON", "VersionParsing"]
-git-tree-sha1 = "fb86fe40cb5b35990e368709bfdc1b46dbb99dac"
+git-tree-sha1 = "b625d802587c2150c279a40a646fba63f9bd8187"
 uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
-version = "1.1.1"
+version = "1.2.0"
 
 [[Contour]]
 deps = ["LinearAlgebra", "StaticArrays", "Test"]
@@ -170,6 +170,12 @@ version = "0.7.4"
 [[Distributed]]
 deps = ["LinearAlgebra", "Random", "Serialization", "Sockets"]
 uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
+[[DistributedArrays]]
+deps = ["Distributed", "LinearAlgebra", "Primes", "Random", "Serialization", "SparseArrays", "Statistics", "Test"]
+git-tree-sha1 = "68faa3b9d1f8adf1a8e32d9ca72433581c271323"
+uuid = "aaf54ef3-cdf8-58ed-94cc-d582ad619b94"
+version = "0.6.0"
 
 [[Distributions]]
 deps = ["Distributed", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsBase", "StatsFuns", "Test"]
@@ -255,9 +261,9 @@ version = "0.5.2"
 
 [[ImageMetadata]]
 deps = ["AxisArrays", "ColorVectorSpace", "Colors", "Dates", "FixedPointNumbers", "ImageAxes", "ImageCore", "IndirectArrays", "Statistics", "Test"]
-git-tree-sha1 = "e8763955937114ea15cf3bfb5ae00588e19b58c3"
+git-tree-sha1 = "51d989a78a6fc6ab84ba08f93610d5250c083c76"
 uuid = "bc367c6b-8a6b-528e-b4bd-a4b897500b49"
-version = "0.5.2"
+version = "0.6.0"
 
 [[ImageMorphology]]
 deps = ["ImageCore", "Test"]
@@ -301,9 +307,9 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 
 [[Interpolations]]
 deps = ["AxisAlgorithms", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "SharedArrays", "SparseArrays", "StaticArrays", "Test", "WoodburyMatrices"]
-git-tree-sha1 = "1ec5b78dbfb5ae2b3d7a4987a9287fed4cc31ded"
+git-tree-sha1 = "e8d1c381b1dc5343e5b6d37265acbe1de493d512"
 uuid = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
-version = "0.11.1"
+version = "0.11.2"
 
 [[IntervalSets]]
 deps = ["Compat"]
@@ -449,6 +455,12 @@ git-tree-sha1 = "40e65916a51e3d6fc53f031a3f0ef2fd46e5d442"
 uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 version = "0.22.5"
 
+[[Primes]]
+deps = ["Test"]
+git-tree-sha1 = "ff1a2323cb468ec5f201838fcbe3c232266b1f95"
+uuid = "27ebfcd6-29c5-5fa9-bf4b-fb8fc14df3ae"
+version = "0.4.0"
+
 [[Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
@@ -590,9 +602,9 @@ version = "0.27.0"
 
 [[StatsFuns]]
 deps = ["Rmath", "SpecialFunctions", "Test"]
-git-tree-sha1 = "d14bb7b03defd2deaa5675646f6783089e0556f0"
+git-tree-sha1 = "7e7658a6adf28c91db1290c84483e07cc59ea3a4"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
-version = "0.7.0"
+version = "0.7.1"
 
 [[SuiteSparse]]
 deps = ["Libdl", "LinearAlgebra", "SparseArrays"]
