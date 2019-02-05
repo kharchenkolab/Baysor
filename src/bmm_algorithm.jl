@@ -6,6 +6,8 @@ using StatsBase
 using Base.Threads
 using Dates: now
 
+import DistributedArrays
+
 position_data(df::AbstractDataFrame)::Array{Float64, 2} = Matrix{Float64}(df[[:x, :y]])'
 position_data(data::BmmData)::Array{Float64, 2} = data.position_data
 composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[:gene]
@@ -113,7 +115,7 @@ end
 
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, history_step::Int=0, new_component_frac::Float64=0.05,
-              return_assignment_history::Bool=false)
+              return_assignment_history::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing)
     ts = now()
 
     if verbose
@@ -151,6 +153,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             # push!(neighbors_by_molecule_per_iteration, extract_neighborhood_from_assignment(data.assignment))
             push!(assignment_per_iteration, deepcopy(data.assignment))
         end
+
+        if channel !== nothing
+            put!(channel, true)
+        end
     end
 
     if verbose
@@ -175,14 +181,24 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return res
 end
 
-function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300)
+function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300, channel::Union{RemoteChannel, Nothing}=nothing)
     for i in 1:max_n_iters
         prev_assignment = deepcopy(bmm_res.assignment)
         drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
         expect_dirichlet_spatial!(bmm_res, stochastic=false)
         maximize!(bmm_res, min_molecules_per_cell)
 
+        if channel !== nothing
+            put!(channel, true)
+        end
+
         if (minimum(num_of_molecules_per_cell(bmm_res)) >= min_molecules_per_cell) && all(bmm_res.assignment .== prev_assignment)
+            if channel !== nothing
+                for j in i:max_n_iters
+                    put!(channel, true)
+                end
+            end
+
             break
         end
     end
@@ -208,7 +224,7 @@ end
 
 function run_bmm!(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10, log_step::Int=1, smooth_expression::Bool=false, n_prin_comps::Int=20,
                   use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, n_bmm_iters_per_step::Int=3, return_assignment_history::Bool=false,
-                  kwargs...)
+                  n_refinement_iters::Int=300, kwargs...)
     neighbors_by_molecule_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
     @time for it in 1:n_iters
         if it % log_step == 0
@@ -227,11 +243,73 @@ function run_bmm!(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10
         end
     end
 
-    refine_bmm_result!(bm_data, min_molecules_per_cell)
+    @info "Refinement"
+    refine_bmm_result!(bm_data, min_molecules_per_cell, max_n_iters=n_refinement_iters)
 
     if return_assignment_history
         return bm_data, neighbors_by_molecule_per_iteration
     end
 
     return bm_data
+end
+
+fetch_bm_func(bd::BmmData) = [bd]
+
+function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args...; kwargs...)
+    p = Progress(n_steps)
+    channel = RemoteChannel(()->Channel{Bool}(n_steps), 1)
+
+    @sync begin # Parallel progress tracing
+        @async while take!(channel)
+            next!(p)
+        end
+
+        @async begin
+            futures = [remotecall(func, workers()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
+            arr = fetch.(wait.(futures))
+            put!(channel, false)
+        end
+    end
+
+    return arr
+end
+
+function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays.DArray
+    if length(bm_data_arr) > nworkers()
+        n_new_workers = length(bm_data_arr) - nworkers()
+        @info "Creating $n_new_workers new workers. Total $(nworkers()) workers."
+        addprocs(n_new_workers)
+    end
+
+    futures = [remotecall(fetch_bm_func, workers()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
+
+    try
+        return DistributedArrays.DArray(futures);
+    catch ex
+        bds = fetch.(wait.(futures))
+        err_idx = findfirst(typeof.(bm_data_arr) .!== Baysor.BmmData)
+        if err_idx === nothing
+            throw(ex)
+        end
+
+        error(bds[err_idx])
+    end
+end
+
+function run_bmm_parallel(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, verbose::Bool=true, n_refinement_iters::Int=100, kwargs...)#::Array{BmmData, 1}
+    @info "Pushing data to workers"
+    da = push_data_to_workers(bm_data_arr)
+
+    @info "Algorithm start"
+    bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
+
+    @info "Pushing data for refinement"
+    da = push_data_to_workers(bm_data_arr)
+
+    @info "Refinement"
+    bm_data_arr = pmap_progress(refine_bmm_result!, da, n_refinement_iters * length(da), min_molecules_per_cell; max_n_iters=n_refinement_iters)
+
+    @info "Done!"
+
+    return bm_data_arr
 end

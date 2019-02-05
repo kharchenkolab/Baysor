@@ -49,7 +49,8 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    p = Plots.plot(legendtitle="Min #molecules", title="Convergence")
+    p = Plots.plot(legendtitle="Min #molecules", title="Convergence", xlabel="Iteration", ylabel="#Cells",
+                   background_color_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), legend=:topleft)
     for i in 1:size(n_components_per_iter, 1)
         p = Plots.plot!(n_components_per_iter[i,:], label="$(labels[i])")
     end

@@ -3,6 +3,7 @@ module Baysor
 using Distributed
 using Distributions
 using LinearAlgebra
+using ProgressMeter
 using Statistics
 
 import Distributions.pdf
@@ -12,10 +13,10 @@ import Statistics.rand
 include("utils.jl")
 include("distributions.jl")
 include("component.jl")
+include("tracing.jl")
 include("models.jl")
 include("distribution_samplers.jl")
 include("history_analysis.jl")
-include("tracing.jl")
 include("bmm_algorithm.jl")
 include("smoothing.jl")
 
