@@ -1,4 +1,7 @@
 using ArgParse
+using Distributed
+using Statistics
+
 import CSV
 
 import Baysor
@@ -116,6 +119,9 @@ function main()
         initial_params_per_frame = Baysor.cell_centers_with_clustering.(dfs_spatial, max(div(args["num-cells-init"], length(dfs_spatial)), 2); cov_mult=2);
         bm_data_arr = Baysor.initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=args["new-component-weight"]);
 
+        addprocs(length(bm_data_arr) - 1)
+        eval(:(@everywhere using Baysor))
+
         bm_data_res = Baysor.run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
                                               min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
 
@@ -141,3 +147,5 @@ function main()
     CSV.write(args["output"], df_spatial);
     @info "All done!"
 end
+
+main()

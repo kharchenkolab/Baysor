@@ -216,7 +216,7 @@ function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame
 end
 
 split_spatial_data(df::DataFrame, n_hor::Int, n_ver::Int) = vcat(split_spatial_data.(split_spatial_data(df, n_ver, :y), n_hor, :x)...)
-split_spatial_data(df::DataFrame, n::Int) = split_spatial_data(df, floor(Int, sqrt(n)), ceil(Int, sqrt(n)))
+split_spatial_data(df::DataFrame, n::Int) = split_spatial_data(df, floor(Int, sqrt(n)), ceil(Int, sqrt(n))) # TODO: very approximate separation. Example: n=3.
 split_spatial_data(df::DataFrame; mean_mols_per_frame::Int) = split_spatial_data(df, round(Int, size(df, 1) / mean_mols_per_frame))
 
 function subset_df_by_coords(subsetting_df::DataFrame, coord_df::DataFrame)

@@ -265,7 +265,7 @@ function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args..
         end
 
         @async begin
-            futures = [remotecall(func, workers()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
+            futures = [remotecall(func, procs()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
             arr = fetch.(wait.(futures))
             put!(channel, false)
         end
@@ -275,13 +275,13 @@ function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args..
 end
 
 function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays.DArray
-    if length(bm_data_arr) > nworkers()
-        n_new_workers = length(bm_data_arr) - nworkers()
-        @info "Creating $n_new_workers new workers. Total $(nworkers()) workers."
+    if length(bm_data_arr) > nprocs()
+        n_new_workers = length(bm_data_arr) - nprocs()
+        @info "Creating $n_new_workers new workers. Total $(nprocs()) workers."
         addprocs(n_new_workers)
     end
 
-    futures = [remotecall(fetch_bm_func, workers()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
+    futures = [remotecall(fetch_bm_func, procs()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
 
     try
         return DistributedArrays.DArray(futures);
