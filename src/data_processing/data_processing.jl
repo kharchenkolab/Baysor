@@ -58,19 +58,20 @@ function cell_centers_random(spatial_df::DataFrame, n_clusters::Int; min_molecul
 end
 
 function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, center_std::Real; size_prior, new_component_weight::Float64, prior_component_weight::Float64,
-                               default_std::Array{Float64, 2}=[1.0 0.0; 0.0 1.0], gene_num::Int=maximum(df_spatial[:gene]))
+                               n_degrees_of_freedom_center::Int, default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0], gene_num::Int=maximum(df_spatial[:gene]))
     adjacent_points = adjacency_list(df_spatial)
     assignment = assign_cells_to_centers(df_spatial, prior_centers);
 
-    center_std = Float64[center_std 0; 0 center_std] .^ 2;
+    center_cov = Float64[center_std 0; 0 center_std] .^ 2;
     mtx_centers = Matrix{Float64}(prior_centers);
-    prior_distributions = [MvNormal(mtx_centers[i,:], copy(default_std)) for i in 1:size(mtx_centers, 1)];
+    prior_distributions = [MvNormal(mtx_centers[i,:], copy(default_cov)) for i in 1:size(mtx_centers, 1)];
     gene_prior = SingleTrialMultinomial(ones(Int, gene_num));
 
     n_mols_per_center = count_array(assignment, max_value=length(prior_distributions));
-    components = [Component(pd, deepcopy(gene_prior), shape_prior=deepcopy(size_prior), center_prior=CellCenter(pd.μ, deepcopy(center_std)),
+    center_priors = [CellCenter(pd.μ, deepcopy(center_cov), n_degrees_of_freedom_center) for pd in prior_distributions]
+    components = [Component(pd, deepcopy(gene_prior), shape_prior=deepcopy(size_prior), center_prior=cp,
                             n_samples=n, prior_weight=prior_component_weight, can_be_dropped=false)
-                    for (pd, n) in zip(prior_distributions, n_mols_per_center)];
+                    for (pd, cp, n) in zip(prior_distributions, center_priors, n_mols_per_center)];
 
     @assert all([c.n_samples for c in components] .== count_array(assignment, max_value=length(components)));
 
@@ -82,16 +83,16 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, 
         end
     end
 
-    shape_sampler = MvNormal(zeros(size(prior_centers, 2)), copy(default_std))
+    shape_sampler = MvNormal(zeros(size(prior_centers, 2)), copy(default_cov))
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
     sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
 
     return BmmData(components, df_spatial, adjacent_points, sampler, assignment)
 end
 
-function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, gene_smooth::Real=1.0)
+function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, gene_smooth::Real=1.0,
+                               gene_num::Int=maximum(df_spatial[:gene]))
     adjacent_points = adjacency_list(df_spatial)
-    gene_num = maximum(df_spatial[:gene])
 
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
 
@@ -104,6 +105,7 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     shape_sampler = MvNormal(zeros(size(initial_params.centers, 2)), mean_std)
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
     sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
+
     return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment)
 end
 
@@ -226,10 +228,3 @@ function subset_df_by_coords(subsetting_df::DataFrame, coord_df::DataFrame)
 
     return subsetting_df[ids,:]
 end
-
-function distributions_from_centers(centers::Array{Float64, 2}, std::Float64; eigen_priors, gene_num::Int, gene_smooth::Real=1.0)
-    comp_dist = SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth))
-    cov_mtx = [std 0; 0 std]
-    return [Component(MvNormal(centers[i,:]), deepcopy(comp_dist), shape_prior=deepcopy(eigen_priors), center_prior=CellCenter(centers[i,:], copy(cov_mtx))) for i in 1:size(centers, 1)]
-end
-

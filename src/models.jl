@@ -37,9 +37,9 @@ mutable struct BmmData
 
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, distribution_sampler::Component,
                      assignment::Array{Int, 1}; k_neighbors::Int=20)
-        for c in components
-            c.n_samples = 0
-        end
+        @assert maximum(assignment) <= length(components)
+        @assert minimum(assignment) >= 0
+        @assert length(assignment) == size(x, 1)
 
         p_data = position_data(x)
         position_knn_tree = KDTree(p_data)
@@ -47,11 +47,15 @@ mutable struct BmmData
 
         n_genes = maximum(composition_data(x))
 
-        self = new(components, deepcopy(x), p_data, composition_data(x), adjacent_points, deepcopy(distribution_sampler), zeros(Int, length(assignment)),
+        self = new(components, deepcopy(x), p_data, composition_data(x), adjacent_points, deepcopy(distribution_sampler), assignment,
                    position_knn_tree, knn_neighbors, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}())
 
-        for (i, l) in enumerate(assignment)
-            assign!(self, i, l)
+        for c in self.components
+            c.n_samples = 0
+        end
+
+        for c_id in assignment[assignment .> 0]
+            self.components[c_id].n_samples += 1
         end
 
         return self
@@ -59,6 +63,11 @@ mutable struct BmmData
 end
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
+
+function assign!(data::BmmData, point_ind::Int, component_id::Int)
+    @assert component_id <= length(data.components) "Too large component id: $component_id, maximum available: $(length(data.components))"
+    data.assignment[point_ind] = component_id
+end
 
 function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
     @assert length(bmm_data_arr) > 0

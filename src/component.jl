@@ -6,10 +6,11 @@ using StatsBase
 struct CellCenter
     μ::Array{Float64, 1};
     Σ::Array{Float64, 2};
-    confidence::Float64;
-    distance_to_others::Array{Float64, 1}; # Probability of the center to coexist with the other center
+    n_degrees_of_freedom::Int;
+    # confidence::Float64; # TODO: uncomment and account for these parameters
+    # distance_to_others::Array{Float64, 1}; # Probability of the center to coexist with the other center
 
-    CellCenter(μ::Array{Float64, 1}, Σ::Array{Float64, 2}) = new(μ, Σ, 1.0, Float64[])
+    # CellCenter(μ::Array{Float64, 1}, Σ::Array{Float64, 2}, n_degrees_of_freedom::Int) = new(μ, Σ, n_degrees_of_freedom, 1.0, Float64[])
 end
 
 struct ShapePrior
@@ -56,14 +57,14 @@ mutable struct Component
         new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior))
 end
 
-function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1}, n_prior::Int)
+function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1})
     maximize!(c.composition_params, comp_data);
 
     pos_new = maximize(c.position_params, pos_data);
     μ, Σ = pos_new.μ, Matrix(pos_new.Σ)
 
     if c.center_prior !== nothing
-        μ, Σ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, n=size(pos_data, 2), n_prior=max(n_prior, size(pos_data, 2))) # TODO: should we have max here?
+        μ, Σ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, n=size(pos_data, 2), n_prior=c.center_prior.n_degrees_of_freedom)
         # μ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, size(pos_data, 2))[1]
     end
 

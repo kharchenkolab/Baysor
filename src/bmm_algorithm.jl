@@ -13,11 +13,6 @@ position_data(data::BmmData)::Array{Float64, 2} = data.position_data
 composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[:gene]
 composition_data(data)::Array{Int, 1} = data.composition_data
 
-function assign!(data::BmmData, point_ind::Int, component_id::Int)
-    @assert component_id <= length(data.components) "Too large component id: $component_id, maximum available: $(length(data.components))"
-    data.assignment[point_ind] = component_id
-end
-
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
     non_noise_ids = findall(data.assignment .> 0)
     existed_ids = [i for (i,c) in enumerate(data.components) if (c.n_samples >= min_n_samples || (!c.can_be_dropped && !force))]
@@ -72,17 +67,17 @@ function update_prior_probabilities!(components)
     end
 end
 
-function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1}, data::BmmData, n_prior::Int)
+function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1}, data::BmmData)
     c.n_samples = size(pos_data, 2)
 
     if size(pos_data, 2) == 0
         return maximize_from_prior!(c, data)
     end
 
-    return maximize!(c, pos_data, comp_data, n_prior)
+    return maximize!(c, pos_data, comp_data)
 end
 
-function maximize!(data::BmmData, n_prior::Int)
+function maximize!(data::BmmData)
     ids_by_assignment = split(collect(1:length(data.assignment)), data.assignment .+ 1)[2:end]
     append!(ids_by_assignment, [Int[] for i in length(ids_by_assignment):length(data.components)])
 
@@ -92,7 +87,7 @@ function maximize!(data::BmmData, n_prior::Int)
     # @threads for i in 1:length(data.components)
     for i in 1:length(data.components)
         # data.components[i] = maximize(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i])
-        maximize!(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i], data, n_prior)
+        maximize!(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i], data)
     end
     # data.components = pmap(v -> maximize(v...), zip(data.components, pos_data_by_assignment, comp_data_by_assignment))
 end
@@ -128,13 +123,15 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     assignment_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
     adj_classes_global = Dict{Int, Array{Int, 1}}()
 
+    maximize!(data)
+
     for i in 1:n_iters
         if (history_step > 0) && (i.==1 || i % history_step == 0)
             push!(history, deepcopy(data))
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)
-        maximize!(data, min_molecules_per_cell) # TODO: Should we use min_molecules_per_cell as n_prior?
+        maximize!(data)
 
         trace_n_components!(data, min_molecules_per_cell);
 
@@ -186,7 +183,7 @@ function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n
         prev_assignment = deepcopy(bmm_res.assignment)
         drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
         expect_dirichlet_spatial!(bmm_res, stochastic=false)
-        maximize!(bmm_res, min_molecules_per_cell)
+        maximize!(bmm_res)
 
         if channel !== nothing
             put!(channel, true)
@@ -206,69 +203,32 @@ function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n
     return bmm_res;
 end
 
-function run_bmm(df_spatial::DataFrame; initial_params::InitialParams=nothing, n_cells_init::Int=1000, cov_mult::Real=2, prior_deg_freedom::Int=10,
-                 use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, kwargs...)
-    if initial_params === nothing
-        @info "Estimate initial parameters with clustering..."
-        initial_params = cell_centers_with_clustering(df_spatial, n_cells_init; cov_mult=cov_mult);
-        @info "Done."
-    end
-
-    size_priors = ScaledInverseChisq.(prior_deg_freedom, [1., 1.]); # Exact values are ignored
-    use_cell_size_prior=(use_cell_type_size_prior || use_global_size_prior);
-
-    bm_data = initial_distributions(df_spatial, initial_params, size_prior=size_priors, use_cell_size_prior=use_cell_size_prior);
-    return run_bmm!(bm_data; prior_deg_freedom=prior_deg_freedom, use_cell_type_size_prior=use_cell_type_size_prior,
-                    use_global_size_prior=use_global_size_prior, kwargs...)
-end
-
-function run_bmm!(bm_data::BmmData; n_iters::Int, min_molecules_per_cell::Int=10, log_step::Int=1, smooth_expression::Bool=false, n_prin_comps::Int=20,
-                  use_cell_type_size_prior::Bool=false, use_global_size_prior::Bool=true, n_bmm_iters_per_step::Int=3, return_assignment_history::Bool=false,
-                  n_refinement_iters::Int=300, kwargs...)
-    neighbors_by_molecule_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
-    @time for it in 1:n_iters
-        if it % log_step == 0
-            @info "Iteration $it. Number of components: $(length(bm_data.components)), $(sum(num_of_molecules_per_cell(bm_data) .> 2)) have > 2 molecules."
-        end
-
-        update_priors!([bm_data], use_cell_type_size_prior=use_cell_type_size_prior, use_global_size_prior=use_global_size_prior,
-                       smooth_expression=smooth_expression, min_molecules_per_cell=min_molecules_per_cell, n_prin_comps=n_prin_comps)
-
-        if return_assignment_history
-            bm_data, npm = bmm!(bm_data; min_molecules_per_cell=min_molecules_per_cell, n_iters=n_bmm_iters_per_step,
-                                verbose=false, return_assignment_history=true, kwargs...);
-            neighbors_by_molecule_per_iteration = vcat(neighbors_by_molecule_per_iteration, npm)
-        else
-            bm_data = bmm!(bm_data; min_molecules_per_cell=min_molecules_per_cell, n_iters=n_bmm_iters_per_step, verbose=false, kwargs...);
-        end
-    end
-
-    @info "Refinement"
-    refine_bmm_result!(bm_data, min_molecules_per_cell, max_n_iters=n_refinement_iters)
-
-    if return_assignment_history
-        return bm_data, neighbors_by_molecule_per_iteration
-    end
-
-    return bm_data
-end
-
 fetch_bm_func(bd::BmmData) = [bd]
 
 function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args...; kwargs...)
     p = Progress(n_steps)
     channel = RemoteChannel(()->Channel{Bool}(n_steps), 1)
 
+    exception = nothing
     @sync begin # Parallel progress tracing
         @async while take!(channel)
             next!(p)
         end
 
         @async begin
-            futures = [remotecall(func, procs()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
-            arr = fetch.(wait.(futures))
-            put!(channel, false)
+            try
+                futures = [remotecall(func, procs()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
+                arr = fetch.(wait.(futures))
+            catch ex
+                exception = ex
+            finally
+                put!(channel, false)
+            end
         end
+    end
+
+    if exception !== nothing
+        throw(exception)
     end
 
     return arr
@@ -277,8 +237,9 @@ end
 function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays.DArray
     if length(bm_data_arr) > nprocs()
         n_new_workers = length(bm_data_arr) - nprocs()
-        @info "Creating $n_new_workers new workers. Total $(nprocs()) workers."
+        @info "Creating $n_new_workers new workers. Total $(nprocs() + n_new_workers) workers."
         addprocs(n_new_workers)
+        eval(:(@everywhere using Baysor))
     end
 
     futures = [remotecall(fetch_bm_func, procs()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
