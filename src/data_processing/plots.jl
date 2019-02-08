@@ -1,18 +1,8 @@
-using ConcaveHull: concave_hull
 using Random
 
 import Colors
 import MultivariateStats
 import Plots
-
-plot_cell_borders_chull(bmm_data::BmmData; kwargs...) = plot_cell_borders_chull(bmm_data.x, bmm_data.assignment; kwargs...)
-function plot_cell_borders_chull(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)
-    point_arrs = [position_data(df_spatial[cell_labels .== label, :])' for label in unique(cell_labels)];
-    chulls = [Array(hcat(concave_hull([vec(arr[i,:]) for i in 1:size(arr, 1)]).vertices...)) for arr in point_arrs if size(arr, 1) > min_n_molecules];
-    chulls = vcat([hcat(DataFrame(ch', [:x, :y]), DataFrame(:c=>repeat([i], inner=size(ch, 2)))) for (i, ch) in enumerate(chulls)]...);
-
-    return plot_cell_borders_polygons(df_spatial, chulls; kwargs...)
-end
 
 plot_cell_borders_density(bmm_data::BmmData; kwargs...) = plot_cell_borders_density(bmm_data.x, bmm_data.assignment; kwargs...)
 function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)

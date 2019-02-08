@@ -109,14 +109,6 @@ git-tree-sha1 = "89e7e7ed20af73d9f78877d2b8d1194e7b6ff13d"
 uuid = "ed09eef8-17a6-5b46-8889-db040fac31e3"
 version = "0.3.0"
 
-[[ConcaveHull]]
-deps = ["LinearAlgebra", "NearestNeighbors", "RecipesBase", "Test"]
-git-tree-sha1 = "7f2f604a7122b0c537edcc4011452f689f8b7b59"
-repo-rev = "master"
-repo-url = "https://github.com/lstagner/ConcaveHull.jl.git"
-uuid = "7d11a335-8259-52c9-8750-e30c45c66484"
-version = "0.0.2+"
-
 [[Conda]]
 deps = ["Compat", "JSON", "VersionParsing"]
 git-tree-sha1 = "b625d802587c2150c279a40a646fba63f9bd8187"
