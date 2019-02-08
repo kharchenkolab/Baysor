@@ -4,8 +4,6 @@ using Statistics
 
 import CSV
 
-import Baysor
-
 function parse_commandline(args::Union{Nothing, Array}=nothing)
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -104,46 +102,46 @@ function parse_commandline(args::Union{Nothing, Array}=nothing)
     return r
 end
 
-load_df(args) = Baysor.load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
+load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
-function main()
+function run_cli()
     args = parse_commandline()
 
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
-    dfs_spatial = args["n-frames"] > 1 ? Baysor.split_spatial_data(df_spatial, args["n-frames"]) : [df_spatial]
+    dfs_spatial = args["n-frames"] > 1 ? split_spatial_data(df_spatial, args["n-frames"]) : [df_spatial]
 
     @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
 
     @info "Done."
 
-    size_prior = Baysor.ShapePrior(args["shape-deg-freedom"], [args["scale"], args["scale"]].^2);
+    size_prior = ShapePrior(args["shape-deg-freedom"], [args["scale"], args["scale"]].^2);
 
     bm_data_arr = nothing
     if args["centers"] !== nothing
         df_centers = CSV.read(args["centers"]);
-        dfs_centers = Baysor.subset_df_by_coords.(Ref(df_centers), dfs_spatial);
+        dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
 
         # TODO: check that each of dfs_centers have at least one center
 
-        bm_data_arr = Baysor.initial_distributions.(dfs_spatial, dfs_centers, args["center-std"]; size_prior=size_prior, new_component_weight=args["new-component-weight"],
+        bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, args["center-std"]; size_prior=size_prior, new_component_weight=args["new-component-weight"],
                                                     prior_component_weight=args["center-component-weight"], default_cov=[args["scale"] 0.0; 0.0 args["scale"]].^2,
                                                     n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
     else
-        initial_params_per_frame = Baysor.cell_centers_with_clustering.(dfs_spatial, max(div(args["num-cells-init"], length(dfs_spatial)), 2); cov_mult=2);
-        bm_data_arr = Baysor.initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=args["new-component-weight"]);
+        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(args["num-cells-init"], length(dfs_spatial)), 2); cov_mult=2);
+        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=args["new-component-weight"]);
     end
 
     addprocs(length(bm_data_arr) - 1)
     eval(:(@everywhere using Baysor))
 
-    bm_data = Baysor.run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
-                                      min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
-    bm_data = Baysor.merge_bm_data(bm_data);
+    bm_data = run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
+                               min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
+    bm_data = merge_bm_data(bm_data);
 
     if args["plot"]
-        p1 = Baysor.plot_num_of_cells_per_iterarion(bm_data.tracer);
+        p1 = plot_num_of_cells_per_iterarion(bm_data.tracer);
 
         # Plots.plot(
         #     Baysor.plot_num_of_cells_per_iterarion(bm_data.tracer),

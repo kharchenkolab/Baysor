@@ -1,3 +1,3 @@
-include("cli_wrappers.jl")
+import Baysor
 
-main()
+Baysor.run_cli()
