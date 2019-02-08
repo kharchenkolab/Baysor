@@ -4,7 +4,7 @@ using Statistics
 
 import CSV
 
-function parse_commandline(args::Union{Nothing, Array}=nothing)
+function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
     s = ArgParseSettings()
     @add_arg_table s begin
         "--x", "-x" # REPEAT IN JSON
@@ -104,8 +104,8 @@ end
 
 load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
-function run_cli()
-    args = parse_commandline()
+function run_cli(args::Union{Nothing, Array{String, 1}}=nothing)
+    args = parse_commandline(args)
 
     @info "Run"
     @info "Load data..."
