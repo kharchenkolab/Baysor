@@ -104,7 +104,11 @@ end
 
 load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
-function run_cli(args::Union{Nothing, Array{String, 1}}=nothing)
+function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
+    if args == "build"
+        return 0
+    end
+
     args = parse_commandline(args)
 
     @info "Run"
@@ -158,4 +162,6 @@ function run_cli(args::Union{Nothing, Array{String, 1}}=nothing)
     df_spatial[:gene] = gene_names[df_spatial[:gene]]
     CSV.write(args["output"], df_spatial);
     @info "All done!"
+
+    return 0
 end
