@@ -130,14 +130,14 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         # TODO: check that each of dfs_centers have at least one center
 
         bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, args["center-std"]; size_prior=size_prior, new_component_weight=args["new-component-weight"],
-                                                    prior_component_weight=args["center-component-weight"], default_cov=[args["scale"] 0.0; 0.0 args["scale"]].^2,
-                                                    n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
+                                             prior_component_weight=args["center-component-weight"], default_cov=[args["scale"] 0.0; 0.0 args["scale"]].^2,
+                                             n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
     else
         initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(args["num-cells-init"], length(dfs_spatial)), 2); cov_mult=2);
         bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=args["new-component-weight"]);
     end
 
-    addprocs(length(bm_data_arr) - 1)
+    addprocs(length(bm_data_arr) - nprocs())
     eval(:(@everywhere using Baysor))
 
     bm_data = run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
@@ -158,9 +158,10 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Processing complete."
 
     @info "Save data to $(args["output"])"
-    df_spatial[:assignment] = bm_data.assignment;
-    df_spatial[:gene] = gene_names[df_spatial[:gene]]
-    CSV.write(args["output"], df_spatial);
+    df_res = bm_data.x
+    df_res[:assignment] = bm_data.assignment;
+    df_res[:gene] = gene_names[df_res[:gene]]
+    CSV.write(args["output"], df_res);
     @info "All done!"
 
     return 0
