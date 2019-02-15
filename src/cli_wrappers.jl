@@ -39,10 +39,14 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             default = 100
         "--output", "-o"
             help = "Name of the output file"
-            default = "cell.assignment.csv"
+            default = "segmentation.csv"
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
+        "--plot-frame-size"
+            help = "Size of frame, which is used for result plotting. Ignored without '-v' option."
+            arg_type = Float64
+            default = 5000.0
 
         "--center-component-weight" # TO JSON
             help = "Prior weight of assignment a molecule to new component, created from DAPI centers. Paramter of Dirichlet process. Ignored if CSV with centers is not provided."
@@ -71,6 +75,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
             arg_type = Int
             default=1
+        "--gene-composition-neigborhood"
+            help = "Number of neighbors (i.e. 'k'), which is used for gene composition visualization. Larger numbers leads to more global patterns."
+            arg_type = Int
+            default=20
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm"
@@ -104,6 +112,29 @@ end
 
 load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
+function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,Any})
+    ## Convergence
+    p1 = plot_num_of_cells_per_iterarion(tracer);
+    Plots.savefig("$(splitext(args["output"])[1])_convergence.pdf")
+
+    ## Transcripts
+    neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
+    color_transformation = gene_composition_transformation(neighb_cm)
+
+    frame_size = args["plot-frame-size"]
+    borders = [collect(range([floor(f(df_res[s]) / frame_size) * frame_size for f in [minimum, maximum]]..., step=frame_size)) for s in [:x, :y]];
+    borders = collect(Iterators.product(borders...));
+
+    plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
+        extract_plot_information(df_res, df_centers, b..., color_transformation=color_transformation, k=args["gene-composition-neigborhood"])
+    end;
+    plot_info = plot_info[length.(plot_info) .> 0];
+
+    plot_width = 600
+    p1 = Plots.plot([d[:plot] for d in plot_info]..., layout=(length(plot_info), 1), size=(plot_width, plot_width * length(plot_info)));
+    Plots.savefig("$(splitext(args["output"])[1])_borders.pdf")
+end
+
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     if args == "build"
         return 0
@@ -123,6 +154,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     size_prior = ShapePrior(args["shape-deg-freedom"], [args["scale"], args["scale"]].^2);
 
     bm_data_arr = nothing
+    df_centers = nothing
     if args["centers"] !== nothing
         df_centers = CSV.read(args["centers"]);
         dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
@@ -144,24 +176,20 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
     bm_data = merge_bm_data(bm_data);
 
-    if args["plot"]
-        p1 = plot_num_of_cells_per_iterarion(bm_data.tracer);
-
-        # Plots.plot(
-        #     Baysor.plot_num_of_cells_per_iterarion(bm_data.tracer),
-        #     Baysor.plot_num_of_cells_per_iterarion(bm_data.tracer),
-        #     layout=(2, 1)
-        # )
-        Plots.savefig("$(splitext(args["output"])[1]).pdf")
-    end
-
     @info "Processing complete."
 
-    @info "Save data to $(args["output"])"
     df_res = bm_data.x
     df_res[:assignment] = bm_data.assignment;
+
+    if args["plot"]
+        @info "Plot results"
+        plot_results(df_res, df_centers, bm_data.tracer, args)
+    end
+
+    @info "Save data to $(args["output"])"
     df_res[:gene] = gene_names[df_res[:gene]]
     CSV.write(args["output"], df_res);
+
     @info "All done!"
 
     return 0

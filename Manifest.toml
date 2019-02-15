@@ -139,6 +139,12 @@ git-tree-sha1 = "af5c8a233b838076947ef0c8f882f732ad578112"
 uuid = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 version = "0.17.0"
 
+[[DataFramesMeta]]
+deps = ["DataFrames", "Random", "Statistics", "Test"]
+git-tree-sha1 = "5463b876fb15d6ebae76835a2c832fb08e6da753"
+uuid = "1313f7d8-7da2-5740-9ea0-a2ca25f37964"
+version = "0.4.0"
+
 [[DataStreams]]
 deps = ["Dates", "Missings", "Test", "WeakRefStrings"]
 git-tree-sha1 = "69c72a1beb4fc79490c361635664e13c8e4a9548"
@@ -675,9 +681,9 @@ version = "0.3.1"
 
 [[WeakRefStrings]]
 deps = ["Missings", "Random", "Test"]
-git-tree-sha1 = "bccf012a0e8815410ad8b6846944a33903992fc3"
+git-tree-sha1 = "cf70c71939e621a3fac4156a8bfb3c80d745794a"
 uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
-version = "0.5.6"
+version = "0.5.7"
 
 [[WoodburyMatrices]]
 deps = ["LinearAlgebra", "Random", "SparseArrays", "Test"]
