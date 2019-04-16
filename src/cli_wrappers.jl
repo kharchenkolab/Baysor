@@ -1,5 +1,7 @@
 using ArgParse
+using DataFrames
 using Distributed
+using ProgressMeter
 using Statistics
 
 import CSV
@@ -157,6 +159,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     df_centers = nothing
     if args["centers"] !== nothing
         df_centers = CSV.read(args["centers"]);
+        DataFrames.rename!(df_centers, args["x"] => :x, args["y"] => :y);
+
         dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
 
         # TODO: check that each of dfs_centers have at least one center
