@@ -4,6 +4,18 @@
 
 ## Installation
 
+### Install as a Julia package
+
+To install Baysor as a Julia package run the following code:
+
+```julia
+using Pkg
+Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git"))
+import Baysor
+```
+
+### Build CLI application from source
+
 To build the command-line tool you need to clone this package and run the Makefile:
 
 ```bash
@@ -12,13 +24,26 @@ cd Baysor/bin
 make
 ```
 
-It can take ~10 minutes to complete. It creates executable file ./Baysor/bin/segment_data.jl, which can be used for spatial data segmentation.
+The command takes ~10 minutes to complete. It creates executable file `./Baysor/bin/segment_data.jl`, which can be used for spatial data segmentation.
 
 ### Docker
 
-Alternatevely, you can use Dockerfile:
+Alternatevely, you can use Dockerfile. It contains executable `segment_data` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
 
-**TODO**
+Pre-built [image](https://hub.docker.com/r/vpetukhov/baysor):
+
+```bash
+docker run -it --rm vpetukhov/baysor:latest
+```
+
+Buil by hands:
+
+```bash
+cd Baysor/docker
+docker build .
+```
+
+You can find more info about dockers at [Docker Cheat Sheet](https://github.com/wsargent/docker-cheat-sheet).
 
 ## Run
 
