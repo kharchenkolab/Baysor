@@ -18,7 +18,9 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         color = df_spatial[color]
     end
 
-    fig = Plots.scatter(df_spatial[:x], df_spatial[:y], color=color, markerstrokewidth=0, markersize=point_size, alpha=0.5, legend=false, size=size, format=:png, kwargs...)
+    fig = Plots.scatter(df_spatial[:x], df_spatial[:y], color=color, markerstrokewidth=0, markersize=point_size, 
+                        alpha=0.5, legend=false, size=size, format=:png, kwargs...)
+
     for pg in polygons
         Plots.plot!(Plots.Shape(pg[:,1], pg[:,2]), fill=(0, 0.0), linewidth=polygon_line_width)
     end

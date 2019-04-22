@@ -109,6 +109,38 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment)
 end
 
+function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_deg_freedom::Int, scale::Number, 
+        n_cells_init::Int=1000, new_component_weight::Number=0.2, df_centers::Union{DataFrame, Nothing}=nothing,
+        center_std::Union{Number, Nothing}=nothing, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000)::Array{BmmData, 1}
+    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
+
+    @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
+
+    @info "Done."
+
+    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2);
+
+    bm_data_arr = nothing
+    if df_centers !== nothing
+    if center_std === nothing
+    center_std = scale;
+    end
+
+    dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
+
+    # TODO: check that each of dfs_centers have at least one center
+
+    bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
+                prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
+                n_degrees_of_freedom_center=n_degrees_of_freedom_center);
+    else
+    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); cov_mult=2);
+    bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight);
+    end
+
+    return bm_data_arr
+end
+
 ## Triangulation
 
 struct IndexedPoint2D <: GeometricalPredicates.AbstractPoint2D
@@ -186,9 +218,22 @@ function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent
     return c_components, adjacent_points, df_spatial[presented_ids, :]
 end
 
+function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Union{Symbol, Nothing}=:gene)
+    df_spatial = CSV.read(data_path);
+
+    if gene_col === nothing
+        df_spatial = df_spatial[[x_col, y_col]]
+        DataFrames.rename!(df_spatial, x_col => :x, y_col => :y);
+    else
+        df_spatial = df_spatial[[x_col, y_col, gene_col]]
+        DataFrames.rename!(df_spatial, x_col => :x, y_col => :y, gene_col => :gene);
+    end
+
+    return df_spatial
+end
+
 function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0)
-    df_spatial = CSV.read(data_path)[[x_col, y_col, gene_col]];
-    DataFrames.rename!(df_spatial, x_col => :x, y_col => :y, gene_col => :gene);
+    df_spatial = read_spatial_df(data_path, x_col=x_col, y_col=y_col, gene_col=gene_col)
 
     gene_counts = StatsBase.countmap(df_spatial[:gene]);
     large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);

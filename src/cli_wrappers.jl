@@ -147,31 +147,12 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
-    dfs_spatial = args["n-frames"] > 1 ? split_spatial_data(df_spatial, args["n-frames"]) : [df_spatial]
+    df_centers = args["centers"] === nothing ? nothing : read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
 
-    @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
-
-    @info "Done."
-
-    size_prior = ShapePrior(args["shape-deg-freedom"], [args["scale"], args["scale"]].^2);
-
-    bm_data_arr = nothing
-    df_centers = nothing
-    if args["centers"] !== nothing
-        df_centers = CSV.read(args["centers"]);
-        DataFrames.rename!(df_centers, args["x"] => :x, args["y"] => :y);
-
-        dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
-
-        # TODO: check that each of dfs_centers have at least one center
-
-        bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, args["center-std"]; size_prior=size_prior, new_component_weight=args["new-component-weight"],
-                                             prior_component_weight=args["center-component-weight"], default_cov=[args["scale"] 0.0; 0.0 args["scale"]].^2,
-                                             n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
-    else
-        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(args["num-cells-init"], length(dfs_spatial)), 2); cov_mult=2);
-        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=args["new-component-weight"]);
-    end
+    bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"], 
+        shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"], 
+        new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"], 
+        center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
 
     addprocs(length(bm_data_arr) - nprocs())
     eval(:(@everywhere using Baysor))
