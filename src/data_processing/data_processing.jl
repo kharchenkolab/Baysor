@@ -1,7 +1,6 @@
 using VoronoiDelaunay
 using StatsBase: countmap, denserank
 
-import Clustering
 import CSV
 import Distances
 import GeometricalPredicates
@@ -19,36 +18,6 @@ function assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Arr
     return [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
 end
 
-function cell_centers_from_centers(spatial_df::DataFrame, centers::DataFrame; cov_mult::Number = 1)
-    cluster_labels = denserank(assign_cells_to_centers(spatial_df, centers));
-    return cell_centers_from_labels(spatial_df, cluster_labels, cov_mult=cov_mult)
-end
-
-function cell_centers_from_labels(spatial_df::DataFrame, cluster_labels::Array; cov_mult::Number = 1)
-    labeled_df = hcat(spatial_df, DataFrame(:cell => cluster_labels));
-
-    cell_centers = sort(by(labeled_df, :cell, df -> mean(position_data(df)', dims=1)), :cell);
-    cell_covs = [cov(position_data(gr)') for gr in groupby(labeled_df, :cell)];
-
-    nan_covs = map(cv -> isnan(cv[1]) | (cv[1, 1] ≈ 0) | (cv[2, 2] ≈ 0), cell_covs);
-    mean_cov = mean(vcat(map(cv -> [cv[1, 1] cv[2, 2]], cell_covs[.!nan_covs])...), dims=1);
-    mean_cov = [mean_cov[1] 0; 0 mean_cov[2]];
-    for i in findall(nan_covs)
-        cell_covs[i] = deepcopy(mean_cov)
-    end
-
-    centers = hcat(cell_centers[:x1], cell_centers[:x2]);
-
-    return InitialParams(centers, cov_mult .* cell_covs, cluster_labels)
-end
-
-function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; min_molecules_per_cell::Int=10, cov_mult::Number = 1, max_iter::Int=10)
-    n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
-
-    cluster_labels = Clustering.kmeans(position_data(spatial_df), n_clusters, maxiter=max_iter).assignments;
-    return cell_centers_from_labels(spatial_df, cluster_labels, cov_mult=cov_mult)
-end
-
 function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Real, min_molecules_per_cell::Int=10)
     n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
 
@@ -57,14 +26,6 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; sc
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
     return InitialParams(copy(cluster_centers'), scale^2, cluster_labels)
-end
-
-function cell_centers_random(spatial_df::DataFrame, n_clusters::Int; min_molecules_per_cell::Int=10, cov_mult::Number = 1)
-    n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
-
-    p_data = position_data(spatial_df)
-    cluster_labels = denserank([v[1] for v in knn(KDTree(p_data[:,sample(1:size(p_data, 2), n_clusters, replace=false)]), p_data, 1)[1]]);
-    return cell_centers_from_labels(spatial_df, cluster_labels, cov_mult=cov_mult)
 end
 
 function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, center_std::Real; size_prior, new_component_weight::Float64, prior_component_weight::Float64,
