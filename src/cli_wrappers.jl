@@ -152,7 +152,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"], 
         shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"], 
         new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"], 
-        center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"]);
+        center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
+        min_molecules_per_cell=args["min-molecules-per-cell"]);
 
     addprocs(length(bm_data_arr) - nprocs())
     eval(:(@everywhere using Baysor))

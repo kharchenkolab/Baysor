@@ -49,6 +49,16 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; mi
     return cell_centers_from_labels(spatial_df, cluster_labels, cov_mult=cov_mult)
 end
 
+function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Real, min_molecules_per_cell::Int=10)
+    n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
+
+    pos_data = position_data(spatial_df);
+    cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
+    cluster_labels = kshiftlabels(pos_data, cluster_centers);
+
+    return InitialParams(copy(cluster_centers'), scale^2, cluster_labels)
+end
+
 function cell_centers_random(spatial_df::DataFrame, n_clusters::Int; min_molecules_per_cell::Int=10, cov_mult::Number = 1)
     n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
 
@@ -96,12 +106,12 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
 
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
 
-    position_distrubutions = [MvNormal(initial_params.centers[i,:], initial_params.stds[i]) for i in 1:initial_params.n_comps]
+    position_distrubutions = [MvNormal(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:initial_params.n_comps]
     params = Component[]
     params = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
-    mean_std = reshape([mean([std[i] for std in initial_params.stds]) for i in 1:length(initial_params.stds[1])], size(initial_params.stds[1]));
+    mean_std = reshape([mean([std[i] for std in initial_params.covs]) for i in 1:length(initial_params.covs[1])], size(initial_params.covs[1]));
     shape_sampler = MvNormal(zeros(size(initial_params.centers, 2)), mean_std)
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
     sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
@@ -111,7 +121,8 @@ end
 
 function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_deg_freedom::Int, scale::Number, 
         n_cells_init::Int=1000, new_component_weight::Number=0.2, df_centers::Union{DataFrame, Nothing}=nothing,
-        center_std::Union{Number, Nothing}=nothing, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000)::Array{BmmData, 1}
+        center_std::Union{Number, Nothing}=nothing, center_component_weight::Number=1.0, 
+        n_degrees_of_freedom_center::Int=1000, min_molecules_per_cell::Int=1)::Array{BmmData, 1}
     dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
 
     @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
@@ -122,20 +133,23 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_de
 
     bm_data_arr = nothing
     if df_centers !== nothing
-    if center_std === nothing
-    center_std = scale;
-    end
+        if center_std === nothing
+            center_std = scale;
+        end
 
-    dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
+        dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
 
-    # TODO: check that each of dfs_centers have at least one center
+        if any(size.(dfs_centers, 1) .== 0)
+            error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
+        end
 
-    bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
-                prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
-                n_degrees_of_freedom_center=n_degrees_of_freedom_center);
+        bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
+                    prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
+                    n_degrees_of_freedom_center=n_degrees_of_freedom_center);
     else
-    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); cov_mult=2);
-    bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight);
+        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); 
+                    scale=scale, min_molecules_per_cell=min_molecules_per_cell);
+        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight);
     end
 
     return bm_data_arr
