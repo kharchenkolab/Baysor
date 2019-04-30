@@ -7,7 +7,6 @@ struct InitialParams
     n_comps::Int;
 
     function InitialParams(centers::Array{T, 2} where T <: Real, covs::Union{Array{Array{Float64,2},1}, Real}, assignment::Array{Int64,1})
-        @assert size(centers, 1) == maximum(assignment)
         if isa(covs, Real)
             covs = [[covs 0.; 0. covs] for i in 1:size(centers, 1)]
         else

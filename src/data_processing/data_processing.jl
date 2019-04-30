@@ -18,8 +18,8 @@ function assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Arr
     return [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
 end
 
-function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Real, min_molecules_per_cell::Int=10)
-    n_clusters = min(n_clusters, round(Int, size(spatial_df, 1) / min_molecules_per_cell))
+function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Real)
+    n_clusters = min(n_clusters, size(spatial_df, 1))
 
     pos_data = position_data(spatial_df);
     cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
@@ -108,8 +108,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_de
                     prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
                     n_degrees_of_freedom_center=n_degrees_of_freedom_center);
     else
-        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); 
-                    scale=scale, min_molecules_per_cell=min_molecules_per_cell);
+        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale);
         bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight);
     end
 

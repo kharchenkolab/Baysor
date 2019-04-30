@@ -13,6 +13,7 @@
 # OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using NearestNeighbors
+using StatsBase: denserank
 
 function kshiftmedoids(data, k)
     centers = kshifts(data,k)
@@ -31,10 +32,7 @@ end
     return sum
 end
 
-function kshifts(data::Array{T,2} where T, k::Int)
-    centers = data[:,rand(1:size(data, 2), k)]
-    kshifts!(centers, data)
-end
+kshifts(data::Array{T,2} where T, k::Int) = kshifts!(deepcopy(data[:,rand(1:size(data, 2), k)]), data)
 
 @inbounds function kshifts!(centers::Array{T,2}, data::Array{T,2}) where T
     @assert size(data, 1) == size(centers, 1)
@@ -56,22 +54,8 @@ end
             center_view[d] = f1*center_view[d] + f2*data_view[d]
         end
     end
-    centers
+
+    return centers
 end
 
-@inbounds function kshiftlabels(data::Matrix{T}, centers::Matrix{T}) where T
-    labels = zeros(Int, size(data, 2));
-    for i = 1:size(data, 2)
-        v = typemax(T)
-        ind = 0
-        for j = 1:size(centers, 2)
-            d = dist(data, i, centers, j)
-            if d < v
-                v = d
-                ind = j
-            end
-        end
-        labels[i] = ind
-    end
-    labels
-end
+kshiftlabels(data::Matrix{T}, centers::Matrix{T}) where T = [v[1] for v in knn(KDTree(centers), data, 1)[1]]
