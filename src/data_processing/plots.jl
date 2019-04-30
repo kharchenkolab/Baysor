@@ -94,9 +94,10 @@ function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation
 
     mtx_colors = mtx_trans .- mapslices(minimum, mtx_trans, dims=2)
     mtx_colors ./= mapslices(maximum, mtx_colors, dims=2);
+    mtx_colors .*= 100;
 
-    # return vec(mapslices(col -> "#" * hex(Colors.RGB(col...)), mtx_colors, dims=1))
-    return vec(mapslices(col -> Colors.RGB(col...), mtx_colors, dims=1))
+    # return vec(mapslices(col -> "#" * hex(Colors.Lab(col...)), mtx_colors, dims=1))
+    return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
 end
 
 function shuffle_labels(labels::Array{Int})
