@@ -20,6 +20,7 @@ include("history_analysis.jl")
 include("bmm_algorithm.jl")
 include("smoothing.jl")
 
+include("data_processing/umap_wrappers.jl")
 include("data_processing/kshift_clustering.jl")
 include("data_processing/data_processing.jl")
 include("data_processing/plots.jl")

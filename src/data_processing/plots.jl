@@ -81,12 +81,20 @@ function prob_vec(gene_ids::Array{Int, 1}, max_gene::Int, smooth::Int=0)
     return probs ./ sum(probs)
 end
 
-function gene_composition_transformation(count_matrix::Array{Float64, 2}; n_neighbors::Int=30, sample_size::Int=5000, seed::Int=42) # n_neighbors is for Isomap
+function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, kwargs...)
     sample_size = min(sample_size, size(count_matrix, 2))
     Random.seed!(seed)
     count_matrix_sample = count_matrix[:,randperm(size(count_matrix, 2))[1:sample_size]]
 
-    return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3);
+    if method == :umap
+        return fit(UmapFit, count_matrix_sample, maxoutdim=3, kwargs...);
+    end
+
+    if method != :pca
+        error("Unknown method: '$method'")
+    end
+
+    return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3, kwargs...);
 end
 
 function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation)
