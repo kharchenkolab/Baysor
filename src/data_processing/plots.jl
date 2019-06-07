@@ -18,7 +18,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         color = df_spatial[color]
     end
 
-    fig = Plots.scatter(df_spatial[:x], df_spatial[:y], color=color, markerstrokewidth=0, markersize=point_size, 
+    fig = Plots.scatter(df_spatial[:x], df_spatial[:y], color=color, markerstrokewidth=0, markersize=point_size,
                         alpha=0.5, legend=false, size=size, format=:png, kwargs...)
 
     for pg in polygons
@@ -87,7 +87,7 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample
     count_matrix_sample = count_matrix[:,randperm(size(count_matrix, 2))[1:sample_size]]
 
     if method == :umap
-        return fit(UmapFit, count_matrix_sample, maxoutdim=3, kwargs...);
+        return fit(UmapFit, count_matrix_sample, n_components=3, kwargs...);
     end
 
     if method != :pca
