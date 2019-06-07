@@ -20,7 +20,7 @@ end
 
 distributions(prior::ShapePrior) = Gamma.(Ref(prior.n_samples_var), prior.eigen_values ./ prior.n_samples_var)
 
-# argmax of posterior of Inverse Chi-squared without weighting
+# argmax of posterior of Inverse Chi-squared
 var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}, n::Int) =
     [(prior.n_samples_var * pv + n * ev) / (prior.n_samples_var + n) for (pv, ev) in zip(prior.eigen_values, eigen_values)]
 

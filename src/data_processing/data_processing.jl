@@ -28,8 +28,24 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; sc
     return InitialParams(copy(cluster_centers'), scale^2, cluster_labels)
 end
 
+"""
+    Creates `BmmData` with distribution with `prior_centers` centers and `default_cov` covariation
+
+    # Arguments
+    - `df_spatial::DataFrame`: DataFrame with columns `:x`, `:y` and `:gene`
+    - `prior_centers::DataFrame`: 
+    - `center_std::Real`: 
+    - `size_prior`: 
+    - `new_component_weight::Float64`: 
+    - `prior_component_weight::Float64`: 
+    - `n_degrees_of_freedom_center::Int`: 
+    - `default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0]`: 
+    - `gene_num::Int=maximum(df_spatial[:gene])`: 
+    - `kwargs...`: keyword arguments, passed to BmmData function
+    """
 function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, center_std::Real; size_prior, new_component_weight::Float64, prior_component_weight::Float64,
-                               n_degrees_of_freedom_center::Int, default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0], gene_num::Int=maximum(df_spatial[:gene]))
+                               n_degrees_of_freedom_center::Int, default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0], gene_num::Int=maximum(df_spatial[:gene]),
+                               kwargs...)
     adjacent_points = adjacency_list(df_spatial)
     assignment = assign_cells_to_centers(df_spatial, prior_centers);
 
@@ -58,11 +74,11 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, 
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
     sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
 
-    return BmmData(components, df_spatial, adjacent_points, sampler, assignment)
+    return BmmData(components, df_spatial, adjacent_points, sampler, assignment, kwargs...)
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, 
-                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[:gene]))
+                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[:gene]), kwargs...)
     adjacent_points = adjacency_list(df_spatial)
 
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
@@ -77,13 +93,13 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
     sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
 
-    return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment)
+    return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment, kwargs...)
 end
 
 function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_deg_freedom::Int, scale::Number, 
         n_cells_init::Int=1000, new_component_weight::Number=0.2, df_centers::Union{DataFrame, Nothing}=nothing,
         center_std::Union{Number, Nothing}=nothing, center_component_weight::Number=1.0, 
-        n_degrees_of_freedom_center::Int=1000, min_molecules_per_cell::Int=1)::Array{BmmData, 1}
+        n_degrees_of_freedom_center::Int=1000, min_molecules_per_cell::Int=1, kwargs...)::Array{BmmData, 1}
     dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
 
     @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
@@ -106,10 +122,10 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_de
 
         bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
                     prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
-                    n_degrees_of_freedom_center=n_degrees_of_freedom_center);
+                    n_degrees_of_freedom_center=n_degrees_of_freedom_center, kwargs...);
     else
         initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale);
-        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight);
+        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight, kwargs...);
     end
 
     return bm_data_arr

@@ -34,8 +34,21 @@ mutable struct BmmData
 
     tracer::Dict{String, Any};
 
+    update_priors::Symbol;
+
+    """
+    ...
+    # Arguments
+    - `components::Array{Component, 1}`: 
+    - `x::DataFrame`: 
+    - `adjacent_points::Array{Array{Int, 1}, 1}`: 
+    - `distribution_sampler::Component`: 
+    - `assignment::Array{Int, 1}`: 
+    - `k_neighbors::Int=20`: 
+    - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
+    """
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, distribution_sampler::Component,
-                     assignment::Array{Int, 1}; k_neighbors::Int=20)
+                     assignment::Array{Int, 1}; k_neighbors::Int=20, update_priors::Symbol=:no)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -46,8 +59,12 @@ mutable struct BmmData
 
         n_genes = maximum(composition_data(x))
 
+        if update_priors == :centers && all(c.can_be_dropped for c in components)
+            update_priors = :no
+        end
+
         self = new(components, deepcopy(x), p_data, composition_data(x), adjacent_points, deepcopy(distribution_sampler), assignment,
-                   position_knn_tree, knn_neighbors, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}())
+                   position_knn_tree, knn_neighbors, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
         for c in self.components
             c.n_samples = 0

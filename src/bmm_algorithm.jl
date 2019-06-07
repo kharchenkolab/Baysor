@@ -77,7 +77,23 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
     return maximize!(c, pos_data, comp_data)
 end
 
-function maximize!(data::BmmData)
+function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
+    if data.update_priors == :no
+        return
+    end
+
+    components = (data.update_priors == :all) ? data.components : filter(c -> !c.can_be_dropped, data.components)
+    components = filter(c -> c.n_samples >= min_molecules_per_cell, components)
+
+    if length(components) < 2
+        return
+    end
+
+    mean_shape = vec(median(hcat([eigen(shape(c.position_params)).values for c in components]...), dims=2))
+    data.distribution_sampler.shape_prior = ShapePrior(data.distribution_sampler.shape_prior.n_samples_var, mean_shape)
+end
+
+function maximize!(data::BmmData, min_molecules_per_cell::Int)
     ids_by_assignment = split(collect(1:length(data.assignment)), data.assignment .+ 1)[2:end]
     append!(ids_by_assignment, [Int[] for i in length(ids_by_assignment):length(data.components)])
 
@@ -90,6 +106,8 @@ function maximize!(data::BmmData)
         maximize!(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i], data)
     end
     # data.components = pmap(v -> maximize(v...), zip(data.components, pos_data_by_assignment, comp_data_by_assignment))
+
+    maximize_prior!(data, min_molecules_per_cell)
 end
 
 function append_empty_components!(data::BmmData, new_component_frac::Float64, adj_classes_global::Dict{Int, Array{Int, 1}})
@@ -123,7 +141,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     assignment_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
     adj_classes_global = Dict{Int, Array{Int, 1}}()
 
-    maximize!(data)
+    maximize!(data, min_molecules_per_cell)
 
     for i in 1:n_iters
         if (history_step > 0) && (i.==1 || i % history_step == 0)
@@ -131,7 +149,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)
-        maximize!(data)
+        maximize!(data, min_molecules_per_cell)
 
         trace_n_components!(data, min_molecules_per_cell);
 
@@ -183,7 +201,7 @@ function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n
         prev_assignment = deepcopy(bmm_res.assignment)
         drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
         expect_dirichlet_spatial!(bmm_res, stochastic=false)
-        maximize!(bmm_res)
+        maximize!(bmm_res, min_molecules_per_cell)
 
         if channel !== nothing
             put!(channel, true)
