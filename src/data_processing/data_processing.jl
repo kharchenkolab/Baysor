@@ -70,9 +70,8 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, 
         end
     end
 
-    shape_sampler = MvNormal(zeros(size(prior_centers, 2)), copy(default_cov))
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
-    sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
+    sampler = Component(MvNormal(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return BmmData(components, df_spatial, adjacent_points, sampler, assignment, kwargs...)
 end
@@ -88,10 +87,8 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     params = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
-    mean_std = reshape([mean([std[i] for std in initial_params.covs]) for i in 1:length(initial_params.covs[1])], size(initial_params.covs[1]));
-    shape_sampler = MvNormal(zeros(size(initial_params.centers, 2)), mean_std)
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
-    sampler = Component(shape_sampler, gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false)
+    sampler = Component(MvNormal(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment, kwargs...)
 end
