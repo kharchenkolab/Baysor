@@ -32,3 +32,26 @@ function extract_cell_centers(stain::Array{Float64,2}; min_x::Array{Int64,1}=not
 
     return centers
 end
+
+function coords_per_label(segmentation_mask::Array{Int, 2})
+    coords = [Array{Float64, 1}[] for v in 1:maximum(segmentation_mask)];
+
+    @inbounds for r in 1:size(segmentation_mask, 1)
+        for c in 1:size(segmentation_mask, 2)
+            label = segmentation_mask[r, c]
+            if label > 0
+                push!(coords[label], Float64[r, c])
+            end
+        end
+    end
+
+    return coords
+end
+
+function parse_segmentation_mask(segmentation_mask::Array{Int, 2})
+    coords = coords_per_label(segmentation_mask)
+    centers = DataFrame(hcat([vec(mean(hcat(c...), dims=2)) for c in coords]...)', [:x, :y])
+    polygons = [copy(p') for p in convex_hull.(coords)]
+
+    return centers, polygons
+end

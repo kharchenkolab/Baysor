@@ -61,8 +61,8 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, 
     return BmmData(components, df_spatial, adjacent_points, sampler, assignment)
 end
 
-function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, gene_smooth::Real=1.0,
-                               gene_num::Int=maximum(df_spatial[:gene]))
+function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, 
+                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[:gene]))
     adjacent_points = adjacency_list(df_spatial)
 
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
