@@ -1,6 +1,6 @@
 name = "Baysor"
 uuid = "cc9f9468-1fbe-11e9-0acf-e9460511877c"
-authors = ["viktor_petukhov <viktor.s.petuhov@ya.ru>"]
+authors = ["Viktor Petukhov <viktor.s.petuhov@ya.ru>"]
 version = "0.1.0"
 
 [deps]
