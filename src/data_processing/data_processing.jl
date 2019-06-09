@@ -14,44 +14,60 @@ function encode_genes(gene_list)
     return [gene_ids[g] for g in gene_list], gene_names
 end
 
-function assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Array{Int, 1}
-    return [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
+assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Array{Int, 1} =
+    [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
+
+function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
+    pos_data = position_data(spatial_df);
+
+    ids_per_clust = split(1:length(assignment), assignment)
+    stds = [vec(std(pos_data[:, ids], dims=2)) for ids in ids_per_clust]
+    mean_stds = vec(median(hcat(stds[length.(ids_per_clust) .> 1]...), dims=2))
+    
+    for i in findall(length.(ids_per_clust) .<= 1)
+        stds[i] = deepcopy(mean_stds)
+    end
+
+    return [diagm(0 => s .^ 2) for s in stds]
 end
 
-function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Real)
+function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Union{Real, Nothing})
     n_clusters = min(n_clusters, size(spatial_df, 1))
 
     pos_data = position_data(spatial_df);
     cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
-    return InitialParams(copy(cluster_centers'), scale^2, cluster_labels)
+    covs = (scale === nothing) ? covs_from_assignment(spatial_df, cluster_labels) : scale ^ 2
+    return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 
 """
-    Creates `BmmData` with distribution with `prior_centers` centers and `default_cov` covariation
+    Creates `BmmData` with distribution with `prior_centers` centers and `default_std` standard deviation
 
     # Arguments
     - `df_spatial::DataFrame`: DataFrame with columns `:x`, `:y` and `:gene`
-    - `prior_centers::DataFrame`: 
-    - `center_std::Real`: 
-    - `size_prior`: 
+    - `prior_centers::DataFrame`: positions of centers, extracted from DAPIs. Must have columns `:x` and `:y`
+    - `center_std::Real`: standard deviation of the prior distribution for center position sampling
+    - `size_prior`: shape prior for position_params
     - `new_component_weight::Float64`: 
     - `prior_component_weight::Float64`: 
     - `n_degrees_of_freedom_center::Int`: 
-    - `default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0]`: 
-    - `gene_num::Int=maximum(df_spatial[:gene])`: 
+    - `default_std::Union{Real, Nothing}=nothing`: initial std for position_params in components. Estimated from assignment if `nothing` is passed.
+    - `gene_num::Int=maximum(df_spatial[:gene])`: total number of genes in the dataset
     - `kwargs...`: keyword arguments, passed to BmmData function
     """
 function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, center_std::Real; size_prior, new_component_weight::Float64, prior_component_weight::Float64,
-                               n_degrees_of_freedom_center::Int, default_cov::Array{Float64, 2}=[1.0 0.0; 0.0 1.0], gene_num::Int=maximum(df_spatial[:gene]),
+                               n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing, gene_num::Int=maximum(df_spatial[:gene]),
                                kwargs...)
     adjacent_points = adjacency_list(df_spatial)
     assignment = assign_cells_to_centers(df_spatial, prior_centers);
 
     center_cov = Float64[center_std 0; 0 center_std] .^ 2;
     mtx_centers = Matrix{Float64}(prior_centers);
-    prior_distributions = [MvNormal(mtx_centers[i,:], copy(default_cov)) for i in 1:size(mtx_centers, 1)];
+
+    covs = (default_std === nothing) ? covs_from_assignment(df_spatial, assignment) : [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 1)]
+    prior_distributions = [MvNormal(mtx_centers[i,:], cov) for (i, cov) in enumerate(covs)];
     gene_prior = SingleTrialMultinomial(ones(Int, gene_num));
 
     n_mols_per_center = count_array(assignment, max_value=length(prior_distributions));
@@ -118,7 +134,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_de
         end
 
         bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
-                    prior_component_weight=center_component_weight, default_cov=[scale 0.0; 0.0 scale].^2,
+                    prior_component_weight=center_component_weight, default_std=scale,
                     n_degrees_of_freedom_center=n_degrees_of_freedom_center, kwargs...);
     else
         initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale);

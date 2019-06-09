@@ -12,7 +12,7 @@ function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int
     return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
 end
 
-function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}, df_centers=nothing; point_size=2, color=:gene,
+function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, color=:gene,
                                     center_size::Real=50.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[color]
