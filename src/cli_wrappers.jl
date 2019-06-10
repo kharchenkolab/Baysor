@@ -67,7 +67,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             arg_type = Float64
         "--n-degrees-of-freedom-center" # TO JSON
             help = "Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell."
-            required = false
             arg_type = Int
         "--shape-deg-freedom" # TODO: make it depend on mean number of molecules # TO JSON
             help = "Number of degrees of freedom for shape prior. Normally should be several times larger than expected number of molecules per cell."
@@ -85,14 +84,12 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm"
             arg_type = Float64
-            required = true
 
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
         "centers"
             help = "CSV file with coordinates of cell centers, extracted from DAPI staining"
-            required = false
     end
 
     r = (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -107,6 +104,11 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if r["n-degrees-of-freedom-center"] === nothing
         r["n-degrees-of-freedom-center"] = r["min-molecules-per-cell"]
+    end
+
+    if r["centers"] === nothing && r["scale"] === nothing
+        print("Either `centers` or `scale` must be provided.\n" * usage_string(s) * "\n")
+        exit(1)
     end
 
     return r
