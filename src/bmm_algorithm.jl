@@ -90,7 +90,11 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
     end
 
     mean_shape = vec(median(hcat([eigen(shape(c.position_params)).values for c in components]...), dims=2))
-    data.distribution_sampler.shape_prior = ShapePrior(data.distribution_sampler.shape_prior.n_samples_var, mean_shape)
+    set_shape_prior!(data.distribution_sampler, mean_shape)
+
+    for c in data.components
+        set_shape_prior!(c, mean_shape)
+    end
 end
 
 function maximize!(data::BmmData, min_molecules_per_cell::Int)
