@@ -1,3 +1,6 @@
 .ipynb_checkpoints/
 .idea/
 builddir
+
+bin/*julia*
+bin/segment_data.jl
