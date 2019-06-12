@@ -100,3 +100,17 @@ function convex_hull(a::Array{Array{T,1},1} where T<:Real)
 
     return hcat(vcat(up, reverse(down[1:end-1]))...);
 end
+
+function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Union{Symbol, Nothing}=:gene)
+    df_spatial = CSV.read(data_path);
+
+    if gene_col === nothing
+        df_spatial = df_spatial[[x_col, y_col]]
+        DataFrames.rename!(df_spatial, x_col => :x, y_col => :y);
+    else
+        df_spatial = df_spatial[[x_col, y_col, gene_col]]
+        DataFrames.rename!(df_spatial, x_col => :x, y_col => :y, gene_col => :gene);
+    end
+
+    return df_spatial
+end

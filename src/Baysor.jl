@@ -12,9 +12,13 @@ import Statistics.rand
 
 include("utils.jl")
 include("distributions.jl")
-include("component.jl")
+
+include("models/CenterData.jl")
+include("models/InitialParams.jl")
+include("models/Component.jl")
+include("models/BmmData.jl")
+
 include("tracing.jl")
-include("models.jl")
 include("distribution_samplers.jl")
 include("history_analysis.jl")
 include("bmm_algorithm.jl")
