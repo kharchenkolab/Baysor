@@ -62,7 +62,7 @@ end
     - `shape_deg_freedom::Int`: number of degrees of freedom for `size_prior`. Ignored if `size_prior !== nothing`.
     - `kwargs...`: keyword arguments, passed to BmmData function
 """
-function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame, center_std::Union{Real, Nothing}=nothing; size_prior=nothing, new_component_weight::Float64,
+function initial_distributions(df_spatial::DataFrame, prior_centers::DataFrame; size_prior=nothing, new_component_weight::Float64,
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing, gene_num::Int=maximum(df_spatial[:gene]),
                                shape_deg_freedom::Int, kwargs...)
     adjacent_points = adjacency_list(df_spatial)
@@ -118,41 +118,36 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return BmmData(params, df_spatial, adjacent_points, sampler, initial_params.assignment, kwargs...)
 end
 
-function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing, 
-        n_cells_init::Int=1000, new_component_weight::Number=0.2, df_centers::Union{DataFrame, Nothing}=nothing,
-        center_std::Union{Number, Nothing}=nothing, center_component_weight::Number=1.0, 
-        n_degrees_of_freedom_center::Int=1000, min_molecules_per_cell::Int=1, kwargs...)::Array{BmmData, 1}
-    
-    if (scale === nothing) && (df_centers === nothing)
-        error("Either scale or df_centers must be provided")
-    end
-
+function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, kwargs...)::Array{BmmData, 1}
     dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
-
-    # TODO: create parameter for global_scale estimation
     @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
-
     @info "Done."
 
+    return initial_distribution_arr(dfs_spatial, args..., kwargs...)
+end
+
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing, 
+                                  new_component_weight::Number=0.2, df_centers::DataFrame, center_std::Union{Number, Nothing}=nothing, 
+                                  center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000, kwargs...)::Array{BmmData, 1}
+    # TODO: create parameter for global_scale estimation
     size_prior = (scale === nothing) ? nothing : ShapePrior(shape_deg_freedom, [scale, scale].^2);
 
-    bm_data_arr = nothing
-    if df_centers !== nothing
-        dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
+    dfs_centers = subset_df_by_coords.(Ref(df_centers), dfs_spatial);
 
-        if any(size.(dfs_centers, 1) .== 0)
-            error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
-        end
-
-        bm_data_arr = initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
-                    prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center, 
-                    shape_deg_freedom=shape_deg_freedom, kwargs...);
-    else
-        initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale);
-        bm_data_arr = initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight, kwargs...);
+    if any(size.(dfs_centers, 1) .== 0)
+        error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
     end
 
-    return bm_data_arr
+    return initial_distributions.(dfs_spatial, dfs_centers, center_std; size_prior=size_prior, new_component_weight=new_component_weight,
+                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center, 
+                shape_deg_freedom=shape_deg_freedom, kwargs...);
+end
+
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number, 
+                                  n_cells_init::Int=1000, new_component_weight::Number=0.2, kwargs...)::Array{BmmData, 1}
+    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
+    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale)
+    return initial_distributions.(dfs_spatial, initial_params_per_frame, size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
 end
 
 ## Triangulation
