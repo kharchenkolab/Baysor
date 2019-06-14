@@ -1,3 +1,5 @@
+using DataFrames
+
 function count_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothing)
     if max_value === nothing
         max_value = maximum(values)
