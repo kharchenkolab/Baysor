@@ -7,7 +7,7 @@ mutable struct CenterData
     scale_estimate::Float64
 
     CenterData(centers::DataFrame, scale_estimate::Float64) = new(centers, nothing, scale_estimate)
-    CenterData(centers::DataFrame, center_covs::Array{Array{Float64,2},1}, scale_estimate::Float64) = new(centers, center_covs, scale_estimate)
+    CenterData(centers::DataFrame, center_covs::Union{Array{Array{Float64,2},1}, Nothing}, scale_estimate::Float64) = new(centers, center_covs, scale_estimate)
 end
 
 estimate_scale_from_centers(centers::Array{Float64, 2}) = median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
