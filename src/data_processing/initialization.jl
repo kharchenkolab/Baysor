@@ -126,6 +126,9 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
             update_priors = :centers
         end
     end
+    if update_priors === nothing
+        update_priors = :no
+    end
 
     if centers.center_covs === nothing
         centers.center_covs = [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)]

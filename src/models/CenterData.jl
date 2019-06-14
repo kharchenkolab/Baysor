@@ -22,13 +22,14 @@ function load_centers(path::String; kwargs...)::CenterData
     error("Unsupported file extension: '$file_ext'")
 end
 
-# function subset_by_coords(subsetting_df::DataFrame, coord_df::DataFrame)
-#     pos_subs = position_data(subsetting_df)
-#     pos_coords = position_data(coord_df)
-#     ids = vec(all((pos_subs .>= minimum(pos_coords, dims=2)) .& (pos_subs .<= maximum(pos_coords, dims=2)), dims=1));
+# DEPRECATED
+function subset_by_coords(subsetting_df::DataFrame, coord_df::DataFrame)
+    pos_subs = position_data(subsetting_df)
+    pos_coords = position_data(coord_df)
+    ids = vec(all((pos_subs .>= minimum(pos_coords, dims=2)) .& (pos_subs .<= maximum(pos_coords, dims=2)), dims=1));
 
-#     return subsetting_df[ids,:]
-# end
+    return subsetting_df[ids,:]
+end
 
 function subset_by_coords(centers::CenterData, coord_df::DataFrame)
     pos_subs = position_data(centers.centers)
