@@ -67,6 +67,15 @@ end
 
 split(array::UnitRange{Int64}, factor::Array{Int64,1}) = split(collect(array), factor)
 
+function split(df::DataFrame, factor::Array{Int, 1})
+    res = Array{DataFrame, 1}(undef, maximum(factor))
+    for i in unique(factor)
+        res[i] = df[factor .== i, :]
+    end
+
+    return res
+end
+
 function convex_hull(a::Array{Array{T,1},1} where T<:Real)
     cw(a, b, c) = (a[1]*(b[2]-c[2])+b[1]*(c[2]-a[2])+c[1]*(a[2]-b[2]) < 0);
     ccw(a, b, c) = (a[1]*(b[2]-c[2])+b[1]*(c[2]-a[2])+c[1]*(a[2]-b[2]) > 0);

@@ -1,13 +1,8 @@
 using NearestNeighbors
-using VoronoiDelaunay
 using StatsBase: countmap, denserank
 
 import CSV
 import Distances
-import GeometricalPredicates
-import LightGraphs
-
-import GeometricalPredicates.getx, GeometricalPredicates.gety
 
 function encode_genes(gene_list)
     gene_names = unique(gene_list);
@@ -155,69 +150,6 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_fr
     return initial_distributions.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
 end
 
-## Triangulation
-
-struct IndexedPoint2D <: GeometricalPredicates.AbstractPoint2D
-    _x::Float64
-    _y::Float64
-    _index::Int
-    IndexedPoint2D(x::Float64,y::Float64, index::Int) = new(x, y, index)
-end
-
-IndexedPoint2D() = IndexedPoint2D(0., 0., 0)
-IndexedPoint2D(x::Float64, y::Float64) = IndexedPoint2D(x, y, 0)
-
-getx(p::IndexedPoint2D) = p._x
-gety(p::IndexedPoint2D) = p._y
-geti(p::IndexedPoint2D) = p._index
-
-function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::Real=2)::Array{Array{Int64,1},1}
-    @assert size(points, 1) == 2
-
-    points = deepcopy(points)
-    points .-= minimum(points)
-    points ./= maximum(points) * 1.1
-    points .+= 1.01
-
-    hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=3), dims=1));
-    is_duplicated = get.(Ref(countmap(hashes)), hashes, 0) .> 1;
-    points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-3;
-
-    points_g = [IndexedPoint2D(points[:,i]..., i) for i in 1:size(points, 2)];
-
-    tess = DelaunayTessellation2D(length(points_g), IndexedPoint2D());
-    push!(tess, points_g);
-
-    edge_list = hcat([geti.([geta(v), getb(v)]) for v in delaunayedges(tess)]...);
-
-    if filter
-        adj_dists = log10.(vec(sum((points[:, edge_list[1,:]] .- points[:, edge_list[2,:]]) .^ 2, dims=1) .^ 0.5))
-        d_threshold = median(adj_dists) + n_mads * mad(adj_dists, normalize=true)
-        edge_list = edge_list[:, adj_dists .< d_threshold]
-    end
-
-    res = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=size(points, 2)),
-                                   split(edge_list[1,:], edge_list[2,:], max_factor=size(points, 2)))];
-
-    for i in 1:length(res) # point is adjacent to itself
-        push!(res[i], i)
-    end
-    return res
-end
-
-adjacency_list(spatial_df::DataFrame) = adjacency_list(position_data(spatial_df))
-
-function connected_components(adjacent_points::Array{Array{Int, 1}, 1})
-    g = LightGraphs.SimpleGraph(length(adjacent_points));
-    for (v1, vs) in enumerate(adjacent_points)
-        for v2 in vs
-            LightGraphs.add_edge!(g, v1, v2)
-        end
-    end
-
-    return LightGraphs.connected_components(g);
-end
-
 function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent_points::Array{Array{Int, 1}, 1}, df_spatial::DataFrame;
                                  min_molecules_per_cell::Int=10)
     c_components = c_components[length.(c_components) .> min_molecules_per_cell];
@@ -244,17 +176,6 @@ function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol
     df_spatial[:gene], gene_names = encode_genes(df_spatial[:gene]);
     return df_spatial, gene_names;
     # return filter_background(df_spatial), gene_names;
-end
-
-# Splitting
-
-function split(df::DataFrame, factor::Array{Int, 1})
-    res = Array{DataFrame, 1}(undef, maximum(factor))
-    for i in unique(factor)
-        res[i] = df[factor .== i, :]
-    end
-
-    return res
 end
 
 function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame, 1}
