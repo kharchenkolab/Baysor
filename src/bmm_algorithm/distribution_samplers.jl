@@ -1,7 +1,9 @@
 using Random
 
 function sample_distribution(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormal
-    μ = (center_prior === nothing) ? position_data(data)[:, sample(1:size(data.x, 1))] : rand(MvNormal(center_prior.μ, center_prior.Σ))
+    μ = (center_prior === nothing) ? 
+        position_data(data)[:, sample(1:size(data.x, 1), Weights(confidence(data)))] : 
+        rand(MvNormal(center_prior.μ, center_prior.Σ))
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 
     return MvNormal(μ, Σ)

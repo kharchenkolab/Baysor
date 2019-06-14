@@ -8,11 +8,6 @@ using Dates: now
 
 import DistributedArrays
 
-position_data(df::AbstractDataFrame)::Array{Float64, 2} = Matrix{Float64}(df[[:x, :y]])'
-position_data(data::BmmData)::Array{Float64, 2} = data.position_data
-composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[:gene]
-composition_data(data)::Array{Int, 1} = data.composition_data
-
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
     non_noise_ids = findall(data.assignment .> 0)
     existed_ids = [i for (i,c) in enumerate(data.components) if (c.n_samples >= min_n_samples || (!c.can_be_dropped && !force))]
@@ -31,7 +26,7 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Array{I
 
 function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-30)
     for i in 1:size(data.x, 1)
-        x, y, gene = (data.x[i, [:x, :y, :gene]]...,)
+        x, y, gene, confidence = (data.x[i, [:x, :y, :gene, :confidence]]...,)
         adj_classes = adjacent_component_ids(data.assignment, data.adjacent_points, i)
 
         adj_global = get(adj_classes_global, i, Int[]);
@@ -39,11 +34,16 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             append!(adj_classes, adj_global)
         end
 
-        denses = Float64[c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
+        denses = confidence .* [c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
 
         if sum(denses) .< noise_density_threshold
             assign!(data, i, 0) # Noise class
             continue
+        end
+
+        if confidence < 1.0
+            append!(denses, (1 - confidence) * data.noise_density)
+            append!(adj_classes, 0)
         end
 
         if !stochastic
@@ -112,6 +112,17 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int)
     # data.components = pmap(v -> maximize(v...), zip(data.components, pos_data_by_assignment, comp_data_by_assignment))
 
     maximize_prior!(data, min_molecules_per_cell)
+
+    data.noise_density = estimate_noise_density_level(data)
+end
+
+function estimate_noise_density_level(data::BmmData)
+    composition_density = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components])
+
+    eigen_vals = data.distribution_sampler.shape_prior.eigen_values;
+    position_density = pdf(MultivariateNormal([0.0, 0.0], diagm(0 => eigen_vals)), 3 .* (eigen_vals .^ 0.5))
+
+    return position_density * composition_density
 end
 
 function append_empty_components!(data::BmmData, new_component_frac::Float64, adj_classes_global::Dict{Int, Array{Int, 1}})
@@ -165,7 +176,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         it_num = i
         if verbose && i % log_step == 0
-            println("EM part done for $(now() - ts) in $it_num iterations. #Components: $(size(data.components, 1))")
+            println("EM part done for $(now() - ts) in $it_num iterations. #Components: $(length(data.components)). Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
         end
 
         if return_assignment_history
