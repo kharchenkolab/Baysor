@@ -11,18 +11,23 @@ import Distributions.logpdf
 import Statistics.rand
 
 include("utils.jl")
-include("distributions.jl")
+
+include("distributions/MvNormal.jl")
+include("distributions/SingleTrialMultinomial.jl")
+include("distributions/TScaled.jl")
+include("distributions/NormalGamma.jl")
+include("distributions/ScaledInverseChisq.jl")
 
 include("models/CenterData.jl")
 include("models/InitialParams.jl")
 include("models/Component.jl")
 include("models/BmmData.jl")
 
-include("tracing.jl")
-include("distribution_samplers.jl")
-include("history_analysis.jl")
-include("bmm_algorithm.jl")
-include("smoothing.jl")
+include("bmm_algorithm/tracing.jl")
+include("bmm_algorithm/distribution_samplers.jl")
+include("bmm_algorithm/history_analysis.jl")
+include("bmm_algorithm/bmm_algorithm.jl")
+include("bmm_algorithm/smoothing.jl")
 
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")
