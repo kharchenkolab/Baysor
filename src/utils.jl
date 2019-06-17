@@ -125,3 +125,13 @@ function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col
 
     return df_spatial
 end
+
+function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T=0.0)::Float64 where T<:Real
+    if x < x_start
+        return y_start
+    elseif x > x_end
+        return y_end
+    end
+    
+    return y_start + (x - x_start) / (x_end - x_start) * (y_end - y_start)
+end
