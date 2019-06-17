@@ -53,13 +53,13 @@ end
 
 trim_mean(x::Array{Float64, 1}; prop::Float64=0.2) = mean(trim(x; prop=prop))
 
-function split(array::Array{Int, 1}, factor::Array{Int, 1}; max_factor::Union{Int, Nothing}=nothing)
+function split(array::Array{T, 1}, factor::Array{Int, 1}; max_factor::Union{Int, Nothing}=nothing)::Array{Array{T, 1}, 1} where T
     @assert length(array) == length(factor)
     if max_factor === nothing
         max_factor = maximum(factor)
     end
 
-    splitted = [Int[] for i in 1:max_factor]
+    splitted = [T[] for i in 1:max_factor]
     for i in 1:length(array)
         push!(splitted[factor[i]], array[i])
     end
