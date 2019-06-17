@@ -10,6 +10,8 @@ mutable struct BmmData
     confidence::Array{Float64, 1}
 
     adjacent_points::Array{Array{Int, 1}, 1};
+    adjacent_weights::Array{Array{Float64, 1}, 1};
+    real_edge_weight::Float64;
     position_knn_tree::KDTree;
     knn_neighbors::Array{Array{Int, 1}, 1};
 
@@ -33,13 +35,16 @@ mutable struct BmmData
     # Arguments
     - `components::Array{Component, 1}`: 
     - `x::DataFrame`: 
-    - `adjacent_points::Array{Array{Int, 1}, 1}`: 
+    - `adjacent_points::Array{Array{Int, 1}, 1}`:
+    - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty 
+    - `real_edge_weight::Float64`: weight of an edge for "average" real point
     - `distribution_sampler::Component`: 
     - `assignment::Array{Int, 1}`: 
     - `k_neighbors::Int=20`: 
     - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
     """
-    function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, distribution_sampler::Component,
+    function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1},
+                     adjacent_weights::Array{Array{Float64, 1}, 1}, real_edge_weight::Float64, distribution_sampler::Component,
                      assignment::Array{Int, 1}; k_neighbors::Int=20, update_priors::Symbol=:no)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
@@ -64,9 +69,9 @@ mutable struct BmmData
             x[:confidence] = 1.0
         end
 
-        self = new(x, p_data, composition_data(x), x[:confidence], adjacent_points, position_knn_tree, knn_neighbors, 
-                   components, deepcopy(distribution_sampler), assignment, 0.0, ones(n_genes, n_genes) ./ n_genes, 
-                   Dict{String, Any}(), update_priors)
+        self = new(x, p_data, composition_data(x), x[:confidence], adjacent_points, adjacent_weights, real_edge_weight,
+                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, 
+                   0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
         for c in self.components
             c.n_samples = 0

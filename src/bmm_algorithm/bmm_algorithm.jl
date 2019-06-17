@@ -21,28 +21,49 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Boo
 end
 
 # point is adjacent to itself
-adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Array{Int, 1}, 1}, point_ind::Int)::Array{Int, 1} =
-    [x for x in Set(assignment[adjacent_points[point_ind]]) if x > 0]
+adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
+    [x for x in Set(assignment[adjacent_points]) if x > 0]
+
+"""
+...
+# Arguments
+- `assignment::Array{Int, 1}`: 
+- `adjacent_points::Array{Int, 1}`: 
+- `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
+"""
+function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
+    component_weights = Dict{Int, Float64}()
+    for (c_id, cw) in zip(assignment[adjacent_points], adjacent_weights)
+        if c_id == 0
+            continue
+        end
+
+        component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
+    end
+
+    return collect(keys(component_weights)), collect(values(component_weights))
+end
 
 function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-30)
     for i in 1:size(data.x, 1)
         x, y, gene, confidence = (data.x[i, [:x, :y, :gene, :confidence]]...,)
-        adj_classes = adjacent_component_ids(data.assignment, data.adjacent_points, i)
+        adj_classes, adj_weights = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
 
         adj_global = get(adj_classes_global, i, Int[]);
         if length(adj_global) > 0
             append!(adj_classes, adj_global)
+            append!(adj_weights, ones(length(adj_global)) .* data.real_edge_weight)
         end
 
-        denses = confidence .* [c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
+        denses = confidence .* adj_weights .* [c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
 
-        if sum(denses) .< noise_density_threshold
+        if sum(denses) < noise_density_threshold
             assign!(data, i, 0) # Noise class
             continue
         end
 
         if confidence < 1.0
-            append!(denses, (1 - confidence) * data.noise_density)
+            append!(denses, (1 - confidence) * data.real_edge_weight * data.noise_density)
             append!(adj_classes, 0)
         end
 
