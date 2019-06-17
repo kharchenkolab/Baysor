@@ -33,21 +33,23 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 """
 function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
     component_weights = Dict{Int, Float64}()
+    zero_comp_weight = 0.0
     for (c_id, cw) in zip(assignment[adjacent_points], adjacent_weights)
         if c_id == 0
+            zero_comp_weight += cw
             continue
         end
 
         component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
     end
 
-    return collect(keys(component_weights)), collect(values(component_weights))
+    return collect(keys(component_weights)), collect(values(component_weights)), zero_comp_weight
 end
 
 function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-30)
     for i in 1:size(data.x, 1)
         x, y, gene, confidence = (data.x[i, [:x, :y, :gene, :confidence]]...,)
-        adj_classes, adj_weights = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
+        adj_classes, adj_weights, zero_comp_weight = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
 
         adj_global = get(adj_classes_global, i, Int[]);
         if length(adj_global) > 0
@@ -63,7 +65,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         end
 
         if confidence < 1.0
-            append!(denses, (1 - confidence) * data.real_edge_weight * data.noise_density)
+            append!(denses, (1 - confidence) * max(data.real_edge_weight, zero_comp_weight) * data.noise_density)
             append!(adj_classes, 0)
         end
 
