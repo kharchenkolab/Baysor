@@ -33,14 +33,14 @@ mutable struct BmmData
     """
     ...
     # Arguments
-    - `components::Array{Component, 1}`: 
-    - `x::DataFrame`: 
+    - `components::Array{Component, 1}`:
+    - `x::DataFrame`:
     - `adjacent_points::Array{Array{Int, 1}, 1}`:
-    - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty 
+    - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
-    - `distribution_sampler::Component`: 
-    - `assignment::Array{Int, 1}`: 
-    - `k_neighbors::Int=20`: 
+    - `distribution_sampler::Component`:
+    - `assignment::Array{Int, 1}`:
+    - `k_neighbors::Int=20`:
     - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
     """
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1},
@@ -70,7 +70,7 @@ mutable struct BmmData
         end
 
         self = new(x, p_data, composition_data(x), x[:confidence], adjacent_points, adjacent_weights, real_edge_weight,
-                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, 
+                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment,
                    0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
         for c in self.components
@@ -106,9 +106,11 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
     components = vcat([bd.components for bd in bmm_data_arr]...)
 
     adjacent_points = Array{Int64,1}[]
+    adjacent_weights = Array{Float64,1}[]
     ap_offset = 0;
     for bd in bmm_data_arr
         append!(adjacent_points, [ap .+ ap_offset for ap in bd.adjacent_points])
+        append!(adjacent_weights, bd.adjacent_weights)
         ap_offset += size(bd.x, 1)
     end
 
@@ -123,8 +125,23 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
 
     k_neighbors=length(bmm_data_arr[1].knn_neighbors[1])
 
-    res = BmmData(components, x, adjacent_points, bmm_data_arr[1].distribution_sampler, vcat(assignments...); k_neighbors=k_neighbors)
+    res = BmmData(components, x, adjacent_points, adjacent_weights, bmm_data_arr[1].real_edge_weight,
+        deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
+        update_priors=bmm_data_arr[1].update_priors)
+
     res.tracer = merge_tracers([bd.tracer for bd in bmm_data_arr])
 
     return res
+end
+
+function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
+    df = deepcopy(data.x)
+    df[:cell] = deepcopy(data.assignment);
+    df[:is_noise] = (data.assignment .== 0);
+
+    if gene_names !== nothing
+        df[:gene] = gene_names[df[:gene]]
+    end
+
+    return df
 end
