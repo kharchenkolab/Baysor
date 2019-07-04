@@ -30,7 +30,7 @@ function load_centers(path::String; kwargs...)::CenterData
         centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
         center_covs = cov.(coords_per_label);
 
-        return CenterData(DataFrame(centers', [:x, :y]), center_covs, estimate_scale_from_centers(centers))
+        return CenterData(DataFrame(centers', [:y, :x]), center_covs, estimate_scale_from_centers(centers))
     end
 
     error("Unsupported file extension: '$file_ext'")
