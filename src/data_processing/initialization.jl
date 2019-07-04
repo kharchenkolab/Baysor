@@ -13,17 +13,31 @@ end
 assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Array{Int, 1} =
     [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
 
-function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
+
+function position_data_by_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
     filt_mask = (assignment .> 0)
     spatial_df, assignment = spatial_df[filt_mask, :], assignment[filt_mask]
 
     pos_data = position_data(spatial_df);
+    return [pos_data[:, ids] for ids in split(1:length(assignment), assignment)]
+end
 
-    ids_per_clust = split(1:length(assignment), assignment)
-    stds = [vec(std(pos_data[:, ids], dims=2)) for ids in ids_per_clust]
-    mean_stds = vec(median(hcat(stds[length.(ids_per_clust) .> 1]...), dims=2))
-    
-    for i in findall(length.(ids_per_clust) .<= 1)
+center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
+    center_data_from_assignment(spatial_df, Array(spatial_df[assignment_col]); kwargs...)
+
+function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
+    cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
+    covs = covs_from_assignment(spatial_df, assignment)
+    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs],
+        estimate_scale_from_centers(cluster_centers))
+end
+
+function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
+    pos_data_by_assignment = position_data_by_assignment(spatial_df, assignment)
+    stds = [vec(std(pos_data, dims=2)) for pos_data in pos_data_by_assignment]
+    mean_stds = vec(median(hcat(stds[size.(pos_data_by_assignment, 2) .> 1]...), dims=2))
+
+    for i in findall(size.(pos_data_by_assignment, 2) .<= 1)
         stds[i] = deepcopy(mean_stds)
     end
 
@@ -69,15 +83,15 @@ end
     - `df_spatial::DataFrame`: DataFrame with columns `:x`, `:y` and `:gene`
     - `prior_centers::CenterData`: info on centers, extracted from DAPIs. Must have `center_covs` filled.
     - `size_prior::ShapePrior`: shape prior for position_params
-    - `new_component_weight::Float64`: 
-    - `prior_component_weight::Float64`: 
-    - `n_degrees_of_freedom_center::Int`: 
+    - `new_component_weight::Float64`:
+    - `prior_component_weight::Float64`:
+    - `n_degrees_of_freedom_center::Int`:
     - `default_std::Union{Real, Nothing}=nothing`: initial std for position_params in components. Estimated from assignment if `nothing` is passed.
     - `gene_num::Int=maximum(df_spatial[:gene])`: total number of genes in the dataset
     - `shape_deg_freedom::Int`: number of degrees of freedom for `size_prior`. Ignored if `size_prior !== nothing`.
 """
 function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::ShapePrior, new_component_weight::Float64,
-                               prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing, 
+                               prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
                                gene_num::Int=maximum(df_spatial[:gene]), shape_deg_freedom::Int)
     assignment = assign_cells_to_centers(df_spatial, prior_centers.centers);
 
@@ -110,7 +124,7 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
     return components, sampler, assignment
 end
 
-function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64, 
+function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[:gene]))
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
 
@@ -132,8 +146,8 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     return initial_distribution_arr(dfs_spatial, args...; kwargs...)
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing, 
-                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000, 
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing,
+                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000,
                                   update_priors::Union{Symbol, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     if scale === nothing
         scale = centers.scale_estimate
@@ -157,11 +171,11 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
     end
 
     return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
-                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center, 
+                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
                 shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, kwargs...);
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number, 
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number,
                                   n_cells_init::Int=1000, new_component_weight::Number=0.2, kwargs...)::Array{BmmData, 1}
     size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
     initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale)
