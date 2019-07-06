@@ -16,7 +16,7 @@ end
 
 estimate_scale_from_centers(centers::Array{Float64, 2}) = median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
 
-function load_centers(path::String; kwargs...)::CenterData
+function load_centers(path::String; min_segment_size::Int=0, kwargs...)::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
         df_centers = read_spatial_df(path; gene_col=nothing, kwargs...) |> unique;
@@ -26,6 +26,7 @@ function load_centers(path::String; kwargs...)::CenterData
     if file_ext == ".png"
         segmentation_labels = Images.load(path) |> Images.label_components |> Array{Int}
         coords_per_label = Baysor.coords_per_segmentat_label(segmentation_labels);
+        coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
 
         centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
         center_covs = cov.(coords_per_label);
