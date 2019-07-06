@@ -80,7 +80,7 @@ function update_gene_count_priors!(components::Array{Component, 1}, neighb_inds:
 end
 
 function smooth_size_prior_knn!(components::Array{Component, 1}, neighb_inds::Array{Array{Int, 1}, 1})
-    sizes_per_cell = [hcat([eigen(shape(d.position_params)).values for d in components[inds]]...) for inds in neighb_inds];
+    sizes_per_cell = [hcat(eigen_values.(components[inds])...) for inds in neighb_inds];
     mean_sizes_per_cell = [vec(mapslices(trim_mean, sizes, dims=2)) for sizes in sizes_per_cell];
 
     for (prior_means, c) in zip(mean_sizes_per_cell, components)
@@ -89,7 +89,7 @@ function smooth_size_prior_knn!(components::Array{Component, 1}, neighb_inds::Ar
 end
 
 function smooth_size_prior_global!(bm_data_arr::Array{BmmData, 1}; set_individual_priors::Bool=false)
-    sizes_per_cell = hcat(vcat([[eigen(shape(d.position_params)).values for d in bm_data.components] for bm_data in bm_data_arr]...)...)
+    sizes_per_cell = hcat(vcat([eigen_values(bm_data.components) for bm_data in bm_data_arr]...)...)
     n_mols_per_cell = vcat(num_of_molecules_per_cell.(bm_data_arr)...)
 
     n_min, n_max = minimum(n_mols_per_cell), maximum(n_mols_per_cell)

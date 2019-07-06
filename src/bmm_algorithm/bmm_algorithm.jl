@@ -4,7 +4,7 @@ using NearestNeighbors
 using StatsBase
 
 using Base.Threads
-using Dates: now
+using Dates: now, DateTime
 
 import DistributedArrays
 
@@ -27,8 +27,8 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 """
 ...
 # Arguments
-- `assignment::Array{Int, 1}`: 
-- `adjacent_points::Array{Int, 1}`: 
+- `assignment::Array{Int, 1}`:
+- `adjacent_points::Array{Int, 1}`:
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
 function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
@@ -46,7 +46,7 @@ function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::
     return collect(keys(component_weights)), collect(values(component_weights)), zero_comp_weight
 end
 
-function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-30)
+function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     for i in 1:size(data.x, 1)
         x, y, gene, confidence = (data.x[i, [:x, :y, :gene, :confidence]]...,)
         adj_classes, adj_weights, zero_comp_weight = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
@@ -112,7 +112,7 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
         return
     end
 
-    mean_shape = vec(median(hcat([eigen(shape(c.position_params)).values for c in components]...), dims=2))
+    mean_shape = vec(median(hcat(eigen_values.(components)...), dims=2))
     set_shape_prior!(data.distribution_sampler, mean_shape)
 
     for c in data.components
@@ -120,7 +120,7 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
     end
 end
 
-function maximize!(data::BmmData, min_molecules_per_cell::Int)
+function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=true)
     ids_by_assignment = split(collect(1:length(data.assignment)), data.assignment .+ 1)[2:end]
     append!(ids_by_assignment, [Int[] for i in length(ids_by_assignment):length(data.components)])
 
@@ -134,7 +134,9 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int)
     end
     # data.components = pmap(v -> maximize(v...), zip(data.components, pos_data_by_assignment, comp_data_by_assignment))
 
-    maximize_prior!(data, min_molecules_per_cell)
+    if do_maximize_prior
+        maximize_prior!(data, min_molecules_per_cell)
+    end
 
     data.noise_density = estimate_noise_density_level(data)
 end
@@ -149,7 +151,7 @@ function estimate_noise_density_level(data::BmmData)
 end
 
 function append_empty_components!(data::BmmData, new_component_frac::Float64, adj_classes_global::Dict{Int, Array{Int, 1}})
-    for i in 1:round(Int, new_component_frac * length(data.components))
+    for i in 1:round(Int, new_component_frac * length(data.components)) # TODO: Should add adjacent points to all empty components (because of prior components)
         new_comp = sample_distribution(data)
         push!(data.components, new_comp)
 
@@ -164,10 +166,13 @@ function append_empty_components!(data::BmmData, new_component_frac::Float64, ad
     end
 end
 
+trace_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
+    println("EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(length(data.components)). " *
+        "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, history_step::Int=0, new_component_frac::Float64=0.05,
               return_assignment_history::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing)
-    ts = now()
+    time_start = now()
 
     if verbose
         println("EM fit started")
@@ -179,7 +184,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     assignment_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
     adj_classes_global = Dict{Int, Array{Int, 1}}()
 
-    maximize!(data, min_molecules_per_cell)
+    trace_prior_shape!(data);
+    trace_n_components!(data, min_molecules_per_cell);
+
+    maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
 
     for i in 1:n_iters
         if (history_step > 0) && (i.==1 || i % history_step == 0)
@@ -189,6 +197,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         expect_dirichlet_spatial!(data, adj_classes_global)
         maximize!(data, min_molecules_per_cell)
 
+        trace_prior_shape!(data);
         trace_n_components!(data, min_molecules_per_cell);
 
         drop_unused_components!(data)
@@ -199,7 +208,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         it_num = i
         if verbose && i % log_step == 0
-            println("EM part done for $(now() - ts) in $it_num iterations. #Components: $(length(data.components)). Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
+            trace_em_state(data, it_num, time_start)
         end
 
         if return_assignment_history
@@ -213,7 +222,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     if verbose
-        println("EM part done for $(now() - ts) in $it_num iterations. #Components: $(size(data.components, 1))")
+        trace_em_state(data, it_num, time_start)
     end
 
     res = Any[data]

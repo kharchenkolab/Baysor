@@ -112,14 +112,18 @@ function convex_hull(a::Array{Array{T,1},1} where T<:Real)
     return hcat(vcat(up, reverse(down[1:end-1]))...);
 end
 
-function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Union{Symbol, Nothing}=:gene)
+function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Union{Symbol, Nothing}=:gene, filter_cols::Bool=false)
     df_spatial = CSV.read(data_path);
 
     if gene_col === nothing
-        df_spatial = df_spatial[[x_col, y_col]]
+        if filter_cols
+            df_spatial = df_spatial[[x_col, y_col]]
+        end
         DataFrames.rename!(df_spatial, x_col => :x, y_col => :y);
     else
-        df_spatial = df_spatial[[x_col, y_col, gene_col]]
+        if filter_cols
+            df_spatial = df_spatial[[x_col, y_col, gene_col]]
+        end
         DataFrames.rename!(df_spatial, x_col => :x, y_col => :y, gene_col => :gene);
     end
 
@@ -132,6 +136,6 @@ function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T
     elseif x > x_end
         return y_end
     end
-    
+
     return y_start + (x - x_start) / (x_end - x_start) * (y_end - y_start)
 end

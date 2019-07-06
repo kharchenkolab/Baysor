@@ -105,3 +105,5 @@ end
 position(c::Component) = c.position_params.μ
 
 set_shape_prior!(c::Component, var_arr::Array{Float64, 1}) = begin c.shape_prior = ShapePrior(c.shape_prior.n_samples_var, var_arr) end
+
+eigen_values(c::Component) = eigen(shape(c.position_params)).values

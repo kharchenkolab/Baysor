@@ -40,6 +40,8 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     return fig
 end
 
+### Tracing
+
 function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
     if !("n_components" in keys(tracer)) || length(tracer["n_components"]) == 0
         error("No data about #components per iteration was stored")
@@ -58,6 +60,12 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
     end
 
     return p
+end
+
+function plot_prior_shape_per_iteration(tracer::Dict{String, Any})
+    Plots.plot(get.(tracer["prior_shape"], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
+        xlabel="Iteration", ylabel="Eigenvalue", title="Shape prior")
+    Plots.plot!(get.(tracer["prior_shape"], 2, 0) .^ 0.5, label="(eigenvalue 2)^0.5")
 end
 
 
