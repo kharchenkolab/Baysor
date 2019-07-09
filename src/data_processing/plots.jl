@@ -12,21 +12,26 @@ function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int
     return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
 end
 
+plot_cell_borders_polygons!(args...; kwargs...) =
+    plot_cell_borders_polygons(args...; append=true, kwargs...)
+
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, color=:gene,
-                                    center_size::Real=50.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, kwargs...)
+                                    center_size::Real=5.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5,
+                                    offset=(0, 0), kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[color]
     end
 
-    fig = Plots.scatter(df_spatial[:x], df_spatial[:y]; color=color, markerstrokewidth=0, markersize=point_size,
-                        alpha=0.5, legend=false, size=size, format=:png, kwargs...)
+    scat_func = append ? (a...; kw...) -> Plots.scatter!(a...; kw...) : (a...; kw...) -> Plots.scatter(a...; kw..., size=size)
+    fig = scat_func(df_spatial[:x] .+ offset[1], df_spatial[:y] .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
+                    alpha=alpha, legend=false, format=:png, kwargs...)
 
     for pg in polygons
-        Plots.plot!(Plots.Shape(pg[:,1], pg[:,2]), fill=(0, 0.0), linewidth=polygon_line_width)
+        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width)
     end
 
     if df_centers !== nothing
-        Plots.scatter!(df_centers[:x], df_centers[:y], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, legend=false)
+        Plots.scatter!(df_centers[:x] .+ offset[1], df_centers[:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, legend=false)
     end
 
     if xlims !== nothing
