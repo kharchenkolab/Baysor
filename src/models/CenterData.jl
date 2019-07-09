@@ -14,13 +14,18 @@ mutable struct CenterData
         new(centers, center_covs, scale_estimate)
 end
 
-estimate_scale_from_centers(centers::Array{Float64, 2}) = median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
+"""
+Estimates scale as a 0.5 * median distance between two nearest centers multiplied by `scale_mult`
+"""
+estimate_scale_from_centers(centers::Array{Float64, 2}; scale_mult::Float64=0.75) =
+    scale_mult * median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
 
-function load_centers(path::String; min_segment_size::Int=0, kwargs...)::CenterData
+function load_centers(path::String; min_segment_size::Int=0, scale_mult::Float64=0.75, kwargs...)::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
         df_centers = read_spatial_df(path; gene_col=nothing, kwargs...) |> unique;
-        return CenterData(df_centers, estimate_scale_from_centers(position_data(df_centers)))
+        scale = estimate_scale_from_centers(position_data(df_centers), scale_mult=scale_mult)
+        return CenterData(df_centers, scale)
     end
 
     if file_ext == ".png"
@@ -31,7 +36,8 @@ function load_centers(path::String; min_segment_size::Int=0, kwargs...)::CenterD
         centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
         center_covs = cov.(coords_per_label);
 
-        return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, estimate_scale_from_centers(centers))
+        scale = estimate_scale_from_centers(centers, scale_mult=scale_mult)
+        return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale)
     end
 
     error("Unsupported file extension: '$file_ext'")

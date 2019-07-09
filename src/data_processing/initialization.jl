@@ -25,11 +25,11 @@ end
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
     center_data_from_assignment(spatial_df, Array(spatial_df[assignment_col]); kwargs...)
 
-function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
+function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5, scale_mult::Float64=0.75)
     cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
     covs = covs_from_assignment(spatial_df, assignment)
     return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs],
-        estimate_scale_from_centers(cluster_centers))
+        estimate_scale_from_centers(cluster_centers, scale_mult=scale_mult))
 end
 
 function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
@@ -140,10 +140,14 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return components, sampler, initial_params.assignment
 end
 
-function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, kwargs...)::Array{BmmData, 1}
+function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, kwargs...)::Array{BmmData, 1}
     dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
     @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
     @info "Done."
+
+    if (n_frames_return > 0) && (n_frames_return < n_frames)
+        dfs_spatial = dfs_spatial[1:n_frames_return]
+    end
 
     return initial_distribution_arr(dfs_spatial, args...; kwargs...)
 end
