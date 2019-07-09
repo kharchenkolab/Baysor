@@ -89,28 +89,30 @@ end
     - `default_std::Union{Real, Nothing}=nothing`: initial std for position_params in components. Estimated from assignment if `nothing` is passed.
     - `gene_num::Int=maximum(df_spatial[:gene])`: total number of genes in the dataset
     - `shape_deg_freedom::Int`: number of degrees of freedom for `size_prior`. Ignored if `size_prior !== nothing`.
+    - `noise_confidence_threshold::Float64=0.1`: all molecules with confidence < `noise_confidence_threshold` are assigned to noise class
 """
 function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::ShapePrior, new_component_weight::Float64,
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-                               gene_num::Int=maximum(df_spatial[:gene]), shape_deg_freedom::Int)
+                               gene_num::Int=maximum(df_spatial[:gene]), shape_deg_freedom::Int, noise_confidence_threshold::Float64=0.1)
     assignment = assign_cells_to_centers(df_spatial, prior_centers.centers);
+    if :confidence in names(df_spatial)
+        assignment[df_spatial[:confidence] .< noise_confidence_threshold] .= 0
+    end
 
-    mtx_centers = Matrix{Float64}(prior_centers.centers);
+    mtx_centers = position_data(prior_centers.centers);
 
-    covs = (default_std === nothing) ? covs_from_assignment(df_spatial, assignment) : [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 1)]
+    covs = (default_std === nothing) ? covs_from_assignment(df_spatial, assignment) : [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 2)]
 
-    prior_distributions = [MvNormal(mtx_centers[i,:], cov) for (i, cov) in enumerate(covs)];
+    prior_distributions = [MvNormal(vec(mtx_centers[:, i]), cov) for (i, cov) in enumerate(covs)];
     gene_prior = SingleTrialMultinomial(ones(Int, gene_num));
 
-    n_mols_per_center = count_array(assignment, max_value=length(prior_distributions));
+    n_mols_per_center = count_array(assignment .+ 1, max_value=length(prior_distributions) + 1)[2:end];
     center_priors = [CellCenter(pd.μ, deepcopy(cov), n_degrees_of_freedom_center) for (pd,cov) in zip(prior_distributions, prior_centers.center_covs)]
     components = [Component(pd, deepcopy(gene_prior), shape_prior=deepcopy(size_prior), center_prior=cp,
                             n_samples=n, prior_weight=prior_component_weight, can_be_dropped=false)
                     for (pd, cp, n) in zip(prior_distributions, center_priors, n_mols_per_center)];
 
-    @assert all([c.n_samples for c in components] .== count_array(assignment, max_value=length(components)));
-
-    ids_per_comp = split(collect(1:length(assignment)), assignment)
+    ids_per_comp = split(collect(1:length(assignment)), assignment .+ 1)[2:end]
     for (ids, comp) in zip(ids_per_comp, components)
         if comp.n_samples > 0
             comp.position_params = maximize(comp.position_params, position_data(df_spatial)[:,ids])
