@@ -150,13 +150,17 @@ function estimate_noise_density_level(data::BmmData)
     return position_density * composition_density
 end
 
-function append_empty_components!(data::BmmData, new_component_frac::Float64, adj_classes_global::Dict{Int, Array{Int, 1}})
-    for i in 1:round(Int, new_component_frac * length(data.components)) # TODO: Should add adjacent points to all empty components (because of prior components)
-        new_comp = sample_distribution(data)
-        push!(data.components, new_comp)
+append_empty_components!(data::BmmData, new_component_frac::Float64) =
+    append!(data.components, [sample_distribution(data) for i in 1:round(Int, new_component_frac * length(data.components))])
 
-        cur_id = length(data.components)
-        for t_id in data.adjacent_points[knn(data.position_knn_tree, new_comp.position_params.μ, 1)[1][1]]
+function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
+    adj_classes_global = Dict{Int, Array{Int, 1}}()
+    for (cur_id, comp) in enumerate(data.components)
+        if comp.n_samples > 0
+            continue
+        end
+
+        for t_id in data.adjacent_points[knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]]
             if t_id in keys(adj_classes_global)
                 push!(adj_classes_global[t_id], cur_id)
             else
@@ -164,10 +168,12 @@ function append_empty_components!(data::BmmData, new_component_frac::Float64, ad
             end
         end
     end
+
+    return adj_classes_global
 end
 
 trace_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
-    println("EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(length(data.components)). " *
+    println("EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, history_step::Int=0, new_component_frac::Float64=0.05,
@@ -202,9 +208,9 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         drop_unused_components!(data)
 
-        adj_classes_global = Dict{Int, Array{Int, 1}}()
-        append_empty_components!(data, new_component_frac, adj_classes_global)
+        append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components)
+        adj_classes_global = get_global_adjacent_classes(data)
 
         it_num = i
         if verbose && i % log_step == 0
