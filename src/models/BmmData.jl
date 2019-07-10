@@ -102,22 +102,22 @@ end
 function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
     @assert length(bmm_data_arr) > 0
 
-    x = vcat([bd.x for bd in bmm_data_arr]...)
-    components = vcat([bd.components for bd in bmm_data_arr]...)
+    x = vcat([deepcopy(bd.x) for bd in bmm_data_arr]...)
+    components = vcat([deepcopy(bd.components) for bd in bmm_data_arr]...)
 
     adjacent_points = Array{Int64,1}[]
     adjacent_weights = Array{Float64,1}[]
     ap_offset = 0;
     for bd in bmm_data_arr
-        append!(adjacent_points, [ap .+ ap_offset for ap in bd.adjacent_points])
-        append!(adjacent_weights, bd.adjacent_weights)
+        append!(adjacent_points, [deepcopy(ap) .+ ap_offset for ap in bd.adjacent_points])
+        append!(adjacent_weights, deepcopy(bd.adjacent_weights))
         ap_offset += size(bd.x, 1)
     end
 
     assignments = Array{Int64,1}[]
     assignment_offset = 0;
     for bd in bmm_data_arr
-        cur_assignment = bd.assignment .+ assignment_offset
+        cur_assignment = deepcopy(bd.assignment) .+ assignment_offset
         cur_assignment[bd.assignment .== 0] .= 0
         push!(assignments, cur_assignment)
         assignment_offset += length(bd.components)
