@@ -143,5 +143,8 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
         df[:gene] = gene_names[df[:gene]]
     end
 
+    has_center_prior = [c.center_prior !== nothing for c in data.components];
+    df[:has_center] = get.(Ref(has_center_prior), data.assignment, false)
+
     return df
 end
