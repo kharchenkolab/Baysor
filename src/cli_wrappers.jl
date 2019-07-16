@@ -126,7 +126,7 @@ function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, 
     color_transformation = gene_composition_transformation(neighb_cm)
 
     frame_size = args["plot-frame-size"]
-    borders = [collect(range([floor(f(df_res[s]) / frame_size) * frame_size for f in [minimum, maximum]]..., step=frame_size)) for s in [:x, :y]];
+    borders = [collect(range([floor(f(df_res[!, s]) / frame_size) * frame_size for f in [minimum, maximum]]..., step=frame_size)) for s in [:x, :y]];
     borders = collect(Iterators.product(borders...));
 
     plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
@@ -151,9 +151,9 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     df_spatial, gene_names = load_df(args)
     df_centers = args["centers"] === nothing ? nothing : read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
 
-    bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"], 
-        shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"], 
-        new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"], 
+    bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"],
+        shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
+        new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"],
         center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
         min_molecules_per_cell=args["min-molecules-per-cell"]);
 
@@ -167,7 +167,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Processing complete."
 
     df_res = bm_data.x
-    df_res[:assignment] = bm_data.assignment;
+    df_res[!, :assignment] = bm_data.assignment;
 
     if args["plot"]
         @info "Plot results"
@@ -175,7 +175,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     end
 
     @info "Save data to $(args["output"])"
-    df_res[:gene] = gene_names[df_res[:gene]]
+    df_res[!, :gene] = gene_names[df_res[!, :gene]]
     CSV.write(args["output"], df_res);
 
     @info "All done!"

@@ -23,7 +23,7 @@ function position_data_by_assignment(spatial_df::DataFrame, assignment::Array{In
 end
 
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
-    center_data_from_assignment(spatial_df, Array(spatial_df[assignment_col]); kwargs...)
+    center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
 
 function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5, scale_mult::Float64=0.75)
     cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
@@ -77,7 +77,7 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; update_priors::Symb
 end
 
 function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-           gene_num::Int=maximum(df_spatial[:gene]), noise_confidence_threshold::Float64=0.1, n_cells_init::Int=0)
+           gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1, n_cells_init::Int=0)
 
     mtx_centers = position_data(prior_centers.centers)
     pos_data = position_data(df_spatial)
@@ -97,7 +97,7 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
 
     assignment = kshiftlabels(pos_data, mtx_centers);
     if :confidence in names(df_spatial)
-        assignment[df_spatial[:confidence] .< noise_confidence_threshold] .= 0
+        assignment[df_spatial[!,:confidence] .< noise_confidence_threshold] .= 0
     end
 
     covs = (default_std === nothing) ?
@@ -131,7 +131,7 @@ end
 """
 function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::ShapePrior, new_component_weight::Float64,
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-                               gene_num::Int=maximum(df_spatial[:gene]), shape_deg_freedom::Int, noise_confidence_threshold::Float64=0.1,
+                               gene_num::Int=maximum(df_spatial[!,:gene]), shape_deg_freedom::Int, noise_confidence_threshold::Float64=0.1,
                                n_cells_init::Int=0)
 
     assignment, pos_distributions, center_priors, can_be_dropped = initial_distribution_data(df_spatial, prior_centers;
@@ -159,7 +159,7 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
-                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[:gene]))
+                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
 
     position_distrubutions = [MvNormal(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:initial_params.n_comps]
@@ -239,19 +239,19 @@ end
 function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0)
     df_spatial = read_spatial_df(data_path, x_col=x_col, y_col=y_col, gene_col=gene_col)
 
-    gene_counts = StatsBase.countmap(df_spatial[:gene]);
+    gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
     large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);
-    df_spatial = df_spatial[in.(df_spatial[:gene], Ref(large_genes)),:];
+    df_spatial = df_spatial[in.(df_spatial[!, :gene], Ref(large_genes)),:];
 
-    df_spatial[:x] = Array{Float64, 1}(df_spatial[:x])
-    df_spatial[:y] = Array{Float64, 1}(df_spatial[:y])
-    df_spatial[:gene], gene_names = encode_genes(df_spatial[:gene]);
+    df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
+    df_spatial[!, :y] = Array{Float64, 1}(df_spatial[!, :y])
+    df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
     return df_spatial, gene_names;
     # return filter_background(df_spatial), gene_names;
 end
 
 function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame, 1}
-    factor = vec(sum(hcat([df[key] .<= quantile(df[key], q) for q in range(1 / n, stop=1.0, length=n)]...), dims=2))
+    factor = vec(sum(hcat([df[!,key] .<= quantile(df[!,key], q) for q in range(1 / n, stop=1.0, length=n)]...), dims=2))
     return split(df, factor)
 end
 

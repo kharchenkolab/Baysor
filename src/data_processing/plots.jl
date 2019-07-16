@@ -19,11 +19,11 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                                     center_size::Real=5.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5,
                                     offset=(0, 0), kwargs...)
     if typeof(color) === Symbol
-        color = df_spatial[color]
+        color = df_spatial[!,color]
     end
 
     scat_func = append ? (a...; kw...) -> Plots.scatter!(a...; kw...) : (a...; kw...) -> Plots.scatter(a...; kw..., size=size)
-    fig = scat_func(df_spatial[:x] .+ offset[1], df_spatial[:y] .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
+    fig = scat_func(df_spatial[!,:x] .+ offset[1], df_spatial[!,:y] .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
                     alpha=alpha, legend=false, format=:png, kwargs...)
 
     for pg in polygons
@@ -31,7 +31,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     end
 
     if df_centers !== nothing
-        Plots.scatter!(df_centers[:x] .+ offset[1], df_centers[:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, legend=false)
+        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, legend=false)
     end
 
     if xlims !== nothing
@@ -76,12 +76,12 @@ end
 
 ### Gene composition visualization
 
-neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x[:gene]))
-function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df[:gene]))
+neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x[!, :gene]))
+function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df[!, :gene]))
     points = position_data(df);
     neighbors = knn(KDTree(points), points, k)[1];
 
-    return hcat([prob_vec(df[:gene][ids], n_genes) for ids in neighbors]...)
+    return hcat([prob_vec(df[ids, :gene], n_genes) for ids in neighbors]...)
 end
 
 function prob_vec(gene_ids::Array{Int, 1}, max_gene::Int, smooth::Int=0)
@@ -139,8 +139,8 @@ function extract_plot_information(df_spatial::DataFrame, df_centers::DataFrame, 
     end
 
     cur_df_centers = subset_df_by_coords(df_centers, cur_df);
-    polygons = boundary_polygons(cur_df, cur_df[:assignment], min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
-    gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial[:gene])), color_transformation);
+    polygons = boundary_polygons(cur_df, cur_df[!,:assignment], min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
+    gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial[!,:gene])), color_transformation);
 
     res = Dict(:df => cur_df, :polygons => polygons, :gene_colors => gene_colors, :centers => cur_df_centers)
     if plot

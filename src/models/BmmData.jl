@@ -69,7 +69,7 @@ mutable struct BmmData
             x[:confidence] = 0.95
         end
 
-        self = new(x, p_data, composition_data(x), x[:confidence], adjacent_points, adjacent_weights, real_edge_weight,
+        self = new(x, p_data, composition_data(x), x[!,:confidence], adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment,
                    0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
@@ -85,11 +85,11 @@ mutable struct BmmData
     end
 end
 
-position_data(df::AbstractDataFrame)::Array{Float64, 2} = Matrix{Float64}(df[[:x, :y]])'
+position_data(df::AbstractDataFrame)::Array{Float64, 2} = Matrix{Float64}(df[:, [:x, :y]])'
 position_data(data::BmmData)::Array{Float64, 2} = data.position_data
-composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[:gene]
+composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[!, :gene]
 composition_data(data::BmmData)::Array{Int, 1} = data.composition_data
-confidence(df::AbstractDataFrame)::Array{Float64, 1} = df[:confidence]
+confidence(df::AbstractDataFrame)::Array{Float64, 1} = df[!, :confidence]
 confidence(data::BmmData)::Array{Float64, 1} = data.composition_data
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
@@ -140,22 +140,22 @@ function get_cell_stat_df(data::BmmData)
     centers = hcat([c.position_params.μ for c in data.components]...)
 
     for s in [:x, :y]
-        df[s] = mean.(split(data.x[s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
+        df[!,s] = mean.(split(data.x[!,s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
     end
 
-    df[:has_center] = [c.center_prior !== nothing for c in data.components]
-    df[:x_prior], df[:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
+    df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
+    df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
 
     return df
 end
 
 function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
     df = deepcopy(data.x)
-    df[:cell] = deepcopy(data.assignment);
-    df[:is_noise] = (data.assignment .== 0);
+    df[!,:cell] = deepcopy(data.assignment);
+    df[!,:is_noise] = (data.assignment .== 0);
 
     if gene_names !== nothing
-        df[:gene] = gene_names[df[:gene]]
+        df[!,:gene] = gene_names[df[!,:gene]]
     end
 
     return df
