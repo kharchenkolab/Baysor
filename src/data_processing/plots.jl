@@ -150,3 +150,33 @@ function extract_plot_information(df_spatial::DataFrame, df_centers::DataFrame, 
 
     return res
 end
+
+### Colormaps
+
+function map_to_colors(vals::Array{T, 1} where T; h=0, n::Int=11, lims=nothing)
+    palette = Colors.sequential_palette(h, n)
+    offset = (lims === nothing) ? minimum(vals) : lims[1]
+    scale = (lims === nothing) ? maximum(vals) - offset : (lims[2] - lims[1])
+
+    color_ticks = collect(range(0.0, 1.0, length=n)) .* scale .+ offset
+    colors = palette[floor.(Int, ((vals .- offset) ./ scale) .* (n - 1) .+ 1)]
+
+    return Dict(:colors=>colors, :ticks=>color_ticks, :palette=>palette)
+end
+
+function distinguishable_colors(vals::Array{T, 1} where T)
+    id_per_type = Dict(c => i for (i,c) in enumerate(unique(vals)));
+    colors_uniq = Colors.distinguishable_colors(length(id_per_type));
+    colors = colors_uniq[get.(Ref(id_per_type), vals, 0)];
+
+    return Dict(:colors=>colors, :ticks=>unique(vals), :palette=>colors_uniq)
+end
+
+plot_colorbar(colors; kwargs...) = plot_colorbar(colors[:ticks], colors[:palette]; kwargs...)
+
+function plot_colorbar(color_ticks, palette; size=(500, 60), rotation=0)
+    p = Plots.bar(color_ticks, ones(length(palette)), color=palette, size=size, legend=false, yticks=false)
+    p.subplots[1][:xaxis][:rotation] = rotation;
+
+    return p
+end
