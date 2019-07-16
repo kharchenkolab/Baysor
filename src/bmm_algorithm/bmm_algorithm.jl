@@ -10,7 +10,7 @@ import DistributedArrays
 
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
     non_noise_ids = findall(data.assignment .> 0)
-    existed_ids = [i for (i,c) in enumerate(data.components) if (c.n_samples >= min_n_samples || (!c.can_be_dropped && !force))]
+    existed_ids = findall([(c.n_samples >= min_n_samples) || (!c.can_be_dropped && !force) for c in data.components])
     id_map = zeros(Int, length(data.components))
     id_map[existed_ids] = 1:length(existed_ids)
 
@@ -121,7 +121,7 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
 end
 
 function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=true)
-    ids_by_assignment = split(collect(1:length(data.assignment)), data.assignment .+ 1)[2:end]
+    ids_by_assignment = split(1:length(data.assignment), data.assignment .+ 1)[2:end]
     append!(ids_by_assignment, [Int[] for i in length(ids_by_assignment):length(data.components)])
 
     pos_data_by_assignment = [position_data(data)[:, p_ids] for p_ids in ids_by_assignment]
@@ -249,7 +249,9 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return res
 end
 
-function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300, channel::Union{RemoteChannel, Nothing}=nothing)
+function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300,
+                            channel::Union{RemoteChannel, Nothing}=nothing, verbose::Bool=false)
+    progress = verbose ? Progress(max_n_iters) : nothing
     for i in 1:max_n_iters
         prev_assignment = deepcopy(bmm_res.assignment)
         drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
@@ -258,6 +260,11 @@ function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n
 
         if channel !== nothing
             put!(channel, true)
+        end
+
+        if verbose
+            changed_assignment = (bmm_res.assignment .!= prev_assignment)
+            ProgressMeter.next!(progress; showvalues=[(:iter, i), (:change, sum(changed_assignment)), (:change_frac, mean(changed_assignment))])
         end
 
         if (minimum(num_of_molecules_per_cell(bmm_res)) >= min_molecules_per_cell) && all(bmm_res.assignment .== prev_assignment)
@@ -328,18 +335,21 @@ function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays
     end
 end
 
-function run_bmm_parallel(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, verbose::Bool=true, n_refinement_iters::Int=100, kwargs...)#::Array{BmmData, 1}
+function run_bmm_parallel(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, verbose::Bool=true,
+                          n_refinement_iters::Int=100, kwargs...)::Array{BmmData, 1}
     @info "Pushing data to workers"
     da = push_data_to_workers(bm_data_arr)
 
     @info "Algorithm start"
     bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
 
-    @info "Pushing data for refinement"
-    da = push_data_to_workers(bm_data_arr)
+    if n_refinement_iters > 0
+        @info "Pushing data for refinement"
+        da = push_data_to_workers(bm_data_arr)
 
-    @info "Refinement"
-    bm_data_arr = pmap_progress(refine_bmm_result!, da, n_refinement_iters * length(da), min_molecules_per_cell; max_n_iters=n_refinement_iters)
+        @info "Refinement"
+        bm_data_arr = pmap_progress(refine_bmm_result!, da, n_refinement_iters * length(da), min_molecules_per_cell; max_n_iters=n_refinement_iters)
+    end
 
     @info "Done!"
 
