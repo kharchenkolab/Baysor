@@ -134,6 +134,21 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
     return res
 end
 
+function get_cell_stat_df(data::BmmData)
+    df = DataFrame(:cell => 1:length(data.components))
+
+    centers = hcat([c.position_params.μ for c in data.components]...)
+
+    for s in [:x, :y]
+        df[s] = mean.(split(data.x[s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
+    end
+
+    df[:has_center] = [c.center_prior !== nothing for c in data.components]
+    df[:x_prior], df[:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
+
+    return df
+end
+
 function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
     df = deepcopy(data.x)
     df[:cell] = deepcopy(data.assignment);
@@ -142,9 +157,6 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     if gene_names !== nothing
         df[:gene] = gene_names[df[:gene]]
     end
-
-    has_center_prior = [c.center_prior !== nothing for c in data.components];
-    df[:has_center] = get.(Ref(has_center_prior), data.assignment, false)
 
     return df
 end
