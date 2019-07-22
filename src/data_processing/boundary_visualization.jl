@@ -144,6 +144,7 @@ function longest_paths(edges::Array{T, 1})::Array{Array{Int, 1}, 1} where T <: L
     return longest_paths
 end
 
+boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
 function boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3)::Array{Array{Float64, 2}, 1}
     if min_x === nothing

@@ -16,7 +16,7 @@ plot_cell_borders_polygons!(args...; kwargs...) =
     plot_cell_borders_polygons(args...; append=true, kwargs...)
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, color=:gene,
-                                    center_size::Real=5.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5,
+                                    center_size::Real=3.0, polygon_line_width=1, size=(800, 600), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5,
                                     offset=(0, 0), kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[!,color]
