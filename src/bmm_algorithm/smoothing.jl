@@ -76,6 +76,8 @@ function update_gene_count_priors!(components::Array{Component, 1}, neighb_inds:
         for comp_src in components[inds]
             comp_dst.gene_count_prior .+= counts(comp_src.composition_params)
         end
+
+        comp_dst.gene_count_prior_sum = sum(comp_dst.gene_count_prior)
     end
 end
 
@@ -144,4 +146,46 @@ function update_priors!(bmm_data_arr::Array{BmmData,1}; use_cell_type_size_prior
     update_gene_prior!(bmm_data_arr, count_matrix, n_molecules_per_cell)
 
     return bmm_data_arr
+end
+
+## NEW
+
+function extract_gene_matrix_from_distributions2(components::Array{Component, 1}, n_genes::Int=length(components[1].composition_params.counts))::Array{Float64, 2}
+    counts_per_cell = [counts(c.composition_params) for c in components];
+    for i in 1:size(counts_per_cell, 1)
+        n_genes_cur = size(counts_per_cell[i], 1)
+        if n_genes_cur < n_genes
+            append!(counts_per_cell[i], zeros(n_genes - n_genes_cur))
+        end
+    end
+
+    return hcat(counts_per_cell...);
+end
+
+function knn_by_expression2(count_matrix::Array{T, 2} where T <: Real,
+                            n_molecules_per_cell::Array{Int, 1}=round.(Int, vec(sum(count_matrix, dims=1)));
+                            k::Int=15, min_molecules_per_cell::Int=10, n_prin_comps::Int=0)::Array{Array{Int, 1}, 1}
+    count_matrix_norm = count_matrix ./ sum(count_matrix, dims=1)
+    neighborhood_matrix = count_matrix_norm
+    if n_prin_comps > 0
+        pca = MultivariateStats.fit(MultivariateStats.PCA, count_matrix_norm; maxoutdim=n_prin_comps);
+        neighborhood_matrix = MultivariateStats.transform(pca, count_matrix_norm)
+    end
+
+    if maximum(n_molecules_per_cell) < min_molecules_per_cell
+        @warn "No cells pass min_molecules threshold ($min_molecules_per_cell). Resetting it to 1"
+        min_molecules_per_cell = 1
+    end
+
+    real_cell_inds = findall(n_molecules_per_cell .>= min_molecules_per_cell);
+
+    if length(real_cell_inds) < k
+        @warn "Number of large cells ($(length(real_cell_inds))) is lower than the requested number of nearest neighbors ($k)"
+        k = length(real_cell_inds)
+    end
+
+    kd_tree = KDTree(neighborhood_matrix[:, real_cell_inds]);
+    neighb_inds = [ids[2:end] for ids in knn(kd_tree, neighborhood_matrix, k + 1, true)[1]]
+
+    return [real_cell_inds[inds] for inds in neighb_inds]
 end
