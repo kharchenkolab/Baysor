@@ -10,7 +10,9 @@ import Distributions.pdf
 import Distributions.logpdf
 import Statistics.rand
 
-include("utils.jl")
+include("utils/utils.jl")
+include("utils/convex_hull.jl")
+include("utils/spatial.jl")
 
 include("distributions/MvNormal.jl")
 include("distributions/SingleTrialMultinomial.jl")
