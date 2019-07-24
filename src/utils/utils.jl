@@ -69,14 +69,8 @@ end
 
 split(array::UnitRange{Int64}, factor::Array{Int64,1}) = split(collect(array), factor)
 
-function split(df::DataFrame, factor::Array{Int, 1})
-    res = Array{DataFrame, 1}(undef, maximum(factor))
-    for i in unique(factor)
-        res[i] = df[factor .== i, :]
-    end
-
-    return res
-end
+split(df::DataFrame, factor::Symbol) = split(df, Array(df[!, factor]))
+split(df::DataFrame, factor::Array{Int, 1}) = [df[ids, :] for ids in split(1:size(df, 1), factor)]
 
 function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T=0.0)::Float64 where T<:Real
     if x < x_start
