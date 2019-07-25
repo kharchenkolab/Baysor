@@ -146,7 +146,7 @@ function get_cell_stat_df(data::BmmData)
     df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
     df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
 
-    return df
+    return df[num_of_molecules_per_cell(data) .> 0,:]
 end
 
 function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
