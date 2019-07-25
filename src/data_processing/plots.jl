@@ -3,6 +3,8 @@ using Colors
 using Measures
 using DataFrames
 using DataFramesMeta
+using NearestNeighbors
+using Statistics
 
 import MultivariateStats
 import Plots
@@ -98,21 +100,35 @@ end
 ### Gene composition visualization
 
 neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x[!, :gene]))
-function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df[!, :gene]))
-    points = position_data(df);
-    neighbors = knn(KDTree(points), points, k)[1];
-
-    return hcat([prob_vec(df[ids, :gene], n_genes) for ids in neighbors]...)
-end
-
-function prob_vec(gene_ids::Array{Int, 1}, max_gene::Int, smooth::Int=0)
-    probs = Array{Int}(zeros(max_gene))
-    for id in gene_ids
-        probs[id] += 1
+function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df[!, :gene]); normalize_by_dist::Bool=true)
+    if k < 3
+        @warn "Too small value of k: $k. Setting it to 3."
+        k = 3
     end
 
-    probs .+= smooth
-    return probs ./ sum(probs)
+    points = position_data(df);
+    neighbors, dists = knn(KDTree(points), points, k, true);
+
+    n_cm = zeros(maximum(df.gene), size(df, 1));
+
+    if !normalize_by_dist
+        for (i,ids) in enumerate(neighbors)
+            prob_array!(view(n_cm, :, i), df[ids, :gene])
+        end
+
+        return n_cm
+    end
+
+    # normalize_by_dist doesn't affect result much, but neither it slow the work down. In theory, should work better for border cases.
+    med_closest_dist = median(getindex.(dists, 2))
+    for (i,(ids, dists)) in enumerate(zip(neighbors, dists))
+        c_probs = view(n_cm, :, i)
+        for (gene, dist) in zip(df[ids, :gene], dists)
+            c_probs[gene] += 1 / max(dist, med_closest_dist)
+        end
+    end
+
+    return n_cm ./ sum(n_cm, dims=1);
 end
 
 function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, kwargs...)
@@ -134,11 +150,10 @@ end
 function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation)
     mtx_trans = MultivariateStats.transform(transformation, count_matrix);
 
-    mtx_colors = mtx_trans .- mapslices(minimum, mtx_trans, dims=2)
-    mtx_colors ./= mapslices(maximum, mtx_colors, dims=2);
+    mtx_colors = mtx_trans .- minimum(mtx_trans, dims=2)
+    mtx_colors ./= maximum(mtx_colors, dims=2);
     mtx_colors .*= 100;
 
-    # return vec(mapslices(col -> "#" * hex(Colors.Lab(col...)), mtx_colors, dims=1))
     return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
 end
 
