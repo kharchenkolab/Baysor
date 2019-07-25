@@ -9,15 +9,20 @@ function sample_distribution(data::BmmData, shape_prior::ShapePrior; center_prio
     return MvNormal(μ, Σ)
 end
 
-function sample_n_samples(data::BmmData; n_trials_max::Int=500)
-    for i in 1:n_trials_max
+function sample_n_samples(data::BmmData; n_trials_max::Int=5)
+    for i in 1:n_trials_max # Try sample first from all components, as filtration takes too long
         n_samples = sample(data.components).n_samples;
         if n_samples != 0
             return n_samples
         end
     end
 
-    error("Too many components have n_samples == 0")
+    non_zero_comps = filter(c -> c.n_samples > 0, data.components)
+    if length(non_zero_comps) == 0
+        error("All components have n_samples == 0")
+    end
+
+    return sample(non_zero_comps).n_samples;
 end
 
 function sample_composition_params(data::BmmData)
