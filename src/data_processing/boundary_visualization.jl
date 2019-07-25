@@ -163,7 +163,7 @@ function boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; m
     coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
 
     dens_per_label = use_kde ? 
-        estimate_kde_density.(coords_per_label, Ref(grid_points_mat), bandwidth) : 
+        estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth) : 
         estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
 
     densities = hcat(dens_per_label...);

@@ -1,7 +1,7 @@
 using DataFrames
 using KernelDensity
 
-estimate_kde_density(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::Real) = 
+estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::Real) = 
     InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(bandwidth, bandwidth))).itp.(points[1,:], points[2,:])
 
 function count_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothing)
@@ -40,7 +40,7 @@ function prob_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothin
     return counts
 end
 
-function prob_array!(counts::Array{Float64, 1}, values::Array{Int, 1}; smooth::Float64=0.0)
+function prob_array!(counts::Union{Array{Float64, 1}, SubArray{Float64,1}}, values::Array{Int, 1}; smooth::Float64=0.0)
     sum_value = length(values) + length(counts) * smooth
     counts .= smooth / sum_value
     for v in values
