@@ -146,7 +146,8 @@ end
 
 boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
 function boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-                           grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3)::Array{Array{Float64, 2}, 1}
+                           grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3, use_kde::Bool=true,
+                           bandwidth::Float64=grid_step / 2)::Array{Array{Float64, 2}, 1}
     if min_x === nothing
         min_x = vec(mapslices(minimum, position_data(spatial_df), dims=2))
     end
@@ -158,8 +159,12 @@ function boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; m
     grid_points = grid_point_coords(min_x, max_x, grid_step);
     grid_points_mat = hcat(grid_points...)
 
-    coords_per_label = [Array(position_data(spatial_df[cell_labels .== i,:])') for i in 1:maximum(cell_labels)];
-    dens_per_label = [estimate_density_norm(coords, grid_points_mat) for coords in coords_per_label if size(coords, 1) >= min_molecules_per_cell];
+    coords_per_label = [position_data(spatial_df[cell_labels .== i,:]) for i in 1:maximum(cell_labels)];
+    coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
+
+    dens_per_label = use_kde ? 
+        estimate_kde_density.(coords_per_label, Ref(grid_points_mat), bandwidth) : 
+        estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
 
     densities = hcat(dens_per_label...);
 
@@ -174,5 +179,5 @@ function boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; m
     paths = longest_paths.(border_mst.(borders_per_label));
 
     polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(borders_per_label, paths)]...);
-    return [hcat([grid_points_plane[c...] for c in coords]...)' for coords in polygons]
+    return [Array(hcat([grid_points_plane[c...] for c in coords]...)') for coords in polygons]
 end
