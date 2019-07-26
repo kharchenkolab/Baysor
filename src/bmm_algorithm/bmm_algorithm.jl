@@ -93,7 +93,6 @@ end
 function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1}, data::BmmData)
     c.n_samples = size(pos_data, 2)
 
-    # TODO: now counts are kept the same, which creates inconsistency between n_samples and sum(counts). It's importnat for smoothing.
     if size(pos_data, 2) == 0
         return maximize_from_prior!(c, data)
     end
