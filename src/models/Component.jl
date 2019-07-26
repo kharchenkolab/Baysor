@@ -83,7 +83,7 @@ end
 
 pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
     pdf(params.position_params, x, y) *
-    pdf(params.composition_params, gene, use_smoothing=use_smoothing, prior=params.gene_count_prior, prior_sum=params.gene_count_prior_sum)
+    pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
 
 function adjust_cov_by_prior(Σ::Array{Float64, 2}, n_samples::Int, prior::ShapePrior)
     fact = eigen(Σ)
