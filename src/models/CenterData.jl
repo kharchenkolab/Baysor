@@ -43,7 +43,6 @@ function load_centers(path::String; min_segment_size::Int=0, scale_mult::Float64
     error("Unsupported file extension: '$file_ext'")
 end
 
-# DEPRECATED
 function subset_by_coords(subsetting_df::DataFrame, coord_df::DataFrame)
     pos_subs = position_data(subsetting_df)
     pos_coords = position_data(coord_df)

@@ -122,7 +122,7 @@ load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
-function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,Any})
+function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,Any})
     ## Convergence
     p1 = plot_num_of_cells_per_iterarion(tracer);
     Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
@@ -132,12 +132,14 @@ function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, 
     color_transformation = gene_composition_transformation(neighb_cm)
 
     frame_size = args["plot-frame-size"]
-    borders = [collect(range([floor(f(df_res[!, s]) / frame_size) * frame_size for f in [minimum, maximum]]..., step=frame_size)) for s in [:x, :y]];
+
+    borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
+    borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
     borders = collect(Iterators.product(borders...));
 
     plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
-        extract_plot_information(df_res, df_centers, b..., color_transformation=color_transformation, k=args["gene-composition-neigborhood"], 
-            frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-gene"], plot=true)
+        extract_plot_information(df_res, assignment, b..., df_centers=df_centers, color_transformation=color_transformation, 
+            k=args["gene-composition-neigborhood"], frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-gene"], plot=true)
     end;
     plot_info = plot_info[length.(plot_info) .> 0];
 
@@ -157,18 +159,30 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
-    df_centers = (args["centers"] === nothing) ? 
-        nothing : 
-        read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
 
-    bm_data_arr = Baysor.initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
-        shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
-        new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"],
-        center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
-        min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=max(div(args["min-molecules-per-cell"], 2) + 1, 3));
+    df_centers = nothing
+    bm_data_arr = BmmData[]
+    confidence_nn_id = max(div(args["min-molecules-per-cell"], 2) + 1, 3)
 
-    addprocs(length(bm_data_arr) - nprocs())
-    eval(:(@everywhere using Baysor))
+    if args["centers"] !== nothing
+        centers = load_centers(args["centers"], x_col=args["x"], y_col=args["y"])
+        df_centers = centers.centers
+
+        bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
+            shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
+            new_component_weight=args["new-component-weight"], center_std=args["center-std"],
+            center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
+            confidence_nn_id=confidence_nn_id);
+    else
+        bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
+            shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
+            new_component_weight=args["new-component-weight"], confidence_nn_id=confidence_nn_id);
+    end
+
+    if length(bm_data_arr) > 1
+        addprocs(length(bm_data_arr) - nprocs())
+        eval(:(@everywhere using Baysor))
+    end
 
     bm_data = run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
@@ -180,7 +194,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     @info "Save data to $(args["output"])"
     CSV.write(args["output"], segmentated_df);
-    CSV.write(append_suffix(args["output"], "cell_stats.pdf"), cell_stat_df);
+    CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
     open(append_suffix(args["output"], "args.dump"), "w") do f
         write(f, arg_string)
@@ -188,7 +202,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     if args["plot"]
         @info "Plot results"
-        plot_results(segmentated_df, df_centers, bm_data.tracer, args)
+        plot_results(bm_data.x, bm_data.assignment, df_centers, bm_data.tracer, args)
     end
 
     @info "All done!"

@@ -234,6 +234,7 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return components, sampler, initial_params.assignment
 end
 
+# DEPRECATED?
 function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent_points::Array{Array{Int, 1}, 1}, df_spatial::DataFrame;
                                  min_molecules_per_cell::Int=10)
     c_components = c_components[length.(c_components) .> min_molecules_per_cell];

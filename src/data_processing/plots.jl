@@ -99,8 +99,8 @@ end
 
 ### Gene composition visualization
 
-neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x[!, :gene]))
-function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df[!, :gene]); normalize_by_dist::Bool=true)
+neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x.gene))
+function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df.gene); normalize_by_dist::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
         k = 3
@@ -109,7 +109,7 @@ function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(d
     points = position_data(df);
     neighbors, dists = knn(KDTree(points), points, k, true);
 
-    n_cm = zeros(maximum(df.gene), size(df, 1));
+    n_cm = zeros(n_genes, size(df, 1));
 
     if !normalize_by_dist
         for (i,ids) in enumerate(neighbors)
@@ -166,24 +166,28 @@ end
 
 ### Summary plots
 
-function extract_plot_information(df_spatial::DataFrame, df_centers::DataFrame, x_start::Real, y_start::Real; color_transformation, frame_size::Int=5000,
-                                  min_molecules_per_cell::Int=5, grid_step::Union{Float64, Nothing}=nothing, dens_threshold::Float64=1e-10, k::Int=20, 
-                                  plot=true, center_size::Real=3.0)::Dict{Symbol,Any}
+function extract_plot_information(df_spatial::DataFrame, assignment::Array{Int, 1}, x_start::Real, y_start::Real; color_transformation, frame_size::Real, 
+                                  min_molecules_per_cell::Int=5, grid_step::Union{Float64, Nothing}=nothing, dens_threshold::Float64=1e-10, k::Int=20,
+                                  df_centers::Union{DataFrame, Nothing}=nothing, plot=true, center_size::Real=3.0)::Dict{Symbol,Any}
     x_end, y_end = [x_start, y_start] .+ frame_size
+
+    df_spatial = @transform(df_spatial, cell=assignment)
     cur_df = @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< x_end, :y .< y_end);
     if size(cur_df, 1) < k + 1
         return Dict{Symbol,Any}()
     end
 
     if grid_step === nothing
-        grid_step = frame_size / 300
+        grid_step = Float64(frame_size / 300)
     end
 
-    cur_df_centers = subset_df_by_coords(df_centers, cur_df);
-    polygons = boundary_polygons(cur_df, cur_df[!,:cell], min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
-    gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial[!,:gene])), color_transformation);
+    polygons = boundary_polygons(cur_df, cur_df.cell, min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
+    gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial.gene)), color_transformation);
 
-    res = Dict(:df => cur_df, :polygons => polygons, :gene_colors => gene_colors, :centers => cur_df_centers)
+    res = Dict(
+        :df => cur_df, :polygons => polygons, :gene_colors => gene_colors, 
+        :centers => (df_centers === nothing) ? nothing : subset_by_coords(df_centers, cur_df)
+    )
     if plot
         res[:plot] = plot_cell_borders_polygons(res[:df], res[:polygons], res[:centers]; color=res[:gene_colors], center_size=center_size,
                                                 xlims=(x_start, x_end), ylims=(y_start, y_end))
