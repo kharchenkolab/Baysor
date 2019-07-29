@@ -1,5 +1,7 @@
 using DataFrames
+using LinearAlgebra
 using NearestNeighbors
+using Statistics
 
 mutable struct BmmData
 
@@ -134,7 +136,7 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
     return res
 end
 
-function get_cell_stat_df(data::BmmData)
+function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([c.position_params.μ for c in data.components]...)
@@ -145,6 +147,17 @@ function get_cell_stat_df(data::BmmData)
 
     df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
     df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
+
+    if add_qc
+        segmented_df = get_segmentation_df(data);
+        pos_data_per_cell = position_data.(split(segmented_df, segmented_df.cell .+ 1)[2:end]);
+        df[!,:area] = area.(convex_hull.(pos_data_per_cell));
+
+        df[!,:n_transcripts] = size.(pos_data_per_cell, 2);
+        df[!,:density] = df[!,:n_transcripts] ./ df[!,:area];
+
+        df[!,:elongations] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell)))];
+    end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
 end
