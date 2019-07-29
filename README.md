@@ -14,6 +14,12 @@ Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git"))
 import Baysor
 ```
 
+After that you can create Baysor executable by running
+
+```bash
+echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chmod +x baysor
+```
+
 ### Build CLI application from source
 
 To build the command-line tool you need to clone this package and run the Makefile:
