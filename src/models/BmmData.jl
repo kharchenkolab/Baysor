@@ -156,7 +156,7 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
         df[!,:n_transcripts] = size.(pos_data_per_cell, 2);
         df[!,:density] = df[!,:n_transcripts] ./ df[!,:area];
 
-        df[!,:elongations] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell)))];
+        df[!,:elongation] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell)))];
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
