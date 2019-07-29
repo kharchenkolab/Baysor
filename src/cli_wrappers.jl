@@ -120,10 +120,12 @@ end
 
 load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
+append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
+
 function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,Any})
     ## Convergence
     p1 = plot_num_of_cells_per_iterarion(tracer);
-    Plots.savefig("$(splitext(args["output"])[1])_convergence.pdf")
+    Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
 
     ## Transcripts
     neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
@@ -141,7 +143,7 @@ function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, 
 
     plot_width = 600
     p1 = Plots.plot([d[:plot] for d in plot_info]..., layout=(length(plot_info), 1), size=(plot_width, plot_width * length(plot_info)));
-    Plots.savefig("$(splitext(args["output"])[1])_borders.pdf")
+    Plots.savefig(append_suffix(args["output"], "borders.pdf"))
 end
 
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
@@ -149,6 +151,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         return 0
     end
 
+    arg_string = join(ARGS, " ")
     args = parse_commandline(args)
 
     @info "Run"
@@ -158,7 +161,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         nothing : 
         read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
 
-    bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"],
+    bm_data_arr = Baysor.initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
         shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
         new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"],
         center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
@@ -177,7 +180,11 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     @info "Save data to $(args["output"])"
     CSV.write(args["output"], segmentated_df);
-    CSV.write("$(splitext(args["output"])[1])_cell_stats.pdf", cell_stat_df);
+    CSV.write(append_suffix(args["output"], "cell_stats.pdf"), cell_stat_df);
+
+    open(append_suffix(args["output"], "args.dump"), "w") do f
+        write(f, arg_string)
+    end    
 
     if args["plot"]
         @info "Plot results"
