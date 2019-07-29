@@ -134,7 +134,8 @@ function plot_results(df_res::DataFrame, df_centers::Union{DataFrame, Nothing}, 
     borders = collect(Iterators.product(borders...));
 
     plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
-        extract_plot_information(df_res, df_centers, b..., color_transformation=color_transformation, k=args["gene-composition-neigborhood"])
+        extract_plot_information(df_res, df_centers, b..., color_transformation=color_transformation, k=args["gene-composition-neigborhood"], 
+            frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-gene"], plot=true)
     end;
     plot_info = plot_info[length.(plot_info) .> 0];
 

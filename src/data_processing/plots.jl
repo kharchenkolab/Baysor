@@ -167,15 +167,20 @@ end
 ### Summary plots
 
 function extract_plot_information(df_spatial::DataFrame, df_centers::DataFrame, x_start::Real, y_start::Real; color_transformation, frame_size::Int=5000,
-                                  min_molecules_per_cell::Int=5, grid_step::Float64=10.0, dens_threshold::Float64=1e-6, k::Int=20, plot=true, center_size::Real=5.0)::Dict{Symbol,Any}
+                                  min_molecules_per_cell::Int=5, grid_step::Union{Float64, Nothing}=nothing, dens_threshold::Float64=1e-10, k::Int=20, 
+                                  plot=true, center_size::Real=3.0)::Dict{Symbol,Any}
     x_end, y_end = [x_start, y_start] .+ frame_size
     cur_df = @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< x_end, :y .< y_end);
     if size(cur_df, 1) < k + 1
         return Dict{Symbol,Any}()
     end
 
+    if grid_step === nothing
+        grid_step = frame_size / 300
+    end
+
     cur_df_centers = subset_df_by_coords(df_centers, cur_df);
-    polygons = boundary_polygons(cur_df, cur_df[!,:assignment], min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
+    polygons = boundary_polygons(cur_df, cur_df[!,:cell], min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
     gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial[!,:gene])), color_transformation);
 
     res = Dict(:df => cur_df, :polygons => polygons, :gene_colors => gene_colors, :centers => cur_df_centers)
