@@ -155,7 +155,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
         new_component_weight=args["new-component-weight"], df_centers=df_centers, center_std=args["center-std"],
         center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
-        min_molecules_per_cell=args["min-molecules-per-cell"]);
+        min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=max(div(args["min-molecules-per-cell"], 2) + 1, 3));
 
     addprocs(length(bm_data_arr) - nprocs())
     eval(:(@everywhere using Baysor))
@@ -165,17 +165,17 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     @info "Processing complete."
 
-    df_res = bm_data.x
-    df_res[!, :assignment] = bm_data.assignment;
+    segmentated_df = get_segmentation_df(bm_data, gene_names)
+    cell_stat_df = get_cell_stat_df(bm_data; add_qc=true)
+
+    @info "Save data to $(args["output"])"
+    CSV.write(args["output"], segmentated_df);
+    CSV.write("$(splitext(args["output"])[1])_cell_stats.pdf", cell_stat_df);
 
     if args["plot"]
         @info "Plot results"
-        plot_results(df_res, df_centers, bm_data.tracer, args)
+        plot_results(segmentated_df, df_centers, bm_data.tracer, args)
     end
-
-    @info "Save data to $(args["output"])"
-    df_res[!, :gene] = gene_names[df_res[!, :gene]]
-    CSV.write(args["output"], df_res);
 
     @info "All done!"
 
