@@ -335,23 +335,25 @@ function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays
     end
 end
 
-function run_bmm_parallel(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, verbose::Bool=true,
-                          n_refinement_iters::Int=100, kwargs...)::Array{BmmData, 1}
+run_bmm_parallel(bm_data_arr, args...; kwargs...) = 
+    run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
+
+function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int,
+                           n_refinement_iters::Int=100, kwargs...)::BmmData
+    bm_data_arr = deepcopy(bm_data_arr)
     @info "Pushing data to workers"
     da = push_data_to_workers(bm_data_arr)
 
     @info "Algorithm start"
     bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
+    bm_data_merged = merge_bm_data(bm_data_arr)
 
     if n_refinement_iters > 0
-        @info "Pushing data for refinement"
-        da = push_data_to_workers(bm_data_arr)
-
         @info "Refinement"
-        bm_data_arr = pmap_progress(refine_bmm_result!, da, n_refinement_iters * length(da), min_molecules_per_cell; max_n_iters=n_refinement_iters)
+        refine_bmm_result!(bm_data_merged, min_molecules_per_cell; max_n_iters=n_refinement_iters, verbose=false)
     end
 
     @info "Done!"
 
-    return bm_data_arr
+    return bm_data_merged
 end

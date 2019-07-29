@@ -162,7 +162,6 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     bm_data = run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
-    bm_data = merge_bm_data(bm_data);
 
     @info "Processing complete."
 
