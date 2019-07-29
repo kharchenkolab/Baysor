@@ -8,7 +8,7 @@ import Distances
 
 function append_confidence!(df_spatial::DataFrame; nn_id::Int, border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975))
     pos_data = position_data(df_spatial);
-    mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id, true)[2], nn_id)
+    mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
 
     df_spatial[!,:confidence] = interpolate_linear.(mean_dists, quantile(mean_dists, border_quantiles)...);
 end
@@ -68,7 +68,7 @@ end
     main function for initialization of bm_data
 """
 function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Int=0, 
-                                  confidence_nn_id::Int=6, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), kwargs...)::Array{BmmData, 1}
+                                  confidence_nn_id::Int=5, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
     if !(:confidence in names(df_spatial)) && (confidence_nn_id > 0)
         @info "Estimate confidence per molecule"
