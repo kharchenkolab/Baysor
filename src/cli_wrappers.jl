@@ -62,9 +62,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "Fraction of distributions, sampled at each stage. Paramter of Dirichlet process."
             arg_type = Float64
             default = 0.2
-        "--center-std" # TODO: remove it
-            help = "Standard deviation of center's prior distribution. By default equal to scale."
-            arg_type = Float64
         "--n-degrees-of-freedom-center" # TO JSON
             help = "Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell."
             arg_type = Int
@@ -96,10 +93,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
 
     for k in ["gene", "x", "y"]
         r[k] = Symbol(r[k])
-    end
-
-    if r["center-std"] === nothing
-        r["center-std"] = r["scale"]
     end
 
     if r["n-degrees-of-freedom-center"] === nothing
@@ -170,9 +163,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
             shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
-            new_component_weight=args["new-component-weight"], center_std=args["center-std"],
-            center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
-            confidence_nn_id=confidence_nn_id);
+            new_component_weight=args["new-component-weight"], center_component_weight=args["center-component-weight"], 
+            n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], confidence_nn_id=confidence_nn_id);
     else
         bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
             shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
