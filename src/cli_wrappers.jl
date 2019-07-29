@@ -40,7 +40,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             arg_type = Int
             default = 100
         "--output", "-o"
-            help = "Name of the output file"
+            help = "Name of the output file or path to the output directory"
             default = "segmentation.csv"
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
@@ -111,6 +111,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
         exit(1)
     end
 
+    if isdir(r["output"]) || isdirpath(r["output"])
+        r["output"] = joinpath(r["output"], "segmentation.csv")
+    end
+
     return r
 end
 
@@ -149,7 +153,9 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
-    df_centers = args["centers"] === nothing ? nothing : read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
+    df_centers = (args["centers"] === nothing) ? 
+        nothing : 
+        read_spatial_df(args["centers"], x_col=args["x"], y_col=args["y"], gene_col=nothing)
 
     bm_data_arr = Baysor.initial_distribution_arr(df_spatial=df_spatial; n_frames=args["n-frames"],
         shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
