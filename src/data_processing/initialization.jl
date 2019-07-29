@@ -1,8 +1,17 @@
+using DataFrames
 using NearestNeighbors
 using StatsBase: countmap, denserank
+using Statistics
 
 import CSV
 import Distances
+
+function append_confidence!(df_spatial::DataFrame; nn_id::Int, border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975))
+    pos_data = position_data(df_spatial);
+    mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id, true)[2], nn_id)
+
+    df_spatial[!,:confidence] = interpolate_linear.(mean_dists, quantile(mean_dists, border_quantiles)...);
+end
 
 function encode_genes(gene_list)
     gene_names = unique(gene_list);
@@ -53,6 +62,59 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; sc
 
     covs = (scale === nothing) ? covs_from_assignment(spatial_df, cluster_labels) : scale ^ 2
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
+end
+
+"""
+    main function for initialization of bm_data
+"""
+function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Int=0, 
+                                  confidence_nn_id::Int=6, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), kwargs...)::Array{BmmData, 1}
+    df_spatial = deepcopy(df_spatial)
+    if !(:confidence in names(df_spatial)) && (confidence_nn_id > 0)
+        @info "Estimate confidence per molecule"
+        append_confidence!(df_spatial; nn_id=confidence_nn_id, border_quantiles=confidence_border_quantiles)
+        @info "Done"
+    end
+
+    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
+    @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
+
+    if (n_frames_return > 0) && (n_frames_return < n_frames)
+        dfs_spatial = dfs_spatial[1:n_frames_return]
+    end
+
+    n_cells_init = max(div(n_cells_init, n_frames), 2)
+    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, kwargs...)
+end
+
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing,
+                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000,
+                                  update_priors::Symbol=:no, n_cells_init::Int=0, kwargs...)::Array{BmmData, 1}
+    if scale === nothing
+        scale = centers.scale_estimate
+    end
+
+    if centers.center_covs === nothing
+        centers.center_covs = [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)]
+    end
+    centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
+
+    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2);
+
+    if any([size(c.centers, 1) == 0 for c in centers_per_frame])
+        error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
+    end
+
+    return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
+                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
+                shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
+end
+
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number,
+                                  n_cells_init::Int=1000, new_component_weight::Number=0.2, kwargs...)::Array{BmmData, 1}
+    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
+    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, n_cells_init; scale=scale)
+    return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
 end
 
 function initialize_bmm_data(df_spatial::DataFrame, args...; update_priors::Symbol=:no, kwargs...)::BmmData
@@ -170,56 +232,6 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     sampler = Component(MvNormal(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment
-end
-
-function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Int=0, kwargs...)::Array{BmmData, 1}
-    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
-    @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
-    @info "Done."
-
-    if (n_frames_return > 0) && (n_frames_return < n_frames)
-        dfs_spatial = dfs_spatial[1:n_frames_return]
-    end
-
-    n_cells_init = max(div(n_cells_init, n_frames), 2)
-    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, kwargs...)
-end
-
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing,
-                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000,
-                                  update_priors::Union{Symbol, Nothing}=nothing, n_cells_init::Int=0, kwargs...)::Array{BmmData, 1}
-    if scale === nothing
-        scale = centers.scale_estimate
-        if update_priors === nothing
-            update_priors = :centers
-        end
-    end
-
-    if update_priors === nothing
-        update_priors = :no
-    end
-
-    if centers.center_covs === nothing
-        centers.center_covs = [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)]
-    end
-    centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
-
-    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2);
-
-    if any([size(c.centers, 1) == 0 for c in centers_per_frame])
-        error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
-    end
-
-    return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
-                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
-                shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
-end
-
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number,
-                                  n_cells_init::Int=1000, new_component_weight::Number=0.2, kwargs...)::Array{BmmData, 1}
-    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
-    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, max(div(n_cells_init, length(dfs_spatial)), 2); scale=scale)
-    return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
 end
 
 function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent_points::Array{Array{Int, 1}, 1}, df_spatial::DataFrame;
