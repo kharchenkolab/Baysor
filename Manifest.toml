@@ -81,6 +81,12 @@ git-tree-sha1 = "13240cfcc884837fc1aa89b60d500a652bcc3f10"
 uuid = "324d7699-5711-5eae-9e2f-1d82baa6b597"
 version = "0.5.5"
 
+[[Clustering]]
+deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "SparseArrays", "Statistics", "StatsBase"]
+git-tree-sha1 = "4b4fff471d7bc091894d18a9e98c1c95bca5ee64"
+uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+version = "0.13.2"
+
 [[ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
 git-tree-sha1 = "10050a24b09e8e41b951e9976b109871ce98d965"
@@ -315,6 +321,12 @@ deps = ["Colors", "FixedPointNumbers", "ImageCore"]
 git-tree-sha1 = "2ea6e55a36166321ca735b8eaf74936180e2ad5d"
 uuid = "787d08f9-d448-5407-9aad-5290dd7ab264"
 version = "0.2.4"
+
+[[ImageSegmentation]]
+deps = ["Clustering", "DataStructures", "Distances", "ImageFiltering", "Images", "LightGraphs", "LinearAlgebra", "RegionTrees", "SimpleWeightedGraphs", "StaticArrays", "Statistics"]
+git-tree-sha1 = "0daf7d5f0e913f60e16f15e5b9960374285d3038"
+uuid = "80713f31-8817-5129-9cf8-209ff8fb23e1"
+version = "1.2.0"
 
 [[ImageShow]]
 deps = ["Base64", "ColorTypes", "Colors", "FileIO", "FixedPointNumbers", "ImageCore", "OffsetArrays", "Requires"]
@@ -611,6 +623,12 @@ version = "0.7.0"
 deps = ["Pkg"]
 git-tree-sha1 = "7b1d07f411bc8ddb7977ec7f377b97b158514fe0"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "0.2.0"
+
+[[RegionTrees]]
+deps = ["IterTools", "LinearAlgebra", "StaticArrays", "Test"]
+git-tree-sha1 = "2b53f2cbfc7dff34e0e4feed12da7ad85f738c13"
+uuid = "dee08c22-ab7f-5625-9660-a9af2021b33f"
 version = "0.2.0"
 
 [[Requires]]

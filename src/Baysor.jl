@@ -31,6 +31,7 @@ include("bmm_algorithm/history_analysis.jl")
 include("bmm_algorithm/bmm_algorithm.jl")
 include("bmm_algorithm/smoothing.jl")
 
+include("data_processing/watershed.jl")
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")
 include("data_processing/kshift_clustering.jl")

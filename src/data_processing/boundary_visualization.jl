@@ -14,7 +14,7 @@ function estimate_density_norm(train_points::Array{Float64,2}, eval_points::Arra
     return Distributions.pdf(dist, eval_points)
 end
 
-function grid_point_coords(min_x::Array{T}, max_x::Array{T}, step::T) where T <: Real
+function grid_point_coords(min_x::Vector{T}, max_x::Vector{T}, step::T) where T <: Real
     grid_points = collect(Iterators.product([s:step:e for (s, e) in zip(min_x, max_x)]...));
     return map(collect, grid_points);
 end
