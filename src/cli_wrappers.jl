@@ -98,7 +98,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
         "centers"
-            help = "CSV file with coordinates of cell centers, extracted from DAPI staining"
+            help = "Either CSV file with coordinates of cell centers, extracted from DAPI staining or image with segmentation mask (either boolean or component indexing)"
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -206,7 +206,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     confidence_nn_id = max(div(args["min-molecules-per-cell"], 2) + 1, 3)
 
     if args["centers"] !== nothing
-        centers = load_centers(args["centers"], x_col=args["x"], y_col=args["y"])
+        centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"])
         df_centers = centers.centers
 
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
