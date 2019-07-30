@@ -28,9 +28,9 @@ function load_centers(path::String; min_segment_size::Int=0, scale_mult::Float64
         return CenterData(df_centers, scale)
     end
 
-    if file_ext == ".png"
+    if file_ext in [".png", ".jpg", ".tiff"]
         segmentation_labels = Images.load(path) |> Images.label_components |> Array{Int}
-        coords_per_label = Baysor.coords_per_segmentat_label(segmentation_labels);
+        coords_per_label = Baysor.coords_per_segmentation_label(segmentation_labels);
         coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
 
         centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
@@ -61,7 +61,7 @@ function subset_by_coords(centers::CenterData, coord_df::DataFrame)
     return CenterData(deepcopy(centers.centers[ids,:]), center_covs, centers.scale_estimate)
 end
 
-function coords_per_segmentat_label(segmentation_mask::Array{Int, 2})
+function coords_per_segmentation_label(segmentation_mask::Array{Int, 2})
     coords = [Array{Float64, 1}[] for v in 1:maximum(segmentation_mask)];
 
     @inbounds for r in 1:size(segmentation_mask, 1)
