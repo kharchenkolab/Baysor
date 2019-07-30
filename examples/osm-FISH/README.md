@@ -4,28 +4,36 @@ Data is published in [S. Codeluppi, et al. - Spatial organization of the somatos
 
 ## Get the data
 
-Download molecule coordinates in csv format (were extracted from the published [osmFISH raw coords](https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/osmFISH/data/mRNA_coords_raw_counting.hdf5) hdf5 file)
+Create directories:
 
 ```bash
-wget http://pklab.med.harvard.edu/viktor/spatial/baysor/mRNA_coords_raw_counting.csv
+mkdir -p data output_dapi output_no_dapi
+```
+
+Download molecule coordinates in the csv format (were extracted from the published [osmFISH raw coords](https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/osmFISH/data/mRNA_coords_raw_counting.hdf5) hdf5 file)
+
+```bash
+wget -P data http://pklab.med.harvard.edu/viktor/spatial/baysor/mRNA_coords_raw_counting.csv
 ```
 
 Download center coordinates in csv format (were extracted from the published [segmented regions](https://storage.googleapis.com/linnarsson-lab-www-blobs/blobs/osmFISH/data/polyT_seg.pkl) pkl file)
 
 ```bash
-wget http://pklab.med.harvard.edu/viktor/spatial/baysor/centers_from_segmentation.csv
+wget -P data http://pklab.med.harvard.edu/viktor/spatial/baysor/centers_from_segmentation.csv
 ```
 
 ## CLI run
 
+WARNING: these command run the segmentation using 20 proccesses. To reduce this number change `-n 20` option.
+
 ### Without DAPI
 
 ```bash
-../../bin/segment_data.jl -i 500 -n 20 -p -s 50 ./mRNA_coords_raw_counting.csv
+../../bin/segment_data.jl -i 500 --num-cells-init=30000 -n 20 -c ../../configs/osm_fish.toml -p -o ./output_no_dapi ./data/mRNA_coords_raw_counting.csv
 ```
 
 ### With DAPI
 
 ```bash
-../../bin/segment_data.jl -i 500 -n 20 -p -s 50 --center-component-weight 3.0 ./mRNA_coords_raw_counting.csv ./centers_from_segmentation.csv
+../../bin/segment_data.jl  -i 500 --num-cells-init=30000 -n 20 -p -c ../../configs/osm_fish.toml -o ./output_dapi -p ./data/mRNA_coords_raw_counting.csv ./data/centers_from_segmentation.csv
 ```
