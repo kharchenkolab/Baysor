@@ -6,6 +6,22 @@ using Statistics
 import CSV
 import Distances
 
+function default_shape_deg_freedom(min_molecules_per_cell::Union{Int, Nothing})
+    if min_molecules_per_cell === nothing
+        error("Either shape_deg_freedom or min_molecules_per_cell must be provided")
+    end
+
+    return 20 * min_molecules_per_cell
+end
+
+function default_n_degrees_of_freedom_center(min_molecules_per_cell::Union{Int, Nothing})
+    if min_molecules_per_cell === nothing
+        error("Either n_degrees_of_freedom_center or min_molecules_per_cell must be provided")
+    end
+
+    return min_molecules_per_cell
+end
+
 function append_confidence!(df_spatial::DataFrame; nn_id::Int, border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975))
     pos_data = position_data(df_spatial);
     mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
@@ -87,11 +103,19 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, kwargs...)
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, scale::Union{Number, Nothing}=nothing,
-                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Int=1000,
-                                  update_priors::Symbol=:no, n_cells_init::Int=0, kwargs...)::Array{BmmData, 1}
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Union{Int, Nothing}=nothing, scale::Union{Number, Nothing}=nothing,
+                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
+                                  update_priors::Symbol=:no, n_cells_init::Int=0, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     if scale === nothing
         scale = centers.scale_estimate
+    end
+
+    if shape_deg_freedom === nothing
+        shape_deg_freedom = default_shape_deg_freedom(min_molecules_per_cell)
+    end
+
+    if n_degrees_of_freedom_center === nothing
+        n_degrees_of_freedom_center = default_n_degrees_of_freedom_center(min_molecules_per_cell)
     end
 
     if centers.center_covs === nothing
