@@ -1,0 +1,47 @@
+[Data]
+
+# Name of x column in the input data. Default: "x"
+x-column = "x"
+
+# Name of y column in the input data. Default: "y"
+y-column = "y"
+
+# Name of gene column in the input data. Default: "gene"
+gene-column = "gene"
+
+# Minimal number of molecules per gene. Default: 1
+min-molecules-per-gene = 1
+
+# Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Default: 3
+min-molecules-per-cell = 3
+
+# Scale parameter, which suggest approximate cell radius for the algorithm. This parameter is required.
+scale = 50
+
+# Use scale estimate from DAPI if provided. Default: true
+estimate-scale-from-centers = true
+
+[Sampling] # These parameters shouldn't normally be changed
+
+# Prior weight of assignment a molecule to new component. Default: 0.2
+new-component-weight = 0.2
+
+# Fraction of distributions, sampled at each stage. Default: 0.3
+new-component-fraction = 0.3
+
+# Prior weight of assignment a molecule to a new component, created from DAPI centers. Ignored if cell centers are not provided. Default: 1.0
+center-component-weight = 1.0
+
+# Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell.
+n-degrees-of-freedom-center = 1000
+
+# Number of degrees of freedom for shape prior. Normally should be several times larger than expected number of molecules per cell. Default: 20 * min-molecules-per-cell.
+shape-deg-freedom = 1000
+
+[Plotting]
+
+# Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns
+gene-composition-neigborhood = 20
+
+# Size of frame, which is used for result plotting. Ignored without '-p' option. Default: 5000
+plot-frame-size = 5000

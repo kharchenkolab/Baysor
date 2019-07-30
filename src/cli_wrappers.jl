@@ -5,81 +5,93 @@ using ProgressMeter
 using Statistics
 
 import CSV
+import TOML
+
+parse_toml_config(config::T where T <: AbstractString) =
+    parse_toml_config(TOML.parsefile(config))
+
+function parse_toml_config(config::Dict{AbstractString, Any})
+    res_config = Dict{AbstractString, Any}(
+        "Data" => Dict{AbstractString, Any}(
+            "x-column" => "x",
+            "y-column" => "y",
+            "gene-column" => "gene",
+            "min-molecules-per-gene" => 1,
+            "min-molecules-per-cell" => 3,
+            "estimate-scale-from-centers" => true,
+            "scale" => nothing
+        ),
+        "Sampling" => Dict{AbstractString, Any}(
+            "new-component-weight" => 0.2,
+            "new-component-fraction" => 0.3,
+            "center-component-weight" => 1.0,
+            "n-degrees-of-freedom-center" => nothing,
+            "shape-deg-freedom" => nothing       
+        ),
+        "Plotting" => Dict{AbstractString, Any}(
+            "gene-composition-neigborhood" => 20,
+            "plot-frame-size" => 5000
+        )
+    )
+
+    for (k,v) in config
+        if !(k in keys(res_config))
+            error("Unexpected value in the config: '$k'")
+        end
+
+        cur_def = res_config[k]
+
+        for (k2,v2) in v
+            if !(k2 in keys(cur_def))
+                error("Unexpected value in the config: '$k' -> '$k2'")
+            end
+
+            cur_def[k2] = v2
+        end
+    end
+
+    return res_config
+end
 
 function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
     s = ArgParseSettings()
     @add_arg_table s begin
-        "--x", "-x" # REPEAT IN JSON
-            help = "name of x column"
-            default = "x"
-        "--y", "-y" # REPEAT IN JSON
-            help = "name of gene column"
-            default = "y"
-        "--gene" # REPEAT IN JSON
-            help = "name of gene column"
-            default = "gene"
+        "--config", "-c"
+            help = "TOML file with config"
+        "--x-column", "-x"
+            help = "Name of x column. Overrides JSON value."
+        "--y-column", "-y"
+            help = "Name of gene column. Overrides JSON value."
+        "--gene-column"
+            help = "Name of gene column. Overrides JSON value."
 
         "--iters", "-i"
             help = "Number of iterations"
             arg_type = Int
-            default = 100
-        "--refinement-iters" # TO JSON
-            help = "Number of iterations for refinement of results"
+            default = 500
+        "--min-molecules-per-gene"
+            help = "Minimal number of molecules per gene. Overrides JSON value."
             arg_type = Int
-            default = 50
-        "--min-molecules-per-gene" # TO JSON
-            help = "Minimal number of molecules per gene"
+        "--n-frames", "-n"
+            help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
             arg_type = Int
-            default = 1
-        "--min-molecules-per-cell" # TO JSON
-            help = "Minimal number of molecules for a cell to be considered as real"
+            default=1
+        "--num-cells-init"
+            help = "Initial number of cells. Ignored if CSV with centers is provided. Overrides JSON value."
             arg_type = Int
-            default = 3
-        "--num-cells-init" # TO JSON
-            help = "Initial number of cells. Ignored if CSV with centers is provided."
-            arg_type = Int
-            default = 100
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
             default = "segmentation.csv"
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
-        "--plot-frame-size"
-            help = "Size of frame, which is used for result plotting. Ignored without '-v' option."
-            arg_type = Float64
-            default = 5000.0
-
-        "--center-component-weight" # TO JSON
-            help = "Prior weight of assignment a molecule to new component, created from DAPI centers. Paramter of Dirichlet process. Ignored if CSV with centers is not provided."
-            arg_type = Float64
-            default = 1.0
-        "--new-component-weight" # TO JSON
-            help = "Prior weight of assignment a molecule to new component. Paramter of Dirichlet process."
-            arg_type = Float64
-            default = 0.1
-        "--new-component-fraction" # TO JSON
-            help = "Fraction of distributions, sampled at each stage. Paramter of Dirichlet process."
-            arg_type = Float64
-            default = 0.2
-        "--n-degrees-of-freedom-center" # TO JSON
-            help = "Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell."
+        "--refinement-iters"
+            help = "Number of iterations for refinement of results. In most cases, default is enough."
             arg_type = Int
-        "--shape-deg-freedom" # TODO: make it depend on mean number of molecules # TO JSON
-            help = "Number of degrees of freedom for shape prior. Normally should be several times larger than expected number of molecules per cell."
-            arg_type = Int
-            default = 1000
-        "--n-frames", "-n"
-            help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
-            arg_type = Int
-            default=1
-        "--gene-composition-neigborhood"
-            help = "Number of neighbors (i.e. 'k'), which is used for gene composition visualization. Larger numbers leads to more global patterns."
-            arg_type = Int
-            default=20
+            default = 50
 
         "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm"
+            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides JSON value."
             arg_type = Float64
 
         "coordinates"
@@ -89,14 +101,35 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "CSV file with coordinates of cell centers, extracted from DAPI staining"
     end
 
-    r = (args === nothing) ? parse_args(s) : parse_args(args, s)
+    return (args === nothing) ? parse_args(s) : parse_args(args, s)
+end
 
-    for k in ["gene", "x", "y"]
+function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
+    r = parse_commandline(args)
+
+    if r["config"] !== nothing
+        cfg = parse_toml_config(r["config"])
+        for sub_cfg in values(cfg)
+            for (k, v) in sub_cfg
+                if !(k in keys(r)) || r[k] === nothing
+                    r[k] = v
+                end
+            end
+        end
+    else
+        @warn "No config file provided. Back-up to default parameters."
+    end
+
+    for k in ["gene-column", "x-column", "y-column"]
         r[k] = Symbol(r[k])
     end
 
+    if r["shape-deg-freedom"] === nothing
+        r["shape-deg-freedom"] = default_shape_deg_freedom(r["min-molecules-per-cell"])
+    end
+
     if r["n-degrees-of-freedom-center"] === nothing
-        r["n-degrees-of-freedom-center"] = r["min-molecules-per-cell"]
+        r["n-degrees-of-freedom-center"] = default_n_degrees_of_freedom_center(r["min-molecules-per-cell"])
     end
 
     if r["centers"] === nothing && r["scale"] === nothing
@@ -111,7 +144,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
     return r
 end
 
-load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x"], y_col=args["y"], gene_col=args["gene"], min_molecules_per_gene=args["min-molecules-per-gene"])
+load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], min_molecules_per_gene=args["min-molecules-per-gene"])
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
