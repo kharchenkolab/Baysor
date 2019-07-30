@@ -121,6 +121,9 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     for k in ["gene-column", "x-column", "y-column"]
+        if !(k in keys(r))
+            error("$k must be specified")
+        end
         r[k] = Symbol(r[k])
     end
 
@@ -180,7 +183,19 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     end
 
     arg_string = join(ARGS, " ")
-    args = parse_commandline(args)
+    args = parse_configs(args)
+
+    open(append_suffix(args["output"], "args.dump"), "w") do f
+        write(f, arg_string)
+    end
+
+    # TODO: dump all args to toml as well
+    if args["config"] !== nothing
+        dump_dst = abspath(append_suffix(args["output"], "_config.toml"))
+        if abspath(args["config"]) != dump_dst
+            cp(args["config"], dump_dst, force=true)
+        end
+    end
 
     @info "Run"
     @info "Load data..."
@@ -220,10 +235,6 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Save data to $(args["output"])"
     CSV.write(args["output"], segmentated_df);
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
-
-    open(append_suffix(args["output"], "args.dump"), "w") do f
-        write(f, arg_string)
-    end    
 
     if args["plot"]
         @info "Plot results"
