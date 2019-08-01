@@ -6,20 +6,32 @@ using Statistics
 import CSV
 import Distances
 
-function default_shape_deg_freedom(min_molecules_per_cell::Union{Int, Nothing})
+function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing}; n_molecules::Union{Int, Nothing}=nothing)
     if min_molecules_per_cell === nothing
-        error("Either shape_deg_freedom or min_molecules_per_cell must be provided")
+        error("Either `$param` or `min_molecules_per_cell` must be provided")
     end
 
-    return 20 * min_molecules_per_cell
-end
+    min_molecules_per_cell = max(min_molecules_per_cell, 3)
 
-function default_n_degrees_of_freedom_center(min_molecules_per_cell::Union{Int, Nothing})
-    if min_molecules_per_cell === nothing
-        error("Either n_degrees_of_freedom_center or min_molecules_per_cell must be provided")
+    if param == :shape_deg_freedom
+        return 20 * min_molecules_per_cell
     end
 
-    return min_molecules_per_cell
+    if param == :n_degrees_of_freedom_center
+        return min_molecules_per_cell
+    end
+
+    if param == :confidence_nn_id
+        return max(div(min_molecules_per_cell, 2) + 1, 3)
+    end
+
+    if param == :n_cells_init
+        if n_molecules === nothing
+            error("Either `$param` or `n_molecules` must be provided")
+        end
+
+        return div(n_molecules, min_molecules_per_cell) * 2
+    end
 end
 
 function append_confidence!(df_spatial::DataFrame; nn_id::Int, border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975))
@@ -83,9 +95,15 @@ end
 """
     main function for initialization of bm_data
 """
-function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Int=0, 
-                                  confidence_nn_id::Int=5, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), kwargs...)::Array{BmmData, 1}
+function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
+                                  confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), 
+                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, shape_deg_freedom::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
+
+    if confidence_nn_id === nothing
+        confidence_nn_id = default_param_value(:confidence_nn_id, min_molecules_per_cell)
+    end
+
     if !(:confidence in names(df_spatial)) && (confidence_nn_id > 0)
         @info "Estimate confidence per molecule"
         append_confidence!(df_spatial; nn_id=confidence_nn_id, border_quantiles=confidence_border_quantiles)
@@ -99,23 +117,27 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
         dfs_spatial = dfs_spatial[1:n_frames_return]
     end
 
-    n_cells_init = max(div(n_cells_init, n_frames), 2)
-    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, kwargs...)
+    if n_cells_init == nothing
+        n_cells_init = default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
+    end
+
+    if shape_deg_freedom === nothing
+        shape_deg_freedom = default_param_value(:shape_deg_freedom, min_molecules_per_cell)
+    end
+
+    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, 
+            shape_deg_freedom=shape_deg_freedom, kwargs...)
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Union{Int, Nothing}=nothing, scale::Union{Number, Nothing}=nothing,
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, n_cells_init::Int, scale::Union{Number, Nothing}=nothing,
                                   new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
-                                  update_priors::Symbol=:no, n_cells_init::Int=0, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
+                                  update_priors::Symbol=:no, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     if scale === nothing
         scale = centers.scale_estimate
     end
 
-    if shape_deg_freedom === nothing
-        shape_deg_freedom = default_shape_deg_freedom(min_molecules_per_cell)
-    end
-
     if n_degrees_of_freedom_center === nothing
-        n_degrees_of_freedom_center = default_n_degrees_of_freedom_center(min_molecules_per_cell)
+        n_degrees_of_freedom_center = default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell)
     end
 
     if centers.center_covs === nothing
@@ -129,13 +151,17 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
         error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
     end
 
+    @info "Initializing algorithm. Scale: $scale, initial #clusters: $n_cells_init."
+
+    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 2)
     return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
-                prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
-                shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
+            prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
+            shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number,
-                                  n_cells_init::Int=1000, new_component_weight::Number=0.2, kwargs...)::Array{BmmData, 1}
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number, n_cells_init::Int, 
+                                  new_component_weight::Number=0.2, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
+    @info "Initializing algorithm. Scale: $scale, initial #clusters: $n_cells_init."
     size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
     initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, n_cells_init; scale=scale)
     return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
@@ -219,6 +245,9 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
                                gene_num::Int=maximum(df_spatial[!,:gene]), shape_deg_freedom::Int, noise_confidence_threshold::Float64=0.1,
                                n_cells_init::Int=0)
+    if new_component_weight < 1e-10
+        n_cells_init = 0
+    end
 
     assignment, pos_distributions, center_priors, can_be_dropped = initial_distribution_data(df_spatial, prior_centers;
         n_degrees_of_freedom_center=n_degrees_of_freedom_center, default_std=default_std, gene_num=gene_num,

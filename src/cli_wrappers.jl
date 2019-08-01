@@ -121,18 +121,18 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     for k in ["gene-column", "x-column", "y-column"]
-        if !(k in keys(r))
+        if !(k in keys(r)) || (r[k] === nothing)
             error("$k must be specified")
         end
         r[k] = Symbol(r[k])
     end
 
     if r["shape-deg-freedom"] === nothing
-        r["shape-deg-freedom"] = default_shape_deg_freedom(r["min-molecules-per-cell"])
+        r["shape-deg-freedom"] = default_param_value(:shape_deg_freedom, r["min-molecules-per-cell"])
     end
 
     if r["n-degrees-of-freedom-center"] === nothing
-        r["n-degrees-of-freedom-center"] = default_n_degrees_of_freedom_center(r["min-molecules-per-cell"])
+        r["n-degrees-of-freedom-center"] = default_param_value(:n_degrees_of_freedom_center, r["min-molecules-per-cell"])
     end
 
     if r["centers"] === nothing && r["scale"] === nothing
@@ -168,7 +168,7 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
 
     plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
         extract_plot_information(df_res, assignment, b..., df_centers=df_centers, color_transformation=color_transformation, 
-            k=args["gene-composition-neigborhood"], frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-gene"], plot=true)
+            k=args["gene-composition-neigborhood"], frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-cell"], plot=true)
     end;
     plot_info = plot_info[length.(plot_info) .> 0];
 
@@ -178,25 +178,28 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
 end
 
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
-    if args == "build"
+    if args == "build" # need to call this function during build without any actual work
         return 0
     end
 
-    arg_string = join(ARGS, " ")
     args = parse_configs(args)
 
-    open(append_suffix(args["output"], "args.dump"), "w") do f
-        write(f, arg_string)
-    end
+    # Dump parameters
 
-    # TODO: dump all args to toml as well
     if args["config"] !== nothing
-        dump_dst = abspath(append_suffix(args["output"], "_config.toml"))
+        dump_dst = abspath(append_suffix(args["output"], "config.toml"))
         if abspath(args["config"]) != dump_dst
             cp(args["config"], dump_dst, force=true)
         end
     end
 
+    open(append_suffix(args["output"], "params.dump"), "w") do f
+        println(f, "# CLI params: `$(join(ARGS, " "))`")
+        TOML.print(f, Dict(k => (v === nothing) ? ((typeof(v) === Symbol) ? String(v) : "") : v for (k,v) in args))
+    end
+
+    # Run algorithm
+    
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
@@ -212,11 +215,11 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
             shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
             new_component_weight=args["new-component-weight"], center_component_weight=args["center-component-weight"], 
-            n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], confidence_nn_id=confidence_nn_id);
+            n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     else
         bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
             shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
-            new_component_weight=args["new-component-weight"], confidence_nn_id=confidence_nn_id);
+            new_component_weight=args["new-component-weight"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     end
 
     if length(bm_data_arr) > 1
@@ -228,6 +231,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
 
     @info "Processing complete."
+
+    # Save results
 
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data; add_qc=true)
