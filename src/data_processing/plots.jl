@@ -168,7 +168,7 @@ end
 
 function extract_plot_information(df_spatial::DataFrame, assignment::Array{Int, 1}, x_start::Real, y_start::Real; color_transformation, frame_size::Real, 
                                   min_molecules_per_cell::Int=5, grid_step::Union{Float64, Nothing}=nothing, dens_threshold::Float64=1e-10, k::Int=20,
-                                  df_centers::Union{DataFrame, Nothing}=nothing, plot=true, center_size::Real=3.0)::Dict{Symbol,Any}
+                                  df_centers::Union{DataFrame, Nothing}=nothing, plot=true, kwargs...)::Dict{Symbol,Any}
     x_end, y_end = [x_start, y_start] .+ frame_size
 
     df_spatial = @transform(df_spatial, cell=assignment)
@@ -189,8 +189,8 @@ function extract_plot_information(df_spatial::DataFrame, assignment::Array{Int, 
         :centers => (df_centers === nothing) ? nothing : subset_by_coords(df_centers, cur_df)
     )
     if plot
-        res[:plot] = plot_cell_borders_polygons(res[:df], res[:polygons], res[:centers]; color=res[:gene_colors], center_size=center_size,
-                                                xlims=(x_start, x_end), ylims=(y_start, y_end))
+        res[:plot] = plot_cell_borders_polygons(res[:df], res[:polygons], res[:centers]; color=res[:gene_colors],
+                                                xlims=(x_start, x_end), ylims=(y_start, y_end), kwargs...)
     end
 
     return res

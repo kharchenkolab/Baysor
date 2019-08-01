@@ -6,6 +6,7 @@ using Statistics
 
 import CSV
 import TOML
+import Plots
 
 parse_toml_config(config::T where T <: AbstractString) =
     parse_toml_config(TOML.parsefile(config))
@@ -173,8 +174,9 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
     plot_info = plot_info[length.(plot_info) .> 0];
 
     plot_width = 600
-    p1 = Plots.plot([d[:plot] for d in plot_info]..., layout=(length(plot_info), 1), size=(plot_width, plot_width * length(plot_info)));
-    Plots.savefig(append_suffix(args["output"], "borders.pdf"))
+    p1 = Plots.plot([d[:plot] for d in plot_info]..., layout=(length(plot_info), 1), size=(plot_width, plot_width * length(plot_info)),
+        tickfont=8 * length(plot_info), left_margin=8 * Plots.mm, format=:png);
+    Plots.savefig(append_suffix(args["output"], "borders.html"))
 end
 
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
@@ -199,7 +201,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     end
 
     # Run algorithm
-    
+
     @info "Run"
     @info "Load data..."
     df_spatial, gene_names = load_df(args)
