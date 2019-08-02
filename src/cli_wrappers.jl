@@ -207,7 +207,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         df_centers = centers.centers
 
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
-            shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
+            shape_deg_freedom=args["shape-deg-freedom"], scale=(args["estimate-scale-from-centers"] ? nothing : args["scale"]), n_cells_init=args["num-cells-init"],
             new_component_weight=args["new-component-weight"], center_component_weight=args["center-component-weight"], 
             n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     else
