@@ -36,6 +36,16 @@ function load_centers(path::String; min_segment_size::Int=0, scale_mult::Float64
         centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
         center_covs = cov.(coords_per_label);
 
+        for i in findall([any(isnan.(c)) for c in center_covs])
+            center_covs[i] = copy(Float64[1. 0.; 0. 1.])
+        end
+
+        center_covs = adjust_cov_matrix.(center_covs)
+
+        is_pos_def = isposdef.(center_covs)
+        centers = centers[:, is_pos_def]
+        center_covs = center_covs[is_pos_def]
+
         scale = estimate_scale_from_centers(centers, scale_mult=scale_mult)
         return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale)
     end
