@@ -193,7 +193,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     open(append_suffix(args["output"], "params.dump"), "w") do f
         println(f, "# CLI params: `$(join(ARGS, " "))`")
-        TOML.print(f, Dict(k => (v === nothing) ? ((typeof(v) === Symbol) ? String(v) : "") : v for (k,v) in args))
+        TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
     end
 
     # Run algorithm
