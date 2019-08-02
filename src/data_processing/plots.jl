@@ -173,7 +173,7 @@ subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real)
 
 function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}; 
                                          gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=300, return_raw::Bool=false,
-                                         min_molecules_per_cell::Int, plot_width::Int = 600)
+                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm)
     df_res = @transform(df_res, cell=assignment)
 
     neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
@@ -206,7 +206,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     @info "Plotting..."
 
-    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width)) 
+    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin) 
         for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
 end
 

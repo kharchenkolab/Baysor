@@ -154,14 +154,17 @@ load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
-function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,T} where T)
+function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict;
+                      plot_width::Int=800, margin=5*Plots.mm)
     # Convergence
-    p_cov = plot_num_of_cells_per_iterarion(tracer);
-    Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
+    if ("n_components" in keys(tracer)) && length(tracer["n_components"]) == 0
+        p_cov = plot_num_of_cells_per_iterarion(tracer);
+        Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
+    end
 
     # Transcripts
     plots = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"], 
-        frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"])
+        frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"], plot_width=plot_width, margin=margin)
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
         for (i,p) in enumerate(plots)
