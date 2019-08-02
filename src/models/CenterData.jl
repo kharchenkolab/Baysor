@@ -20,7 +20,7 @@ Estimates scale as a 0.5 * median distance between two nearest centers multiplie
 estimate_scale_from_centers(centers::Array{Float64, 2}; scale_mult::Float64=0.75) =
     scale_mult * median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
 
-function load_centers(path::String; min_segment_size::Int=0, scale_mult::Float64=0.75, kwargs...)::CenterData
+function load_centers(path::String; min_segment_size::Int=5, scale_mult::Float64=0.75, kwargs...)::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
         df_centers = read_spatial_df(path; gene_col=nothing, kwargs...) |> unique;

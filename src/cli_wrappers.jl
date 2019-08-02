@@ -21,7 +21,8 @@ function parse_toml_config(config::Dict{AbstractString, Any})
             "min-molecules-per-gene" => 1,
             "min-molecules-per-cell" => 3,
             "estimate-scale-from-centers" => true,
-            "scale" => nothing
+            "scale" => nothing,
+            "min-center-size" => 200
         ),
         "Sampling" => Dict{AbstractString, Any}(
             "new-component-weight" => 0.2,
@@ -203,7 +204,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     confidence_nn_id = max(div(args["min-molecules-per-cell"], 2) + 1, 3)
 
     if args["centers"] !== nothing
-        centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"])
+        centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"], min_segment_size=args["min-center-size"])
         df_centers = centers.centers
 
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],

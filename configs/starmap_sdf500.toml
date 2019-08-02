@@ -1,0 +1,11 @@
+[Data]
+min-molecules-per-gene = 50
+min-molecules-per-cell = 10
+scale = 50
+
+[Sampling]
+shape-deg-freedom = 500
+
+[Plotting]
+gene-composition-neigborhood = 50
+plot-frame-size = 5000

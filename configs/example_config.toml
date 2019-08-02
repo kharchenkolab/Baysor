@@ -21,6 +21,9 @@ scale = 50
 # Use scale estimate from DAPI if provided. Default: true
 estimate-scale-from-centers = true
 
+# If image with cell centers is provided, all regons with #pixels < min-center-size will be filtered out. Default: 200
+min-center-size = 200
+
 [Sampling] # These parameters shouldn't normally be changed
 
 # Prior weight of assignment a molecule to new component. Default: 0.2
