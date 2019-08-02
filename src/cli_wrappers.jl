@@ -1,5 +1,6 @@
 using ArgParse
 using DataFrames
+using DataFramesMeta
 using Distributed
 using ProgressMeter
 using Statistics
@@ -152,31 +153,22 @@ load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
-function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,Any})
-    ## Convergence
-    p1 = plot_num_of_cells_per_iterarion(tracer);
+function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict{String,T} where T)
+    # Convergence
+    p_cov = plot_num_of_cells_per_iterarion(tracer);
     Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
 
-    ## Transcripts
-    neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
-    color_transformation = gene_composition_transformation(neighb_cm)
+    # Transcripts
+    plots = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"], 
+        frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"])
 
-    frame_size = args["plot-frame-size"]
+    open(append_suffix(args["output"], "borders.html"), "w") do io
+        for (i,p) in enumerate(plots)
+            show(io, MIME("text/html"), p)
+        end
+    end
 
-    borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
-    borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
-    borders = collect(Iterators.product(borders...));
-
-    plot_info = @showprogress "Extracting plot info..." pmap(borders) do b
-        extract_plot_information(df_res, assignment, b..., df_centers=df_centers, color_transformation=color_transformation, 
-            k=args["gene-composition-neigborhood"], frame_size=frame_size, min_molecules_per_cell=args["min-molecules-per-cell"], plot=true)
-    end;
-    plot_info = plot_info[length.(plot_info) .> 0];
-
-    plot_width = 600
-    p1 = Plots.plot([d[:plot] for d in plot_info]..., layout=(length(plot_info), 1), size=(plot_width, plot_width * length(plot_info)),
-        tickfont=8 * length(plot_info), left_margin=8 * Plots.mm, format=:png);
-    Plots.savefig(append_suffix(args["output"], "borders.html"))
+    @info "Done!"
 end
 
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)

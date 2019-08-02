@@ -100,20 +100,22 @@ end
 ### Gene composition visualization
 
 neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x.gene))
-function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(df.gene); normalize_by_dist::Bool=true)
+neighborhood_count_matrix(df::DataFrame, k::Int, args...; kwargs...) = 
+    neighborhood_count_matrix(position_data(df), df.gene, k, args..., kwargs...)
+
+function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int, n_genes::Int=maximum(genes); normalize_by_dist::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
         k = 3
     end
 
-    points = position_data(df);
-    neighbors, dists = knn(KDTree(points), points, k, true);
+    neighbors, dists = knn(KDTree(pos_data), pos_data, k, true);
 
-    n_cm = zeros(n_genes, size(df, 1));
+    n_cm = zeros(n_genes, size(pos_data, 2));
 
     if !normalize_by_dist
         for (i,ids) in enumerate(neighbors)
-            prob_array!(view(n_cm, :, i), df[ids, :gene])
+            prob_array!(view(n_cm, :, i), genes[ids])
         end
 
         return n_cm
@@ -123,7 +125,7 @@ function neighborhood_count_matrix(df::DataFrame, k::Int, n_genes::Int=maximum(d
     med_closest_dist = median(getindex.(dists, 2))
     for (i,(ids, dists)) in enumerate(zip(neighbors, dists))
         c_probs = view(n_cm, :, i)
-        for (gene, dist) in zip(df[ids, :gene], dists)
+        for (gene, dist) in zip(genes[ids], dists)
             c_probs[gene] += 1 / max(dist, med_closest_dist)
         end
     end
@@ -166,34 +168,46 @@ end
 
 ### Summary plots
 
-function extract_plot_information(df_spatial::DataFrame, assignment::Array{Int, 1}, x_start::Real, y_start::Real; color_transformation, frame_size::Real, 
-                                  min_molecules_per_cell::Int=5, grid_step::Union{Float64, Nothing}=nothing, dens_threshold::Float64=1e-10, k::Int=20,
-                                  df_centers::Union{DataFrame, Nothing}=nothing, plot=true, kwargs...)::Dict{Symbol,Any}
-    x_end, y_end = [x_start, y_start] .+ frame_size
+subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real) = 
+    @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< (x_start + frame_size), :y .< (y_start + frame_size));
 
-    df_spatial = @transform(df_spatial, cell=assignment)
-    cur_df = @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< x_end, :y .< y_end);
-    if size(cur_df, 1) < k + 1
-        return Dict{Symbol,Any}()
+function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}; 
+                                         gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=300, return_raw::Bool=false,
+                                         min_molecules_per_cell::Int, plot_width::Int = 600)
+    df_res = @transform(df_res, cell=assignment)
+
+    neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
+    color_transformation = gene_composition_transformation(neighb_cm)
+
+    borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
+    borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
+    borders = hcat(collect.(Iterators.product(borders...))...);
+
+    df_subsets = subset_df.(Ref(df_res), borders[1,:], borders[2,:], frame_size);
+    borders = borders[:, size.(df_subsets, 1) .> 0]
+    df_subsets = df_subsets[size.(df_subsets, 1) .> 0];
+
+    pos_datas = position_data.(df_subsets);
+    assignments = [df.cell for df in df_subsets];
+    genes_per_frams = [df.gene for df in df_subsets];
+    grid_step = frame_size / grid_size
+
+    plot_info = @showprogress "Extracting plot info..." pmap(zip(pos_datas, genes_per_frams, assignments)) do (pd, g, a)
+        pol = boundary_polygons(pd, a; min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step)
+        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), color_transformation)
+        pol, col
+    end;
+
+    df_centers = (df_centers === nothing) ? fill(nothing, length(df_subsets)) : subset_by_coords.(Ref(df_centers), df_subsets);
+
+    if return_raw
+        return df_subsets, plot_info, df_centers, borders
     end
 
-    if grid_step === nothing
-        grid_step = Float64(frame_size / 300)
-    end
+    @info "Plotting..."
 
-    polygons = boundary_polygons(cur_df, cur_df.cell, min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold);
-    gene_colors = gene_composition_colors(neighborhood_count_matrix(cur_df, k, maximum(df_spatial.gene)), color_transformation);
-
-    res = Dict(
-        :df => cur_df, :polygons => polygons, :gene_colors => gene_colors, 
-        :centers => (df_centers === nothing) ? nothing : subset_by_coords(df_centers, cur_df)
-    )
-    if plot
-        res[:plot] = plot_cell_borders_polygons(res[:df], res[:polygons], res[:centers]; color=res[:gene_colors],
-                                                xlims=(x_start, x_end), ylims=(y_start, y_end), kwargs...)
-    end
-
-    return res
+    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width)) 
+        for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
 end
 
 ### Colormaps
