@@ -100,9 +100,7 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
                                   min_molecules_per_cell::Union{Int, Nothing}=nothing, shape_deg_freedom::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
-    if confidence_nn_id === nothing
-        confidence_nn_id = default_param_value(:confidence_nn_id, min_molecules_per_cell)
-    end
+    confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
 
     if !(:confidence in names(df_spatial)) && (confidence_nn_id > 0)
         @info "Estimate confidence per molecule"
@@ -117,13 +115,8 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
         dfs_spatial = dfs_spatial[1:n_frames_return]
     end
 
-    if n_cells_init == nothing
-        n_cells_init = default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
-    end
-
-    if shape_deg_freedom === nothing
-        shape_deg_freedom = default_param_value(:shape_deg_freedom, min_molecules_per_cell)
-    end
+    n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
+    shape_deg_freedom = something(shape_deg_freedom, default_param_value(:shape_deg_freedom, min_molecules_per_cell))
 
     return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, 
             shape_deg_freedom=shape_deg_freedom, kwargs...)
@@ -132,17 +125,10 @@ end
 function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, n_cells_init::Int, scale::Union{Number, Nothing}=nothing,
                                   new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
                                   update_priors::Symbol=:no, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
-    if scale === nothing
-        scale = centers.scale_estimate
-    end
+    scale = something(scale, centers.scale_estimate)
+    n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell))
+    centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
 
-    if n_degrees_of_freedom_center === nothing
-        n_degrees_of_freedom_center = default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell)
-    end
-
-    if centers.center_covs === nothing
-        centers.center_covs = [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)]
-    end
     centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
 
     size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2);

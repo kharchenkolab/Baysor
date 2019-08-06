@@ -150,13 +150,8 @@ boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...)
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3, use_kde::Bool=true,
                            bandwidth::Float64=grid_step / 2)::Array{Array{Float64, 2}, 1}
-    if min_x === nothing
-        min_x = vec(mapslices(minimum, pos_data, dims=2))
-    end
-
-    if max_x === nothing
-        max_x = vec(mapslices(maximum, pos_data, dims=2))
-    end
+    min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
+    max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
 
     grid_points = grid_point_coords(min_x, max_x, grid_step);
     grid_points_mat = hcat(grid_points...)
