@@ -159,10 +159,22 @@ append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
 function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict;
                       plot_width::Int=800, margin=5*Plots.mm)
-    # Convergence
-    if ("n_components" in keys(tracer)) && length(tracer["n_components"]) == 0
-        p_cov = plot_num_of_cells_per_iterarion(tracer);
-        Plots.savefig(append_suffix(args["output"], "convergence.pdf"))
+    # Diagnostics
+    open(append_suffix(args["output"], "diagnostics.html"), "w") do io
+        ## Convergence
+        if ("n_components" in keys(tracer)) && length(tracer["n_components"]) == 0
+            p_cov = plot_num_of_cells_per_iterarion(tracer, margin=margin);
+            show(io, MIME("text/html"), p_cov)
+        end
+
+        ## Confidence per molecule
+        if :confidence in names(df_res)
+            bins = 0.0:0.025:1.0
+            p_conf = Plots.histogram(df_res.confidence[assignment .!= 0], bins=bins, label="Assigned molecules", 
+                xlabel="Confidence", ylabel="#Molecules", title="Confidence per molecule", margin=margin)
+            p_conf = Plots.histogram!(df_res.confidence[assignment .== 0], alpha=0.5, bins=bins, label="Noise molecules")
+            show(io, MIME("text/html"), p_conf)
+        end
     end
 
     # Transcripts

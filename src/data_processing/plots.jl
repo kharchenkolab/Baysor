@@ -70,7 +70,7 @@ end
 
 ### Tracing
 
-function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
+function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any}; kwargs...)
     if !("n_components" in keys(tracer)) || length(tracer["n_components"]) == 0
         error("No data about #components per iteration was stored")
     end
@@ -81,8 +81,8 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any})
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    p = Plots.plot(legendtitle="Min #molecules", title="Convergence", xlabel="Iteration", ylabel="#Cells",
-                   background_color_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), legend=:topleft)
+    p = Plots.plot(; legendtitle="Min #molecules", title="Convergence", xlabel="Iteration", ylabel="#Cells",
+                   background_color_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), legend=:topleft, kwargs...)
     for i in 1:size(n_components_per_iter, 1)
         p = Plots.plot!(n_components_per_iter[i,:], label="$(labels[i])")
     end
@@ -173,7 +173,7 @@ subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real)
 
 function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}; 
                                          gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=300, return_raw::Bool=false,
-                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm)
+                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm, dens_threshold::Float64=1e-10)
     df_res = @transform(df_res, cell=assignment)
 
     neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
@@ -193,7 +193,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
     grid_step = frame_size / grid_size
 
     plot_info = @showprogress "Extracting plot info..." pmap(zip(pos_datas, genes_per_frams, assignments)) do (pd, g, a)
-        pol = boundary_polygons(pd, a; min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=1e-10)
+        pol = boundary_polygons(pd, a; min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold)
         col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), color_transformation)
         pol, col
     end;
