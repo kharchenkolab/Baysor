@@ -155,7 +155,7 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
     # Diagnostics
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
         ## Convergence
-        if ("n_components" in keys(tracer)) && length(tracer["n_components"]) == 0
+        if ("n_components" in keys(tracer)) && length(tracer["n_components"]) != 0
             p_cov = plot_num_of_cells_per_iterarion(tracer, margin=margin);
             show(io, MIME("text/html"), p_cov)
         end
