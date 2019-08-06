@@ -144,8 +144,8 @@ end
 function estimate_noise_density_level(data::BmmData)
     composition_density = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components])
 
-    eigen_vals = data.distribution_sampler.shape_prior.eigen_values;
-    position_density = pdf(MultivariateNormal([0.0, 0.0], diagm(0 => eigen_vals)), 3 .* (eigen_vals .^ 0.5))
+    std_vals = data.distribution_sampler.shape_prior.std_values;
+    position_density = pdf(MultivariateNormal([0.0, 0.0], diagm(0 => std_vals.^2)), 3 .* std_vals)
 
     return position_density * composition_density
 end

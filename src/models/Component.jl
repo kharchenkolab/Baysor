@@ -14,19 +14,34 @@ struct CellCenter
 end
 
 struct ShapePrior
-    n_samples_var::Int;
-    eigen_values::Array{Float64, 1};
+    std_values::Array{Float64, 1};
+    std_value_stds::Array{Float64, 1};
+    n_samples::Int;
 end
 
-distributions(prior::ShapePrior) = Gamma.(Ref(prior.n_samples_var), prior.eigen_values ./ prior.n_samples_var)
+distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
 
-# argmax of posterior of Inverse Chi-squared
-var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}, n::Int) =
-    [(prior.n_samples_var * pv + n * ev) / (prior.n_samples_var + n) for (pv, ev) in zip(prior.eigen_values, eigen_values)]
+# f(dx) = sign(dx) * sqrt(|dx/std|) * std
+function var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}; n_samples::Int)
+    d_std = (sqrt.(eigen_values) .- prior.std_values)
+    stds_adj = (prior.std_values .+ sign.(d_std) .* (sqrt.(abs.(d_std) ./ prior.std_value_stds .+ 1) .- 1) .* prior.std_value_stds)
 
-sample_var(prior::ShapePrior, args...) = [rand(d, args...) for d in distributions(prior)]
+    return ((prior.n_samples .* prior.std_values .+ n_samples .* stds_adj) ./ (prior.n_samples + n_samples)) .^ 2
+end
+
+function sample_var(d::Normal)
+    @assert d.μ > 0
+    while true
+        v = rand(d)
+        if v > 0
+            return v
+        end
+    end
+end
+sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
+
 # pdf(prior::ShapePrior, Σ::Array{Float64, 2}) = pdf.(distributions(prior), eigen(Σ).values)
-logpdf(prior::ShapePrior, Σ::Array{Float64, 2}) = logpdf.(distributions(prior), eigen(Σ).values)
+# logpdf(prior::ShapePrior, Σ::Array{Float64, 2}) = logpdf.(distributions(prior), eigen(Σ).values)
 
 # struct GeneCountPrior
 #     vectors_per_gene_type::Array{Array{Int, 2}, 1};
@@ -69,7 +84,7 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
     end
 
     if c.shape_prior !== nothing
-        Σ = adjust_cov_by_prior(Σ, size(pos_data, 2), c.shape_prior)
+        Σ = adjust_cov_by_prior(Σ, c.shape_prior; n_samples=size(pos_data, 2))
     end
 
     try
@@ -85,9 +100,9 @@ pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=
     pdf(params.position_params, x, y) *
     pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
 
-function adjust_cov_by_prior(Σ::Array{Float64, 2}, n_samples::Int, prior::ShapePrior)
+function adjust_cov_by_prior(Σ::Array{Float64, 2}, prior::ShapePrior; n_samples::Int)
     fact = eigen(Σ)
-    eigen_values_posterior = var_posterior(prior, fact.values, n_samples)
+    eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
     d = fact.vectors * diagm(0 => eigen_values_posterior) * inv(fact.vectors)
     d[1, 2] = d[2, 1]
 
@@ -104,6 +119,7 @@ end
 
 position(c::Component) = c.position_params.μ
 
-set_shape_prior!(c::Component, var_arr::Array{Float64, 1}) = begin c.shape_prior = ShapePrior(c.shape_prior.n_samples_var, var_arr) end
+# set_shape_prior!(c::Component, var_arr::Array{Float64, 1}) = begin c.shape_prior = ShapePrior(c.shape_prior.n_samples_var, var_arr) end
+set_shape_prior!(c::Component, var_arr::Array{Float64, 1}) = error("Not implemented")
 
 eigen_values(c::Component) = eigen(shape(c.position_params)).values

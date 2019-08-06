@@ -13,7 +13,7 @@ function trace_prior_shape!(data::BmmData)
         data.tracer["prior_shape"] = Array{Float64, 1}[]
     end
 
-    push!(data.tracer["prior_shape"], data.distribution_sampler.shape_prior.eigen_values);
+    push!(data.tracer["prior_shape"], data.distribution_sampler.shape_prior.std_values);
 end
 
 function merge_tracers(tracers::Array{Dict{String, Any}, 1})::Dict{String, Any}

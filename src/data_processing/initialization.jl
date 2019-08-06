@@ -13,10 +13,6 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
     min_molecules_per_cell = max(min_molecules_per_cell, 3)
 
-    if param == :shape_deg_freedom
-        return 20 * min_molecules_per_cell
-    end
-
     if param == :n_degrees_of_freedom_center
         return min_molecules_per_cell
     end
@@ -32,6 +28,17 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
         return div(n_molecules, min_molecules_per_cell) * 2
     end
+end
+
+parse_scale_std(scale_std::Float64, ::Real) = scale_std
+parse_scale_std(scale_std::Nothing, scale::Real) = 0.25 * scale
+function parse_scale_std(scale_std::String, scale::Real)
+    scale_std = strip(scale_std)
+    if scale_std[end] == '%'
+        return parse(Float64, scale_std[1:end-1]) * scale / 100.0
+    end
+
+    return parse(Float64, scale_std)
 end
 
 function append_confidence!(df_spatial::DataFrame; nn_id::Int, border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975))
@@ -97,7 +104,7 @@ end
 """
 function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
                                   confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), 
-                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, shape_deg_freedom::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
+                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
     confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
@@ -116,39 +123,42 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     end
 
     n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
-    shape_deg_freedom = something(shape_deg_freedom, default_param_value(:shape_deg_freedom, min_molecules_per_cell))
 
-    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, 
-            shape_deg_freedom=shape_deg_freedom, kwargs...)
+    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, kwargs...)
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; shape_deg_freedom::Int, n_cells_init::Int, scale::Union{Number, Nothing}=nothing,
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int, 
+                                  scale::Union{Number, Nothing}=nothing, scale_std::Union{Float64, String, Nothing}=nothing, 
                                   new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
                                   update_priors::Symbol=:no, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     scale = something(scale, centers.scale_estimate)
+    scale_std = parse_scale_std(something(scale_std, centers.scale_std_estimate), scale)
+
     n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell))
     centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
 
     centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
 
-    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2);
+    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
 
     if any([size(c.centers, 1) == 0 for c in centers_per_frame])
         error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
     end
 
-    @info "Initializing algorithm. Scale: $scale, initial #clusters: $n_cells_init."
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
 
     n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 2)
     return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
             prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
-            shape_deg_freedom=shape_deg_freedom, update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
+            update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; shape_deg_freedom::Int, scale::Number, n_cells_init::Int, 
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int, 
                                   new_component_weight::Number=0.2, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
-    @info "Initializing algorithm. Scale: $scale, initial #clusters: $n_cells_init."
-    size_prior = ShapePrior(shape_deg_freedom, [scale, scale].^2)
+    scale_std = parse_scale_std(scale_std, scale)
+
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
     initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, n_cells_init; scale=scale)
     return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
 end
@@ -223,13 +233,12 @@ end
     - `n_degrees_of_freedom_center::Int`:
     - `default_std::Union{Real, Nothing}=nothing`: initial std for position_params in components. Estimated from assignment if `nothing` is passed.
     - `gene_num::Int=maximum(df_spatial[:gene])`: total number of genes in the dataset
-    - `shape_deg_freedom::Int`: number of degrees of freedom for `size_prior`. Ignored if `size_prior !== nothing`.
     - `noise_confidence_threshold::Float64=0.1`: all molecules with confidence < `noise_confidence_threshold` are assigned to noise class
     - `n_cells_init::Int=0`: number of clusters for initialization. Ignored if less than number of centers. Otherwise corresponding clusters are added with KShift clustering
 """
 function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::ShapePrior, new_component_weight::Float64,
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-                               gene_num::Int=maximum(df_spatial[!,:gene]), shape_deg_freedom::Int, noise_confidence_threshold::Float64=0.1,
+                               gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1,
                                n_cells_init::Int=0)
     if new_component_weight < 1e-10
         n_cells_init = 0

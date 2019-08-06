@@ -22,14 +22,14 @@ function parse_toml_config(config::Dict{AbstractString, Any})
             "min-molecules-per-cell" => 3,
             "estimate-scale-from-centers" => true,
             "scale" => nothing,
+            "scale-std" => "25%",
             "min-center-size" => 200
         ),
         "Sampling" => Dict{AbstractString, Any}(
             "new-component-weight" => 0.2,
             "new-component-fraction" => 0.3,
             "center-component-weight" => 1.0,
-            "n-degrees-of-freedom-center" => nothing,
-            "shape-deg-freedom" => nothing       
+            "n-degrees-of-freedom-center" => nothing
         ),
         "Plotting" => Dict{AbstractString, Any}(
             "gene-composition-neigborhood" => 20,
@@ -92,9 +92,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "Number of iterations for refinement of results. In most cases, default is enough."
             arg_type = Int
             default = 50
-        "--shape-deg-freedom"
-            help = "Num. of degrees of freedom for the shape prior. Overrides the config value."
-            arg_type = Int
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value."
@@ -133,17 +130,13 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         r[k] = Symbol(r[k])
     end
 
-    if r["shape-deg-freedom"] === nothing
-        r["shape-deg-freedom"] = default_param_value(:shape_deg_freedom, r["min-molecules-per-cell"])
+    if r["centers"] === nothing && r["scale"] === nothing
+        print("Either `centers` or `scale` must be provided.\n" * usage_string(s) * "\n")
+        exit(1)
     end
 
     if r["n-degrees-of-freedom-center"] === nothing
         r["n-degrees-of-freedom-center"] = default_param_value(:n_degrees_of_freedom_center, r["min-molecules-per-cell"])
-    end
-
-    if r["centers"] === nothing && r["scale"] === nothing
-        print("Either `centers` or `scale` must be provided.\n" * usage_string(s) * "\n")
-        exit(1)
     end
 
     if isdir(r["output"]) || isdirpath(r["output"])
@@ -230,13 +223,15 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"], min_segment_size=args["min-center-size"])
         df_centers = centers.centers
 
+        scale = args["estimate-scale-from-centers"] ? nothing : args["scale"]
+        scale_std = args["estimate-scale-from-centers"] ? nothing : args["scale-std"]
         bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
-            shape_deg_freedom=args["shape-deg-freedom"], scale=(args["estimate-scale-from-centers"] ? nothing : args["scale"]), n_cells_init=args["num-cells-init"],
+            scale=scale, scale_std=scale_std, n_cells_init=args["num-cells-init"],
             new_component_weight=args["new-component-weight"], center_component_weight=args["center-component-weight"], 
             n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     else
         bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
-            shape_deg_freedom=args["shape-deg-freedom"], scale=args["scale"], n_cells_init=args["num-cells-init"],
+            scale=args["scale"], scale_std=args["scale-std"], n_cells_init=args["num-cells-init"],
             new_component_weight=args["new-component-weight"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     end
 

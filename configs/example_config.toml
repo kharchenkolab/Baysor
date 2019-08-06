@@ -38,8 +38,8 @@ center-component-weight = 1.0
 # Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell.
 n-degrees-of-freedom-center = 1000
 
-# Number of degrees of freedom for shape prior. Normally should be several times larger than expected number of molecules per cell. Default: 20 * min-molecules-per-cell.
-shape-deg-freedom = 1000
+# Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
+scale-std = "25%"
 
 [Plotting]
 
