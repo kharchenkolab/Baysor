@@ -26,7 +26,7 @@ function handle_message(logger::DoubleLogger, level, message, _module, group, id
         remaining > 0 || return
     end
 
-    log_message(logger.cli_stream, level, message, _module, filepath, line)
+    log_message(logger.cli_stream, level, message, _module, filepath, line; force_flush=logger.force_flush)
 
     if logger.file_stream !== nothing
         log_message(logger.file_stream, level, message, _module, filepath, line; force_flush=logger.force_flush)
