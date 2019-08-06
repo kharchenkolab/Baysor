@@ -17,10 +17,13 @@ end
 """
 Estimates scale as a 0.5 * median distance between two nearest centers multiplied by `scale_mult`
 """
-estimate_scale_from_centers(centers::Array{Float64, 2}; scale_mult::Float64=0.75) =
+estimate_scale_from_centers(centers::Array{Float64, 2}; scale_mult::Float64=1.0) =
     scale_mult * median(maximum.(knn(KDTree(centers), centers, 2)[2])) / 2
 
-function load_centers(path::String; min_segment_size::Int=5, scale_mult::Float64=0.75, kwargs...)::CenterData
+estimate_scale_from_centers(seg_mask::Array{Int, 2}; scale_mult::Float64=1.0) =
+    scale_mult * median(sqrt.(Images.component_lengths(seg_mask)[2:end] / π))
+
+function load_centers(path::String; min_segment_size::Int=5, scale_mult::Float64=1.0, kwargs...)::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
         df_centers = read_spatial_df(path; gene_col=nothing, kwargs...) |> unique;
@@ -46,7 +49,7 @@ function load_centers(path::String; min_segment_size::Int=5, scale_mult::Float64
         centers = centers[:, is_pos_def]
         center_covs = center_covs[is_pos_def]
 
-        scale = estimate_scale_from_centers(centers, scale_mult=scale_mult)
+        scale = estimate_scale_from_centers(segmentation_labels, scale_mult=scale_mult)
         return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale)
     end
 
