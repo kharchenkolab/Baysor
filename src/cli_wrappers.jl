@@ -62,25 +62,25 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
         "--config", "-c"
             help = "TOML file with config"
         "--x-column", "-x"
-            help = "Name of x column. Overrides JSON value."
+            help = "Name of x column. Overrides the config value."
         "--y-column", "-y"
-            help = "Name of gene column. Overrides JSON value."
+            help = "Name of gene column. Overrides the config value."
         "--gene-column"
-            help = "Name of gene column. Overrides JSON value."
+            help = "Name of gene column. Overrides the config value."
 
         "--iters", "-i"
             help = "Number of iterations"
             arg_type = Int
             default = 500
         "--min-molecules-per-gene"
-            help = "Minimal number of molecules per gene. Overrides JSON value."
+            help = "Minimal number of molecules per gene. Overrides the config value."
             arg_type = Int
         "--n-frames", "-n"
             help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
             arg_type = Int
             default=1
         "--num-cells-init"
-            help = "Initial number of cells. Ignored if CSV with centers is provided. Overrides JSON value."
+            help = "Initial number of cells. Ignored if CSV with centers is provided. Overrides the config value."
             arg_type = Int
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
@@ -92,9 +92,12 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "Number of iterations for refinement of results. In most cases, default is enough."
             arg_type = Int
             default = 50
+        "--shape-deg-freedom"
+            help = "Num. of degrees of freedom for the shape prior. Overrides the config value."
+            arg_type = Int
 
         "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides JSON value."
+            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value."
             arg_type = Float64
 
         "coordinates"
