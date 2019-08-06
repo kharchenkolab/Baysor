@@ -111,7 +111,7 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     end
 
     dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
-    @info "Mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))"
+    @info "#frames: $(length(dfs_spatial)); mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))."
 
     if (n_frames_return > 0) && (n_frames_return < n_frames)
         dfs_spatial = dfs_spatial[1:n_frames_return]
@@ -322,5 +322,13 @@ function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame
 end
 
 split_spatial_data(df::DataFrame, n_hor::Int, n_ver::Int) = vcat(split_spatial_data.(split_spatial_data(df, n_ver, :y), n_hor, :x)...)
-split_spatial_data(df::DataFrame, n::Int) = split_spatial_data(df, floor(Int, sqrt(n)), ceil(Int, sqrt(n))) # TODO: very approximate separation. Example: n=3.
+
+function split_spatial_data(df::DataFrame, n::Int) # TODO: very approximate separation. Example: n=3.
+    df_sizes = Dict(s => maximum(df[!,s]) - minimum(df[!,s]) for s in [:x, :y]);
+    x_elongation = df_sizes[:x] / sum(values(df_sizes))
+    a = round(Int, sqrt(x_elongation * n / (1 - x_elongation))) # solution of "a * b = n; a / (a + b) = x_elongation"
+
+    return split_spatial_data(df, a, round(Int, n / a))
+end
+
 split_spatial_data(df::DataFrame; mean_mols_per_frame::Int) = split_spatial_data(df, round(Int, size(df, 1) / mean_mols_per_frame))
