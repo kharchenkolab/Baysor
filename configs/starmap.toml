@@ -1,8 +1,8 @@
 [Data]
 min-molecules-per-gene = 50
-min-molecules-per-cell = 10
-scale = 50
+min-molecules-per-cell = 70
+scale = 105
 
 [Plotting]
-gene-composition-neigborhood = 50
-plot-frame-size = 5000
+gene-composition-neigborhood = 30
+plot-frame-size = 2500
