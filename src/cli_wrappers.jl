@@ -199,6 +199,11 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
     end
 
+    # Set up logger
+
+    log_file = open(append_suffix(args["output"], "log.log"), "w")
+    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+
     # Run algorithm
 
     @info "Run"
@@ -248,6 +253,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     end
 
     @info "All done!"
+
+    close(log_file)
 
     return 0
 end
