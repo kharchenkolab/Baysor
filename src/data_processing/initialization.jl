@@ -257,8 +257,8 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
     ids_per_comp = split(collect(1:length(assignment)), assignment .+ 1)[2:end]
     for (ids, comp) in zip(ids_per_comp, components)
         if comp.n_samples > 0
-            comp.position_params = maximize(comp.position_params, position_data(df_spatial)[:,ids])
-            comp.composition_params = maximize(comp.composition_params, composition_data(df_spatial)[ids])
+            comp.position_params = maximize(comp.position_params, position_data(df_spatial[ids,:]))
+            comp.composition_params = maximize(comp.composition_params, composition_data(df_spatial[ids,:]))
         end
     end
 
