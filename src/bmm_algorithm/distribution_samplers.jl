@@ -45,11 +45,11 @@ function maximize_from_prior!(comp::Component, data::BmmData)
     return comp;
 end
 
-function sample_distribution(data::BmmData)
+function sample_distribution(data::BmmData; guid::Int=-1)
     sampler = data.distribution_sampler
     position_params = sample_distribution(data, sampler.shape_prior, center_prior=sampler.center_prior);
     composition_params = sample_composition_params(data);
 
     return Component(position_params, composition_params; prior_weight=sampler.prior_weight, can_be_dropped=true,
-                     center_prior=deepcopy(sampler.center_prior), shape_prior=deepcopy(sampler.shape_prior));
+                     center_prior=deepcopy(sampler.center_prior), shape_prior=deepcopy(sampler.shape_prior), guid=guid);
 end

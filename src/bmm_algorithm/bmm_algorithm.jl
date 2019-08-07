@@ -153,8 +153,12 @@ function estimate_noise_density_level(data::BmmData)
     return position_density * composition_density
 end
 
-append_empty_components!(data::BmmData, new_component_frac::Float64) =
-    append!(data.components, [sample_distribution(data) for i in 1:round(Int, new_component_frac * length(data.components))])
+function append_empty_components!(data::BmmData, new_component_frac::Float64)
+    for i in 1:round(Int, new_component_frac * length(data.components))
+        data.max_component_guid += 1
+        push!(data.components, sample_distribution(data; guid=data.max_component_guid))
+    end
+end
 
 function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
     adj_classes_global = Dict{Int, Array{Int, 1}}()
@@ -179,8 +183,8 @@ trace_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
     println("EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, history_step::Int=0, new_component_frac::Float64=0.05,
-              return_assignment_history::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing)
+function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
+              assignment_history_depth::Int=0, channel::Union{RemoteChannel, Nothing}=nothing)
     time_start = now()
 
     if verbose
@@ -188,9 +192,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     it_num = 0
-    history = BmmData[];
-    # neighbors_by_molecule_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
-    assignment_per_iteration = Array{Array{Array{Int64,1},1}, 1}()
+
+    if !("assignment_history" in keys(data.tracer))
+        data.tracer["assignment_history"] = Vector{Int}[]
+    end
     adj_classes_global = Dict{Int, Array{Int, 1}}()
 
     trace_prior_shape!(data);
@@ -199,10 +204,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
 
     for i in 1:n_iters
-        if (history_step > 0) && (i.==1 || i % history_step == 0)
-            push!(history, deepcopy(data))
-        end
-
         expect_dirichlet_spatial!(data, adj_classes_global)
         maximize!(data, min_molecules_per_cell)
 
@@ -220,9 +221,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             trace_em_state(data, it_num, time_start)
         end
 
-        if return_assignment_history
-            # push!(neighbors_by_molecule_per_iteration, extract_neighborhood_from_assignment(data.assignment))
-            push!(assignment_per_iteration, deepcopy(data.assignment))
+        if assignment_history_depth > 0
+            push!(data.tracer["assignment_history"], global_assignment_ids(data))
+            if length(data.tracer["assignment_history"]) > assignment_history_depth
+                data.tracer["assignment_history"] = data.tracer["assignment_history"][(end - assignment_history_depth + 1):end]
+            end
         end
 
         if channel !== nothing
@@ -234,22 +237,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         trace_em_state(data, it_num, time_start)
     end
 
-    res = Any[data]
-    if history_step > 0
-        push!(history, deepcopy(data))
-        push!(res, history)
-    end
-
-    if return_assignment_history
-        # push!(res, neighbors_by_molecule_per_iteration)
-        push!(res, assignment_per_iteration)
-    end
-
-    if length(res) == 1
-        return res[1]
-    end
-
-    return res
+    return data
 end
 
 function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300,
@@ -260,6 +248,7 @@ function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n
         drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
         expect_dirichlet_spatial!(bmm_res, stochastic=false)
         maximize!(bmm_res, min_molecules_per_cell)
+        update_prior_probabilities!(bmm_res.components)
 
         if channel !== nothing
             put!(channel, true)

@@ -2,6 +2,7 @@ using DataFrames
 using LinearAlgebra
 using NearestNeighbors
 using Statistics
+using StatsBase: countmap
 
 mutable struct BmmData
 
@@ -21,6 +22,7 @@ mutable struct BmmData
     components::Array{Component, 1};
     distribution_sampler::Component;
     assignment::Array{Int, 1};
+    max_component_guid::Int;
 
     noise_density::Float64;
 
@@ -72,7 +74,7 @@ mutable struct BmmData
         end
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
-                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment,
+                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
                    0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
         for c in self.components
@@ -81,6 +83,22 @@ mutable struct BmmData
 
         for c_id in assignment[assignment .> 0]
             self.components[c_id].n_samples += 1
+        end
+
+        # Resolve component guids
+        guids = [c.guid for c in self.components]
+
+        if maximum(guids) <= 0
+            self.max_component_guid = length(self.components)
+            for (i,c) in enumerate(self.components)
+                c.guid = i
+            end
+        else
+            if minimum(guids) <= 0
+                error("Either all or no guids can be <= 0")
+            end
+
+            self.max_component_guid = maximum(guids)
         end
 
         return self
@@ -101,21 +119,50 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
     data.assignment[point_ind] = component_id
 end
 
-function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
+function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation::Bool=false)
     @assert length(bmm_data_arr) > 0
 
+    # Spatail DataFrame
     x = vcat([deepcopy(bd.x) for bd in bmm_data_arr]...)
-    components = vcat([deepcopy(bd.components) for bd in bmm_data_arr]...)
 
-    adjacent_points = Array{Int64,1}[]
-    adjacent_weights = Array{Float64,1}[]
-    ap_offset = 0;
-    for bd in bmm_data_arr
-        append!(adjacent_points, [deepcopy(ap) .+ ap_offset for ap in bd.adjacent_points])
-        append!(adjacent_weights, deepcopy(bd.adjacent_weights))
-        ap_offset += size(bd.x, 1)
+    # Components
+    components = [deepcopy(bd.components) for bd in bmm_data_arr]
+    tracers = [deepcopy(bd.tracer) for bd in bmm_data_arr]
+
+    ## Update GUIDs
+    max_guid = 0
+    for (bd, comps, tr) in zip(bmm_data_arr, components, tracers)
+        for c in comps
+            c.guid += max_guid
+        end
+
+        if "assignment_history" in keys(tr)
+            for ah in tr["assignment_history"]
+                ah[ah .> 0] .+= max_guid
+            end
+        end
+
+        max_guid += bd.max_component_guid
     end
 
+    components = vcat(components...)
+
+    # Adjacency lists
+    adjacent_points = Array{Int64,1}[]
+    adjacent_weights = Array{Float64,1}[]
+
+    if reestimate_triangulation
+        adjacent_points, adjacent_weights = adjacency_list(x)
+    else
+        ap_offset = 0;
+        for bd in bmm_data_arr
+            append!(adjacent_points, [deepcopy(ap) .+ ap_offset for ap in bd.adjacent_points])
+            append!(adjacent_weights, deepcopy(bd.adjacent_weights))
+            ap_offset += size(bd.x, 1)
+        end
+    end
+
+    # Assignments
     assignments = Array{Int64,1}[]
     assignment_offset = 0;
     for bd in bmm_data_arr
@@ -131,9 +178,32 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1})
         deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
         update_priors=bmm_data_arr[1].update_priors)
 
-    res.tracer = merge_tracers([bd.tracer for bd in bmm_data_arr])
+    res.tracer = merge_tracers(tracers)
 
     return res
+end
+
+function estimate_assignment_by_history(data::BmmData)
+    if !("assignment_history" in keys(data.tracer)) || (length(data.tracer["assignment_history"]) == 0)
+        @warn "Data has no saved history of assignments. Fall back to the basic assignment"
+        return data.assignment, ones(length(data.assignment)) / 2
+    end
+
+    current_guids = Set(vcat([c.guid for c in data.components], [0]));
+    assignment_mat = hcat(data.tracer["assignment_history"]...);
+
+    reassignment = mapslices(assignment_mat, dims=2) do row
+        c_row = row[in.(row, Ref(current_guids))]
+        if length(c_row) == 0
+            return 0
+        end
+
+        c_counts = countmap(c_row);
+        count_vals = collect(values(c_counts))
+        return maximum(collect(keys(c_counts))[count_vals .== maximum(count_vals)])
+    end
+    
+    return vec(reassignment), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
 function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
@@ -172,4 +242,13 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     end
 
     return df
+end
+
+function global_assignment_ids(data::BmmData)::Vector{Int}
+    cur_guids = [c.guid for c in data.components]
+    res = deepcopy(data.assignment)
+    non_noise_mask = (res .> 0)
+    res[non_noise_mask] .= cur_guids[res[non_noise_mask]]
+
+    return res
 end

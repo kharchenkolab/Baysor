@@ -19,9 +19,11 @@ end
 function merge_tracers(tracers::Array{Dict{String, Any}, 1})::Dict{String, Any}
     @warn "`merge_tracers` doesn't merge 'prior_shape', as it can't be aggregated over frames" # TODO: fix it
 
+    res = Dict{String, Any}();
+
     tracers = filter(tr -> "n_components" in keys(tr), tracers)
     if length(tracers) == 0
-        return Dict{String, Any}()
+        return res
     end
 
     n_components_per_tracer = [tr["n_components"] for tr in tracers]
@@ -34,6 +36,16 @@ function merge_tracers(tracers::Array{Dict{String, Any}, 1})::Dict{String, Any}
             end
         end
     end
+    res["n_components"] = n_components_res
 
-    return Dict{String, Any}("n_components" => n_components_res)
+    assignments = get.(tracers, Ref("assignment_history"), Ref([]))
+    if any(length.(assignments) .> 0)
+        if !all(length.(assignments) .== length(assignments[1]))
+            @warn "Tracers have different length of assignment_history. Can't merge it."
+        else
+            res["assignment_history"] = vcat.(assignments...)
+        end
+    end
+
+    return res
 end
