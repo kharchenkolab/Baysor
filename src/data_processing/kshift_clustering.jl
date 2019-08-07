@@ -23,39 +23,36 @@ function kshiftmedoids(data, k)
     return data[:,ids], ids
 end
 
-@inbounds @inline function dist(a::Matrix{T}, i::Int, b::Matrix{T}, j::Int) where T
-    sum = zero(eltype(a))
-    @simd for d = 1:size(a,1)
-        sum += (a[d,i]-b[d,j])*(a[d,i]-b[d,j])
-    end
-
-    return sum
-end
-
 kshifts(data::Array{T,2} where T, k::Int) = kshifts!(deepcopy(data[:,rand(1:size(data, 2), k)]), data)
 
-@inbounds function kshifts!(centers::Array{T,2}, data::Array{T,2}) where T
-    @assert size(data, 1) == size(centers, 1)
-    f1 = 29/30
-    f2 = 1-f1
+@inbounds function kshifts!(centers::Matrix{T}, data::Matrix{T}; f1::Float64=29/30) where T
+    @assert size(data, 1) == size(centers, 1) == 2
+    f2 = 1 - f1
     for i = 1:size(data, 2)
-        data_view = view(data, i)
+        c_data = data[:,i]
         v = typemax(eltype(centers))
         ind = 0
         for j = 1:size(centers, 2)
-            d = dist(data, i, centers, j)
+            d1 = (c_data[1]-centers[1,j])
+            d1 *= d1
+
+            if d1 > v
+                continue
+            end
+
+            d2 = (c_data[2]-centers[2,j])
+            d = d1 + d2 * d2
+
             if d < v
                 v = d
                 ind = j
             end
         end
-        center_view = view(centers, ind)
-        for d = 1:size(center_view, 1)
-            center_view[d] = f1*center_view[d] + f2*data_view[d]
-        end
+        
+        centers[:,ind] .= f1 .* centers[:,ind] .+ f2 .* c_data
     end
 
     return centers
 end
 
-kshiftlabels(data::Matrix{T}, centers::Matrix{T}) where T = [v[1] for v in knn(KDTree(centers), data, 1)[1]]
+kshiftlabels(data::Matrix{T}, centers::Matrix{T}) where T = vcat(knn(KDTree(centers), data, 1)[1]...)
