@@ -71,7 +71,7 @@ mutable struct BmmData
             x[:confidence] = 0.95
         end
 
-        self = new(x, p_data, composition_data(x), x[!,:confidence], adjacent_points, adjacent_weights, real_edge_weight,
+        self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment,
                    0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
 
@@ -92,7 +92,7 @@ position_data(data::BmmData)::Array{Float64, 2} = data.position_data
 composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[!, :gene]
 composition_data(data::BmmData)::Array{Int, 1} = data.composition_data
 confidence(df::AbstractDataFrame)::Array{Float64, 1} = df[!, :confidence]
-confidence(data::BmmData)::Array{Float64, 1} = data.composition_data
+confidence(data::BmmData)::Array{Float64, 1} = data.confidence
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
 

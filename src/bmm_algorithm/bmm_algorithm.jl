@@ -31,7 +31,7 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_points::Array{Int, 1}`:
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
-function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
+@inline function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
     component_weights = Dict{Int, Float64}()
     zero_comp_weight = 0.0
     for (c_id, cw) in zip(assignment[adjacent_points], adjacent_weights)
@@ -48,7 +48,10 @@ end
 
 function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     for i in 1:size(data.x, 1)
-        x, y, gene, confidence = (data.x[i, [:x, :y, :gene, :confidence]]...,)
+        x, y = position_data(data)[:,i]
+        gene = composition_data(data)[i]
+        confidence = data.confidence[i]
+
         adj_classes, adj_weights, zero_comp_weight = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
 
         adj_global = get(adj_classes_global, i, Int[]);
