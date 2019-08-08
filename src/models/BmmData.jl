@@ -189,7 +189,8 @@ function estimate_assignment_by_history(data::BmmData)
         return data.assignment, ones(length(data.assignment)) / 2
     end
 
-    current_guids = Set(vcat([c.guid for c in data.components], [0]));
+    guid_map = Dict(c.guid => i for (i,c) in enumerate(data.components))
+    current_guids = Set(vcat(collect(keys(guid_map)), [0]));
     assignment_mat = hcat(data.tracer["assignment_history"]...);
 
     reassignment = mapslices(assignment_mat, dims=2) do row
@@ -202,8 +203,8 @@ function estimate_assignment_by_history(data::BmmData)
         count_vals = collect(values(c_counts))
         return maximum(collect(keys(c_counts))[count_vals .== maximum(count_vals)])
     end
-    
-    return vec(reassignment), vec(mean(assignment_mat .== reassignment, dims=2))
+
+    return get.(Ref(guid_map), vec(reassignment), 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
 function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
@@ -220,13 +221,18 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
 
     if add_qc
         segmented_df = get_segmentation_df(data);
-        pos_data_per_cell = position_data.(split(segmented_df, segmented_df.cell .+ 1)[2:end]);
-        df[!,:area] = area.(convex_hull.(pos_data_per_cell));
+        pos_data_per_cell = position_data.(split(segmented_df, segmented_df.cell .+ 1; max_factor=length(data.components)+1)[2:end]);
 
         df[!,:n_transcripts] = size.(pos_data_per_cell, 2);
-        df[!,:density] = df[!,:n_transcripts] ./ df[!,:area];
+        large_cell_mask = (df.n_transcripts .> 2)
 
-        df[!,:elongation] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell)))];
+        df[!,:density] = fill(NaN, size(df, 1))
+        df[!,:elongation] = fill(NaN, size(df, 1))
+        df[!,:area] = fill(NaN, size(df, 1))
+
+        df.area[large_cell_mask] = area.(convex_hull.(pos_data_per_cell[large_cell_mask]));
+        df.density[large_cell_mask] = df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask];
+        df.elongation[large_cell_mask] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]

@@ -191,11 +191,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         println("EM fit started")
     end
 
-    it_num = 0
-
-    if !("assignment_history" in keys(data.tracer))
+    if (assignment_history_depth > 0) && !("assignment_history" in keys(data.tracer))
         data.tracer["assignment_history"] = Vector{Int}[]
     end
+
+    it_num = 0
     adj_classes_global = Dict{Int, Array{Int, 1}}()
 
     trace_prior_shape!(data);
@@ -300,6 +300,13 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
     @info "Algorithm start"
     bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
     bm_data_merged = merge_bm_data(bm_data_arr)
+
+    if "assignment_history" in keys(bm_data_merged.tracer)
+        bm_data_merged.assignment = estimate_assignment_by_history(bm_data_merged)[1];
+        maximize!(bm_data_merged, min_molecules_per_cell)
+    end
+
+    drop_unused_components!(bm_data_merged; min_n_samples=1, force=true)
 
     @info "Done!"
 
