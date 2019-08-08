@@ -105,7 +105,7 @@ end
 
 function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     r = parse_commandline(args)
-    if ["scale"] !== nothing
+    if r["scale"] !== nothing
         r["estimate-scale-from-centers"] = false
     end
 

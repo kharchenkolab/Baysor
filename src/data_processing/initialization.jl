@@ -69,11 +69,10 @@ end
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
     center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
 
-function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5, scale_mult::Float64=0.75)
+function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
     cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
     covs = covs_from_assignment(spatial_df, assignment)
-    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs],
-        estimate_scale_from_centers(cluster_centers, scale_mult=scale_mult))
+    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], estimate_scale_from_centers(cluster_centers)...)
 end
 
 function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
