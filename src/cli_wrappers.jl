@@ -169,9 +169,10 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 
         # Assignment confidence
         if :assignment_confidence in names(df_res)
-            p_conf = Plots.histogram(df_res[:assignment_confidence][assignment .> 0], bins=50, legend=false)
+            p_conf = Plots.histogram(df_res.assignment_confidence[assignment .> 0], bins=50, legend=false)
             p_conf = Plots.vline!([0.95], xlabel="Assignment confidence", ylabel="#Molecules", xlims=(-0.01, 1.03), 
                 title="Assignment confidence per real molecules")
+            show(io, MIME("text/html"), p_conf)
         end
     end
 end
