@@ -71,10 +71,10 @@ function split(array::Array{T, 1}, factor::Array{Int, 1}; max_factor::Union{Int,
     return splitted
 end
 
-split(array::UnitRange{Int64}, factor::Array{Int64,1}) = split(collect(array), factor)
+split(array::UnitRange{Int64}, factor::Array{Int64,1}; kwargs...) = split(collect(array), factor; kwargs...)
 
-split(df::DataFrame, factor::Symbol) = split(df, Array(df[!, factor]))
-split(df::DataFrame, factor::Array{Int, 1}) = [df[ids, :] for ids in split(1:size(df, 1), factor)]
+split(df::DataFrame, factor::Symbol; kwargs...) = split(df, Array(df[!, factor]); kwargs...)
+split(df::DataFrame, factor::Array{Int, 1}; kwargs...) = [df[ids, :] for ids in split(1:size(df, 1), factor; kwargs...)]
 
 function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T=0.0)::Float64 where T<:Real
     if x < x_start
