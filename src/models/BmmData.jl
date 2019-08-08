@@ -235,7 +235,12 @@ end
 function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
     df = deepcopy(data.x)
     df[!,:cell] = deepcopy(data.assignment);
-    df[!,:is_noise] = (data.assignment .== 0);
+
+    if ("assignment_history" in keys(data.tracer)) && (length(data.tracer["assignment_history"]) > 1)
+        df[!,:cell], df[!,:assignment_confidence] = estimate_assignment_by_history(data)
+    end
+
+    df[!,:is_noise] = (df.cell .== 0);
 
     if gene_names !== nothing
         df[!,:gene] = gene_names[df[!,:gene]]

@@ -150,17 +150,16 @@ load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
-function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, tracer::Dict, args::Dict;
-                      plot_width::Int=800, margin=5*Plots.mm)
-    # Diagnostics
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm)
+    @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
-        ## Convergence
+        # Convergence
         if ("n_components" in keys(tracer)) && length(tracer["n_components"]) != 0
             p_cov = plot_num_of_cells_per_iterarion(tracer, margin=margin);
             show(io, MIME("text/html"), p_cov)
         end
 
-        ## Confidence per molecule
+        # Confidence per molecule
         if :confidence in names(df_res)
             bins = 0.0:0.025:1.0
             p_conf = Plots.histogram(df_res.confidence[assignment .!= 0], bins=bins, label="Assigned molecules", 
@@ -168,9 +167,19 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
             p_conf = Plots.histogram!(df_res.confidence[assignment .== 0], alpha=0.5, bins=bins, label="Noise molecules")
             show(io, MIME("text/html"), p_conf)
         end
-    end
 
-    # Transcripts
+        # Assignment confidence
+        if :assignment_confidence in names(df_res)
+            p_conf = Plots.histogram(df_res[:assignment_confidence][assignment .> 0], bins=50, legend=false)
+            p_conf = Plots.vline!([0.95], xlabel="Assignment confidence", ylabel="#Molecules", xlims=(-0.01, 1.03), 
+                title="Assignment confidence per real molecules")
+        end
+    end
+end
+
+function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict;
+                                          plot_width::Int=800, margin=5*Plots.mm)
+    @info "Plot transcript assignment"
     plots = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"], 
         frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"], plot_width=plot_width, margin=margin)
 
@@ -179,8 +188,6 @@ function plot_results(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::
             show(io, MIME("text/html"), p)
         end
     end
-
-    @info "Done!"
 end
 
 function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
@@ -225,14 +232,14 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
         scale = args["estimate-scale-from-centers"] ? nothing : args["scale"]
         scale_std = args["estimate-scale-from-centers"] ? nothing : args["scale-std"]
-        bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"],
-            scale=scale, scale_std=scale_std, n_cells_init=args["num-cells-init"],
-            new_component_weight=args["new-component-weight"], center_component_weight=args["center-component-weight"], 
-            n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+        bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"], scale=scale, scale_std=scale_std, 
+            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], 
+            center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"], 
+            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     else
-        bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"],
-            scale=args["scale"], scale_std=args["scale-std"], n_cells_init=args["num-cells-init"],
-            new_component_weight=args["new-component-weight"], min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+        bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"], 
+            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], 
+            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
     end
 
     if length(bm_data_arr) > 1
@@ -240,8 +247,10 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         eval(:(@everywhere using Baysor))
     end
 
-    bm_data = run_bmm_parallel(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
-                               min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"]);
+    assignment_history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.05 : 0.01))
+    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
+                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"],
+                                assignment_history_depth=assignment_history_depth);
 
     @info "Processing complete."
 
@@ -255,8 +264,8 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
     if args["plot"]
-        @info "Plot results"
-        plot_results(bm_data.x, bm_data.assignment, df_centers, bm_data.tracer, args)
+        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args)
     end
 
     @info "All done!"
