@@ -12,7 +12,7 @@ mutable struct CenterData
 end
 
 CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Float64) = 
-    new(centers, nothing, scale_estimate, scale_std_estimate)
+    CenterData(centers, nothing, scale_estimate, scale_std_estimate)
 
 estimate_scale_from_centers(center_scales::Array{Float64, 1}) =
     (median(center_scales), mad(center_scales; normalize=true))

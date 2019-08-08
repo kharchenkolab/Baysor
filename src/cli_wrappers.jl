@@ -90,7 +90,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             action = :store_true
 
         "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value."
+            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Set 'estimate-scale-from-centers' to false."
             arg_type = Float64
 
         "coordinates"
@@ -105,6 +105,9 @@ end
 
 function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     r = parse_commandline(args)
+    if ["scale"] !== nothing
+        r["estimate-scale-from-centers"] = false
+    end
 
     if r["config"] !== nothing
         cfg = parse_toml_config(r["config"])
@@ -127,7 +130,7 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     if r["centers"] === nothing && r["scale"] === nothing
-        print("Either `centers` or `scale` must be provided.\n" * usage_string(s) * "\n")
+        println("Either `centers` or `scale` must be provided.")
         exit(1)
     end
 
