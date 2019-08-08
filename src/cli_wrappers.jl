@@ -88,10 +88,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
-        "--refinement-iters"
-            help = "Number of iterations for refinement of results. In most cases, default is enough."
-            arg_type = Int
-            default = 50
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value."
@@ -247,10 +243,9 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         eval(:(@everywhere using Baysor))
     end
 
-    assignment_history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.05 : 0.01))
+    history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.05 : 0.01))
     bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
-                                min_molecules_per_cell=args["min-molecules-per-cell"], n_refinement_iters=args["refinement-iters"],
-                                assignment_history_depth=assignment_history_depth);
+                                min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
     @info "Processing complete."
 

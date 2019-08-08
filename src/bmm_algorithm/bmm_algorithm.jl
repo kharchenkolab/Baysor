@@ -235,39 +235,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return data
 end
 
-function refine_bmm_result!(bmm_res::BmmData, min_molecules_per_cell::Int; max_n_iters::Int=300,
-                            channel::Union{RemoteChannel, Nothing}=nothing, verbose::Bool=false)
-    progress = verbose ? Progress(max_n_iters) : nothing
-    for i in 1:max_n_iters
-        prev_assignment = deepcopy(bmm_res.assignment)
-        drop_unused_components!(bmm_res, min_n_samples=min_molecules_per_cell, force=true)
-        expect_dirichlet_spatial!(bmm_res, stochastic=false)
-        maximize!(bmm_res, min_molecules_per_cell)
-        update_prior_probabilities!(bmm_res.components)
-
-        if channel !== nothing
-            put!(channel, true)
-        end
-
-        if verbose
-            changed_assignment = (bmm_res.assignment .!= prev_assignment)
-            ProgressMeter.next!(progress; showvalues=[(:iter, i), (:change, sum(changed_assignment)), (:change_frac, mean(changed_assignment))])
-        end
-
-        if (minimum(num_of_molecules_per_cell(bmm_res)) >= min_molecules_per_cell) && all(bmm_res.assignment .== prev_assignment)
-            if channel !== nothing
-                for j in i:max_n_iters
-                    put!(channel, true)
-                end
-            end
-
-            break
-        end
-    end
-
-    return bmm_res;
-end
-
 fetch_bm_func(bd::BmmData) = [bd]
 
 function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args...; kwargs...)
@@ -325,8 +292,7 @@ end
 run_bmm_parallel(bm_data_arr, args...; kwargs...) = 
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
-function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int,
-                           n_refinement_iters::Int=100, kwargs...)::BmmData
+function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
     bm_data_arr = deepcopy(bm_data_arr)
     @info "Pushing data to workers"
     da = push_data_to_workers(bm_data_arr)
@@ -334,11 +300,6 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
     @info "Algorithm start"
     bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
     bm_data_merged = merge_bm_data(bm_data_arr)
-
-    if n_refinement_iters > 0
-        @info "Refinement"
-        refine_bmm_result!(bm_data_merged, min_molecules_per_cell; max_n_iters=n_refinement_iters, verbose=false)
-    end
 
     @info "Done!"
 
