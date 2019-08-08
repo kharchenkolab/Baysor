@@ -179,9 +179,9 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
     return adj_classes_global
 end
 
-trace_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
-    println("EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
-        "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%")
+log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
+    @info "EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
+        "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
               assignment_history_depth::Int=0, channel::Union{RemoteChannel, Nothing}=nothing)
@@ -218,15 +218,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         it_num = i
         if verbose && i % log_step == 0
-            trace_em_state(data, it_num, time_start)
+            log_em_state(data, it_num, time_start)
         end
 
-        if assignment_history_depth > 0
-            push!(data.tracer["assignment_history"], global_assignment_ids(data))
-            if length(data.tracer["assignment_history"]) > assignment_history_depth
-                data.tracer["assignment_history"] = data.tracer["assignment_history"][(end - assignment_history_depth + 1):end]
-            end
-        end
+        trace_assignment_history!(data, assignment_history_depth)
 
         if channel !== nothing
             put!(channel, true)
@@ -234,7 +229,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     if verbose
-        trace_em_state(data, it_num, time_start)
+        log_em_state(data, it_num, time_start)
     end
 
     return data

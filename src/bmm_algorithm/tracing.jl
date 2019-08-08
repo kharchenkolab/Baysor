@@ -16,6 +16,17 @@ function trace_prior_shape!(data::BmmData)
     push!(data.tracer["prior_shape"], data.distribution_sampler.shape_prior.std_values);
 end
 
+function trace_assignment_history!(data::BmmData, assignment_history_depth::Int)
+    if assignment_history_depth == 0
+        return
+    end
+        
+    push!(data.tracer["assignment_history"], global_assignment_ids(data))
+    if length(data.tracer["assignment_history"]) > assignment_history_depth
+        data.tracer["assignment_history"] = data.tracer["assignment_history"][(end - assignment_history_depth + 1):end]
+    end
+end
+
 function merge_tracers(tracers::Array{Dict{String, Any}, 1})::Dict{String, Any}
     @warn "`merge_tracers` doesn't merge 'prior_shape', as it can't be aggregated over frames" # TODO: fix it
 
