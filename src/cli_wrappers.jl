@@ -72,15 +72,15 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
             help = "Number of iterations"
             arg_type = Int
             default = 500
-        "--min-molecules-per-gene"
-            help = "Minimal number of molecules per gene. Overrides the config value."
+        "--min-molecules-per-cell"
+            help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
             arg_type = Int
         "--n-frames", "-n"
             help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
             arg_type = Int
             default=1
         "--num-cells-init"
-            help = "Initial number of cells. Ignored if CSV with centers is provided. Overrides the config value."
+            help = "Initial number of cells."
             arg_type = Int
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
