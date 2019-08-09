@@ -6,3 +6,6 @@ bin/*julia*
 bin/segment_data.jl
 
 *.DS_Store
+
+examples/*/data*
+examples/*/output_*
