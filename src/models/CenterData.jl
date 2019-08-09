@@ -34,7 +34,7 @@ function load_centers(path::String; min_segment_size::Int=5, kwargs...)::CenterD
         return CenterData(df_centers, scale, scale_std)
     end
 
-    if file_ext in [".png", ".jpg", ".tiff"]
+    if file_ext in [".png", ".jpg", ".tiff", ".tif"]
         segmentation_labels = Images.load(path) |> Images.label_components |> Array{Int}
         coords_per_label = coords_per_segmentation_label(segmentation_labels);
         coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
