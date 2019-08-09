@@ -133,6 +133,8 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
     scale = something(scale, centers.scale_estimate)
     scale_std = parse_scale_std(something(scale_std, centers.scale_std_estimate), scale)
 
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+
     n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell))
     centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
 
@@ -140,13 +142,16 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
 
     size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
 
+    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 2)
+
     if any([size(c.centers, 1) == 0 for c in centers_per_frame])
-        error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation.")
+        if (n_cells_init == 0)
+            error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation or increase n-cells-init.")
+        else
+            @warn "Some frames don't contain cell centers. Possibly that coordinates of DAPI and transcripts are not aligned or DAPI should be transposed."
+        end
     end
 
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
-
-    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 2)
     return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
             prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
             update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
@@ -193,12 +198,14 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
 
     if n_cells_init > size(mtx_centers, 2)
         cluster_centers = kshiftmedoids(pos_data, n_cells_init)[1];
-        dists_to_prior = getindex.(knn(KDTree(mtx_centers), cluster_centers, 1)[2], 1);
 
-        additional_centers = cluster_centers[:, dists_to_prior .> sort(dists_to_prior)[size(mtx_centers, 2)]];
-        n_added_clusters = size(additional_centers, 2)
+        if size(mtx_centers, 2) > 0
+            dists_to_prior = getindex.(knn(KDTree(mtx_centers), cluster_centers, 1)[2], 1);
+            cluster_centers = cluster_centers[:, dists_to_prior .> sort(dists_to_prior)[size(mtx_centers, 2)]];
+        end
 
-        mtx_centers = hcat(mtx_centers, additional_centers);
+        n_added_clusters = size(cluster_centers, 2)
+        mtx_centers = hcat(mtx_centers, cluster_centers);
         can_be_dropped = vcat(can_be_dropped, trues(n_added_clusters));
     end
 
