@@ -184,7 +184,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
         frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"], plot_width=plot_width, margin=margin)
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
-        for (i,p) in enumerate(plots)
+        for p in plots
             show(io, MIME("text/html"), p)
         end
     end
@@ -215,6 +215,11 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     log_file = open(append_suffix(args["output"], "log.log"), "w")
     Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+
+    # Set up plotting
+
+    ENV["GKSwstype"] = "100"; # Disable output device
+    Plots.gr()
 
     # Run algorithm
 
