@@ -112,6 +112,8 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
         k = 3
     end
 
+    k = min(k, size(pos_data, 2))
+
     neighbors, dists = knn(KDTree(pos_data), pos_data, k, true);
 
     n_cm = zeros(n_genes, size(pos_data, 2));
@@ -187,8 +189,10 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
     borders = hcat(collect.(Iterators.product(borders...))...);
 
     df_subsets = subset_df.(Ref(df_res), borders[1,:], borders[2,:], frame_size);
-    borders = borders[:, size.(df_subsets, 1) .> 0]
-    df_subsets = df_subsets[size.(df_subsets, 1) .> 0];
+    filt_mask = size.(df_subsets, 1) .> max(gene_composition_neigborhood, min_molecules_per_cell)
+
+    borders = borders[:, filt_mask]
+    df_subsets = df_subsets[filt_mask];
 
     pos_datas = position_data.(df_subsets);
     assignments = [df.cell for df in df_subsets];
