@@ -60,8 +60,7 @@ function maximize(dist::Distributions.MvNormal, x::Array{Float64, 2})::Distribut
     Σ = adjust_cov_matrix(robust_cov(x; prop=0.1))
 
     if det(Σ) ≈ 0
-        @show Σ
-        throw(ErrorException("Singular covariance matrix"))
+        error("Singular covariance matrix")
     end
 
     return MvNormal(μ, Σ)

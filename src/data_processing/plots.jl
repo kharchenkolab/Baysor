@@ -192,10 +192,10 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     pos_datas = position_data.(df_subsets);
     assignments = [df.cell for df in df_subsets];
-    genes_per_frams = [df.gene for df in df_subsets];
+    genes_per_frame = [df.gene for df in df_subsets];
     grid_step = frame_size / grid_size
 
-    plot_info = @showprogress "Extracting plot info..." pmap(zip(pos_datas, genes_per_frams, assignments)) do (pd, g, a)
+    plot_info = @showprogress "Extracting plot info..." pmap(zip(pos_datas, genes_per_frame, assignments)) do (pd, g, a)
         pol = boundary_polygons(pd, a; min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold)
         col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), color_transformation)
         pol, col

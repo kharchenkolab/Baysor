@@ -92,7 +92,7 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
     try
         c.position_params = MvNormal(μ, Σ)
     catch
-        @show Σ
+        error("Can't maximize position params. μ: '$μ', Σ: '$Σ', n_samples: $(size(pos_data ,1)).")
     end
 
     return c

@@ -159,6 +159,10 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
     coords_per_label = [pos_data[:, cell_labels .== i] for i in 1:maximum(cell_labels)];
     coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
 
+    if length(coords_per_label) == 0
+        return Array{Float64, 2}[]
+    end
+
     dens_per_label = use_kde ? 
         estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth) : 
         estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
