@@ -18,6 +18,9 @@ end
 plot_cell_borders_polygons!(args...; kwargs...) =
     plot_cell_borders_polygons(args...; append=true, kwargs...)
 
+plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs...) = 
+    plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
+
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, 
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, size=(800, 800), xlims=nothing, ylims=nothing, 
                                     append::Bool=false, alpha=0.5, offset=(0, 0), is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, kwargs...)
