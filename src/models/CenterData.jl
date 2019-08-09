@@ -23,8 +23,10 @@ Estimates scale as a 0.5 * median distance between two nearest centers
 estimate_scale_from_centers(centers::Array{Float64, 2}) =
     estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
 
-estimate_scale_from_centers(seg_mask::Array{Int, 2}) =
-    estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_mask)[2:end] / π))
+function estimate_scale_from_centers(seg_mask::Array{Int, 2}; min_segment_size::Int=0)
+    comp_lengths = Images.component_lengths(seg_mask)[2:end]
+    return estimate_scale_from_centers(sqrt.(comp_lengths[comp_lengths .>= min_segment_size] / π))
+end
 
 function load_centers(path::String; min_segment_size::Int=5, kwargs...)::CenterData
     file_ext = splitext(path)[2]
@@ -52,7 +54,7 @@ function load_centers(path::String; min_segment_size::Int=5, kwargs...)::CenterD
         centers = centers[:, is_pos_def]
         center_covs = center_covs[is_pos_def]
 
-        scale, scale_std = estimate_scale_from_centers(segmentation_labels)
+        scale, scale_std = estimate_scale_from_centers(segmentation_labels; min_segment_size=min_segment_size)
         return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale, scale_std)
     end
 
