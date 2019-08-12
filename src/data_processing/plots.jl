@@ -144,14 +144,14 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample
     count_matrix_sample = count_matrix[:,randperm(size(count_matrix, 2))[1:sample_size]]
 
     if method == :umap
-        return fit(UmapFit, count_matrix_sample, n_components=3, kwargs...);
+        return fit(UmapFit, count_matrix_sample, n_components=3; kwargs...);
     end
 
     if method != :pca
         error("Unknown method: '$method'")
     end
 
-    return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3, kwargs...);
+    return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
 end
 
 function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation)
