@@ -4,8 +4,8 @@ min-molecules-per-cell = 70
 scale = 100
 
 [Sampling]
-center-component-weight = 5.0
+center-component-weight = 10.0
 
 [Plotting]
-gene-composition-neigborhood = 100
-plot-frame-size = 2500
+gene-composition-neigborhood = 200
+plot-frame-size = 3750
