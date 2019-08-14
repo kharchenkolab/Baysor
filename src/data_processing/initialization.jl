@@ -72,19 +72,20 @@ center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwarg
 function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
     cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
     covs = covs_from_assignment(spatial_df, assignment)
-    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], estimate_scale_from_centers(cluster_centers)...)
+    scale = estimate_scale_from_centers(mean.(eigvals.(covs)) .^ 0.5)
+    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], scale...)
 end
 
 function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
     pos_data_by_assignment = position_data_by_assignment(spatial_df, assignment)
-    stds = [vec(std(pos_data, dims=2)) for pos_data in pos_data_by_assignment]
-    mean_stds = vec(median(hcat(stds[size.(pos_data_by_assignment, 2) .> 1]...), dims=2))
+    covs = cov.(transpose.(pos_data_by_assignment));
+    mean_stds = vec(median(hcat(eigvals.(covs[size.(pos_data_by_assignment, 2) .> 1])...), dims=2))
 
     for i in findall(size.(pos_data_by_assignment, 2) .<= 1)
-        stds[i] = deepcopy(mean_stds)
+        covs[i] = diagm(0 => deepcopy(mean_stds))
     end
 
-    return [diagm(0 => s .^ 2) for s in stds]
+    return covs
 end
 
 function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Union{Real, Nothing})
@@ -135,7 +136,7 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
 
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
 
-    n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_celln_degrees_of_freedom_centers_init, min_molecules_per_cell))
+    n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_degrees_of_freedom_center, min_molecules_per_cell))
     centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
 
     centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
