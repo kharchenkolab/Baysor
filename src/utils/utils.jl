@@ -85,3 +85,23 @@ function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T
 
     return y_start + (x - x_start) / (x_end - x_start) * (y_end - y_start)
 end
+
+function is_point_in_polygon(point::Union{Vector{T1}, Tuple{T1, T1}} where T1 <: Real, poly::Array{Vector{T2}, 1} where T2 <: Real, 
+        borders::Union{Array{Vector{T3},1}, Nothing} where T3 = nothing)
+    if borders !== nothing && (borders[1][1] > point[1] || borders[1][2] > point[2] || borders[2][1] < point[1] || borders[2][2] < point[2])
+        return false
+    end
+ 
+    j = length(poly)
+    c = false
+    for i in 1:length(poly)
+        if ((poly[i][2] > point[2]) != (poly[j][2] > point[2])) && 
+            (point[1] < poly[i][1] + (poly[j][1] - poly[i][1]) * (point[2] - poly[i][2]) / (poly[j][2] - poly[i][2]))
+            c = !c
+        end
+
+        j = i
+    end
+
+    return c
+end
