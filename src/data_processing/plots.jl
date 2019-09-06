@@ -23,7 +23,8 @@ plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs.
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, 
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, size=(800, 800), xlims=nothing, ylims=nothing, 
-                                    append::Bool=false, alpha=0.5, offset=(0, 0), is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, kwargs...)
+                                    append::Bool=false, alpha=0.5, offset=(0, 0), is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, 
+                                    annotation::Union{Vector, Nothing} = nothing, noise_ann = nothing, kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[!,color]
     end
@@ -36,7 +37,8 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         ylims = (minimum(df_spatial.y), maximum(df_spatial.y))
     end
 
-    scat_func = append ? (a...; kw...) -> Plots.scatter!(a...; kw...) : (a...; kw...) -> Plots.scatter(a...; kw..., size=size)
+    fig = append ? nothing : Plots.plot(format=:png, size=size)
+    
     df_noise = nothing
 
     if typeof(is_noise) === Symbol
@@ -49,8 +51,20 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         color = color[.!is_noise]
     end
 
-    fig = scat_func(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
-                    alpha=alpha, legend=false, format=:png, kwargs...)
+    if annotation === nothing
+        fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
+                             alpha=alpha, legend=false, kwargs...)
+    else
+        for ann in unique(annotation[annotation .!= noise_ann])
+            fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2]; 
+                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, kwargs...)
+        end
+
+        if noise_ann in annotation
+            fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2]; 
+                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label="Noise", color="black", kwargs...)
+        end
+    end
     
     if is_noise !== nothing
         Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; color="black", 
@@ -58,11 +72,11 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     end
 
     for pg in polygons
-        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width)
+        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width, label="")
     end
 
     if df_centers !== nothing
-        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, legend=false)
+        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, label="")
     end
 
     Plots.xlims!(xlims)
