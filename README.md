@@ -58,7 +58,7 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 To run the algorithm on your data, use
 
 ```bash
-./Baysor/bin/segment_data.jl MOLECULES_CSV [CENTERS_CSV] -s SCALE [-x X_COL -y Y_COL --gene GENE_COL]
+./Baysor/bin/segment_data.jl -i 500 [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
 ```
 
 Here:
@@ -73,14 +73,21 @@ To see full list of command-line options run
 ./Baysor/bin/segment_data.jl --help
 ```
 
+For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples).  
+For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml).
+
+
 ### Choise of parameters
 
-Algorithm parameters:
+Most important parameters:
 
-- `scale` is the most sensitive parameter, which specifies expected radius of a cell. It doesn't have to be precise, but wrong set-up can lead to over- or under-segmentation.
+- `scale` is the most sensitive parameter, which specifies expected radius of a cell. It doesn't have to be precise, but wrong set-up can lead to over- or under-segmentation. This parameter is inferred automatically if cell senters are provided.
+- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on a protocol. For instance, for osm-FISH it's fine to set it to 5, while for MERFISH it can require hundreds of molecule.
+
+Some other sensitive parameters (normally, shouldn't be changed):
+
 - `new-component-weight` is proportional to probability of generating new cell for a molecule, instead of assigning it to one of existing cells. More precisely, probability to assign a molecule to a particular cell linearly depends on number of molecules, alreadu assigned to this cell. And this parameter is used as number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in range 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force emergence of large number of small cells on each iteration, which can produce noise in the result. In general, default value should work well.
 - `center-component-weight` has the same meaning as `new-component-weight`, but works for cell centers, estimated from DAPI staining (i.e. from CENTERS_CSV). In general, it should be larger then `new-component-weight` and it reflects your confidence in the estimated centers. For instance, if you want all centers, which have enough molecules around, to be used, you just need to set some huge value here (e.g. 100000).
-- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on a protocol. For instance, for osm-FISH it's fine to set it to 5, while for MERFISH it can require hundreds of molecule.
 
 Run paremeters:
 
