@@ -164,11 +164,15 @@ end
 
 function knn_by_expression2(count_matrix::Array{T, 2} where T <: Real,
                             n_molecules_per_cell::Array{Int, 1}=round.(Int, vec(sum(count_matrix, dims=1)));
-                            k::Int=15, min_molecules_per_cell::Int=10, n_prin_comps::Int=0)::Array{Array{Int, 1}, 1}
+                            k::Int=15, min_molecules_per_cell::Int=10, n_prin_comps::Int=0, refine::Bool=true,
+                            refine_mult::Real = 2)::Array{Array{Int, 1}, 1}
     count_matrix_norm = count_matrix ./ sum(count_matrix, dims=1)
     neighborhood_matrix = count_matrix_norm
+
+    real_cell_inds = findall(n_molecules_per_cell .>= min_molecules_per_cell);
+
     if n_prin_comps > 0
-        pca = MultivariateStats.fit(MultivariateStats.PCA, count_matrix_norm; maxoutdim=n_prin_comps);
+        pca = MultivariateStats.fit(MultivariateStats.PCA, count_matrix_norm[:, real_cell_inds]; maxoutdim=n_prin_comps);
         neighborhood_matrix = MultivariateStats.transform(pca, count_matrix_norm)
     end
 
@@ -177,15 +181,33 @@ function knn_by_expression2(count_matrix::Array{T, 2} where T <: Real,
         min_molecules_per_cell = 1
     end
 
-    real_cell_inds = findall(n_molecules_per_cell .>= min_molecules_per_cell);
-
     if length(real_cell_inds) < k
         @warn "Number of large cells ($(length(real_cell_inds))) is lower than the requested number of nearest neighbors ($k)"
         k = length(real_cell_inds)
     end
 
     kd_tree = KDTree(neighborhood_matrix[:, real_cell_inds]);
-    neighb_inds = [ids[2:end] for ids in knn(kd_tree, neighborhood_matrix, k + 1, true)[1]]
+    neighb_inds = [ids[2:end] for ids in knn(kd_tree, neighborhood_matrix, (refine ? refine_mult * k : k) + 1, true)[1]]
+
+    if refine
+        return [refine_knn_by_expression(neighborhood_matrix, real_cell_inds[inds], k=k) for inds in neighb_inds]
+    end
 
     return [real_cell_inds[inds] for inds in neighb_inds]
+end
+
+function refine_knn_by_expression(neighborhood_matrix::Matrix{Float64}, neighb_inds::Vector{Int}; k::Int, max_iter::Int = 100)
+    kd_tree = KDTree(neighborhood_matrix[:, neighb_inds]);
+    adj_cells = neighb_inds[1:k];
+
+    for i in 1:max_iter
+        adj_cells_prev = adj_cells;
+        adj_cells = neighb_inds[knn(kd_tree, vec(median(neighborhood_matrix[:, adj_cells], dims=2)), k, true)[1]];
+
+        if all(sort(adj_cells) .== sort(adj_cells_prev))
+            break
+        end
+    end
+
+    return adj_cells
 end
