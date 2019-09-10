@@ -31,9 +31,9 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
     points ./= maximum(points) * 1.1
     points .+= 1.01
 
-    hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=3), dims=1));
+    hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=10), dims=1));
     is_duplicated = get.(Ref(countmap(hashes)), hashes, 0) .> 1;
-    points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-3;
+    points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-10;
 
     points_g = [IndexedPoint2D(points[:,i]..., i) for i in 1:size(points, 2)];
 
