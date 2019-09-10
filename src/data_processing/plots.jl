@@ -22,9 +22,10 @@ plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs.
     plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, 
-                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, size=(800, 800), xlims=nothing, ylims=nothing, 
-                                    append::Bool=false, alpha=0.5, offset=(0, 0), is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, 
-                                    annotation::Union{Vector, Nothing} = nothing, noise_ann = nothing, kwargs...)
+                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", 
+                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0), 
+                                    is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing, 
+                                    noise_ann = nothing, kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[!,color]
     end
@@ -37,7 +38,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         ylims = (minimum(df_spatial.y), maximum(df_spatial.y))
     end
 
-    fig = append ? nothing : Plots.plot(format=:png, size=size)
+    fig = append ? Plots.plot!(format=:png) : Plots.plot(format=:png, size=size)
     
     df_noise = nothing
 
@@ -72,15 +73,15 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     end
 
     for pg in polygons
-        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width, label="")
+        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, label="")
     end
 
     if df_centers !== nothing
         Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, label="")
     end
 
-    Plots.xlims!(xlims)
-    Plots.ylims!(ylims)
+    Plots.xlims!(xlims .+ offset[1])
+    Plots.ylims!(ylims .+ offset[2])
 
     return fig
 end
