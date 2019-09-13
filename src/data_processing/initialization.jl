@@ -7,7 +7,8 @@ using Statistics
 import CSV
 import Distances
 
-function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing}; n_molecules::Union{Int, Nothing}=nothing)
+function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
+                             n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing)
     if min_molecules_per_cell === nothing
         error("Either `$param` or `min_molecules_per_cell` must be provided")
     end
@@ -20,6 +21,22 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
     if param == :confidence_nn_id
         return max(div(min_molecules_per_cell, 2) + 1, 3)
+    end
+
+    if param == :composition_neighborhood
+        if n_genes === nothing
+            error("Either `$param` or `n_genes` must be provided")
+        end
+
+        return (min_molecules_per_cell > 10) ? max(div(n_genes, 10), 10) : max(min_molecules_per_cell, 3)
+    end
+
+    if param == :n_gene_pcs
+        if n_genes === nothing
+            error("Either `$param` or `n_genes` must be provided")
+        end
+
+        return min(max(div(n_genes, 3), 10), 100)
     end
 
     if param == :n_cells_init
@@ -109,35 +126,43 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; sc
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 
-function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, distances::Union{Vector{Float64}, Nothing}=nothing; n_verts::Int=maximum(edge_list))
+function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, edge_weights::Union{Vector{Float64}, Nothing}=nothing; n_verts::Int=maximum(edge_list))
     res_ids = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=n_verts),
                                        split(edge_list[1,:], edge_list[2,:], max_factor=n_verts))];
 
-    if distances === nothing
+    if edge_weights === nothing
         return res_ids
     end
 
-    res_dists = [vcat(v...) for v in zip(split(distances, edge_list[1,:], max_factor=n_verts),
-                                         split(distances, edge_list[2,:], max_factor=n_verts))];
+    res_weights = [vcat(v...) for v in zip(split(edge_weights, edge_list[1,:], max_factor=n_verts),
+                                         split(edge_weights, edge_list[2,:], max_factor=n_verts))];
 
-    return res_ids, res_dists
+    return res_ids, res_weights
 end
 
-function initialize_bmm_data(df_spatial::DataFrame, args...; update_priors::Symbol=:no, kwargs...)::BmmData
-    # adjacent_points, adjacent_dists = adjacency_list(df_spatial)
+function estimate_local_composition_similarities(df_spatial::DataFrame, edge_list::Matrix{Int}; composition_neighborhood::Int, n_gene_pcs::Int, min_similarity::Float64=0.01)
+    neighb_cm = neighborhood_count_matrix(df_spatial, composition_neighborhood);
+    neighb_cm = MultivariateStats.projection(MultivariateStats.fit(MultivariateStats.PCA, neighb_cm', maxoutdim=n_gene_pcs));
+
+    return max.(map(x -> cor(x...), zip(eachrow.([neighb_cm[edge_list[1,:], :], neighb_cm[edge_list[2,:], :]])...)), min_similarity);
+end
+
+function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no, kwargs...)::BmmData
     edge_list, adjacent_dists = adjacency_list(df_spatial)
     real_edge_length = quantile(adjacent_dists, 0.3)
 
-    adjacent_points, adjacent_dists = convert_edge_list_to_adj_list(edge_list, adjacent_dists; n_verts=size(df_spatial, 1))
+    gene_comp_sims = estimate_local_composition_similarities(df_spatial, edge_list; composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs)
+    adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, real_edge_length)
 
-    # Point is adjacent to itself. Distance from a point to itself is equal to real_edge_length * 1.0
+    adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1))
+
+    # Point is adjacent to itself. Self-similarity of a point is equal to 1.0 / real_edge_length
     for i in 1:length(adjacent_points)
         push!(adjacent_points[i], i)
-        push!(adjacent_dists[i], real_edge_length)
+        push!(adjacent_weights[i], 1 ./ real_edge_length)
     end
 
-    adjacent_weights = [1 ./ d for d in adjacent_dists]
-    max_weight = quantile(vcat(adjacent_weights...), 0.975)
+    max_weight = quantile(vcat(adjacent_weights...), 0.975) # increase robustnes
     adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
 
     components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
@@ -149,7 +174,8 @@ end
 """
 function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
                                   confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975),
-                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
+                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
+                                  n_gene_pcs::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
     confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
@@ -168,8 +194,11 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     end
 
     n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
+    composition_neighborhood = something(composition_neighborhood, default_param_value(:composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
+    n_gene_pcs = something(n_gene_pcs, default_param_value(:n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
 
-    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, kwargs...)
+    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell,
+        composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, kwargs...)
 end
 
 function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int,
