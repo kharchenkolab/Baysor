@@ -239,7 +239,9 @@ function map_to_colors(vals::Array{T, 1} where T; h=0, n::Int=11, lims=nothing)
     offset = (lims === nothing) ? minimum(vals) : lims[1]
     scale = (lims === nothing) ? maximum(vals) - offset : (lims[2] - lims[1])
 
-    vals = min.(max.(vals, lims[1]), lims[2])
+    if lims !== nothing
+        vals = min.(max.(vals, lims[1]), lims[2])
+    end
 
     color_ticks = collect(range(0.0, 1.0, length=n)) .* scale .+ offset
     colors = palette[floor.(Int, ((vals .- offset) ./ scale) .* (n - 1) .+ 1)]
