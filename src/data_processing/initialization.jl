@@ -1,4 +1,5 @@
 using DataFrames
+import MultivariateStats
 using NearestNeighbors
 using StatsBase: countmap, denserank
 using Statistics
@@ -41,7 +42,7 @@ function parse_scale_std(scale_std::String, scale::Real)
     return parse(Float64, scale_std)
 end
 
-function append_confidence!(df_spatial::DataFrame, segmentation_mask::Union{BitArray{2}, Nothing}=nothing; nn_id::Int, 
+function append_confidence!(df_spatial::DataFrame, segmentation_mask::Union{BitArray{2}, Nothing}=nothing; nn_id::Int,
                             border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), seg_quantile_left::Float64=0.9, seg_quantile_mid::Float64=0.99)
     pos_data = position_data(df_spatial);
     mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
@@ -108,11 +109,46 @@ function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; sc
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 
+function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, distances::Union{Vector{Float64}, Nothing}=nothing; n_verts::Int=maximum(edge_list))
+    res_ids = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=n_verts),
+                                       split(edge_list[1,:], edge_list[2,:], max_factor=n_verts))];
+
+    if distances === nothing
+        return res_ids
+    end
+
+    res_dists = [vcat(v...) for v in zip(split(distances, edge_list[1,:], max_factor=n_verts),
+                                         split(distances, edge_list[2,:], max_factor=n_verts))];
+
+    return res_ids, res_dists
+end
+
+function initialize_bmm_data(df_spatial::DataFrame, args...; update_priors::Symbol=:no, kwargs...)::BmmData
+    # adjacent_points, adjacent_dists = adjacency_list(df_spatial)
+    edge_list, adjacent_dists = adjacency_list(df_spatial)
+    real_edge_length = quantile(adjacent_dists, 0.3)
+
+    adjacent_points, adjacent_dists = convert_edge_list_to_adj_list(edge_list, adjacent_dists; n_verts=size(df_spatial, 1))
+
+    # Point is adjacent to itself. Distance from a point to itself is equal to real_edge_length * 1.0
+    for i in 1:length(adjacent_points)
+        push!(adjacent_points[i], i)
+        push!(adjacent_dists[i], real_edge_length)
+    end
+
+    adjacent_weights = [1 ./ d for d in adjacent_dists]
+    max_weight = quantile(vcat(adjacent_weights...), 0.975)
+    adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
+
+    components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
+    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 ./ real_edge_length, sampler, assignment, update_priors=update_priors)
+end
+
 """
     main function for initialization of bm_data
 """
 function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
-                                  confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), 
+                                  confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975),
                                   min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
@@ -136,8 +172,8 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell, kwargs...)
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int, 
-                                  scale::Union{Number, Nothing}=nothing, scale_std::Union{Float64, String, Nothing}=nothing, 
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int,
+                                  scale::Union{Number, Nothing}=nothing, scale_std::Union{Float64, String, Nothing}=nothing,
                                   new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
                                   update_priors::Symbol=:no, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     scale = something(scale, centers.scale_estimate)
@@ -167,7 +203,7 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
             update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
 end
 
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int, 
+function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int,
                                   new_component_weight::Number=0.2, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     scale_std = parse_scale_std(scale_std, scale)
 
@@ -175,27 +211,6 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Numbe
     size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
     initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, n_cells_init; scale=scale)
     return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
-end
-
-function initialize_bmm_data(df_spatial::DataFrame, args...; update_priors::Symbol=:no, kwargs...)::BmmData
-    adjacent_points, adjacent_dists = adjacency_list(df_spatial)
-    real_edge_length = quantile(vcat(adjacent_dists...), 0.3)
-
-    # Distance from point to itself equal to real_edge_length
-    for i in 1:length(adjacent_points)
-        for j in 1:length(adjacent_points[i])
-            if adjacent_points[i][j] == i
-                adjacent_dists[i][j] = real_edge_length
-            end
-        end
-    end
-
-    adjacent_weights = [1 ./ d for d in adjacent_dists]
-    max_weight = quantile(vcat(adjacent_weights...), 0.975)
-    adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
-
-    components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 ./ real_edge_length, sampler, assignment, update_priors=update_priors)
 end
 
 function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,

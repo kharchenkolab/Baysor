@@ -23,7 +23,7 @@ getx(p::IndexedPoint2D) = p._x
 gety(p::IndexedPoint2D) = p._y
 geti(p::IndexedPoint2D) = p._index
 
-function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::Real=2) #::Array{Array{Int64,1},1}
+function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::Real=2)
     @assert size(points, 1) == 2
 
     points = deepcopy(points)
@@ -42,7 +42,7 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
 
     edge_list = hcat([geti.([geta(v), getb(v)]) for v in delaunayedges(tess)]...);
     adj_dists = vec(sum((points[:, edge_list[1,:]] .- points[:, edge_list[2,:]]) .^ 2, dims=1)) .^ 0.5
-    
+
     if filter
         adj_dists_log = log10.(adj_dists)
         d_threshold = median(adj_dists_log) + n_mads * mad(adj_dists_log, normalize=true)
@@ -52,17 +52,7 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
         adj_dists = adj_dists[filt_mask]
     end
 
-    res_ids = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=size(points, 2)),
-                                       split(edge_list[1,:], edge_list[2,:], max_factor=size(points, 2)))];
-
-    res_dists = [vcat(v...) for v in zip(split(adj_dists, edge_list[1,:], max_factor=size(points, 2)),
-                                         split(adj_dists, edge_list[2,:], max_factor=size(points, 2)))];
-
-    for i in 1:length(res_ids) # point is adjacent to itself
-        push!(res_ids[i], i)
-        push!(res_dists[i], 0.0)
-    end
-    return res_ids, res_dists
+    return edge_list, adj_dists
 end
 
 adjacency_list(spatial_df::DataFrame) = adjacency_list(position_data(spatial_df))
