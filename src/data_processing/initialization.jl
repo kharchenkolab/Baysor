@@ -147,20 +147,20 @@ function estimate_local_composition_similarities(df_spatial::DataFrame, edge_lis
     return max.(map(x -> cor(x...), zip(eachrow.([neighb_cm[edge_list[1,:], :], neighb_cm[edge_list[2,:], :]])...)), min_similarity);
 end
 
-function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no, kwargs...)::BmmData
+function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no,
+                             use_local_gene_similarities::Bool=true, kwargs...)::BmmData
     edge_list, adjacent_dists = adjacency_list(df_spatial)
     real_edge_length = quantile(adjacent_dists, 0.3)
 
-    gene_comp_sims = estimate_local_composition_similarities(df_spatial, edge_list; composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs)
-    adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, real_edge_length)
+    adjacent_weights = nothing
+    if use_local_gene_similarities
+        gene_comp_sims = estimate_local_composition_similarities(df_spatial, edge_list; composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs)
+        adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, real_edge_length)
+    else
+        adjacent_weights = 1 ./ max.(adjacent_dists, real_edge_length)
+    end
 
     adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1))
-
-    # Point is adjacent to itself. Self-similarity of a point is equal to 1.0 / real_edge_length
-    for i in 1:length(adjacent_points)
-        push!(adjacent_points[i], i)
-        push!(adjacent_weights[i], 1 ./ real_edge_length)
-    end
 
     max_weight = quantile(vcat(adjacent_weights...), 0.975) # increase robustnes
     adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
