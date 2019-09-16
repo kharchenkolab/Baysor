@@ -16,15 +16,23 @@ function trace_prior_shape!(data::BmmData)
     push!(data.tracer["prior_shape"], data.distribution_sampler.shape_prior.std_values);
 end
 
-function trace_assignment_history!(data::BmmData, assignment_history_depth::Int)
+function trace_assignment_history!(data::BmmData, assignment_history_depth::Int; use_guids::Bool=true)
     if assignment_history_depth == 0
         return
     end
-        
-    push!(data.tracer["assignment_history"], global_assignment_ids(data))
+
+    if use_guids
+        push!(data.tracer["assignment_history"], global_assignment_ids(data))
+    else
+        push!(data.tracer["assignment_history"], deepcopy(data.assignment))
+    end
     if length(data.tracer["assignment_history"]) > assignment_history_depth
         data.tracer["assignment_history"] = data.tracer["assignment_history"][(end - assignment_history_depth + 1):end]
     end
+end
+
+function trace_component_history!(data::BmmData) # TODO: remove it
+    push!(data.tracer["component_history"], deepcopy(data.components))
 end
 
 function merge_tracers(tracers::Array{Dict{String, Any}, 1})::Dict{String, Any}

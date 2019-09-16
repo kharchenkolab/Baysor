@@ -7,6 +7,7 @@ using Base.Threads
 using Dates: now, DateTime
 
 import DistributedArrays
+import LightGraphs
 
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
     non_noise_ids = findall(data.assignment .> 0)
@@ -20,7 +21,6 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Boo
     @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
 end
 
-# point is adjacent to itself
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
@@ -179,12 +179,45 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
     return adj_classes_global
 end
 
+function build_cell_graph(bm_data::BmmData, mol_ids::Vector{Int}, cell_id::Int)
+    vert_id_per_mol_id = Dict(mi => vi for (vi, mi) in enumerate(mol_ids))
+    cur_adj_point = filter.(p -> bm_data.assignment[p] == cell_id, bm_data.adjacent_points[mol_ids])
+    cur_adj_point = [get.(Ref(vert_id_per_mol_id), points, -1) for points in cur_adj_point if length(points) > 0]
+
+    return LightGraphs.SimpleGraphFromIterator(vcat([LightGraphs.Edge.(i, ps) for (i, ps) in enumerate(cur_adj_point)]...))
+end
+
+function split_cells_by_connected_components!(data::BmmData)
+    mol_ids_per_cell = split(1:length(data.assignment), data.assignment .+ 1)[2:end]
+    graph_per_cell = [build_cell_graph(data, mids, ci) for (ci, mids) in enumerate(mol_ids_per_cell)];
+    conn_comps_per_cell = LightGraphs.connected_components.(graph_per_cell);
+
+    for (cell_id, conn_comps) in enumerate(conn_comps_per_cell)
+        if length(conn_comps) < 2
+            continue
+        end
+
+        largest_cc_id = findmax(length.(conn_comps))[2]
+        for (ci, c_ids) in enumerate(conn_comps)
+            if ci == largest_cc_id
+                continue
+            end
+
+            mol_ids = mol_ids_per_cell[cell_id][c_ids]
+            new_comp = sample_distribution(data)
+            new_comp.n_samples = length(mol_ids)
+            push!(data.components, new_comp)
+            data.assignment[mol_ids] .= length(data.components)
+        end
+    end
+end
+
 log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
     @info "EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
-              assignment_history_depth::Int=0, channel::Union{RemoteChannel, Nothing}=nothing)
+              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing)
     time_start = now()
 
     if verbose
@@ -193,6 +226,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
     if (assignment_history_depth > 0) && !("assignment_history" in keys(data.tracer))
         data.tracer["assignment_history"] = Vector{Int}[]
+    end
+
+    if trace_components && !("component_history" in keys(data.tracer))
+        data.tracer["component_history"] = Vector{Component}[]
     end
 
     it_num = 0
@@ -205,6 +242,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
     for i in 1:n_iters
         expect_dirichlet_spatial!(data, adj_classes_global)
+        split_cells_by_connected_components!(data)
+
         maximize!(data, min_molecules_per_cell)
 
         trace_prior_shape!(data);
@@ -221,7 +260,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             log_em_state(data, it_num, time_start)
         end
 
-        trace_assignment_history!(data, assignment_history_depth)
+        trace_assignment_history!(data, assignment_history_depth; use_guids=!trace_components)
+        if trace_components
+            trace_component_history!(data)
+        end
 
         if channel !== nothing
             put!(channel, true)
@@ -289,7 +331,7 @@ function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays
     end
 end
 
-run_bmm_parallel(bm_data_arr, args...; kwargs...) = 
+run_bmm_parallel(bm_data_arr, args...; kwargs...) =
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
 function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
