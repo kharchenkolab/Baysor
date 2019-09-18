@@ -40,6 +40,8 @@ include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
 include("data_processing/boundary_visualization.jl")
 
+include("data_processing/debug.jl")
+
 include("cli_wrappers.jl")
 
 end # module

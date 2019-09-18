@@ -45,6 +45,7 @@ function plot_cur_state(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol,
 
     if cell_ids === nothing
         cell_ids = sort(unique(bm_data.assignment[mol_inds]))
+        cell_ids = cell_ids[cell_ids .> 0]
     end
 
     # Edges
