@@ -42,6 +42,7 @@ include("data_processing/plots.jl")
 include("data_processing/boundary_visualization.jl")
 
 include("data_processing/debug.jl")
+include("data_processing/validation.jl")
 
 include("cli_wrappers.jl")
 
