@@ -1,10 +1,10 @@
 using DataFrames
 using KernelDensity
 
-estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::Real) = 
+estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::Real) =
     InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(bandwidth, bandwidth))).itp.(points[1,:], points[2,:])
 
-function count_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothing)
+function count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing)
     if max_value === nothing
         max_value = maximum(values)
     end
@@ -17,7 +17,7 @@ function count_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothi
     return counts
 end
 
-function count_array!(counts::Array{Int, 1}, values::Array{Int, 1})
+function count_array!(counts::Union{Array{Int, 1}, SubArray{Int,1}}, values::Array{Int, 1})
     counts .= 0
     for v in values
         counts[v] += 1
@@ -26,7 +26,7 @@ function count_array!(counts::Array{Int, 1}, values::Array{Int, 1})
     return counts
 end
 
-function prob_array(values::Array{Int, 1}; max_value::Union{Int, Nothing}=nothing, smooth::Float64=0.0)
+function prob_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing, smooth::Float64=0.0)
     if max_value === nothing
         max_value = maximum(values)
     end
@@ -73,6 +73,8 @@ end
 
 split(array::UnitRange{Int64}, factor::Array{Int64,1}; kwargs...) = split(collect(array), factor; kwargs...)
 
+split_ids(factor::Array{Int, 1}; kwargs...) = split(1:length(factor), factor; kwargs...)
+
 split(df::DataFrame, factor::Symbol; kwargs...) = split(df, Array(df[!, factor]); kwargs...)
 split(df::DataFrame, factor::Array{Int, 1}; kwargs...) = [df[ids, :] for ids in split(1:size(df, 1), factor; kwargs...)]
 
@@ -86,16 +88,16 @@ function interpolate_linear(x::T, x_start::T, x_end::T; y_start::T=1.0, y_end::T
     return y_start + (x - x_start) / (x_end - x_start) * (y_end - y_start)
 end
 
-function is_point_in_polygon(point::Union{Vector{T1}, Tuple{T1, T1}} where T1 <: Real, poly::Array{Vector{T2}, 1} where T2 <: Real, 
+function is_point_in_polygon(point::Union{Vector{T1}, Tuple{T1, T1}} where T1 <: Real, poly::Array{Vector{T2}, 1} where T2 <: Real,
         borders::Union{Array{Vector{T3},1}, Nothing} where T3 = nothing)
     if borders !== nothing && (borders[1][1] > point[1] || borders[1][2] > point[2] || borders[2][1] < point[1] || borders[2][2] < point[2])
         return false
     end
- 
+
     j = length(poly)
     c = false
     for i in 1:length(poly)
-        if ((poly[i][2] > point[2]) != (poly[j][2] > point[2])) && 
+        if ((poly[i][2] > point[2]) != (poly[j][2] > point[2])) &&
             (point[1] < poly[i][1] + (poly[j][1] - poly[i][1]) * (point[2] - poly[i][2]) / (poly[j][2] - poly[i][2]))
             c = !c
         end
