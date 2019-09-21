@@ -18,13 +18,13 @@ end
 plot_cell_borders_polygons!(args...; kwargs...) =
     plot_cell_borders_polygons(args...; append=true, kwargs...)
 
-plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs...) = 
+plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs...) =
     plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
 
-function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2, 
-                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", 
-                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0), 
-                                    is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing, 
+function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2,
+                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black",
+                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
+                                    is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
                                     noise_ann = nothing, kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[!,color]
@@ -39,7 +39,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     end
 
     fig = append ? Plots.plot!(format=:png) : Plots.plot(format=:png, size=size)
-    
+
     df_noise = nothing
 
     if typeof(is_noise) === Symbol
@@ -57,18 +57,18 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                              alpha=alpha, legend=false, kwargs...)
     else
         for ann in unique(annotation[annotation .!= noise_ann])
-            fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2]; 
+            fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
                                  markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, kwargs...)
         end
 
         if noise_ann in annotation
-            fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2]; 
+            fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
                                  markerstrokewidth=0, markersize=point_size, alpha=alpha, label="Noise", color="black", kwargs...)
         end
     end
-    
+
     if is_noise !== nothing
-        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; color="black", 
+        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; color="black",
             markerstrokewidth=0, markersize=point_size, alpha=alpha, legend=false, kwargs...)
     end
 
@@ -105,6 +105,15 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any}; kwargs...)
         p = Plots.plot!(n_components_per_iter[i,:], label="$(labels[i])")
     end
 
+    p = Plots.plot!(xlabel="Iteration", ylabel="#Cells", inset = (1, Plots.bbox(0.05,0.05,0.35,0.35,:top,:right)), subplot=2,
+        bg_inside=nothing, legend=nothing, kwargs...)
+
+    subplot_start = ceil(Int, 0.75 * size(n_components_per_iter, 2))
+    iter_vals = subplot_start:size(n_components_per_iter, 2)
+    for i in 1:size(n_components_per_iter, 1)
+        p = Plots.plot!(iter_vals, n_components_per_iter[i, iter_vals], subplot=2, ylims=[0, maximum(n_components_per_iter[:, iter_vals]) * 1.05])
+    end
+
     return p
 end
 
@@ -118,10 +127,10 @@ end
 ### Gene composition visualization
 
 neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x.gene))
-neighborhood_count_matrix(df::DataFrame, k::Int, args...; kwargs...) = 
-    neighborhood_count_matrix(position_data(df), df.gene, k, args..., kwargs...)
+neighborhood_count_matrix(df::DataFrame, k::Int, args...; kwargs...) =
+    neighborhood_count_matrix(position_data(df), df.gene, k, args...; kwargs...)
 
-function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int, n_genes::Int=maximum(genes); normalize_by_dist::Bool=true)
+function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int, n_genes::Int=maximum(genes); normalize_by_dist::Bool=true, normalize::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
         k = 3
@@ -135,7 +144,11 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
 
     if !normalize_by_dist
         for (i,ids) in enumerate(neighbors)
-            prob_array!(view(n_cm, :, i), genes[ids])
+            if !normalize
+                count_array!(view(n_cm, :, i), genes[ids])
+            else
+                prob_array!(view(n_cm, :, i), genes[ids])
+            end
         end
 
         return n_cm
@@ -188,10 +201,10 @@ end
 
 ### Summary plots
 
-subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real) = 
+subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real) =
     @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< (x_start + frame_size), :y .< (y_start + frame_size));
 
-function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}; 
+function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing};
                                          gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=300, return_raw::Bool=false,
                                          min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm, dens_threshold::Float64=1e-10)
     df_res = @transform(df_res, cell=assignment)
@@ -228,7 +241,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     @info "Plotting..."
 
-    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin) 
+    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
         for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
 end
 
