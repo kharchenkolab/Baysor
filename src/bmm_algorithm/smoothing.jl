@@ -289,3 +289,31 @@ function refine_knn_by_expression(neighborhood_matrix::Matrix{Float64}, neighb_i
 
     return adj_cells
 end
+
+"""
+    k-means based
+"""
+function update_gene_count_priors!(components::Vector{Component}; min_molecules_per_cell::Int, n_pcs::Int, n_clusters::Int, min_cluster_size::Int,
+                                   distance=Distances.Euclidean())
+    cm = extract_gene_matrix_from_distributions2(components);
+    neighborhood_matrix = cm ./ max.(sum(cm, dims=1), 1e-50);
+
+    real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
+
+    pca = MultivariateStats.fit(MultivariateStats.PCA, neighborhood_matrix[:, real_cell_inds]; maxoutdim=n_pcs);
+    neighborhood_matrix = MultivariateStats.transform(pca, neighborhood_matrix);
+
+    k_centers = kmeans_stable(neighborhood_matrix[:, real_cell_inds], n_clusters, n_inits=10, min_cluster_size=min_cluster_size)[1];
+    clust_per_cell = assign_to_centers(neighborhood_matrix, k_centers, distance);
+
+    var_to_mean_ratios = hcat([vec(var(cm[:, ids], dims=2) ./ max.(mean(cm[:, ids], dims=2), 1e-20)) for ids in split_ids(clust_per_cell)]...)
+    prior_rate_pre_clust = 1 ./ max.(var_to_mean_ratios, 1.0);
+    clust_centers = hcat([median(cm[:, ids], dims=2) for ids in Baysor.split_ids(clust_per_cell)]...);
+
+    for (i, c) in enumerate(components)
+        c_clust = clust_per_cell[i]
+        cur_prior_rate = prior_rate_pre_clust[:, c_clust]
+        c.gene_count_prior = round.(Int, clust_centers[:, c_clust] .* cur_prior_rate .+ c.composition_params.counts .* (1 .- cur_prior_rate))
+        c.gene_count_prior_sum = sum(c.gene_count_prior)
+    end
+end

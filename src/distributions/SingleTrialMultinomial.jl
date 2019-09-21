@@ -10,23 +10,37 @@ mutable struct SingleTrialMultinomial <: Distributions.Distribution{Distribution
     SingleTrialMultinomial(counts::Array{Int, 1}; smooth::Number=1.0, n_samples::Int=sum(counts)) = new(counts, smooth, n_samples)
 end
 
-function pdf(dist::SingleTrialMultinomial, x::Int; use_smoothing::Bool=true)::Float64
-    cnt, cnt_sum = counts(dist)[x], dist.n_samples
+# function pdf(dist::SingleTrialMultinomial, x::Int; use_smoothing::Bool=true)::Float64
+#     cnt, cnt_sum = counts(dist)[x], dist.n_samples
 
-    if !use_smoothing || (cnt >= dist.smooth)
+#     if !use_smoothing || (cnt >= dist.smooth)
+#         return cnt / cnt_sum
+#     end
+
+#     # Can't simply add smoothing to each vector component because of sparsity
+#     cnt_sum += (dist.smooth - cnt)
+#     return dist.smooth / cnt_sum
+# end
+
+pdf(dist::SingleTrialMultinomial, x::Int; use_smoothing::Bool=true)::Float64 =
+    pdf(counts(dist), dist.n_samples, x, dist.smooth; use_smoothing=use_smoothing)
+
+function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64
+    cnt = cnt[x]
+    if !use_smoothing || (cnt >= smooth)
         return cnt / cnt_sum
     end
 
     # Can't simply add smoothing to each vector component because of sparsity
-    cnt_sum += (dist.smooth - cnt)
-    return dist.smooth / cnt_sum
+    cnt_sum += (smooth - cnt)
+    return smooth / cnt_sum
 end
 
 function pdf(dist::SingleTrialMultinomial, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
     if prior_sum == 0 # For speed
         return pdf(dist, x; use_smoothing=use_smoothing)
     end
-    
+
     cnt, cnt_sum = counts(dist)[x], dist.n_samples
     cnt_adj = cnt + prior[x]
     cnt_adj_sum = cnt_sum + prior_sum

@@ -98,9 +98,20 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
     return c
 end
 
-pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
-    pdf(params.position_params, x, y) *
-    pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
+# pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
+#     pdf(params.position_params, x, y) *
+#     pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
+
+function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64
+    pos_pdf = pdf(params.position_params, x, y)
+
+    if params.gene_count_prior === nothing
+        return pos_pdf * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
+    else
+        return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
+    end
+end
+
 
 function adjust_cov_by_prior(Σ::Array{Float64, 2}, prior::ShapePrior; n_samples::Int)
     fact = eigen(Σ)
