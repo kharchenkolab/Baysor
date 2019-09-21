@@ -11,6 +11,7 @@ import Distributions.logpdf
 import Statistics.rand
 
 include("utils/utils.jl")
+include("utils/kshift_clustering.jl")
 include("utils/logging.jl")
 include("utils/convex_hull.jl")
 include("utils/spatial.jl")
@@ -35,7 +36,6 @@ include("bmm_algorithm/smoothing.jl")
 include("data_processing/watershed.jl")
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")
-include("data_processing/kshift_clustering.jl")
 include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
 include("data_processing/boundary_visualization.jl")
