@@ -2,6 +2,10 @@
 
 **B**a**y**esian **S**egmentation **o**f **S**patial T**r**anscriptomics Data
 
+## Abstract
+
+Spatial transcriptomics is an emerging stack of technologies, which adds spatial dimension to conventional single-cell RNA-sequencing. New protocols, based on in-situ sequencing or RNA fluorescent in-situ hybridization (RNA-FISH) register positions of single molecules in fixed tissue slices. Analysis of such data at the level of individual cells, however, requires accurate identification of cell boundaries. While many existing methods are able to approximate cell center positions using nuclei stains, current protocols do not report robust signal on the cell membranes, making cell segmentation a key challenge in downstream analysis and interpretation of the data. To address this challenge, we developed a tool for **B**a**y**esian **S**egmentation **o**f **S**patial T**r**anscriptomics Data (Baysor), which optimizes segmentations considering the likelihood of transcriptional composition, size and shape of the cell. The Bayesian approach can take into likely cell center positions from DAPI or other staining, however can also perform segmentation without any additional information. We show that Baysor segmentation can nearly double the number of the identified cells, while reducing contamination and decreasing cell doublet rate. We demonstrate Baysor performance on data acquired using different spatially-resolved protocols, with up to 10^5 of cells and 10^3 genes.
+
 ## Installation
 
 ### Install as a Julia package
