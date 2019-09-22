@@ -105,7 +105,7 @@ end
 function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64
     pos_pdf = pdf(params.position_params, x, y)
 
-    if params.gene_count_prior === nothing
+    if params.gene_count_prior_sum == 0
         return pos_pdf * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
     else
         return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
