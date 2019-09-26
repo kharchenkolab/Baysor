@@ -46,7 +46,7 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     return collect(keys(component_weights)), collect(values(component_weights)), zero_comp_weight
 end
 
-function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Array{Int, 1}}=Dict{Int, Array{Int, 1}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Vector{Int}}=Dict{Int, Vector{Int}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     for i in 1:size(data.x, 1)
         x, y = position_data(data)[:,i]
         gene = composition_data(data)[i]
@@ -81,12 +81,9 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     end
 end
 
-function update_prior_probabilities!(components)
+function update_prior_probabilities!(components::Array{Component, 1})
     c_weights = [max(c.n_samples, c.prior_weight) for c in components]
-    v = [rand(Beta(1 + n, n_sum)) for (n, n_sum) in zip(c_weights[1:end-1], cumsum(c_weights[end:-1:2])[end:-1:1])];
-
-    prior_probs = vcat(1, cumprod(1 .- v[1:end-1])) .* v;
-    push!(prior_probs, 1 - sum(prior_probs));
+    prior_probs = rand(Distributions.Dirichlet(c_weights))
 
     for (c, p) in zip(components, prior_probs)
         c.prior_probability = p
