@@ -27,7 +27,8 @@ function savehtml(plot, path::String)
 end
 
 function plot_cur_state(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol, cell_ids::Union{Vector{Int}, Nothing}=nothing;
-                        gene_names=nothing, n_sigdigits::Int = 2, colorby="clust", line_width_mult::Float64 = 1e-4)
+                        adj_classes_global::Dict{Int, Vector{Int}}=Dict{Int, Vector{Int}}(), gene_names=nothing,
+                        n_sigdigits::Int = 2, colorby="clust", line_width_mult::Float64 = 1e-4)
     c_subs = nothing
     mol_inds = nothing
 
@@ -78,6 +79,12 @@ function plot_cur_state(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol,
         end
 
         adj_classes, adj_weights = adjacent_component_weights(bm_data.assignment, bm_data.adjacent_points[mol_inds[i]], bm_data.adjacent_weights[mol_inds[i]])[1:2]
+        adj_global = get(adj_classes_global, i, Int[]);
+        if length(adj_global) > 0
+            append!(adj_classes, adj_global)
+            append!(adj_weights, ones(length(adj_global)) .* bm_data.real_edge_weight)
+        end
+
         s_ids = sortperm(adj_classes)
         adj_classes, adj_weights = adj_classes[s_ids], adj_weights[s_ids]
 
@@ -88,6 +95,11 @@ function plot_cur_state(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol,
 
         denses = adj_weights .* [c.prior_probability * pdf(c, c_subs.x[i], c_subs.y[i], c_subs.gene[i]) for c in bm_data.components[adj_classes]]
         denses ./= sum(denses)
+
+        text *= "<br>Prior probabilities:<br>"
+        for (ci, c) in zip(adj_classes, bm_data.components[adj_classes])
+            text *= "$ci: $(round(c.prior_probability, sigdigits=n_sigdigits)); "
+        end
 
         text *= "<br>Probs:<br>"
         for (ci, d) in zip(adj_classes, denses)
@@ -107,12 +119,12 @@ function plot_cur_state(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol,
 end
 
 function plot_sampling_dynamic(bm_data::BmmData, subs_mask::BitArray{1}, clust_per_mol::Vector;
-                               n_steps::Int=length(bm_data.tracer["assignment_history"]), step::Int=1)
+                               start_step::Int=1, n_steps::Int=length(bm_data.tracer["assignment_history"]), step::Int=1)
     # See https://plot.ly/python/reference/#layout-sliders
     plot_texts = [["Cluster: $cl;<br>Gene: $g;<br>Cell: $cell" for (g, cl, cell) in zip(bm_data.x.gene, clust_per_mol[subs_mask], assignment)]
         for assignment in bm_data.tracer["assignment_history"]]
 
-    steps = 1:step:n_steps
+    steps = start_step:step:n_steps
     layout = PLY.Layout(
         sliders=[PLY.attr(
             steps=[PLY.attr(method="restyle",
