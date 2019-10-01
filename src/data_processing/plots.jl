@@ -25,7 +25,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black",
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
-                                    noise_ann = nothing, kwargs...)
+                                    noise_ann = nothing, format::Symbol=:png, kwargs...)
     if typeof(color) === Symbol
         color = df_spatial[!,color]
     end
@@ -38,7 +38,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         ylims = (minimum(df_spatial.y), maximum(df_spatial.y))
     end
 
-    fig = append ? Plots.plot!(format=:png) : Plots.plot(format=:png, size=size)
+    fig = append ? Plots.plot!(format=format) : Plots.plot(format=format, size=size)
 
     df_noise = nothing
 
@@ -262,9 +262,9 @@ function map_to_colors(vals::Array{T, 1} where T; h=0, n::Int=11, lims=nothing)
     return Dict(:colors=>colors, :ticks=>color_ticks, :palette=>palette)
 end
 
-function distinguishable_colors(vals::Array{T, 1} where T)
+function distinguishable_colors(vals::Array{T, 1} where T, args...; kwargs...)
     id_per_type = Dict(c => i for (i,c) in enumerate(unique(vals)));
-    colors_uniq = Colors.distinguishable_colors(length(id_per_type));
+    colors_uniq = Colors.distinguishable_colors(length(id_per_type), args...; kwargs...);
     colors = colors_uniq[get.(Ref(id_per_type), vals, 0)];
 
     return Dict(:colors=>colors, :ticks=>unique(vals), :palette=>colors_uniq)
