@@ -20,6 +20,7 @@ struct ShapePrior
 end
 
 distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
+rand(prior::ShapePrior) = rand.(distributions(prior))
 
 # f(dx) = sign(dx) * sqrt(|dx/std|) * std
 function var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}; n_samples::Int)
