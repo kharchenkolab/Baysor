@@ -1,8 +1,8 @@
 using Random
 
 function sample_distribution(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormal
-    μ = (center_prior === nothing) ? 
-        position_data(data)[:, sample(1:size(data.x, 1), Weights(confidence(data)))] : 
+    μ = (center_prior === nothing) ?
+        position_data(data)[:, sample(1:size(data.x, 1), Weights(confidence(data)))] :
         rand(MvNormal(center_prior.μ, center_prior.Σ))
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 
@@ -45,7 +45,7 @@ function maximize_from_prior!(comp::Component, data::BmmData)
     return comp;
 end
 
-function sample_distribution(data::BmmData; guid::Int=-1)
+function sample_distribution(data::BmmData; guid::Int)
     sampler = data.distribution_sampler
     position_params = sample_distribution(data, sampler.shape_prior, center_prior=sampler.center_prior);
     composition_params = sample_composition_params(data);

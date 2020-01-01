@@ -201,7 +201,9 @@ function split_cells_by_connected_components!(data::BmmData)
             end
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
-            new_comp = sample_distribution(data)
+
+            data.max_component_guid += 1
+            new_comp = sample_distribution(data; guid=data.max_component_guid)
             new_comp.n_samples = length(mol_ids)
             push!(data.components, new_comp)
             data.assignment[mol_ids] .= length(data.components)
