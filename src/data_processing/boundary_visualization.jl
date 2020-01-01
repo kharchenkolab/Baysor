@@ -34,11 +34,9 @@ function grid_borders_per_label(grid_labels::Array{Int64,2})
             for (d_row, d_col) in zip(d_rows, d_cols)
                 n_row = row + d_row
                 n_col = col + d_col
-                if n_row < 1 || n_col < 1 || n_row > size(grid_labels, 1) || n_col > size(grid_labels, 2)
-                    continue
-                end
 
-                if grid_labels[n_row, n_col] != cur_label
+                if (n_row < 1) || (n_col < 1) || (n_row > size(grid_labels, 1)) || (n_col > size(grid_labels, 2)) ||
+                        (grid_labels[n_row, n_col] != cur_label)
                     push!(borders_per_label[cur_label], [row, col])
                     break
                 end
@@ -145,7 +143,7 @@ function longest_paths(edges::Array{T, 1})::Array{Array{Int, 1}, 1} where T <: L
 end
 
 boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
-boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...) = 
+boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...) =
     boundary_polygons(position_data(spatial_df), cell_labels; kwargs...)
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3, use_kde::Bool=true,
@@ -163,8 +161,8 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
         return Array{Float64, 2}[]
     end
 
-    dens_per_label = use_kde ? 
-        estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth) : 
+    dens_per_label = use_kde ?
+        estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth) :
         estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
 
     densities = hcat(dens_per_label...);
