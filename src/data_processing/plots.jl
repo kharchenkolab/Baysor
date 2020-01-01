@@ -22,10 +22,29 @@ plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs.
     plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2,
-                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black",
+                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
-                                    noise_ann = nothing, format::Symbol=:png, kwargs...)
+                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing),
+                                    noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, kwargs...)
+    noise_args_default = Dict(:markershape => :xcross, :alpha => alpha, :markersize => point_size / 2, :legend => legend, :markerstrokewidth => 0, :color => "black");
+    if noise_kwargs === nothing
+        noise_kwargs = noise_args_default
+    else
+        noise_kwargs = Dict{Symbol, Any}(noise_kwargs)
+        for k in keys(noise_args_default)
+            if !(k in keys(noise_kwargs))
+                noise_kwargs[k] = noise_args_default[k]
+            end
+        end
+
+        for k in keys(kwargs)
+            if !(k in keys(noise_kwargs))
+                noise_kwargs[k] = kwargs[k]
+            end
+        end
+    end
+
     if typeof(color) === Symbol
         color = df_spatial[!,color]
     end
@@ -52,28 +71,29 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         color = color[.!is_noise]
     end
 
+    if is_noise !== nothing
+        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; noise_kwargs...)
+    end
+
     if annotation === nothing
         fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
                              alpha=alpha, legend=false, kwargs...)
     else
         for ann in unique(annotation[annotation .!= noise_ann])
+            style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, kwargs...)
+                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend, style_dict..., kwargs...)
         end
 
         if noise_ann in annotation
             fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label="Noise", color="black", kwargs...)
+                                 label=noise_ann, noise_kwargs...)
         end
     end
 
-    if is_noise !== nothing
-        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; color="black",
-            markerstrokewidth=0, markersize=point_size, alpha=alpha, legend=false, kwargs...)
-    end
-
     for pg in polygons
-        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, label="")
+        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width,
+            linecolor=polygon_line_color, alpha=polygon_alpha, label="")
     end
 
     if df_centers !== nothing
@@ -136,11 +156,15 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
         k = 3
     end
 
+    if !normalize
+        normalize_by_dist = false
+    end
+
     k = min(k, size(pos_data, 2))
 
     neighbors, dists = knn(KDTree(pos_data), pos_data, k, true);
 
-    n_cm = zeros(n_genes, size(pos_data, 2));
+    n_cm = zeros((normalize ? Float64 : Int), n_genes, size(pos_data, 2));
 
     if !normalize_by_dist
         for (i,ids) in enumerate(neighbors)
