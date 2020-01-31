@@ -208,6 +208,8 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
     scale = something(scale, centers.scale_estimate)
     scale_std = parse_scale_std(something(scale_std, centers.scale_std_estimate), scale)
 
+    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
+
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
 
     n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_degrees_of_freedom_center, min_molecules_per_cell))
@@ -216,8 +218,6 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
     centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
 
     size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
-
-    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 2)
 
     if any([size(c.centers, 1) == 0 for c in centers_per_frame])
         if (n_cells_init == 0)
@@ -244,7 +244,6 @@ end
 
 function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
            gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1, n_cells_init::Int=0)
-
     mtx_centers = position_data(prior_centers.centers)
     pos_data = position_data(df_spatial)
     can_be_dropped = falses(size(mtx_centers, 2))
