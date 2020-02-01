@@ -22,7 +22,7 @@ echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chm
 
 ### Build CLI application from source
 
-To build the command-line tool you need to clone this package and run the Makefile:
+On linux you can build the command-line tool from source. To do that you need to clone this package and run the Makefile:
 
 ```bash
 git clone https://github.com/hms-dbmi/Baysor.git
@@ -36,10 +36,16 @@ The command takes ~10 minutes to complete. It creates executable file `./Baysor/
 
 Alternatevely, you can use Dockerfile. It contains executable `segment_data` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
 
-Pre-built [image](https://hub.docker.com/r/vpetukhov/baysor):
+Pre-built stable [image](https://hub.docker.com/r/vpetukhov/baysor):
 
 ```bash
 docker run -it --rm vpetukhov/baysor:latest
+```
+
+Pre-built develop [image](https://hub.docker.com/r/vpetukhov/baysor):
+
+```bash
+docker run -it --rm vpetukhov/baysor:develop
 ```
 
 Buil by hands:
@@ -53,7 +59,7 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 
 ## Run
 
-**NOTE: The algorithm is still in the alpha-version, so it can be unstable now and will definitely be improved. Please, report all found problems and suggestions to Issues.**
+**NOTE: The algorithm is still in the alpha-version, so it can be unstable now and is continuously improved. Please, report all found problems and suggestions to Issues.**
 
 To run the algorithm on your data, use
 
@@ -73,7 +79,8 @@ To see full list of command-line options run
 ./Baysor/bin/segment_data.jl --help
 ```
 
-For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples).  
+For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples).
+
 For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml).
 
 
