@@ -307,12 +307,12 @@ function update_gene_count_priors!(components::Vector{Component}; min_molecules_
     clust_per_cell = assign_to_centers(neighborhood_matrix, k_centers, distance);
 
     var_to_mean_ratios = hcat([vec(var(cm[:, ids], dims=2) ./ max.(mean(cm[:, ids], dims=2), 1e-20)) for ids in split_ids(clust_per_cell)]...)
-    prior_rate_pre_clust = 1 ./ max.(var_to_mean_ratios, 1.0);
+    prior_rate_per_clust = 1 ./ max.(var_to_mean_ratios, 1.0);
     clust_centers = hcat([median(cm[:, ids], dims=2) for ids in Baysor.split_ids(clust_per_cell)]...);
 
     for (i, c) in enumerate(components)
         c_clust = clust_per_cell[i]
-        cur_prior_rate = prior_rate_pre_clust[:, c_clust]
+        cur_prior_rate = prior_rate_per_clust[:, c_clust]
         c.gene_count_prior = round.(Int, clust_centers[:, c_clust] .* cur_prior_rate .+ c.composition_params.counts .* (1 .- cur_prior_rate))
         c.gene_count_prior_sum = sum(c.gene_count_prior)
     end
