@@ -132,7 +132,6 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
         # data.components[i] = maximize(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i])
         maximize!(data.components[i], pos_data_by_assignment[i], comp_data_by_assignment[i], data)
     end
-    # data.components = pmap(v -> maximize(v...), zip(data.components, pos_data_by_assignment, comp_data_by_assignment))
 
     if do_maximize_prior
         maximize_prior!(data, min_molecules_per_cell)
@@ -184,7 +183,7 @@ function build_cell_graph(bm_data::BmmData, mol_ids::Vector{Int}, cell_id::Int)
     return LightGraphs.SimpleGraphFromIterator(vcat([LightGraphs.Edge.(i, ps) for (i, ps) in enumerate(cur_adj_point)]...))
 end
 
-function split_cells_by_connected_components!(data::BmmData)
+function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool)
     mol_ids_per_cell = split(1:length(data.assignment), data.assignment .+ 1)[2:end]
     graph_per_cell = [build_cell_graph(data, mids, ci) for (ci, mids) in enumerate(mol_ids_per_cell)];
     conn_comps_per_cell = LightGraphs.connected_components.(graph_per_cell);
@@ -202,11 +201,15 @@ function split_cells_by_connected_components!(data::BmmData)
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
-            data.max_component_guid += 1
-            new_comp = sample_distribution(data; guid=data.max_component_guid)
-            new_comp.n_samples = length(mol_ids)
-            push!(data.components, new_comp)
-            data.assignment[mol_ids] .= length(data.components)
+            if add_new_components
+                data.max_component_guid += 1
+                new_comp = sample_distribution(data; guid=data.max_component_guid)
+                new_comp.n_samples = length(mol_ids)
+                push!(data.components, new_comp)
+                data.assignment[mol_ids] .= length(data.components)
+            else
+                data.assignment[mol_ids] .= 0
+            end
         end
     end
 end
@@ -216,7 +219,10 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
-              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing)
+              split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
+              clustering_distance::D=Distances.CosineDist(), # TODO: infer this parameters somehow
+              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing) where D <: Distances.SemiMetric
+            #   assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing)
     time_start = now()
 
     if verbose
@@ -240,8 +246,13 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
 
     for i in 1:n_iters
+        if (split_period > 0) && (i > 0) && (i % split_period == 0) && ((n_iters - i) >= split_period)
+            split_components_by_expression!(data, n_splitting_clusters; n_expression_clusters=n_expression_clusters, distance=clustering_distance,
+                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs);
+        end
+
         expect_dirichlet_spatial!(data, adj_classes_global)
-        split_cells_by_connected_components!(data)
+        split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10))
 
         maximize!(data, min_molecules_per_cell)
 
@@ -334,12 +345,15 @@ run_bmm_parallel(bm_data_arr, args...; kwargs...) =
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
 function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
-    bm_data_arr = deepcopy(bm_data_arr)
     @info "Pushing data to workers"
     da = push_data_to_workers(bm_data_arr)
 
     @info "Algorithm start"
     bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
+
+    # p = Progress(n_iters * length(bm_data_arr))
+    # @threads for bm in bm_data_arr
+    #     bmm!(bm; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
     bm_data_merged = merge_bm_data(bm_data_arr)
 
     if "assignment_history" in keys(bm_data_merged.tracer)
