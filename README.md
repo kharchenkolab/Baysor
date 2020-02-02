@@ -51,6 +51,7 @@ docker run -it --rm vpetukhov/baysor:develop
 Buil by hands:
 
 ```bash
+docker pull julia:latest
 cd Baysor/docker
 docker build .
 ```
