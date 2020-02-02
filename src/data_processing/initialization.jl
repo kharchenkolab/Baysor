@@ -75,6 +75,30 @@ function append_confidence!(df_spatial::DataFrame, segmentation_mask::Union{BitA
     df_spatial[!,:confidence] = interpolate_linear.(mean_dists, border_left, border_right);
 end
 
+function append_dapi_brightness!(df_spatial::DataFrame, dapi::Matrix{Float64}; min_frac::Float64=0.01, eps::Float64=1e-50)
+    df_spatial[!, :dapi_brightness] .= dapi[CartesianIndex.(Int.(df_spatial.x), Int.(df_spatial.x))];
+    lower_brihtness_bound = max(min_frac * maximum(df_spatial.dapi_brightness), eps);
+    df_spatial.dapi_brightness .= max.(df_spatial.dapi_brightness, lower_brihtness_bound);
+
+    return df_spatial
+end
+
+function adjust_field_weights_by_dapi!(bm_data::BmmData, dapi::Matrix{Float64}; min_weight::Float64=0.01)
+    if !(:dapi_brightness in names(bm_data.x))
+        error("bm_data.x must contain 'dapi_brightness' column")
+    end
+
+    for p1 in 1:length(bm_data.adjacent_points)
+        for (i, p2) in enumerate(bm_data.adjacent_points[p1])
+            bm_data.adjacent_weights[p1][i] *= bm_data.x.dapi_brightness[p2] / bm_data.x.dapi_brightness[p1];
+
+            min_br_on_line = Baysor.trace_values_along_line(dapi, Int(bm_data.x.x[p1]), Int(bm_data.x.y[p1]), Int(bm_data.x.x[p2]), Int(bm_data.x.y[p2])) |> minimum
+            min_br_on_ends = min(bm_data.x.dapi_brightness[p2], bm_data.x.dapi_brightness[p1])
+            bm_data.adjacent_weights[p1][i] *= max(min_br_on_line / min_br_on_ends, min_weight)
+        end
+    end
+end
+
 function encode_genes(gene_list)
     gene_names = unique(gene_list);
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))

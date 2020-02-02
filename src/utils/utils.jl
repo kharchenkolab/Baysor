@@ -107,3 +107,52 @@ function is_point_in_polygon(point::Union{Vector{T1}, Tuple{T1, T1}} where T1 <:
 
     return c
 end
+
+"""Golden section search
+to find the minimum of f on [a,b]
+opt_func: a strictly unimodal function on [a,b]
+"""
+function linsearch_gs(opt_func::Function, a::T, b::T; tol=1e-3) where T<: Real
+    gr = (sqrt(5) + 1) / 2
+
+    c = b - (b - a) / gr
+    d = a + (b - a) / gr
+    while abs(c - d) > tol
+        if opt_func(c) < opt_func(d)
+            b = d
+        else
+            a = c
+        end
+        # We recompute both c and d here to avoid loss of precision which may lead to incorrect results or infinite loop
+        c = b - (b - a) / gr
+        d = a + (b - a) / gr
+    end
+
+    return (b + a) / 2, opt_func((b + a) / 2)
+end
+
+function trace_values_along_line(arr::Matrix{T}, start_x::Int, start_y::Int, end_x::Int, end_y::Int)::Vector{T} where T <: Real
+    @assert all([end_y, end_x] .<= size(arr))
+    @assert all([start_y, start_x] .<= size(arr))
+    @assert all([start_y, start_x] .> 0)
+    @assert all([end_y, end_x] .> 0)
+
+    a = (end_y - start_y) / (end_x - start_x)
+    b = end_y - a * end_x
+
+    dx = sign(end_x - start_x)
+    dy = sign(end_y - start_y)
+
+    x, y = start_x, start_y
+
+    vals = [arr[start_y, start_x]]
+    while (x != end_x) | (y != end_y)
+        if (abs((a * x + b) - (y + dy)) < abs((a * (x + dx) + b) - y)) || dx == 0
+            y += dy
+        else
+            x += dx
+        end
+        push!(vals, arr[y, x])
+    end
+    return vals
+end
