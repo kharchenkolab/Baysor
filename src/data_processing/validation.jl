@@ -95,7 +95,7 @@ function plot_mixing_scores(cell_score_baysor::Vector{Float64}, n_mols_per_cell_
 
     t_xvals = sort(unique(n_mols_per_cell_paper))
     p2 = Plots.scatter(t_xvals, [mean(cell_score_paper[n_mols_per_cell_paper .<= v]) for v in t_xvals], label="Paper",
-        legend=:none, xlabel="Max cell size", ylabel="Contamination")
+        legend=:none, xlabel="Max cell size", ylabel="Contamination", ylim=(0.0, 1.0))
 
     t_xvals = sort(unique(n_mols_per_cell_baysor))
     p2 = Plots.scatter!(t_xvals, [mean(cell_score_baysor[n_mols_per_cell_baysor .<= v]) for v in t_xvals], label="Baysor")
@@ -114,7 +114,7 @@ function plot_mixing_scores(cell_score_baysor::Vector{Float64}, n_mols_per_cell_
 
     t_xvals = sort(unique(n_mols_per_cell_paper))
     p4 = Plots.scatter(t_xvals, [mean(cell_score_paper[n_mols_per_cell_paper .>= v]) for v in t_xvals], label="Paper",
-        legend=:none, xlabel="Min cell size", ylabel="Contamination")
+        legend=:none, xlabel="Min cell size", ylabel="Contamination", ylim=(0.0, 1.0))
 
     t_xvals = sort(unique(n_mols_per_cell_baysor))
     p4 = Plots.scatter!(t_xvals, [mean(cell_score_baysor[n_mols_per_cell_baysor .>= v]) for v in t_xvals], label="Baysor")

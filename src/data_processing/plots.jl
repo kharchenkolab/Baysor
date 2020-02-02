@@ -25,7 +25,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
-                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing),
+                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85,
                                     noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, kwargs...)
     noise_args_default = Dict(:markershape => :xcross, :alpha => alpha, :markersize => point_size / 2, :legend => legend, :markerstrokewidth => 0, :color => "black");
     if noise_kwargs === nothing
@@ -82,7 +82,8 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         for ann in unique(annotation[annotation .!= noise_ann])
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend, style_dict..., kwargs...)
+                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend,
+                                 bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), style_dict..., kwargs...)
         end
 
         if noise_ann in annotation
