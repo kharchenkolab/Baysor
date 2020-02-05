@@ -4,6 +4,8 @@ using NearestNeighbors
 using StatsBase: countmap, denserank
 using Statistics
 
+using Base.Threads
+
 import CSV
 import Distances
 
@@ -232,9 +234,9 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
     scale = something(scale, centers.scale_estimate)
     scale_std = parse_scale_std(something(scale_std, centers.scale_std_estimate), scale)
 
-    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
-
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+
+    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
 
     n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_degrees_of_freedom_center, min_molecules_per_cell))
     centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
@@ -251,9 +253,13 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
         end
     end
 
-    return initialize_bmm_data.(dfs_spatial, centers_per_frame; size_prior=size_prior, new_component_weight=new_component_weight,
+    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
+    @threads for i in 1:length(dfs_spatial)
+        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], centers_per_frame[i]; size_prior=size_prior, new_component_weight=new_component_weight,
             prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
-            update_priors=update_priors, n_cells_init=n_cells_init, kwargs...);
+            update_priors=update_priors, n_cells_init=n_cells_init, kwargs...)
+    end
+    return bm_datas_res;
 end
 
 function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int,
@@ -261,9 +267,16 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Numbe
     scale_std = parse_scale_std(scale_std, scale)
 
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+
     size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
-    initial_params_per_frame = cell_centers_with_clustering.(dfs_spatial, n_cells_init; scale=scale)
-    return initialize_bmm_data.(dfs_spatial, initial_params_per_frame; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
+    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
+
+    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
+    @threads for i in 1:length(dfs_spatial)
+        init_params = cell_centers_with_clustering(dfs_spatial[i], n_cells_init; scale=scale)
+        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
+    end
+    return bm_datas_res;
 end
 
 function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
