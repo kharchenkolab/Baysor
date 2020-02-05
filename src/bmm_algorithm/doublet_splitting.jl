@@ -7,7 +7,7 @@ import MultivariateStats
 kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs
 """
 function score_doublets(data::BmmData; n_expression_clusters::Int, distance::T where T <: Distances.SemiMetric,
-        min_molecules_per_cell::Int, kwargs...)
+        min_molecules_per_cell::Int, na_value::Union{Float64, Missing, Nothing}=missing, min_impact_level::Float64=0.1, kwargs...)
     cm = extract_gene_matrix_from_distributions2(data.components);
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
 
@@ -15,12 +15,22 @@ function score_doublets(data::BmmData; n_expression_clusters::Int, distance::T w
     feature_mtx, cluster_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
     comb_improvements, mixing_fractions = factorize_doublet_expression(feature_mtx, cluster_centers; distance=distance)[3:4]
 
-    all_scores = repeat(Union{Float64, Missing}[missing], length(data.assignment))
-    all_fractions = repeat(Union{Float64, Missing}[missing], length(data.assignment))
+    all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], length(data.components))
+    all_fractions = repeat(Union{Float64, typeof(na_value)}[na_value], length(data.components))
     all_scores[real_cell_inds] .= comb_improvements
     all_fractions[real_cell_inds] .= 1 .- mixing_fractions
 
+    all_fractions[all_scores .< min_impact_level] .= 0;
+
     return all_scores, all_fractions
+end
+
+function score_doublets_by_local_clusters(cell_assignment::Vector{Int}, cluster_assignment::Vector; na_value::Union{Float64, Missing, Nothing}=missing)
+    mol_clusts_per_cell = Baysor.split(denserank(cluster_assignment), cell_assignment .+ 1)[2:end];
+    non_empty_cells = findall(length.(mol_clusts_per_cell) .> 0);
+    all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], length(mol_clusts_per_cell));
+    all_scores[non_empty_cells] .= 1 .- maximum.(Baysor.prob_array.(mol_clusts_per_cell[non_empty_cells]));
+    return all_scores
 end
 
 """
