@@ -126,3 +126,12 @@ function plot_mixing_scores(cell_score_baysor::Vector{Float64}, n_mols_per_cell_
 
     return p0, Plots.plot(p1, p2, p3, p4; layout=layout, size=size2, kwargs...)
 end
+
+function assignment_summary_df(assignments::Pair{Symbol, Vector{Int}}...; min_molecules_per_cell::Int)
+    assignments = Dict(assignments)
+    return DataFrame(Dict(
+        "name" => collect(keys(assignments)),
+        "noise_frac" => [round(mean(x .== 0), sigdigits=3) for x in values(assignments)],
+        "n_cells" => [sum(count_array(x .+ 1)[2:end] .>= min_molecules_per_cell) for x in values(assignments)]
+    ))[:, [:name, :n_cells, :noise_frac]]
+end

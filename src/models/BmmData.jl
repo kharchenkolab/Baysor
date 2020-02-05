@@ -1,4 +1,5 @@
 using DataFrames
+using DataFramesMeta
 using LinearAlgebra
 using NearestNeighbors
 using Statistics
@@ -221,7 +222,8 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
 
     if add_qc
         segmented_df = get_segmentation_df(data);
-        pos_data_per_cell = position_data.(split(segmented_df, segmented_df.cell .+ 1; max_factor=length(data.components)+1)[2:end]);
+        seg_df_per_cell = split(segmented_df, segmented_df.cell .+ 1; max_factor=length(data.components)+1)[2:end];
+        pos_data_per_cell = position_data.(seg_df_per_cell);
 
         df[!,:n_transcripts] = size.(pos_data_per_cell, 2);
         large_cell_mask = (df.n_transcripts .> 2)
@@ -233,6 +235,9 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
         df.area[large_cell_mask] = area.(convex_hull.(pos_data_per_cell[large_cell_mask]));
         df.density[large_cell_mask] = df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask];
         df.elongation[large_cell_mask] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
+        if :confidence in names(segmented_df)
+            df[!,:avg_confidence] = [mean(df.confidence) for df in seg_df_per_cell]
+        end
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
@@ -262,4 +267,11 @@ function global_assignment_ids(data::BmmData)::Vector{Int}
     res[non_noise_mask] .= cur_guids[res[non_noise_mask]]
 
     return res
+end
+
+function convert_segmentation_df_to_cm(segmentation_df::DataFrame; noise_id::Int=0) # TODO: move to other file
+    coll_df = deepcopy(segmentation_df[:, [:cell, :gene]])
+    coll_df[!, :val] .= 1
+    cm = unstack(@by(coll_df, [:cell, :gene], val=sum(:val)), :cell, :gene, :val);
+    return coalesce.(@where(cm, :cell .!= noise_id), 0);
 end
