@@ -11,7 +11,7 @@ mutable struct CenterData
     scale_std_estimate::Float64
 end
 
-CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Float64) = 
+CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Float64) =
     CenterData(centers, nothing, scale_estimate, scale_std_estimate)
 
 estimate_scale_from_centers(center_scales::Array{Float64, 1}) =
@@ -28,6 +28,28 @@ function estimate_scale_from_centers(seg_mask::Array{Int, 2}; min_segment_size::
     return estimate_scale_from_centers(sqrt.(comp_lengths[comp_lengths .>= min_segment_size] / π))
 end
 
+function extract_centers_from_mask(segmentation::Union{Matrix, BitArray{2}}; min_segment_size::Int=5)
+    segmentation_labels = segmentation |> Images.label_components |> Array{Int}
+    coords_per_label = coords_per_segmentation_label(segmentation_labels);
+    coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
+
+    centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
+    center_covs = cov.(coords_per_label);
+
+    for i in findall([any(isnan.(c)) for c in center_covs])
+        center_covs[i] = copy(Float64[1. 0.; 0. 1.])
+    end
+
+    center_covs = adjust_cov_matrix.(center_covs)
+
+    is_pos_def = isposdef.(center_covs)
+    centers = centers[:, is_pos_def]
+    center_covs = center_covs[is_pos_def]
+
+    scale, scale_std = estimate_scale_from_centers(segmentation_labels; min_segment_size=min_segment_size)
+    return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale, scale_std)
+end
+
 function load_centers(path::String; min_segment_size::Int=5, kwargs...)::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
@@ -37,25 +59,7 @@ function load_centers(path::String; min_segment_size::Int=5, kwargs...)::CenterD
     end
 
     if file_ext in [".png", ".jpg", ".tiff", ".tif"]
-        segmentation_labels = Images.load(path) |> Images.label_components |> Array{Int}
-        coords_per_label = coords_per_segmentation_label(segmentation_labels);
-        coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
-
-        centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
-        center_covs = cov.(coords_per_label);
-
-        for i in findall([any(isnan.(c)) for c in center_covs])
-            center_covs[i] = copy(Float64[1. 0.; 0. 1.])
-        end
-
-        center_covs = adjust_cov_matrix.(center_covs)
-
-        is_pos_def = isposdef.(center_covs)
-        centers = centers[:, is_pos_def]
-        center_covs = center_covs[is_pos_def]
-
-        scale, scale_std = estimate_scale_from_centers(segmentation_labels; min_segment_size=min_segment_size)
-        return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale, scale_std)
+        return extract_centers_from_mask(Images.load(path); min_segment_size=min_segment_size)
     end
 
     error("Unsupported file extension: '$file_ext'")
