@@ -208,7 +208,7 @@ function estimate_assignment_by_history(data::BmmData)
     return get.(Ref(guid_map), vec(reassignment), 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
-function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
+function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true)
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([c.position_params.μ for c in data.components]...)
@@ -221,7 +221,9 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
     df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
 
     if add_qc
-        segmented_df = get_segmentation_df(data);
+        if segmented_df === nothing
+            segmented_df = get_segmentation_df(data);
+        end
         seg_df_per_cell = split(segmented_df, segmented_df.cell .+ 1; max_factor=length(data.components)+1)[2:end];
         pos_data_per_cell = position_data.(seg_df_per_cell);
 
@@ -243,11 +245,11 @@ function get_cell_stat_df(data::BmmData; add_qc::Bool=true)
     return df[num_of_molecules_per_cell(data) .> 0,:]
 end
 
-function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
+function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing; use_assignment_history::Bool=true)
     df = deepcopy(data.x)
     df[!,:cell] = deepcopy(data.assignment);
 
-    if ("assignment_history" in keys(data.tracer)) && (length(data.tracer["assignment_history"]) > 1)
+    if use_assignment_history && ("assignment_history" in keys(data.tracer)) && (length(data.tracer["assignment_history"]) > 1)
         df[!,:cell], df[!,:assignment_confidence] = estimate_assignment_by_history(data)
     end
 
