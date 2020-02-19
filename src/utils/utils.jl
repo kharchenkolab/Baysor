@@ -1,8 +1,8 @@
 using DataFrames
 using KernelDensity
 
-estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::Real) =
-    InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(bandwidth, bandwidth))).itp.(points[1,:], points[2,:])
+estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::T where T <: Real)::Vector{Float64} =
+    InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
 function count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing)
     if max_value === nothing
