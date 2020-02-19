@@ -168,7 +168,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
     n_cm = zeros((normalize ? Float64 : Int), n_genes, size(pos_data, 2));
 
     if !normalize_by_dist
-        for (i,ids) in enumerate(neighbors)
+        @threads for (i,ids) in collect(enumerate(neighbors))
             if !normalize
                 count_array!(view(n_cm, :, i), genes[ids])
             else
@@ -181,7 +181,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
 
     # normalize_by_dist doesn't affect result much, but neither it slow the work down. In theory, should work better for border cases.
     med_closest_dist = median(getindex.(dists, 2))
-    for (i,(ids, dists)) in enumerate(zip(neighbors, dists))
+    @threads for (i,(ids, dists)) in collect(enumerate(zip(neighbors, dists)))
         c_probs = view(n_cm, :, i)
         for (gene, dist) in zip(genes[ids], dists)
             c_probs[gene] += 1 / max(dist, med_closest_dist)

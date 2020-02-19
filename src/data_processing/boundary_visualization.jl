@@ -2,6 +2,7 @@ import Distributions
 import LightGraphs
 import NearestNeighbors
 import StatsBase
+import FFTW
 
 using DataFrames
 using SimpleWeightedGraphs
@@ -145,9 +146,10 @@ end
 boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
 boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...) =
     boundary_polygons(position_data(spatial_df), cell_labels; kwargs...)
+
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, dens_threshold::Float64=1e-5, min_border_length::Int=3, min_molecules_per_cell::Int=3, use_kde::Bool=true,
-                           bandwidth::Float64=grid_step / 2)::Array{Array{Float64, 2}, 1}
+                           bandwidth::T2 where T2 <: Real =grid_step / 2)::Array{Array{Float64, 2}, 1}
     min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
     max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
 
@@ -161,9 +163,17 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
         return Array{Float64, 2}[]
     end
 
-    dens_per_label = use_kde ?
-        estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth) :
-        estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
+    FFTW.set_num_threads(1); # see https://github.com/JuliaStats/KernelDensity.jl/issues/80
+
+    dens_per_label = Array{Vector{Float64}, 1}(undef, length(coords_per_label))
+    if use_kde
+        # dens_per_label = estimate_density_kde.(coords_per_label, Ref(grid_points_mat), bandwidth)
+        @threads for (i, coords) in collect(enumerate(coords_per_label))
+            dens_per_label[i] = estimate_density_kde(coords, grid_points_mat, bandwidth)
+        end
+    else
+        dens_per_label = estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
+    end
 
     densities = hcat(dens_per_label...);
 

@@ -24,7 +24,6 @@ function fit(::Type{UmapFit}, x::Array{Float64, 2}; n_pcs::Int=15, n_components:
     nn_tree = KDTree(x_pc)
     embedding = umap(x_pc, n_components; kwargs...)
 
-
     return UmapFit(embedding, nn_tree, pca, nn_interpolate)
 end
 
