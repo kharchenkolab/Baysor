@@ -2,7 +2,15 @@ import CSV
 using DataFrames
 
 function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Union{Symbol, Nothing}=:gene, filter_cols::Bool=false)
-    df_spatial = CSV.read(data_path);
+    df_spatial = CSV.read(data_path) |> DataFrame;
+
+    if (:x in names(df_spatial)) & (x_col != :x)
+        DataFrames.rename!(df_spatial, :x => :x_reserved);
+    end
+
+    if (:y in names(df_spatial)) & (y_col != :y)
+        DataFrames.rename!(df_spatial, :y => :y_reserved);
+    end
 
     if gene_col === nothing
         if filter_cols
@@ -14,6 +22,7 @@ function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col
             df_spatial = df_spatial[:, [x_col, y_col, gene_col]]
         end
         DataFrames.rename!(df_spatial, x_col => :x, y_col => :y, gene_col => :gene);
+        df_spatial[!, :gene] = ["$g" for g in df_spatial.gene]
     end
 
     return df_spatial
