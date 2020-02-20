@@ -1,12 +1,20 @@
 using Random
 
-function sample_distribution(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormal
+function sample_distribution!(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormal
     μ = (center_prior === nothing) ?
-        position_data(data)[:, sample(1:size(data.x, 1), Weights(confidence(data)))] :
+        sample_center!(data) :
         rand(MvNormal(center_prior.μ, center_prior.Σ))
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 
     return MvNormal(μ, Σ)
+end
+
+function sample_center!(data::BmmData; cache_size::Int=10000)
+    if length(data.center_sample_cache) == 0
+        data.center_sample_cache = sample(1:size(data.x, 1), Weights(confidence(data)), cache_size)
+    end
+    μ = position_data(data)[:, pop!(data.center_sample_cache)]
+    return μ
 end
 
 # DEPRECATED?
@@ -39,7 +47,7 @@ function maximize_from_prior!(comp::Component, data::BmmData)
     sampler = data.distribution_sampler
     shape_prior = comp.shape_prior === nothing ? sampler.shape_prior : comp.shape_prior
     center_prior = comp.center_prior === nothing ? sampler.center_prior : comp.center_prior
-    comp.position_params = sample_distribution(data, shape_prior, center_prior=center_prior);
+    comp.position_params = sample_distribution!(data, shape_prior, center_prior=center_prior);
     comp.composition_params = sample_composition_params(data);
 
     return comp;
@@ -47,7 +55,7 @@ end
 
 function sample_distribution(data::BmmData; guid::Int)
     sampler = data.distribution_sampler
-    position_params = sample_distribution(data, sampler.shape_prior, center_prior=sampler.center_prior);
+    position_params = sample_distribution!(data, sampler.shape_prior, center_prior=sampler.center_prior);
     composition_params = sample_composition_params(data);
 
     return Component(position_params, composition_params; prior_weight=sampler.prior_weight, can_be_dropped=true,

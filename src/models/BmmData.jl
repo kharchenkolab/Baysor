@@ -9,25 +9,27 @@ mutable struct BmmData
 
     # Static data
     x::DataFrame;
-    position_data::Array{Float64, 2};
-    composition_data::Array{Int, 1};
-    confidence::Array{Float64, 1}
+    position_data::Matrix{Float64};
+    composition_data::Vector{Int};
+    confidence::Vector{Float64}
 
-    adjacent_points::Array{Array{Int, 1}, 1};
-    adjacent_weights::Array{Array{Float64, 1}, 1};
+    adjacent_points::Array{Vector{Int}, 1};
+    adjacent_weights::Array{Vector{Float64}, 1};
     real_edge_weight::Float64;
     position_knn_tree::KDTree;
-    knn_neighbors::Array{Array{Int, 1}, 1};
+    knn_neighbors::Array{Vector{Int}, 1};
 
     # Distribution-related
     components::Array{Component, 1};
     distribution_sampler::Component;
-    assignment::Array{Int, 1};
+    assignment::Vector{Int};
     max_component_guid::Int;
 
     noise_density::Float64;
 
-    gene_probs_given_single_transcript::Array{Float64, 2};
+    gene_probs_given_single_transcript::Matrix{Float64};
+
+    center_sample_cache::Vector{Int}
 
     # Utils
     tracer::Dict{String, Any};
@@ -76,7 +78,7 @@ mutable struct BmmData
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, ones(n_genes, n_genes) ./ n_genes, Dict{String, Any}(), update_priors)
+                   0.0, ones(n_genes, n_genes) ./ n_genes, Int[], Dict{String, Any}(), update_priors)
 
         for c in self.components
             c.n_samples = 0
@@ -106,12 +108,12 @@ mutable struct BmmData
     end
 end
 
-position_data(df::AbstractDataFrame)::Array{Float64, 2} = Matrix{Float64}(df[:, [:x, :y]])'
-position_data(data::BmmData)::Array{Float64, 2} = data.position_data
-composition_data(df::AbstractDataFrame)::Array{Int, 1} = df[!, :gene]
-composition_data(data::BmmData)::Array{Int, 1} = data.composition_data
-confidence(df::AbstractDataFrame)::Array{Float64, 1} = df[!, :confidence]
-confidence(data::BmmData)::Array{Float64, 1} = data.confidence
+position_data(df::AbstractDataFrame)::Matrix{Float64} = Matrix{Float64}(df[:, [:x, :y]])'
+position_data(data::BmmData)::Matrix{Float64} = data.position_data
+composition_data(df::AbstractDataFrame)::Vector{Int} = df[!, :gene]
+composition_data(data::BmmData)::Vector{Int} = data.composition_data
+confidence(df::AbstractDataFrame)::Vector{Float64} = df[!, :confidence]
+confidence(data::BmmData)::Vector{Float64} = data.confidence
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
 
