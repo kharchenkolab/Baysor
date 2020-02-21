@@ -156,3 +156,19 @@ function trace_values_along_line(arr::Matrix{T}, start_x::Int, start_y::Int, end
     end
     return vals
 end
+
+@inline @fastmath function fmax(v1::Float64, v2::Float64)
+    v1 > v2 ? v1 : v2
+end
+
+@inline function fsample(arr::Vector{Int}, w::Vector{Float64})::Int
+    t = rand(Random.GLOBAL_RNG) * sum(w)
+    n = length(w)
+    i = 1
+    cw = w[1]
+    while cw < t && i < length(w)
+        i += 1
+        @inbounds cw += w[i]
+    end
+    return arr[i]
+end
