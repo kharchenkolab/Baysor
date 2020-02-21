@@ -31,28 +31,47 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_points::Array{Int, 1}`:
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
-@inline function adjacent_component_weights(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
-    component_weights = Dict{Int, Float64}()
-    zero_comp_weight = 0.0
-    for (c_id, cw) in zip(assignment[adjacent_points], adjacent_weights)
+@inline function adjacent_component_weights!(component_weights::Dict{Int, Float64}, assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1}, self_comp_id::Int)
+    empty!(component_weights) # allow to avoid Dict memory allocation on each function call
+    zero_comp_weight, self_comp_weight = 0.0, 0.0
+    has_neighbors = false
+
+    @inbounds adj_cell_ids = view(assignment, adjacent_points)
+    @inbounds @simd for i in 1:length(adjacent_weights)
+        c_id, cw = adj_cell_ids[i], adjacent_weights[i]
         if c_id == 0
             zero_comp_weight += cw
-            continue
+        elseif c_id == self_comp_id # Having self_comp_id allow to avoid using Dict in many cases, which gives ~10% performance improvement
+            self_comp_weight += cw
+        else
+            has_neighbors = true
+            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
         end
-
-        component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
     end
 
-    return collect(keys(component_weights)), collect(values(component_weights)), zero_comp_weight
+    if has_neighbors
+        if self_comp_weight > 0
+            component_weights[self_comp_id] = self_comp_weight
+        end
+        return collect(keys(component_weights)), collect(values(component_weights)), zero_comp_weight
+    end
+
+    if self_comp_id == 0
+        return Int[], Float64[], zero_comp_weight
+    end
+
+    return [self_comp_id], [self_comp_weight], zero_comp_weight
 end
 
 function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Vector{Int}}=Dict{Int, Vector{Int}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+    component_weights = Dict{Int, Float64}();
     for i in 1:size(data.x, 1)
         x, y = position_data(data)[:,i]
         gene = composition_data(data)[i]
         confidence = data.confidence[i]
 
-        adj_classes, adj_weights, zero_comp_weight = adjacent_component_weights(data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
+        # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
+        adj_classes, adj_weights, zero_comp_weight = adjacent_component_weights!(component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i], data.assignment[i])
 
         adj_global = get(adj_classes_global, i, Int[]);
         if length(adj_global) > 0
@@ -60,7 +79,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             append!(adj_weights, ones(length(adj_global)) .* data.real_edge_weight)
         end
 
-        denses = confidence .* adj_weights .* [c.prior_probability * pdf(c, x, y, gene) for c in data.components[adj_classes]]
+        denses = confidence .* adj_weights .* [c.prior_probability * pdf(c, x, y, gene) for c in view(data.components, adj_classes)]
 
         if sum(denses) < noise_density_threshold
             assign!(data, i, 0) # Noise class
@@ -183,12 +202,13 @@ function build_cell_graph(bm_data::BmmData, mol_ids::Vector{Int}, cell_id::Int)
     return LightGraphs.SimpleGraphFromIterator(vcat([LightGraphs.Edge.(i, ps) for (i, ps) in enumerate(cur_adj_point)]...))
 end
 
-function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool)
+function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
     mol_ids_per_cell = split(1:length(data.assignment), data.assignment .+ 1)[2:end]
-    graph_per_cell = [build_cell_graph(data, mids, ci) for (ci, mids) in enumerate(mol_ids_per_cell)];
+    real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
+    graph_per_cell = [build_cell_graph(data, mol_ids_per_cell[ci], ci) for ci in real_cell_ids];
     conn_comps_per_cell = LightGraphs.connected_components.(graph_per_cell);
 
-    for (cell_id, conn_comps) in enumerate(conn_comps_per_cell)
+    for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
         if length(conn_comps) < 2
             continue
         end
@@ -221,7 +241,8 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
               split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
               clustering_distance::D=Distances.CosineDist(), # TODO: infer this parameters somehow
-              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing) where D <: Distances.SemiMetric
+              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing,
+              component_split_step::Int=max(min(5, div(n_iters, 3)), 1)) where D <: Distances.SemiMetric
             #   assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing)
     time_start = now()
 
@@ -252,7 +273,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)
-        split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10))
+
+        if (i % component_split_step == 0) || (i == n_iters)
+            split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
+        end
 
         maximize!(data, min_molecules_per_cell)
 
