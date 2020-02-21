@@ -15,7 +15,7 @@ function log_pdf(μx::Float64, μy::Float64, Σ::PDMats.PDiagMat{Float64,Array{F
     return -(ndx * ndx + ndy * ndy) / 2 - log_div2
 end
 
-function log_pdf(μx::Float64, μy::Float64, Σ::Array{Float64,2}, x::Float64, y::Float64)::Float64
+@inbounds function log_pdf(μx::Float64, μy::Float64, Σ::Array{Float64,2}, x::Float64, y::Float64)::Float64
     std_x = sqrt(Σ[1, 1])
     std_y = sqrt(Σ[2, 2])
     ρ = max(min(1 - 1e-2, Σ[1, 2] / (std_x * std_y)), -1 + 1e-2)
@@ -52,12 +52,14 @@ function maximize(dist::Distributions.MvNormal, x::Array{Float64, 2})::Distribut
     end
 
     x = copy(x')
-    μ = [trim_mean(x[:,1], prop=0.2), trim_mean(x[:,2], prop=0.2)]
+    # μ = [trim_mean(x[:,1], prop=0.2), trim_mean(x[:,2], prop=0.2)]
+    μ = [mean(x[:,1]), mean(x[:,2])]
     if size(x, 1) <= 2
         return dist
     end
 
-    Σ = adjust_cov_matrix(robust_cov(x; prop=0.1))
+    # Σ = adjust_cov_matrix(robust_cov(x; prop=0.1))
+    Σ = adjust_cov_matrix(cov(x))
 
     if det(Σ) ≈ 0
         error("Singular covariance matrix")
