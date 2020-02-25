@@ -11,7 +11,7 @@ using SparseArrays
 using LightGraphs: src, dst
 
 function estimate_density_norm(train_points::Array{Float64,2}, eval_points::Array{Float64,2})::Array{Float64, 1}
-    dist = Distributions.MvNormal(vec(mean(train_points, dims=1)), adjust_cov_matrix(cov(train_points)));
+    dist = Distributions.MvNormal(vec(mean(train_points, dims=1)), adjust_cov_matrix!(cov(train_points)));
     return Distributions.pdf(dist, eval_points)
 end
 

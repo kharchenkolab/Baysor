@@ -11,6 +11,6 @@ struct InitialParams
             @assert size(centers, 1) == size(covs, 1)
         end
 
-        return new(centers, adjust_cov_matrix.(covs), assignment, size(centers, 1))
+        return new(centers, adjust_cov_matrix!.(deepcopy(covs)), assignment, size(centers, 1))
     end
 end

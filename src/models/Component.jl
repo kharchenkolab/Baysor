@@ -87,7 +87,7 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
     end
 
     if c.shape_prior !== nothing
-        Σ = adjust_cov_by_prior(Σ, c.shape_prior; n_samples=size(pos_data, 2))
+        adjust_cov_by_prior!(Σ, c.shape_prior; n_samples=size(pos_data, 2))
     end
 
     try
@@ -114,13 +114,13 @@ function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothi
 end
 
 
-function adjust_cov_by_prior(Σ::Array{Float64, 2}, prior::ShapePrior; n_samples::Int)
+function adjust_cov_by_prior!(Σ::Array{Float64, 2}, prior::ShapePrior; n_samples::Int)
     fact = eigen(Σ)
     eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
-    d = fact.vectors * diagm(0 => eigen_values_posterior) * inv(fact.vectors)
-    d[1, 2] = d[2, 1]
+    Σ .= fact.vectors * diagm(0 => eigen_values_posterior) * inv(fact.vectors)
+    Σ[1, 2] = Σ[2, 1]
 
-    return adjust_cov_matrix(d)
+    return adjust_cov_matrix!(Σ)
 end
 
 function normal_posterior(μ::AbstractArray{Float64, 1}, μ_prior::AbstractArray{Float64, 1}, Σ::AbstractArray{Float64, 2}, Σ_prior::AbstractArray{Float64, 2};
@@ -128,7 +128,7 @@ function normal_posterior(μ::AbstractArray{Float64, 1}, μ_prior::AbstractArray
     μ_post = (n .* μ .+ n_prior .* μ_prior) ./ (n + n_prior)
     Σ_post = (n .* Σ .+ n_prior .* Σ_prior .+ (n * n_prior / (n + n_prior)) .* ((μ .- μ_prior) * (μ .- μ_prior)')) ./ (n + n_prior)
 
-    return μ_post, adjust_cov_matrix(Σ_post)
+    return μ_post, adjust_cov_matrix!(Σ_post)
 end
 
 position(c::Component) = c.position_params.μ

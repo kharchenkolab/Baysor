@@ -40,7 +40,7 @@ function extract_centers_from_mask(segmentation::Union{Matrix, BitArray{2}}; min
         center_covs[i] = copy(Float64[1. 0.; 0. 1.])
     end
 
-    center_covs = adjust_cov_matrix.(center_covs)
+    adjust_cov_matrix!.(center_covs);
 
     is_pos_def = isposdef.(center_covs)
     centers = centers[:, is_pos_def]

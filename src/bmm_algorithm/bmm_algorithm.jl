@@ -32,49 +32,28 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
 @inline function adjacent_component_weights!(comp_weights::Vector{Float64}, comp_ids::Vector{Int}, component_weights::Dict{Int, Float64},
-        assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1}, self_comp_id::Int) # , assignment_lock::SpinLock
+        assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
-    zero_comp_weight, self_comp_weight = 0.0, 0.0
-    has_neighbors = false
+    zero_comp_weight = 0.0
 
-    # lock(assignment_lock)
-    self_comp_id = assignment[self_comp_id]
-    # @inbounds adj_cell_ids = assignment[adjacent_points]
     @inbounds adj_cell_ids = view(assignment, adjacent_points)
-    # unlock(assignment_lock)
+
     @inbounds @simd for i in 1:length(adjacent_weights)
         c_id, cw = adj_cell_ids[i], adjacent_weights[i]
         if c_id == 0
             zero_comp_weight += cw
-        elseif c_id == self_comp_id # Having self_comp_id allow to avoid using Dict in many cases, which gives ~10% performance improvement
-            self_comp_weight += cw
         else
-            has_neighbors = true
             component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
         end
     end
 
-    if has_neighbors
-        if self_comp_weight > 0
-            component_weights[self_comp_id] = self_comp_weight
-        end
-        for (k, v) in component_weights
-            push!(comp_ids, k)
-            push!(comp_weights, v)
-        end
-        return zero_comp_weight
+    for (k, v) in component_weights
+        push!(comp_ids, k)
+        push!(comp_weights, v)
     end
 
-    if self_comp_id == 0
-        return zero_comp_weight
-        # return Int[], Float64[], zero_comp_weight
-    end
-
-    push!(comp_weights, self_comp_weight)
-    push!(comp_ids, self_comp_id)
-    # return [self_comp_id], [self_comp_weight], zero_comp_weight
     return zero_comp_weight
 end
 
@@ -83,21 +62,14 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     adj_classes = Int[]
     adj_weights = Float64[]
     denses = Float64[]
-    # adj_classes_per_thread = [Int[] for i in 1:nthreads()]
-    # adj_weights_per_thread = [Float64[] for i in 1:nthreads()]
-    # denses_per_thread = [Float64[] for i in 1:nthreads()]
-    # @threads for i in 1:size(data.x, 1)
     for i in 1:size(data.x, 1)
-        # adj_classes = adj_classes_per_thread[threadid()]
-        # adj_weights = adj_weights_per_thread[threadid()]
-        # denses = denses_per_thread[threadid()]
-
-        x, y = position_data(data)[:,i]
+        x = position_data(data)[1,i]
+        y = position_data(data)[2,i]
         gene = composition_data(data)[i]
         confidence = data.confidence[i]
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i], i) # , data.assignment_lock
+        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
 
         if i in keys(adj_classes_global)
             n1 = length(adj_classes)
@@ -105,11 +77,10 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             append!(adj_weights, ones(length(adj_classes) - n1) .* data.real_edge_weight)
         end
 
-        # denses = confidence .* adj_weights .* [c.prior_probability * pdf(c, x, y, gene) for c in view(data.components, adj_classes)]
         empty!(denses)
-        for i in eachindex(adj_weights)
-            cc = data.components[adj_classes[i]]
-            push!(denses, confidence * adj_weights[i] * cc.prior_probability * pdf(cc, x, y, gene))
+        for j in eachindex(adj_weights)
+            cc = data.components[adj_classes[j]]
+            push!(denses, confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene))
         end
 
         if sum(denses) < noise_density_threshold

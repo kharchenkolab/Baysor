@@ -1,9 +1,11 @@
 using Distributions
 using LinearAlgebra
-using PDMats
+using PDMats: PDMat, PDiagMat
 using StatsBase
 
-function log_pdf(μx::Float64, μy::Float64, Σ::PDMats.PDiagMat{Float64,Array{Float64,1}}, x::Float64, y::Float64)::Float64
+MvNormalF = MvNormal{Float64, T, Vector{Float64}} where T <: Union{PDMat{Float64, Matrix{Float64}}, PDiagMat{Float64, Vector{Float64}}}
+
+function log_pdf(μx::Float64, μy::Float64, Σ::PDiagMat{Float64, Vector{Float64}}, x::Float64, y::Float64)::Float64
     std_x = sqrt(Σ.diag[1])
     std_y = sqrt(Σ.diag[2])
 
@@ -29,11 +31,11 @@ end
     return -(ndx * ndx + ndy * ndy - 2 * ρ * ndx * ndy) / div1 - log_div2
 end
 
-log_pdf(μx::Float64, μy::Float64, Σ::PDMats.PDMat{Float64,Array{Float64,2}}, x::Float64, y::Float64) = log_pdf(μx, μy, Σ.mat, x, y)
-log_pdf(d::MvNormal, x::Float64, y::Float64)::Float64 = log_pdf(d.μ[1], d.μ[2], d.Σ, x, y)
+log_pdf(μx::Float64, μy::Float64, Σ::PDMat{Float64,Array{Float64,2}}, x::Float64, y::Float64) = log_pdf(μx, μy, Σ.mat, x, y)
+log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64 = log_pdf(d.μ[1]::Float64, d.μ[2]::Float64, d.Σ, x, y)
 
-pdf(d::MvNormal, x::Float64, y::Float64) = exp(log_pdf(d, x, y))
-shape(d::MvNormal) = Matrix(d.Σ)
+pdf(d::MvNormalF, x::Float64, y::Float64) = exp(log_pdf(d, x, y))
+shape(d::MvNormalF) = Matrix(d.Σ)
 
 function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     v1 = mad(x[:,1], normalize=true)^2
@@ -46,20 +48,20 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
-function maximize(dist::Distributions.MvNormal, x::Array{Float64, 2})::Distributions.MvNormal
+function maximize(dist::MvNormalF, x::Array{Float64, 2})::MvNormalF  # TODO: replace with maximize!
     if size(x, 2) == 0
         return dist
     end
 
-    x = copy(x')
+    x = x'
     # μ = [trim_mean(x[:,1], prop=0.2), trim_mean(x[:,2], prop=0.2)]
-    μ = [mean(x[:,1]), mean(x[:,2])]
+    μ = vec(mean(x, dims=1))
     if size(x, 1) <= 2
         return dist
     end
 
-    # Σ = adjust_cov_matrix(robust_cov(x; prop=0.1))
-    Σ = adjust_cov_matrix(cov(x))
+    # Σ = adjust_cov_matrix!(robust_cov(x; prop=0.1))
+    Σ = adjust_cov_matrix!(cov(x))
 
     if det(Σ) ≈ 0
         error("Singular covariance matrix")
@@ -68,21 +70,20 @@ function maximize(dist::Distributions.MvNormal, x::Array{Float64, 2})::Distribut
     return MvNormal(μ, Σ)
 end
 
-function adjust_cov_matrix(Σ::Array{Float64, 2}; max_iter::Int=100,
-                           cov_modifier::Array{Float64, 2}=Matrix(Diagonal(1e-4 .* ones(size(Σ, 2)))), tol=1e-10)::Array{Float64, 2}
+function adjust_cov_matrix!(Σ::Array{Float64, 2}; max_iter::Int=100,
+                            cov_modifier::Float64=1e-4, tol=1e-10)::Array{Float64, 2}
     if isposdef(Σ) && det(Σ) > tol
         return Σ
     end
 
-    res = copy(Σ)
     for it in 1:max_iter
-        if isposdef(res) && det(res) > tol
+        if isposdef(Σ) && det(Σ) > tol
             break
         end
 
-        res += cov_modifier
+        @inbounds Σ[diagind(Σ)] .+= cov_modifier
         cov_modifier *= 1.5
     end
 
-    return res
+    return Σ
 end

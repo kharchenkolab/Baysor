@@ -138,7 +138,7 @@ function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
         covs[i] = diagm(0 => deepcopy(mean_stds))
     end
 
-    return adjust_cov_matrix.(covs)
+    return adjust_cov_matrix!.(covs)
 end
 
 function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Union{Real, Nothing})
