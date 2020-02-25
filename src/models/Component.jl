@@ -22,12 +22,15 @@ end
 distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
 rand(prior::ShapePrior) = rand.(distributions(prior))
 
-# f(dx) = sign(dx) * sqrt(|dx/std|) * std
-function var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}; n_samples::Int)
-    d_std = (sqrt.(eigen_values) .- prior.std_values)
-    stds_adj = (prior.std_values .+ sign.(d_std) .* (sqrt.(abs.(d_std) ./ prior.std_value_stds .+ 1) .- 1) .* prior.std_value_stds)
+var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}; n_samples::Int) =
+    var_posterior.(prior.std_values, prior.std_value_stds, eigen_values; n_samples=n_samples, prior_n_samples=prior.n_samples)
 
-    return ((prior.n_samples .* prior.std_values .+ n_samples .* stds_adj) ./ (prior.n_samples + n_samples)) .^ 2
+# f(dx) = sign(dx) * sqrt(|dx/std|) * std
+function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::Float64; n_samples::Int, prior_n_samples::Int)
+    d_std = (sqrt(eigen_value) - prior_std)
+    std_adj = (prior_std + sign(d_std) * (sqrt(abs(d_std) / prior_std_std + 1) - 1) * prior_std_std)
+
+    return ((prior_n_samples * prior_std + n_samples * std_adj) / (prior_n_samples + n_samples)) ^ 2
 end
 
 function sample_var(d::Normal)
