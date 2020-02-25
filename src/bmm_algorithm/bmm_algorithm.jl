@@ -161,8 +161,21 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
     data.noise_density = estimate_noise_density_level(data)
 end
 
-function estimate_noise_density_level(data::BmmData)
-    composition_density = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components])
+function noise_composition_density(data::BmmData)::Float64
+#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components]);
+    acc = 0.0 # Equivalent to the above commented expression
+    for c in data.components
+        inn_acc = 0
+        for v in c.composition_params.counts
+            inn_acc += (v > 0)
+        end
+        acc += 1.0 / inn_acc
+    end
+    return acc / length(data.components)
+end
+
+function estimate_noise_density_level(data::BmmData)::Float64
+    composition_density = noise_composition_density(data)
 
     std_vals = data.distribution_sampler.shape_prior.std_values;
     position_density = pdf(MultivariateNormal([0.0, 0.0], diagm(0 => std_vals.^2)), 3 .* std_vals)
@@ -240,12 +253,15 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
     @info "EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
+track_progress!(progress::Nothing) = nothing
+track_progress!(progress::RemoteChannel) = put!(progress, true)
+track_progress!(progress::Progress) = next!(progress)
+
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
               split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
               clustering_distance::D=Distances.CosineDist(), # TODO: infer this parameters somehow
-              assignment_history_depth::Int=0, trace_components::Bool=false, channel::Union{RemoteChannel, Nothing}=nothing,
+              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
               component_split_step::Int=max(min(5, div(n_iters, 3)), 1)) where D <: Distances.SemiMetric
-            #   assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing)
     time_start = now()
 
     if verbose
@@ -301,9 +317,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             trace_component_history!(data)
         end
 
-        if channel !== nothing
-            put!(channel, true)
-        end
+        track_progress!(progress)
     end
 
     if verbose
