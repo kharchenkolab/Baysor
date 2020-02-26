@@ -1,12 +1,12 @@
 using Random
 
-function sample_distribution!(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormal
+function sample_distribution!(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormalF
     μ = (center_prior === nothing) ?
         sample_center!(data) :
-        rand(MvNormal(center_prior.μ, center_prior.Σ))
+        rand(MvNormalF(center_prior.μ, center_prior.Σ))
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 
-    return MvNormal(μ, Σ)
+    return MvNormalF(μ, Σ)
 end
 
 function sample_center!(data::BmmData; cache_size::Int=10000)

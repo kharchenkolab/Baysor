@@ -3,19 +3,25 @@ using LinearAlgebra
 using PDMats: PDMat, PDiagMat
 using StatsBase
 
-MvNormalF = MvNormal{Float64, T, Vector{Float64}} where T <: Union{PDMat{Float64, Matrix{Float64}}, PDiagMat{Float64, Vector{Float64}}}
+# MvNormalF = MvNormal{Float64, T, Vector{Float64}} where T <: Union{PDMat{Float64, Matrix{Float64}}, PDiagMat{Float64, Vector{Float64}}}
 
-function log_pdf(μx::Float64, μy::Float64, Σ::PDiagMat{Float64, Vector{Float64}}, x::Float64, y::Float64)::Float64
-    std_x = sqrt(Σ.diag[1])
-    std_y = sqrt(Σ.diag[2])
-
-    ndx = (x - μx) / std_x
-    ndy = (y - μy) / std_y
-
-    log_div2 = log(2 * π * std_x * std_y)
-
-    return -(ndx * ndx + ndy * ndy) / 2 - log_div2
+struct MvNormalF
+    μ::Vector{Float64};
+    Σ::Matrix{Float64};
+    MvNormalF(μ::Vector{Float64}, Σ::Matrix{Float64}=diagm(0 => ones(length(μ)))) = new(μ, Σ)
 end
+
+# function log_pdf(μx::Float64, μy::Float64, Σ::PDiagMat{Float64, Vector{Float64}}, x::Float64, y::Float64)::Float64
+#     std_x = sqrt(Σ.diag[1])
+#     std_y = sqrt(Σ.diag[2])
+
+#     ndx = (x - μx) / std_x
+#     ndy = (y - μy) / std_y
+
+#     log_div2 = log(2 * π * std_x * std_y)
+
+#     return -(ndx * ndx + ndy * ndy) / 2 - log_div2
+# end
 
 @inbounds function log_pdf(μx::Float64, μy::Float64, Σ::Array{Float64,2}, x::Float64, y::Float64)::Float64
     std_x = sqrt(Σ[1, 1])
@@ -31,7 +37,7 @@ end
     return -(ndx * ndx + ndy * ndy - 2 * ρ * ndx * ndy) / div1 - log_div2
 end
 
-log_pdf(μx::Float64, μy::Float64, Σ::PDMat{Float64,Array{Float64,2}}, x::Float64, y::Float64) = log_pdf(μx, μy, Σ.mat, x, y)
+# log_pdf(μx::Float64, μy::Float64, Σ::PDMat{Float64,Array{Float64,2}}, x::Float64, y::Float64) = log_pdf(μx, μy, Σ.mat, x, y)
 log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64 = log_pdf(d.μ[1]::Float64, d.μ[2]::Float64, d.Σ, x, y)
 
 pdf(d::MvNormalF, x::Float64, y::Float64) = exp(log_pdf(d, x, y))
@@ -48,26 +54,34 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
-function maximize(dist::MvNormalF, x::Array{Float64, 2})::MvNormalF  # TODO: replace with maximize!
+function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Float64,2}
     if size(x, 2) == 0
         return dist
     end
 
-    x = x'
     # μ = [trim_mean(x[:,1], prop=0.2), trim_mean(x[:,2], prop=0.2)]
-    μ = vec(mean(x, dims=1))
-    if size(x, 1) <= 2
+    mean!(dist.μ, x)
+    if size(x, 2) <= 2
         return dist
     end
 
     # Σ = adjust_cov_matrix!(robust_cov(x; prop=0.1))
-    Σ = adjust_cov_matrix!(cov(x))
 
-    if det(Σ) ≈ 0
-        error("Singular covariance matrix")
+    # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
+    dist.Σ .= 0.0
+    for i in 1:size(x, 2)
+        for c in 1:size(x, 1)
+            for r in 1:size(x, 1)
+                dist.Σ[r, c] += (x[c, i] - dist.μ[c]) * (x[r, i] - dist.μ[r]) / size(x, 2)
+            end
+        end
     end
 
-    return MvNormal(μ, Σ)
+    # if det(dist.Σ) ≈ 0
+    #     error("Singular covariance matrix")
+    # end
+
+    return dist
 end
 
 function adjust_cov_matrix!(Σ::Array{Float64, 2}; max_iter::Int=100,

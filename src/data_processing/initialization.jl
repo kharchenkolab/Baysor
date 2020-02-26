@@ -249,7 +249,7 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::Cen
         if (n_cells_init == 0)
             error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation or increase n-cells-init.")
         else
-            @warn "Some frames don't contain cell centers. Possibly that coordinates of DAPI and transcripts are not aligned or DAPI should be transposed."
+            @warn "Some frames don't contain cell centers. Possibly, coordinates of DAPI and transcripts are not aligned or DAPI should be transposed."
         end
     end
 
@@ -308,7 +308,7 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
         covs_from_assignment(df_spatial, assignment) :
         [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 2)]
 
-    pos_distributions = [MvNormal(vec(mtx_centers[:, i]), cov) for (i, cov) in enumerate(covs)]
+    pos_distributions = [MvNormalF(vec(mtx_centers[:, i]), cov) for (i, cov) in enumerate(covs)]
 
     center_priors = [CellCenter(pd.μ, deepcopy(cov), n_degrees_of_freedom_center)
         for (pd,cov) in zip(pos_distributions[1:length(prior_centers.center_covs)], prior_centers.center_covs)]
@@ -353,13 +353,13 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
     ids_per_comp = split(collect(1:length(assignment)), assignment .+ 1)[2:end]
     for (ids, comp) in zip(ids_per_comp, components)
         if comp.n_samples > 0
-            comp.position_params = maximize(comp.position_params, position_data(df_spatial[ids,:]))
-            comp.composition_params = maximize(comp.composition_params, composition_data(df_spatial[ids,:]))
+            maximize!(comp.position_params, position_data(df_spatial[ids,:]))
+            maximize!(comp.composition_params, composition_data(df_spatial[ids,:]))
         end
     end
 
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
-    sampler = Component(MvNormal(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
+    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, assignment
 end
@@ -368,12 +368,12 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
 
-    position_distrubutions = [MvNormal(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:initial_params.n_comps]
+    position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:initial_params.n_comps]
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
     gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
-    sampler = Component(MvNormal(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
+    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment
 end

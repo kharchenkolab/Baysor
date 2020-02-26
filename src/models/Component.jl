@@ -57,7 +57,7 @@ sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
 # end
 
 mutable struct Component
-    position_params::MvNormal;
+    position_params::MvNormalF;
     composition_params::SingleTrialMultinomial;
     n_samples::Int;
     prior_weight::Float64;
@@ -72,17 +72,17 @@ mutable struct Component
 
     guid::Int;
 
-    Component(position_params::MvNormal, composition_params::SingleTrialMultinomial; prior_weight::Float64, can_be_dropped::Bool,
+    Component(position_params::MvNormalF, composition_params::SingleTrialMultinomial; prior_weight::Float64, can_be_dropped::Bool,
               n_samples::Int=0, center_prior::Union{Nothing, CellCenter}=nothing, shape_prior::Union{Nothing, ShapePrior}=nothing,
               gene_count_prior::Array{Int, 1}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
         new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior), guid)
 end
 
-function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{Int, 1})
+function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64,2}, comp_data::T2 where T2 <: AbstractArray{Int, 1})
     maximize!(c.composition_params, comp_data);
 
-    pos_new = maximize(c.position_params, pos_data);
-    μ, Σ = pos_new.μ, Matrix(pos_new.Σ)
+    maximize!(c.position_params, pos_data);
+    μ, Σ = c.position_params.μ, Matrix(c.position_params.Σ)
 
     if c.center_prior !== nothing
         μ, Σ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, n=size(pos_data, 2), n_prior=c.center_prior.n_degrees_of_freedom)
@@ -93,11 +93,13 @@ function maximize!(c::Component, pos_data::Array{Float64, 2}, comp_data::Array{I
         adjust_cov_by_prior!(Σ, c.shape_prior; n_samples=size(pos_data, 2))
     end
 
-    try
-        c.position_params = MvNormal(μ, Σ)
-    catch
-        error("Can't maximize position params. μ: '$μ', Σ: '$Σ', n_samples: $(size(pos_data ,1)).")
-    end
+    c.position_params.μ .= μ
+    c.position_params.Σ .= Σ
+    # try
+    #     c.position_params = MvNormal(μ, Σ)
+    # catch
+    #     error("Can't maximize position params. μ: '$μ', Σ: '$Σ', n_samples: $(size(pos_data ,1)).")
+    # end
 
     return c
 end

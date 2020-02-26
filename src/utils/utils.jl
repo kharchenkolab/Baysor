@@ -17,7 +17,7 @@ function count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::U
     return counts
 end
 
-function count_array!(counts::Union{Array{Int, 1}, SubArray{Int,1}}, values::Array{Int, 1})
+function count_array!(counts::T1 where T1 <: AbstractArray{Int, 1}, values::T2 where T2 <: AbstractArray{Int, 1})
     counts .= 0
     for v in values
         counts[v] += 1

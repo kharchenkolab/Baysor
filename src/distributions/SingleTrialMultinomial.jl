@@ -63,10 +63,10 @@ function pdf(dist::SingleTrialMultinomial, x::Int, prior::Array{Int, 1}, prior_s
     return cnt_adj / cnt_adj_sum
 end
 
-maximize(dist::SingleTrialMultinomial, x::Array{Int, 1}) =
-    SingleTrialMultinomial(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
+# maximize(dist::SingleTrialMultinomial, x::Array{Int, 1}) =
+#     SingleTrialMultinomial(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
 
-function maximize!(dist::SingleTrialMultinomial, x::Array{Int, 1})
+function maximize!(dist::SingleTrialMultinomial, x::T where T <: AbstractArray{Int, 1})
     count_array!(dist.counts, x)
     dist.n_samples = length(x)
     return dist
