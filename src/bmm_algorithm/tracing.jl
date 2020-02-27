@@ -5,7 +5,8 @@ function trace_n_components!(data::BmmData, min_molecules_per_cell::Int)
     end
 
     trace_nums = unique(max.(round.(Int, [0.0, 0.5, 1.0, 2.0, 5.0] .* min_molecules_per_cell), 1))
-    push!(data.tracer["n_components"], Dict(tn => sum(num_of_molecules_per_cell(data) .>= tn) for tn in trace_nums));
+    n_mols_per_cell = num_of_molecules_per_cell(data)
+    push!(data.tracer["n_components"], Dict(tn => sum(n_mols_per_cell .>= tn) for tn in trace_nums));
 end
 
 function trace_prior_shape!(data::BmmData)

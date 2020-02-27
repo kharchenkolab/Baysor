@@ -13,12 +13,12 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Boo
     non_noise_ids = findall(data.assignment .> 0)
     existed_ids = findall([(c.n_samples >= min_n_samples) || (!c.can_be_dropped && !force) for c in data.components])
     id_map = zeros(Int, length(data.components))
-    id_map[existed_ids] = 1:length(existed_ids)
+    id_map[existed_ids] .= 1:length(existed_ids)
 
-    data.assignment[non_noise_ids] = id_map[data.assignment[non_noise_ids]]
+    data.assignment[non_noise_ids] .= id_map[data.assignment[non_noise_ids]]
     data.components = data.components[existed_ids]
 
-    @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
+    # @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
 end
 
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
@@ -63,8 +63,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     adj_weights = Float64[]
     denses = Float64[]
     for i in 1:size(data.x, 1)
-        x = position_data(data)[1,i]
-        y = position_data(data)[2,i]
+        x::Float64 = position_data(data)[1,i]
+        y::Float64 = position_data(data)[2,i]
         gene = composition_data(data)[i]
         confidence = data.confidence[i]
 

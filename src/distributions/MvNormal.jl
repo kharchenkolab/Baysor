@@ -1,44 +1,35 @@
 using Distributions
 using LinearAlgebra
-using PDMats: PDMat, PDiagMat
 using StatsBase
+using StaticArrays
 
-# MvNormalF = MvNormal{Float64, T, Vector{Float64}} where T <: Union{PDMat{Float64, Matrix{Float64}}, PDiagMat{Float64, Vector{Float64}}}
+import LinearAlgebra.isposdef
+
+CovMat = MMatrix{2, 2, Float64}
+MeanVec = MVector{2, Float64}
 
 struct MvNormalF
-    μ::Vector{Float64};
-    Σ::Matrix{Float64};
-    MvNormalF(μ::Vector{Float64}, Σ::Matrix{Float64}=diagm(0 => ones(length(μ)))) = new(μ, Σ)
+    μ::MeanVec;
+    Σ::CovMat;
+    MvNormalF(μ::MeanVec, Σ::CovMat=CovMat(diagm(0 => ones(2)))) = new(μ, Σ)
+    MvNormalF(μ::T where T <: AbstractArray{Float64, 1}) = MvNormalF(MeanVec(μ))
+    MvNormalF(μ::T1 where T1 <: AbstractArray{Float64, 1}, Σ::T2 where T2 <: AbstractArray{Float64, 2}) =
+        MvNormalF(MeanVec(μ), CovMat(Σ))
 end
 
-# function log_pdf(μx::Float64, μy::Float64, Σ::PDiagMat{Float64, Vector{Float64}}, x::Float64, y::Float64)::Float64
-#     std_x = sqrt(Σ.diag[1])
-#     std_y = sqrt(Σ.diag[2])
+@inline @inbounds function log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64
+    std_x = sqrt(d.Σ[1])
+    std_y = sqrt(d.Σ[4])
+    ρ = fmax(fmin(1 - 1e-2, d.Σ[3] / (std_x * std_y)), -1 + 1e-2)
 
-#     ndx = (x - μx) / std_x
-#     ndy = (y - μy) / std_y
-
-#     log_div2 = log(2 * π * std_x * std_y)
-
-#     return -(ndx * ndx + ndy * ndy) / 2 - log_div2
-# end
-
-@inbounds function log_pdf(μx::Float64, μy::Float64, Σ::Array{Float64,2}, x::Float64, y::Float64)::Float64
-    std_x = sqrt(Σ[1, 1])
-    std_y = sqrt(Σ[2, 2])
-    ρ = max(min(1 - 1e-2, Σ[1, 2] / (std_x * std_y)), -1 + 1e-2)
-
-    ndx = (x - μx) / std_x
-    ndy = (y - μy) / std_y;
+    ndx = (x - d.μ[1]) / std_x
+    ndy = (y - d.μ[2]) / std_y;
 
     div1 = 2 * (1 - ρ^2)
     log_div2 = log(2 * π * std_x * std_y * sqrt(1 - ρ^2))
 
     return -(ndx * ndx + ndy * ndy - 2 * ρ * ndx * ndy) / div1 - log_div2
 end
-
-# log_pdf(μx::Float64, μy::Float64, Σ::PDMat{Float64,Array{Float64,2}}, x::Float64, y::Float64) = log_pdf(μx, μy, Σ.mat, x, y)
-log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64 = log_pdf(d.μ[1]::Float64, d.μ[2]::Float64, d.Σ, x, y)
 
 pdf(d::MvNormalF, x::Float64, y::Float64) = exp(log_pdf(d, x, y))
 shape(d::MvNormalF) = Matrix(d.Σ)
@@ -54,6 +45,27 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
+sample_cov(Σ::CovMat, args...; kwargs...) =
+    sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
+
+function sample_cov!(Σ::CovMat, x::T; μ::Union{MeanVec, Nothing}=nothing) where T <: AbstractArray{Float64,2}
+    if μ === nothing
+        μ .= vec(mean(x, dims=2))
+    end
+
+    # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
+    Σ .= 0.0
+    for i in 1:size(x, 2)
+        for c in 1:size(Σ, 1)
+            for r in 1:size(Σ, 1)
+                Σ[r, c] += (x[c, i] - μ[c]) * (x[r, i] - μ[r]) / size(x, 2)
+            end
+        end
+    end
+
+    return Σ
+end
+
 function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Float64,2}
     if size(x, 2) == 0
         return dist
@@ -66,16 +78,7 @@ function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Fl
     end
 
     # Σ = adjust_cov_matrix!(robust_cov(x; prop=0.1))
-
-    # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
-    dist.Σ .= 0.0
-    for i in 1:size(x, 2)
-        for c in 1:size(x, 1)
-            for r in 1:size(x, 1)
-                dist.Σ[r, c] += (x[c, i] - dist.μ[c]) * (x[r, i] - dist.μ[r]) / size(x, 2)
-            end
-        end
-    end
+    sample_cov!(dist.Σ, x; μ=dist.μ)
 
     # if det(dist.Σ) ≈ 0
     #     error("Singular covariance matrix")
@@ -84,8 +87,13 @@ function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Fl
     return dist
 end
 
-function adjust_cov_matrix!(Σ::Array{Float64, 2}; max_iter::Int=100,
-                            cov_modifier::Float64=1e-4, tol=1e-10)::Array{Float64, 2}
+isposdef(A::StaticMatrix) = LinearAlgebra.isposdef(cholesky(A))
+
+function adjust_cov_matrix!(Σ::T; max_iter::Int=100, cov_modifier::Float64=1e-4, tol=1e-10)::T where T <: Union{CovMat, Array{Float64, 2}}
+    if !issymmetric(Σ)
+        error("Non-symmetric matrix: $Σ")
+    end
+
     if isposdef(Σ) && det(Σ) > tol
         return Σ
     end

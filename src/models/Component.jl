@@ -1,11 +1,12 @@
 using DataFrames
 using Distributions
 using NearestNeighbors
+using StaticArrays
 using StatsBase
 
 struct CellCenter
-    μ::Array{Float64, 1};
-    Σ::Array{Float64, 2};
+    μ::MeanVec;
+    Σ::CovMat;
     n_degrees_of_freedom::Int;
     # confidence::Float64; # TODO: uncomment and account for these parameters
     # distance_to_others::Array{Float64, 1}; # Probability of the center to coexist with the other center
@@ -14,15 +15,15 @@ struct CellCenter
 end
 
 struct ShapePrior
-    std_values::Array{Float64, 1};
-    std_value_stds::Array{Float64, 1};
+    std_values::MeanVec;
+    std_value_stds::MeanVec;
     n_samples::Int;
 end
 
 distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
 rand(prior::ShapePrior) = rand.(distributions(prior))
 
-var_posterior(prior::ShapePrior, eigen_values::Array{Float64, 1}; n_samples::Int) =
+var_posterior(prior::ShapePrior, eigen_values::T where T <: Union{MeanVec, StaticArray{Tuple{2},Float64,1}}; n_samples::Int) =
     var_posterior.(prior.std_values, prior.std_value_stds, eigen_values; n_samples=n_samples, prior_n_samples=prior.n_samples)
 
 # f(dx) = sign(dx) * sqrt(|dx/std|) * std
@@ -74,7 +75,7 @@ mutable struct Component
 
     Component(position_params::MvNormalF, composition_params::SingleTrialMultinomial; prior_weight::Float64, can_be_dropped::Bool,
               n_samples::Int=0, center_prior::Union{Nothing, CellCenter}=nothing, shape_prior::Union{Nothing, ShapePrior}=nothing,
-              gene_count_prior::Array{Int, 1}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
+              gene_count_prior::Vector{Int}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
         new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior), guid)
 end
 
@@ -82,19 +83,17 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64,
     maximize!(c.composition_params, comp_data);
 
     maximize!(c.position_params, pos_data);
-    μ, Σ = c.position_params.μ, Matrix(c.position_params.Σ)
 
     if c.center_prior !== nothing
-        μ, Σ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, n=size(pos_data, 2), n_prior=c.center_prior.n_degrees_of_freedom)
+        normal_posterior!(c.position_params.μ, c.position_params.Σ, c.center_prior.μ, c.center_prior.Σ,
+            n=size(pos_data, 2), n_prior=c.center_prior.n_degrees_of_freedom)
         # μ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, size(pos_data, 2))[1]
     end
 
     if c.shape_prior !== nothing
-        adjust_cov_by_prior!(Σ, c.shape_prior; n_samples=size(pos_data, 2))
+        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=size(pos_data, 2))
     end
 
-    c.position_params.μ .= μ
-    c.position_params.Σ .= Σ
     # try
     #     c.position_params = MvNormal(μ, Σ)
     # catch
@@ -119,21 +118,23 @@ function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothi
 end
 
 
-function adjust_cov_by_prior!(Σ::Array{Float64, 2}, prior::ShapePrior; n_samples::Int)
+function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
+    if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
+        Σ[1, 2] = Σ[2, 1] = 0.0
+    end
     fact = eigen(Σ)
     eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
-    Σ .= fact.vectors * diagm(0 => eigen_values_posterior) * inv(fact.vectors)
+    Σ .= fact.vectors * SMatrix{2, 2, Float64}(diagm(0 => eigen_values_posterior)) * inv(fact.vectors)
     Σ[1, 2] = Σ[2, 1]
 
     return adjust_cov_matrix!(Σ)
 end
 
-function normal_posterior(μ::AbstractArray{Float64, 1}, μ_prior::AbstractArray{Float64, 1}, Σ::AbstractArray{Float64, 2}, Σ_prior::AbstractArray{Float64, 2};
-                          n::Int, n_prior::Int)
-    μ_post = (n .* μ .+ n_prior .* μ_prior) ./ (n + n_prior)
-    Σ_post = (n .* Σ .+ n_prior .* Σ_prior .+ (n * n_prior / (n + n_prior)) .* ((μ .- μ_prior) * (μ .- μ_prior)')) ./ (n + n_prior)
-
-    return μ_post, adjust_cov_matrix!(Σ_post)
+function normal_posterior!(μ::MeanVec, Σ::CovMat, μ_prior::MeanVec, Σ_prior::CovMat; n::Int, n_prior::Int)
+    Σ = (n .* Σ .+ n_prior .* Σ_prior .+ (n * n_prior / (n + n_prior)) .* ((μ .- μ_prior) * (μ .- μ_prior)')) ./ (n + n_prior)
+    μ .= (n .* μ .+ n_prior .* μ_prior) ./ (n + n_prior)
+    adjust_cov_matrix!(Σ)
+    return nothing
 end
 
 position(c::Component) = c.position_params.μ

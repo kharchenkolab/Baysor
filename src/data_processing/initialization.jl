@@ -129,16 +129,17 @@ function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{In
     return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], scale...)
 end
 
-function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
+function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})::Array{CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(spatial_df, assignment)
-    covs = cov.(transpose.(pos_data_by_assignment));
+    covs = sample_cov.(transpose.(pos_data_by_assignment));
     mean_stds = vec(median(hcat(eigvals.(covs[size.(pos_data_by_assignment, 2) .> 1])...), dims=2))
 
     for i in findall(size.(pos_data_by_assignment, 2) .<= 1)
-        covs[i] = diagm(0 => deepcopy(mean_stds))
+        covs[i] = CovMat(diagm(0 => deepcopy(mean_stds)))
     end
 
-    return adjust_cov_matrix!.(covs)
+    # return adjust_cov_matrix!.(covs)
+    return covs
 end
 
 function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Union{Real, Nothing})
@@ -272,7 +273,7 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Numbe
     n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
 
     bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
-    @threads for i in 1:length(dfs_spatial)
+    for i in 1:length(dfs_spatial)
         init_params = cell_centers_with_clustering(dfs_spatial[i], n_cells_init; scale=scale)
         bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
     end

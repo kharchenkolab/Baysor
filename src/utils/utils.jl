@@ -161,6 +161,10 @@ end
     v1 > v2 ? v1 : v2
 end
 
+@inline @fastmath function fmin(v1::Float64, v2::Float64)
+    v1 < v2 ? v1 : v2
+end
+
 @inline function fsample(arr::Vector{Int}, w::Vector{Float64})::Int
     t = rand(Random.GLOBAL_RNG) * sum(w)
     n = length(w)
