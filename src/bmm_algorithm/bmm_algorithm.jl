@@ -41,7 +41,8 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     @inbounds adj_cell_ids = view(assignment, adjacent_points)
 
     @inbounds @simd for i in 1:length(adjacent_weights)
-        c_id, cw = adj_cell_ids[i], adjacent_weights[i]
+        c_id = adj_cell_ids[i]
+        cw = adjacent_weights[i]
         if c_id == 0
             zero_comp_weight += cw
         else
