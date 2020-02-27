@@ -381,15 +381,17 @@ run_bmm_parallel(bm_data_arr, args...; kwargs...) =
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
 function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
-    @info "Pushing data to workers"
-    da = push_data_to_workers(bm_data_arr)
+    # @info "Pushing data to workers"
+    # da = push_data_to_workers(bm_data_arr)
 
     @info "Algorithm start"
-    bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
+    # bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
 
-    # p = Progress(n_iters * length(bm_data_arr))
-    # @threads for bm in bm_data_arr
-    #     bmm!(bm; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
+    p = Progress(n_iters * length(bm_data_arr))
+    @threads for i in 1:length(bm_data_arr)
+        bmm!(bm_data_arr[i]; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
+    end
+
     bm_data_merged = merge_bm_data(bm_data_arr)
 
     if "assignment_history" in keys(bm_data_merged.tracer)
