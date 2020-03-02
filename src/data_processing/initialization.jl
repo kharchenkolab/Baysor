@@ -111,30 +111,28 @@ assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Array{Int, 1
     [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
 
 
-function position_data_by_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
-    filt_mask = (assignment .> 0)
-    spatial_df, assignment = spatial_df[filt_mask, :], assignment[filt_mask]
-
-    pos_data = position_data(spatial_df);
-    return [pos_data[:, ids] for ids in split(1:length(assignment), assignment)]
+function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1})
+    filt_ids = findall(assignment .> 0)
+    return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
     center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
 
 function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
-    cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(spatial_df, assignment)]...)
-    covs = covs_from_assignment(spatial_df, assignment)
+    pos_data = position_data(spatial_df)
+    cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(pos_data, assignment)]...)
+    covs = covs_from_assignment(pos_data, assignment)
     scale = estimate_scale_from_centers(mean.(eigvals.(covs)) .^ 0.5)
     return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], scale...)
 end
 
-function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})::Array{CovMat, 1}
-    pos_data_by_assignment = position_data_by_assignment(spatial_df, assignment)
-    covs = sample_cov.(transpose.(pos_data_by_assignment));
-    mean_stds = vec(median(hcat(eigvals.(covs[size.(pos_data_by_assignment, 2) .> 1])...), dims=2))
+function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1}; min_size::Int=1)::Array{CovMat, 1}
+    pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
+    covs = sample_cov.(pos_data_by_assignment);
+    mean_stds = MeanVec(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .> min_size]))...), dims=2)))
 
-    for i in findall(size.(pos_data_by_assignment, 2) .<= 1)
+    for i in findall(size.(pos_data_by_assignment, 2) .<= min_size)
         covs[i] = CovMat(diagm(0 => deepcopy(mean_stds)))
     end
 
@@ -142,14 +140,16 @@ function covs_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}):
     return covs
 end
 
-function cell_centers_with_clustering(spatial_df::DataFrame, n_clusters::Int; scale::Union{Real, Nothing})
-    n_clusters = min(n_clusters, size(spatial_df, 1))
+cell_centers_with_clustering(spatial_df::DataFrame, args...; kwargs...) =
+    cell_centers_with_clustering(position_data(spatial_df), args...; kwargs...)
 
-    pos_data = position_data(spatial_df);
+function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
+    n_clusters = min(n_clusters, size(pos_data, 2))
+
     cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
-    covs = (scale === nothing) ? covs_from_assignment(spatial_df, cluster_labels) : scale ^ 2
+    covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : scale ^ 2
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 
@@ -306,7 +306,7 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
     end
 
     covs = (default_std === nothing) ?
-        covs_from_assignment(df_spatial, assignment) :
+        covs_from_assignment(pos_data, assignment) :
         [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 2)]
 
     pos_distributions = [MvNormalF(vec(mtx_centers[:, i]), cov) for (i, cov) in enumerate(covs)]
