@@ -45,12 +45,12 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
-sample_cov(Σ::CovMat, args...; kwargs...) =
+sample_cov(args...; kwargs...) =
     sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
 
 function sample_cov!(Σ::CovMat, x::T; μ::Union{MeanVec, Nothing}=nothing) where T <: AbstractArray{Float64,2}
     if μ === nothing
-        μ .= vec(mean(x, dims=2))
+        μ = MeanVec(vec(mean(x, dims=2)))
     end
 
     # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
