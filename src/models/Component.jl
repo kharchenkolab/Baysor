@@ -110,11 +110,12 @@ end
 function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64
     pos_pdf = pdf(params.position_params, x, y)
 
-    if params.gene_count_prior_sum == 0
-        return pos_pdf * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
-    else
-        return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
-    end
+    return pos_pdf * pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
+    # if params.gene_count_prior_sum == 0
+    #     return pos_pdf * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
+    # else
+    #     return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
+    # end
 end
 
 
@@ -123,6 +124,10 @@ function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
         Σ[1, 2] = Σ[2, 1] = 0.0
     end
     fact = eigen(Σ)
+    if (any(fact.values .<= 0))
+        error("Negative eigenvalues: $Σ\n$(fact.values)")
+    end
+
     eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
     Σ .= fact.vectors * SMatrix{2, 2, Float64}(diagm(0 => eigen_values_posterior)) * inv(fact.vectors)
     Σ[1, 2] = Σ[2, 1]

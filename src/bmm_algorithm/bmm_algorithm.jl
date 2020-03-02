@@ -81,7 +81,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         empty!(denses)
         for j in eachindex(adj_weights)
             cc = data.components[adj_classes[j]]
-            push!(denses, confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene))
+            push!(denses, confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene, use_smoothing=true)) # TODO: move use_smoothing to bm_data params
         end
 
         if sum(denses) < noise_density_threshold
@@ -256,7 +256,7 @@ track_progress!(progress::Progress) = next!(progress)
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
               split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
               clustering_distance::D=Distances.CosineDist(), # TODO: infer this parameters somehow
-              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
+              prior_update_step::Int=split_period, assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
               component_split_step::Int=max(min(5, div(n_iters, 3)), 1)) where D <: Distances.SemiMetric
     time_start = now()
 
@@ -284,6 +284,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         if (split_period > 0) && (i > 0) && (i % split_period == 0) && ((n_iters - i) >= split_period)
             split_components_by_expression!(data, n_splitting_clusters; n_expression_clusters=n_expression_clusters, distance=clustering_distance,
                 min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs);
+        end
+
+        if (prior_update_step > 0) && (i > 0) && (i % prior_update_step == 0)
+            update_gene_count_priors!(data.components; n_clusters=n_expression_clusters, distance=clustering_distance,
+                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)

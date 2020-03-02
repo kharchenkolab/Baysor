@@ -44,13 +44,11 @@ function split_components_by_expression!(data::BmmData, n_splitted_clusters::Int
     cm_norm = cm ./ max.(sum(cm, dims=1), 1e-50);
     feature_mtx, cluster_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
     clust_per_cell = assign_to_centers(feature_mtx, cluster_centers, distance);
-    clust_cm_centers = hcat([mean(cm_norm[:, real_cell_inds[ids]], dims=2) for ids in split_ids(clust_per_cell)]...);
-
-    # Here can be update of gene priors
+    clust_cm_centers_norm = hcat([mean(cm_norm[:, ids], dims=2) for ids in split(real_cell_inds, clust_per_cell)]...);
 
     base1_ids, base2_ids, comb_improvements = factorize_doublet_expression(feature_mtx, cluster_centers; distance=distance)[1:3]
     imp_cells = findall(comb_improvements .>= improvement_threshold)
-    perm_pvals = estimate_spatial_separation_pvals(data, clust_cm_centers, base1_ids[imp_cells], base2_ids[imp_cells], real_cell_inds[imp_cells])
+    perm_pvals = estimate_spatial_separation_pvals(data, clust_cm_centers_norm, base1_ids[imp_cells], base2_ids[imp_cells], real_cell_inds[imp_cells])
 
     for id in real_cell_inds[imp_cells[perm_pvals .< pvalue_threshold]]
         split_component!(data, id, n_splitted_clusters);
@@ -66,7 +64,8 @@ function split_component!(data::BmmData, component_id::Int, n_clusters::Int)
         return data
     end
 
-    init_params = cell_centers_with_clustering(data.x[mol_ids,:], n_clusters; scale=nothing); # TODO: real scale
+    init_params = cell_centers_with_clustering(position_data(data)[:, mol_ids], n_clusters; scale=data.distribution_sampler.shape_prior.std_values[1]);
+
     parent_comp = data.components[component_id];
     comps, prior, assignment = initial_distributions(data.x[mol_ids,:], init_params; size_prior=parent_comp.shape_prior,
         new_component_weight=data.distribution_sampler.prior_weight, gene_smooth=parent_comp.composition_params.smooth,
@@ -95,15 +94,15 @@ function factorize_doublet_expression(feature_mtx::Matrix{Float64}, cluster_cent
     return base1_ids, base2_ids, comb_improvements, mixing_fractions
 end
 
-function estimate_expression_clusters(cm_norm::Matrix{Float64}, n_clusters::Int; n_pcs::Int=0, kwargs...)
+function estimate_expression_clusters(feature_mtx::Matrix{Float64}, n_clusters::Int, real_cell_inds::T where T<: AbstractArray{Int, 1} = 1:size(feature_mtx, 2); n_pcs::Int=0, kwargs...)
     if n_pcs > 0
-        pca = MultivariateStats.fit(MultivariateStats.PCA, cm_norm; maxoutdim=n_pcs);
-        cm_norm = MultivariateStats.transform(pca, cm_norm);
+        pca = MultivariateStats.fit(MultivariateStats.PCA, feature_mtx[:, real_cell_inds]; maxoutdim=n_pcs);
+        feature_mtx = MultivariateStats.transform(pca, feature_mtx);
     end
 
-    k_centers = kmeans_stable(cm_norm, n_clusters; kwargs...)[1];
+    k_centers = kmeans_stable(feature_mtx[:, real_cell_inds], n_clusters; kwargs...)[1];
 
-    return cm_norm, k_centers
+    return feature_mtx, k_centers
 end
 
 function estimate_spatial_separation_pvals(data::BmmData, cm_cluster_centers::Matrix{Float64}, base1_id_per_cell::Vector{Int}, base2_id_per_cell::Vector{Int}, comp_id_per_cell::Vector{Int})
