@@ -109,13 +109,13 @@ end
 
 ### Tracing
 
-function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any}; kwargs...)
-    if !("n_components" in keys(tracer)) || length(tracer["n_components"]) == 0
+function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
+    if !(:n_components in keys(tracer)) || length(tracer[:n_components]) == 0
         error("No data about #components per iteration was stored")
     end
 
-    n_components_per_iter = hcat(collect.(values.(tracer["n_components"]))...);
-    labels = collect(keys(tracer["n_components"][1]));
+    n_components_per_iter = hcat(collect.(values.(tracer[:n_components]))...);
+    labels = collect(keys(tracer[:n_components][1]));
 
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
@@ -138,10 +138,10 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{String, Any}; kwargs...)
     return p
 end
 
-function plot_prior_shape_per_iteration(tracer::Dict{String, Any})
-    Plots.plot(get.(tracer["prior_shape"], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
+function plot_prior_shape_per_iteration(tracer::Dict{Symbol, Any})
+    Plots.plot(get.(tracer[:prior_shape], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
         xlabel="Iteration", ylabel="Eigenvalue", title="Shape prior")
-    Plots.plot!(get.(tracer["prior_shape"], 2, 0) .^ 0.5, label="(eigenvalue 2)^0.5")
+    Plots.plot!(get.(tracer[:prior_shape], 2, 0) .^ 0.5, label="(eigenvalue 2)^0.5")
 end
 
 

@@ -32,7 +32,8 @@ mutable struct BmmData
     center_sample_cache::Vector{Int}
 
     # Utils
-    tracer::Dict{String, Any};
+    tracer::Dict{Symbol, Any};
+    misc::Dict{Symbol, Any}
 
     # Parameters
     update_priors::Symbol;
@@ -73,12 +74,12 @@ mutable struct BmmData
 
         x = deepcopy(x)
         if !(:confidence in names(x))
-            x[:confidence] = 0.95
+            x[!, :confidence] = 0.95
         end
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, ones(n_genes, n_genes) ./ n_genes, Int[], Dict{String, Any}(), update_priors)
+                   0.0, ones(n_genes, n_genes) ./ n_genes, Int[], Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors)
 
         for c in self.components
             c.n_samples = 0
@@ -139,8 +140,8 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
             c.guid += max_guid
         end
 
-        if "assignment_history" in keys(tr)
-            for ah in tr["assignment_history"]
+        if :assignment_history in keys(tr)
+            for ah in tr[:assignment_history]
                 ah[ah .> 0] .+= max_guid
             end
         end
@@ -187,14 +188,14 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
 end
 
 function estimate_assignment_by_history(data::BmmData)
-    if !("assignment_history" in keys(data.tracer)) || (length(data.tracer["assignment_history"]) == 0)
+    if !(:assignment_history in keys(data.tracer)) || (length(data.tracer[:assignment_history]) == 0)
         @warn "Data has no saved history of assignments. Fall back to the basic assignment"
         return data.assignment, ones(length(data.assignment)) / 2
     end
 
     guid_map = Dict(c.guid => i for (i,c) in enumerate(data.components))
     current_guids = Set(vcat(collect(keys(guid_map)), [0]));
-    assignment_mat = hcat(data.tracer["assignment_history"]...);
+    assignment_mat = hcat(data.tracer[:assignment_history]...);
 
     reassignment = mapslices(assignment_mat, dims=2) do row
         c_row = row[in.(row, Ref(current_guids))]
@@ -251,7 +252,7 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     df = deepcopy(data.x)
     df[!,:cell] = deepcopy(data.assignment);
 
-    if use_assignment_history && ("assignment_history" in keys(data.tracer)) && (length(data.tracer["assignment_history"]) > 1)
+    if use_assignment_history && (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
         df[!,:cell], df[!,:assignment_confidence] = estimate_assignment_by_history(data)
     end
 
