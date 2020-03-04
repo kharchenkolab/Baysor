@@ -165,14 +165,20 @@ end
     v1 < v2 ? v1 : v2
 end
 
-@inline function fsample(arr::Vector{Int}, w::Vector{Float64})::Int
-    t = rand(Random.GLOBAL_RNG) * sum(w)
+@inline function fsample(w::Vector{Float64})::Int
     n = length(w)
+    if n == 0
+        error("Empty vector for sampling")
+    end
+
+    t = rand(Random.GLOBAL_RNG) * sum(w)
     i = 1
     cw = w[1]
     while cw < t && i < length(w)
         i += 1
         @inbounds cw += w[i]
     end
-    return arr[i]
+    return i
 end
+
+@inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
