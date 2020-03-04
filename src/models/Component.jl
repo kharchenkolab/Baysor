@@ -123,9 +123,10 @@ function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
         Σ[1, 2] = Σ[2, 1] = 0.0
     end
+
     fact = eigen(Σ)
-    if (any(fact.values .<= 0))
-        error("Negative eigenvalues: $Σ\n$(fact.values)")
+    if (any(fact.values .< 0))
+        fact.values[fact.values .< 0] .= 0
     end
 
     eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
