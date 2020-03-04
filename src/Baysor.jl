@@ -35,6 +35,7 @@ include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
 include("data_processing/boundary_visualization.jl")
 
+include("bmm_algorithm/molecule_clustering.jl")
 include("bmm_algorithm/tracing.jl")
 include("bmm_algorithm/distribution_samplers.jl")
 include("bmm_algorithm/history_analysis.jl")
