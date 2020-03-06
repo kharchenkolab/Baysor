@@ -10,14 +10,13 @@ function maximize_mols!(cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, as
     for i in 1:length(assignment)
         cell_type_exprs[assignment[i], genes[i]] += 1.0
     end
-
-    cell_type_exprs ./= sum(cell_type_exprs, dims=2)
 end
 
 function expect_mols!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int},
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.001,
         mrf_prior_weight::Float64=1.0) # Add confidence?
     denses = zeros(size(cell_type_exprs, 1))
+    cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1) # It's not sum to 1, but it simulates sparse pseudocounts
     for i in 1:length(genes)
         gene = genes[i]
         cur_weights = adjacent_weights[i]
@@ -56,8 +55,7 @@ function filter_correlated_clusters!(cell_type_exprs::Matrix{Float64}, assignmen
         end
 
         was_filtering = true
-        cell_type_exprs[i1, :] .= rand(size(cell_type_exprs, 2))
-        cell_type_exprs[i1, :] ./= sum(cell_type_exprs[i1, :])
+        cell_type_exprs[i1, :] .= 0
         assignment[assignment .== i1] .= i2
     end
 
@@ -76,9 +74,10 @@ function remove_unused_clusters!(assignment::Vector{Int}, cell_type_exprs::Matri
 
     cell_type_exprs = cell_type_exprs[real_type_ids,:]
 
+    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
     for i in 1:length(assignment)
         if n_mols_per_type[assignment[i]] < min_mols_per_type
-            assignment[i] = findmax(cell_type_exprs[:, genes[i]])[2]
+            assignment[i] = findmax(cell_type_exprs_norm[:, genes[i]])[2]
         else
             assignment[i] = id_map[assignment[i]]
         end
@@ -90,7 +89,7 @@ end
 # TODO: rename
 function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
         k::Int, n_iters::Int=100, history_depth::Int=50, new_prob::Float64=0.005, mrf_prior_weight::Float64=1.0, min_mols_per_type::Int = round(Int, 0.05 * length(genes) / k))
-    cell_type_exprs = copy(hcat([rand(maximum(genes)) for i in 1:k]...)');
+    cell_type_exprs = zeros(k, maximum(genes));
     assignment = rand(1:k, length(genes));
     assignment_history = Vector{Int}[]
     maximize_mols!(cell_type_exprs, genes, assignment)
@@ -114,7 +113,7 @@ function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}},
 
     assignment_cons = vec(mapslices(mode, hcat(assignment_history...), dims=2));
 
-    return cell_type_exprs, assignment_cons, assignment_history
+    return cell_type_exprs ./ sum(cell_type_exprs, dims=2), assignment_cons, assignment_history
 end
 
 function build_molecule_graph(df_spatial::DataFrame; kwargs...)
