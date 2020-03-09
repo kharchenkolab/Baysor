@@ -13,8 +13,7 @@ function maximize_mols!(cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, as
 end
 
 function expect_mols!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.001,
-        mrf_prior_weight::Float64=1.0) # Add confidence?
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.001) # Add confidence?
     denses = zeros(size(cell_type_exprs, 1))
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1) # It's not sum to 1, but it simulates sparse pseudocounts
     for i in 1:length(genes)
@@ -33,7 +32,7 @@ function expect_mols!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64},
             end
 
             for j in 1:length(cur_weights)
-                denses[assignment[cur_points[j]]] *= exp(cur_weights[j] * mrf_prior_weight)
+                denses[assignment[cur_points[j]]] *= cur_weights[j]
             end
 
             assignment[i] = fsample(denses)
@@ -41,7 +40,7 @@ function expect_mols!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64},
     end
 end
 
-function filter_correlated_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.59)
+function filter_correlated_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.95)
     cors = cor(cell_type_exprs');
     cors[diagind(cors)] .= 0
     triu!(cors);
@@ -88,26 +87,38 @@ end
 
 # TODO: rename
 function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        k::Int, n_iters::Int=100, history_depth::Int=50, new_prob::Float64=0.005, mrf_prior_weight::Float64=1.0, min_mols_per_type::Int = round(Int, 0.05 * length(genes) / k))
+        k::Int, n_iters::Int=1000, history_depth::Int=200, new_prob::Float64=0.05, mrf_prior_weight::Float64=1.0,
+        min_mols_per_type::Int = round(Int, 0.05 * length(genes) / k), correlation_threshold::Float64=0.95,
+        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
     cell_type_exprs = zeros(k, maximum(genes));
     assignment = rand(1:k, length(genes));
     assignment_history = Vector{Int}[]
     maximize_mols!(cell_type_exprs, genes, assignment)
-    @showprogress for i in 1:n_iters
-        expect_mols!(assignment, cell_type_exprs, genes, adjacent_points, adjacent_weights, new_prob=new_prob,
-            mrf_prior_weight=mrf_prior_weight)
+
+    adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights]
+
+    if verbose && progress === nothing
+        progress = Progress(n_iters, 0.3)
+    end
+
+    for i in 1:n_iters
+        expect_mols!(assignment, cell_type_exprs, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
         maximize_mols!(cell_type_exprs, genes, assignment)
-        if (n_iters - i) == history_depth
+        if (n_iters - i) == (history_depth - 1)
             cell_type_exprs = remove_unused_clusters!(assignment, cell_type_exprs, genes; min_mols_per_type=min_mols_per_type)
             new_prob = 0.0
         end
 
-        if (n_iters - i) <= history_depth
+        if (n_iters - i) < history_depth
             push!(assignment_history, deepcopy(assignment))
         else
-            if filter_correlated_clusters!(cell_type_exprs, assignment)
+            if filter_correlated_clusters!(cell_type_exprs, assignment, correlation_threshold=correlation_threshold)
                 maximize_mols!(cell_type_exprs, genes, assignment)
             end
+        end
+
+        if verbose
+            next!(progress)
         end
     end
 
