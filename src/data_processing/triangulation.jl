@@ -55,7 +55,7 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
     return edge_list, adj_dists
 end
 
-adjacency_list(spatial_df::DataFrame) = adjacency_list(position_data(spatial_df))
+adjacency_list(spatial_df::DataFrame; kwargs...) = adjacency_list(position_data(spatial_df); kwargs...)
 
 function connected_components(adjacent_points::Array{Array{Int, 1}, 1})
     g = LightGraphs.SimpleGraph(length(adjacent_points));
