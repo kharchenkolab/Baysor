@@ -154,15 +154,15 @@ function plot_sampling_dynamic(bm_data::BmmData, subs_mask::BitArray{1}, clust_p
     return PLY.plot(PLY.scatter(x=bm_data.x.x, y=bm_data.x.y, text=plot_texts[1], mode=:markers), layout);
 end
 
-function plot_sampling_dynamic(bm_data::BmmData, polygons_per_iter::Array; step_ids::Vector=1:length(polygons_per_iter),
+function plot_sampling_dynamic(bm_data::BmmData, polygons_per_iter::Array; step_ids::T where T <: AbstractArray{Int}=1:length(polygons_per_iter),
                                min_polygon_size::Int=5, width::Int=600, height::Int=600, marker_color)
     function plotly_polygon(polygon::Matrix; kwargs...)
         polygon = vcat(polygon, polygon[1,:]')
         return PLY.scatter(x=polygon[:,1], y=polygon[:,2], mode="lines", marker_color="black", showlegend=false, hoverinfo="none"; kwargs...)
     end
 
-    polygon_shapes = [plotly_polygon.(filter(p -> size(p, 1) >= min_polygon_size, ps); visible=false)
-        for (i, ps) in enumerate(polygons_per_iter)];
+    polygon_shapes = [plotly_polygon.(filter(p -> size(p, 1) >= min_polygon_size, ps); visible=(i == 1))
+        for (i, ps) in enumerate(polygons_per_iter[step_ids])];
 
     n_pols_total = sum(length.(polygon_shapes));
     n_pols_cum = 1
@@ -180,9 +180,10 @@ function plot_sampling_dynamic(bm_data::BmmData, polygons_per_iter::Array; step_
 
     layout = PLY.Layout(
         sliders=[PLY.attr(
-            steps=vcat(PLY.attr(method="restyle", args=[Dict("visible" => vcat(true, falses(n_pols_total)))], label=0),
-                [PLY.attr(method="restyle", args=[Dict("visible" => vcat(true, v))], label=i) for (i, v) in zip(step_ids, is_visible)]
-            ),
+            # steps=vcat(PLY.attr(method="restyle", args=[Dict("visible" => vcat(true, falses(n_pols_total)))], label=0),
+            #     [PLY.attr(method="restyle", args=[Dict("visible" => vcat(true, v))], label=i) for (i, v) in zip(step_ids, is_visible)]
+            # ),
+            steps=[PLY.attr(method="restyle", args=[Dict("visible" => vcat(true, v))], label=i) for (i, v) in zip(step_ids, is_visible)],
             active=0,
             currentvalue_prefix="Step: "
         )],
