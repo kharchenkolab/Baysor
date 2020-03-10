@@ -5,7 +5,7 @@ using StaticArrays
 
 import LinearAlgebra.isposdef
 
-CovMat = MMatrix{2, 2, Float64}
+CovMat = MMatrix{2, 2, Float64, 4}
 MeanVec = MVector{2, Float64}
 
 struct MvNormalF

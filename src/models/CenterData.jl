@@ -6,7 +6,7 @@ import Images
 
 mutable struct CenterData
     centers::DataFrame
-    center_covs::Union{Array{Array{Float64,2},1}, Nothing}
+    center_covs::Union{Array{CovMat,1}, Nothing}
     scale_estimate::Float64
     scale_std_estimate::Float64
 end
@@ -34,10 +34,10 @@ function extract_centers_from_mask(segmentation::Union{Matrix, BitArray{2}}; min
     coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
 
     centers = hcat(vec.(mean.(coords_per_label, dims=1))...);
-    center_covs = cov.(coords_per_label);
+    center_covs = CovMat.(cov.(coords_per_label));
 
     for i in findall([any(isnan.(c)) for c in center_covs])
-        center_covs[i] = copy(Float64[1. 0.; 0. 1.])
+        center_covs[i] = CovMat(Float64[1. 0.; 0. 1.])
     end
 
     adjust_cov_matrix!.(center_covs);

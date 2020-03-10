@@ -116,6 +116,11 @@ function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
+function initial_params_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
+    center_data = center_data_from_assignment(spatial_df, denserank(assignment), cov_mult=1.0)
+    return InitialParams(position_data(center_data.centers), CovMat.(center_data.center_covs), assignment)
+end
+
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
     center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
 
@@ -367,9 +372,9 @@ end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
-    gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:initial_params.n_comps]
+    position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
+    gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 
-    position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:initial_params.n_comps]
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
