@@ -117,8 +117,10 @@ function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64
 end
 
 function initial_params_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
-    center_data = center_data_from_assignment(spatial_df, denserank(assignment), cov_mult=1.0)
-    return InitialParams(position_data(center_data.centers), CovMat.(center_data.center_covs), assignment)
+    assignment = deepcopy(assignment)
+    assignment[assignment .> 0] .= denserank(assignment[assignment .> 0])
+    center_data = center_data_from_assignment(spatial_df, assignment, cov_mult=1.0)
+    return InitialParams(copy(position_data(center_data.centers)'), CovMat.(center_data.center_covs), assignment)
 end
 
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
