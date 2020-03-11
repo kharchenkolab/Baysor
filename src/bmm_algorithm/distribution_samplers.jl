@@ -56,6 +56,14 @@ end
 function sample_distribution(data::BmmData; guid::Int)
     sampler = data.distribution_sampler
     position_params = sample_distribution!(data, sampler.shape_prior, center_prior=sampler.center_prior);
+
+    if :cluster_centers in keys(data.misc)
+        gene_count_prior = data.misc[:cluster_centers][rand(1:size(data.misc[:cluster_centers], 1)),:]
+        return Component(position_params, deepcopy(sample(data.components).composition_params);
+                     prior_weight=sampler.prior_weight, can_be_dropped=true, gene_count_prior=round.(Int, gene_count_prior .* 100000),
+                     center_prior=deepcopy(sampler.center_prior), shape_prior=deepcopy(sampler.shape_prior), guid=guid);
+    end
+
     composition_params = sample_composition_params(data);
 
     return Component(position_params, composition_params; prior_weight=sampler.prior_weight, can_be_dropped=true,
