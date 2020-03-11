@@ -52,8 +52,7 @@ function split_components_by_expression!(data::BmmData, n_splitted_clusters::Int
         cluster_centers = hcat([mean(cm_norm[:, ids], dims=2) for ids in split(real_cell_inds, clust_per_cell)]...);
     end
 
-    # return factorize_doublet_expression_ll(copy(cm[:, real_cell_inds]'), cluster_centers), real_cell_inds
-    base1_ids, base2_ids, comb_improvements = factorize_doublet_expression_ll(copy(cm[:, real_cell_inds]'), cluster_centers)[1:3]
+    base1_ids, base2_ids, comb_improvements = factorize_doublet_expression_ll(cm[:, real_cell_inds], cluster_centers)[1:3]
     imp_cells = findall(comb_improvements .>= improvement_threshold)
     perm_pvals = estimate_spatial_separation_pvals(data, cluster_centers, base1_ids[imp_cells], base2_ids[imp_cells], real_cell_inds[imp_cells])
 
@@ -135,14 +134,14 @@ end
     -mean(expression .* log.(gene_probs .+ prob_pseudocount)) # With mean instead sum, likelihood scale is more meaningful, which is required for improvement_threshold
 
 likelihood_dist(counts::Matrix{T} where T <: Real, gene_probs::Matrix{Float64})::Matrix{Float64} =
-    hcat([[log_ll(counts[j, :], gene_probs[i,:]) for j in 1:size(counts, 1)] for i in 1:size(gene_probs, 1)]...)
+    hcat([[log_ll(counts[:, j], gene_probs[i,:]) for j in 1:size(counts, 2)] for i in 1:size(gene_probs, 1)]...)
 
 function factorize_doublet_expression_ll(counts::Matrix{Float64}, cluster_centers::Matrix{Float64})
     nn_dists = likelihood_dist(counts, cluster_centers);
     base1_ids = vec(mapslices(x -> findmin(x)[2], nn_dists, dims=2));
 
-    opt_comps = [[Baysor.linsearch_gs(w -> log_ll(counts[ci, :], cluster_centers[base1_ids[ci], :] .* w + cluster_centers[i, :] .* (1 - w)), 0.0, 1.0)
-        for i in 1:size(cluster_centers, 1)] for ci in 1:size(counts, 1)];
+    opt_comps = [[Baysor.linsearch_gs(w -> log_ll(counts[:, ci], cluster_centers[base1_ids[ci], :] .* w + cluster_centers[i, :] .* (1 - w)), 0.0, 1.0)
+        for i in 1:size(cluster_centers, 1)] for ci in 1:size(counts, 2)];
 
     opt_dists = hcat([[v[2] for v in x] for x in opt_comps]...);
 
