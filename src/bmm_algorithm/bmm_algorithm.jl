@@ -106,6 +106,10 @@ end
 function update_prior_probabilities!(components::Array{Component, 1})
     c_weights = [max(c.n_samples, c.prior_weight) for c in components]
     prior_probs = rand(Distributions.Dirichlet(c_weights))
+    # t_mmc = 150.0;
+    # t_dist = Normal(t_mmc, t_mmc * 3)
+    # prior_probs = pdf.(t_dist, c_weights)
+    # prior_probs[c_weights .< t_mmc] .= c_weights[c_weights .< t_mmc] ./ t_mmc .* pdf(t_dist, t_mmc)
 
     for (c, p) in zip(components, prior_probs)
         c.prior_probability = p
@@ -288,7 +292,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         if (prior_update_step > 0) && (i > 0) && (i % prior_update_step == 0)
             update_gene_count_priors!(data.components; n_clusters=n_expression_clusters, distance=clustering_distance,
-                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
+                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs,
+                mol_cluster_info=data.misc, assignment=data.assignment)
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)

@@ -8,6 +8,7 @@ kwargs are passed to estimate_expression_clusters. Important parameters: min_clu
 """
 function score_doublets(data::BmmData; n_expression_clusters::Int, distance::T where T <: Distances.SemiMetric,
         min_molecules_per_cell::Int, na_value::Union{Float64, Missing, Nothing}=missing, min_impact_level::Float64=0.1, kwargs...)
+    # TODO: re-write using factorize_doublet_expression_ll and data.misc (see split_components_by_expression!)
     cm = extract_gene_matrix_from_distributions2(data.components);
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
 
@@ -36,23 +37,31 @@ end
 """
 kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs
 """
-function split_components_by_expression!(data::BmmData, n_splitted_clusters::Int; n_expression_clusters::Int, distance::T where T <: Distances.SemiMetric,
-        min_molecules_per_cell::Int, pvalue_threshold::Float64=0.01, improvement_threshold::Float64=0.1, kwargs...)
+function split_components_by_expression!(data::BmmData, n_splitted_clusters::Int; n_expression_clusters::Int, min_molecules_per_cell::Int,
+    distance::T where T <: Distances.SemiMetric = Distances.CosineDist(), pvalue_threshold::Float64=0.01, improvement_threshold::Float64=0.1, kwargs...)
     cm = extract_gene_matrix_from_distributions2(data.components);
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
+    cluster_centers = nothing
 
-    cm_norm = cm ./ max.(sum(cm, dims=1), 1e-50);
-    feature_mtx, cluster_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
-    clust_per_cell = assign_to_centers(feature_mtx, cluster_centers, distance);
-    clust_cm_centers_norm = hcat([mean(cm_norm[:, ids], dims=2) for ids in split(real_cell_inds, clust_per_cell)]...);
+    if :cluster_centers in keys(data.misc)
+        cluster_centers = data.misc[:cluster_centers]
+    else
+        cm_norm = cm ./ max.(sum(cm, dims=1), 1e-50);
+        feature_mtx, feature_space_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
+        clust_per_cell = assign_to_centers(feature_mtx, feature_space_centers, distance);
+        cluster_centers = hcat([mean(cm_norm[:, ids], dims=2) for ids in split(real_cell_inds, clust_per_cell)]...);
+    end
 
-    base1_ids, base2_ids, comb_improvements = factorize_doublet_expression(feature_mtx, cluster_centers; distance=distance)[1:3]
+    # return factorize_doublet_expression_ll(copy(cm[:, real_cell_inds]'), cluster_centers), real_cell_inds
+    base1_ids, base2_ids, comb_improvements = factorize_doublet_expression_ll(copy(cm[:, real_cell_inds]'), cluster_centers)[1:3]
     imp_cells = findall(comb_improvements .>= improvement_threshold)
-    perm_pvals = estimate_spatial_separation_pvals(data, clust_cm_centers_norm, base1_ids[imp_cells], base2_ids[imp_cells], real_cell_inds[imp_cells])
+    perm_pvals = estimate_spatial_separation_pvals(data, cluster_centers, base1_ids[imp_cells], base2_ids[imp_cells], real_cell_inds[imp_cells])
 
     for id in real_cell_inds[imp_cells[perm_pvals .< pvalue_threshold]]
         split_component!(data, id, n_splitted_clusters);
     end
+
+    maximize!(data, min_molecules_per_cell)
 end
 
 ### Algorithm
@@ -78,6 +87,7 @@ function split_component!(data::BmmData, component_id::Int, n_clusters::Int)
     return data
 end
 
+## DEPRECATED
 function factorize_doublet_expression(feature_mtx::Matrix{Float64}, cluster_centers::Matrix{Float64}; distance::T where T <: Distances.SemiMetric)
     nn_dists = Distances.pairwise(Distances.CosineDist(), feature_mtx, cluster_centers; dims=2);
     base1_ids = vec(mapslices(x -> findmin(x)[2], nn_dists, dims=2));
@@ -111,12 +121,37 @@ function estimate_spatial_separation_pvals(data::BmmData, cm_cluster_centers::Ma
 
     for (b1i, b2i, ai) in zip(base1_id_per_cell, base2_id_per_cell, comp_id_per_cell)
         mol_ids = findall(data.assignment .== ai);
-        probs = cm_cluster_centers[data.composition_data[mol_ids], b2i] ./ vec(sum(cm_cluster_centers[data.composition_data[mol_ids], [b2i, b1i]], dims=2));
+        probs = cm_cluster_centers[b2i, data.composition_data[mol_ids]] ./ vec(sum(cm_cluster_centers[[b2i, b1i], data.composition_data[mol_ids]], dims=1));
         push!(perm_pvals, mass_center_permutation_test(copy(data.position_data[:, mol_ids]'), probs, n_iters=2000))
         push!(probs_per_imp_cell, probs)
     end
 
     return perm_pvals
+end
+
+### Likelihood-based factorizaton
+
+@inline log_ll(expression::Vector{T} where T<: Real, gene_probs::Vector{Float64}; prob_pseudocount::Float64=1e-10)::Float64 =
+    -mean(expression .* log.(gene_probs .+ prob_pseudocount)) # With mean instead sum, likelihood scale is more meaningful, which is required for improvement_threshold
+
+likelihood_dist(counts::Matrix{T} where T <: Real, gene_probs::Matrix{Float64})::Matrix{Float64} =
+    hcat([[log_ll(counts[j, :], gene_probs[i,:]) for j in 1:size(counts, 1)] for i in 1:size(gene_probs, 1)]...)
+
+function factorize_doublet_expression_ll(counts::Matrix{Float64}, cluster_centers::Matrix{Float64})
+    nn_dists = likelihood_dist(counts, cluster_centers);
+    base1_ids = vec(mapslices(x -> findmin(x)[2], nn_dists, dims=2));
+
+    opt_comps = [[Baysor.linsearch_gs(w -> log_ll(counts[ci, :], cluster_centers[base1_ids[ci], :] .* w + cluster_centers[i, :] .* (1 - w)), 0.0, 1.0)
+        for i in 1:size(cluster_centers, 1)] for ci in 1:size(counts, 1)];
+
+    opt_dists = hcat([[v[2] for v in x] for x in opt_comps]...);
+
+    base2_ids = vec(mapslices(x -> findmin(x)[2], opt_dists, dims=1))
+    # comb_improvements = vec(mapslices(x -> (maximum(x) - minimum(x)) / maximum(x), opt_dists, dims=1));
+    comb_improvements = vec(mapslices(x -> 1 - exp(minimum(x) - maximum(x)), opt_dists, dims=1)); # (max(likelihood) - min(likelihood)) / max(likelihood)
+    mixing_fractions = hcat([[v[1] for v in x] for x in opt_comps]...)[CartesianIndex.(base2_ids, 1:length(base2_ids))];
+
+    return base1_ids, base2_ids, comb_improvements, mixing_fractions
 end
 
 ### Utils
