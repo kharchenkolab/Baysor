@@ -23,7 +23,7 @@ getx(p::IndexedPoint2D) = p._x
 gety(p::IndexedPoint2D) = p._y
 geti(p::IndexedPoint2D) = p._index
 
-function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::Real=2)
+function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::T2 where T2 <: Real =2, k_adj::Int=5, adjacency_type::Symbol=:triangulation)
     @assert size(points, 1) == 2
 
     points = deepcopy(points)
@@ -31,16 +31,31 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
     points ./= maximum(points) * 1.1
     points .+= 1.01
 
-    hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=10), dims=1));
-    is_duplicated = get.(Ref(countmap(hashes)), hashes, 0) .> 1;
-    points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-10;
+    edge_list = nothing
+    if (adjacency_type == :triangulation) || (adjacency_type == :both)
+        hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=10), dims=1));
+        is_duplicated = get.(Ref(countmap(hashes)), hashes, 0) .> 1;
+        points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-10;
 
-    points_g = [IndexedPoint2D(points[:,i]..., i) for i in 1:size(points, 2)];
+        points_g = [IndexedPoint2D(points[:,i]..., i) for i in 1:size(points, 2)];
 
-    tess = DelaunayTessellation2D(length(points_g), IndexedPoint2D());
-    push!(tess, points_g);
+        tess = DelaunayTessellation2D(length(points_g), IndexedPoint2D());
+        push!(tess, points_g);
 
-    edge_list = hcat([geti.([geta(v), getb(v)]) for v in delaunayedges(tess)]...);
+        edge_list = hcat([geti.([geta(v), getb(v)]) for v in delaunayedges(tess)]...);
+
+        if adjacency_type == :both
+            edge_list_knn = hcat([hcat([[i, v] for v in x[2:end]]...)
+                for (i, x) in enumerate(knn(KDTree(points), points, k_adj + 1, true)[1])]...)
+            edge_list = hcat(collect.(unique(mapslices(Tuple, hcat(edge_list, edge_list_knn), dims=1)))...)
+        end
+    elseif adjacency_type == :knn
+        edge_list = hcat([hcat([[i, v] for v in x[2:end]]...)
+            for (i, x) in enumerate(knn(KDTree(points), points, k_adj + 1, true)[1])]...)
+    else
+        error("Unknown adjacency type: $adjacency_type")
+    end
+
     adj_dists = vec(sum((points[:, edge_list[1,:]] .- points[:, edge_list[2,:]]) .^ 2, dims=1)) .^ 0.5
 
     if filter

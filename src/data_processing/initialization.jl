@@ -182,8 +182,8 @@ function estimate_local_composition_similarities(df_spatial::DataFrame, edge_lis
 end
 
 function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no,
-                             use_local_gene_similarities::Bool=true, kwargs...)::BmmData
-    edge_list, adjacent_dists = adjacency_list(df_spatial)
+                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, kwargs...)::BmmData
+    edge_list, adjacent_dists = adjacency_list(df_spatial, adjacency_type=adjacency_type)
     real_edge_length = quantile(adjacent_dists, 0.3)
 
     adjacent_weights = nothing
