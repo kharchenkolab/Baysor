@@ -292,8 +292,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         if (prior_update_step > 0) && (i > 0) && (i % prior_update_step == 0)
             update_gene_count_priors!(data.components; n_clusters=n_expression_clusters, distance=clustering_distance,
-                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs,
-                mol_cluster_info=data.misc, assignment=data.assignment)
+                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
         end
 
         expect_dirichlet_spatial!(data, adj_classes_global)
