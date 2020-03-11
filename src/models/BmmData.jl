@@ -74,7 +74,7 @@ mutable struct BmmData
 
         x = deepcopy(x)
         if !(:confidence in names(x))
-            x[!, :confidence] = 0.95
+            x[!, :confidence] .= 0.95
         end
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
