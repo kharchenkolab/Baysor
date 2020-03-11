@@ -55,7 +55,7 @@ function split(vector::AbstractArray{T, 1} where T; n_parts::Int)
     return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]
 end
 
-trim_mean(x::Array{Float64, 1}; prop::Float64=0.2) = mean(trim(x; prop=prop))
+trim_mean(x::Array{T, 1} where T <: Real; prop::Float64=0.2) = mean(trim(x; prop=prop))
 
 function split(array::Array{T, 1}, factor::Array{Int, 1}; max_factor::Union{Int, Nothing}=nothing)::Array{Array{T, 1}, 1} where T
     @assert length(array) == length(factor)
