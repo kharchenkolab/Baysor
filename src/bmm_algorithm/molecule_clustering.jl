@@ -87,15 +87,34 @@ end
 
 # TODO: rename
 function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        k::Int, n_iters::Int=1000, history_depth::Int=200, new_prob::Float64=0.05, mrf_prior_weight::Float64=1.0,
-        min_mols_per_type::Int = round(Int, 0.05 * length(genes) / k), correlation_threshold::Float64=0.95,
+        k::Int=1, n_iters::Int=1000, history_depth::Int=200, new_prob::Float64=0.05, mrf_prior_weight::Float64=1.0,
+        min_mols_per_type::Int=-1, correlation_threshold::Float64=0.95,
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing,
         verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
-    cell_type_exprs = zeros(k, maximum(genes));
-    assignment = rand(1:k, length(genes));
     assignment_history = Vector{Int}[]
-    maximize_mols!(cell_type_exprs, genes, assignment)
-
     adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights]
+
+    if cell_type_exprs === nothing
+        if k <= 1
+            error("Either k or cell_type_exprs must be specified")
+        end
+
+        cell_type_exprs = zeros(k, maximum(genes));
+
+        assignment = rand(1:k, length(genes));
+        maximize_mols!(cell_type_exprs, genes, assignment)
+    else
+        cell_type_exprs = deepcopy(cell_type_exprs)
+        if assignment === nothing
+            assignment = [fsample(cell_type_exprs[:, g]) for g in genes]
+        else
+            assignment = deepcopy(assignment)
+        end
+    end
+
+    if min_mols_per_type < 0
+        min_mols_per_type = round(Int, 0.05 * length(genes) / size(cell_type_exprs, 1))
+    end
 
     if verbose && progress === nothing
         progress = Progress(n_iters, 0.3)
@@ -125,6 +144,36 @@ function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}},
     assignment_cons = vec(mapslices(mode, hcat(assignment_history...), dims=2));
 
     return cell_type_exprs ./ sum(cell_type_exprs, dims=2), assignment_cons, assignment_history
+end
+
+function initialize_molecule_clustering(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
+        cell_type_exprs::Matrix{Float64}; n_iters::Int=500, n_wormup_iters::Int=300, new_prob::Float64=0.05,
+        mrf_prior_weight::Float64=1.0, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
+    assignment_history = Vector{Int}[]
+    adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights]
+
+    cell_type_exprs = deepcopy(cell_type_exprs)
+    assignment = [fsample(cell_type_exprs[:, g]) for g in genes]
+
+    if verbose && progress === nothing
+        progress = Progress(n_iters, 0.3)
+    end
+
+    for i in 1:n_iters
+        expect_mols!(assignment, cell_type_exprs, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
+
+        if i > n_wormup_iters
+            push!(assignment_history, deepcopy(assignment))
+        end
+
+        if verbose
+            next!(progress)
+        end
+    end
+
+    assignment_cons = vec(mapslices(mode, hcat(assignment_history...), dims=2));
+
+    return assignment_cons, assignment_history
 end
 
 function build_molecule_graph(df_spatial::DataFrame; kwargs...)
