@@ -79,7 +79,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
                              alpha=alpha, legend=false, kwargs...)
     else
-        ann_vals = unique(annotation[annotation .!= noise_ann])
+        ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
         c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
         if shuffle_colors
             Random.shuffle!(c_map)
