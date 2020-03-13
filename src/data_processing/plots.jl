@@ -26,7 +26,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
                                     ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85,
-                                    noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, kwargs...)
+                                    noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, shuffle_colors::Bool=false, kwargs...)
     noise_args_default = Dict(:markershape => :xcross, :alpha => alpha, :markersize => point_size / 2, :legend => legend, :markerstrokewidth => 0, :color => "black");
     if noise_kwargs === nothing
         noise_kwargs = noise_args_default
@@ -79,10 +79,15 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
                              alpha=alpha, legend=false, kwargs...)
     else
-        for ann in unique(annotation[annotation .!= noise_ann])
+        ann_vals = unique(annotation[annotation .!= noise_ann])
+        c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
+        if shuffle_colors
+            Random.shuffle!(c_map)
+        end
+        for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend,
+                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend, color=color,
                                  bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), style_dict..., kwargs...)
         end
 
