@@ -6,6 +6,7 @@ bin/*julia*
 bin/segment_data.jl
 
 *.DS_Store
+.vscode
 
 examples/*/data*
 examples/*/output_*
