@@ -163,7 +163,9 @@ function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}},
         end
 
         if max_diffs[end] < tol
-            finish!(progress)
+            if verbose
+                finish!(progress)
+            end
             break
         end
     end
