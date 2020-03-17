@@ -3,6 +3,7 @@ import PlotlyJS: PlotlyBase
 using StatsBase
 PLY = PlotlyJS
 
+# TODO: Remove with PlotlyJS dependency?
 function savehtml(plot, path::String)
     json = PLY.json(plot);
     html_content = """

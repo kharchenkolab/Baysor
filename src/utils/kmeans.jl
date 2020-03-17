@@ -4,6 +4,8 @@ import Random
 using Distances
 using Statistics
 
+# DEPREACTED file?
+
 function calinski_harabasz_score(points::Matrix, labels::Vector{Int})
     n_labels = length(unique(labels))
 
