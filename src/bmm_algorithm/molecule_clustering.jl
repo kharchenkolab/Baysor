@@ -40,6 +40,7 @@ end
 
 function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
+    total_ll = 0.0
     for i in 1:length(genes)
         gene = genes[i]
         cur_weights = adjacent_weights[i]
@@ -47,18 +48,26 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
 
         assignment_probs[:, i] .= 0.0
         dense_sum = 0.0
-        for j in 1:length(cur_points)
-            for ri in 1:size(assignment_probs, 1)
-                c_d = cur_weights[j] * assignment_probs[ri, cur_points[j]] * cell_type_exprs[ri, gene]
-                assignment_probs[ri, i] += c_d
-                dense_sum += c_d
+        for ri in 1:size(assignment_probs, 1)
+            c_d = 0.0
+            adj_prob = 1.0 # probability that there are no neighbors from this component
+            for j in 1:length(cur_points)
+                a_p = assignment_probs[ri, cur_points[j]]
+                c_d += cur_weights[j] * a_p
+                adj_prob *= 1 - a_p
             end
+
+            assignment_probs[ri, i] = cell_type_exprs[ri, gene] * exp(c_d) * (1 - adj_prob)
+            dense_sum += assignment_probs[ri, i]
         end
 
+        total_ll += log10(dense_sum)
         for ri in 1:size(assignment_probs, 1)
             assignment_probs[ri, i] = (1 - new_prob) * assignment_probs[ri, i] / dense_sum + new_prob * cell_type_exprs_norm[ri, gene]
         end
     end
+
+    return total_ll
 end
 
 function filter_correlated_molecule_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.95)
@@ -109,11 +118,8 @@ end
 # In case of unknown number of clusters, this function must be ran twice with filter and remove inbetween
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes));
-        k::Int=1, max_iters::Int=1000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
-        mrf_prior_weight::Float64=1.0, # this parameter doesn't seem to play any role
+        k::Int=1, min_iters::Int=100, max_iters::Int=10000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
-    adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights] # It's required to turn problem into classic MRF. Improved results slightly on MERFISH human_0103
-
     if cell_type_exprs === nothing
         if k <= 1
             error("Either k or cell_type_exprs must be specified")
@@ -122,12 +128,13 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
     end
 
-    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
+    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
 
     assignment_probs = cell_type_exprs_norm[:, genes];
     assignment_probs_prev = deepcopy(assignment_probs)
     max_diffs = Float64[]
+    log_likelihoods = Float64[]
 
     if verbose && progress === nothing
         progress = Progress(max_iters, 0.3)
@@ -137,17 +144,24 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     for i in 1:max_iters
         n_iters = i
         assignment_probs_prev .= assignment_probs
-        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
+        cur_ll = expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
         if do_maximize
             maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
         end
 
         push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev))
+        push!(log_likelihoods, cur_ll)
+
         if verbose
             next!(progress)
         end
 
-        if max_diffs[end] < tol
+        if (max_diffs[end] < 0.05) && (new_prob > 1e-5)
+            new_prob = 0.0
+            continue
+        end
+
+        if (i >= min_iters) && (max_diffs[end] < tol) # TODO: need a better criterion. Differences are not monotone, so this threshold doesn't meen much
             if verbose
                 finish!(progress)
             end
@@ -165,7 +179,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
 
-    return cell_type_exprs_norm, assignment, max_diffs, assignment_probs
+    return cell_type_exprs_norm, assignment, max_diffs, log_likelihoods[2:end], assignment_probs
 end
 
 function build_molecule_graph(df_spatial::DataFrame; kwargs...)
