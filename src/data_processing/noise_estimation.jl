@@ -14,13 +14,14 @@ function expect_noise_probabilities!(assignment_probs::Matrix{Float64}, d1::Norm
 
         assignment_probs[:, i] .= 0.0
         dense_sum = 0.0
-        c_ds = SA_F64[pdf(d1, edge_lengths[i]), pdf(d2, edge_lengths[i])]
         for ri in 1:2
+            c_d = 0.0
             for j in 1:length(cur_points)
-                c_d::Float64 = cur_weights[j] * assignment_probs[ri, cur_points[j]] * c_ds[ri]
-                assignment_probs[ri, i] += c_d
-                dense_sum += c_d
+                c_d += cur_weights[j] * assignment_probs[ri, cur_points[j]]
             end
+
+            assignment_probs[ri, i] = exp(c_d) * pdf(dists[ri], edge_lengths[i])
+            dense_sum += assignment_probs[ri, i]
         end
 
         if dense_sum > 1e-20
@@ -32,7 +33,6 @@ end
 
 function fit_noise_probabilities(edge_lengths::Vector{Float64}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
         max_iters::Int=1000, tol::Float64=0.01, verbose::Bool=false, progress::Union{Progress, Nothing}=nothing)
-
     init_means = quantile(edge_lengths, (0.1, 0.9))
     init_std = (init_means[2] - init_means[1]) / 4.0
     d1, d2 = Normal(init_means[1], init_std), Normal(init_means[2], init_std)
