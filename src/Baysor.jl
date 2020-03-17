@@ -19,9 +19,6 @@ include("utils/spatial.jl")
 
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
-include("distributions/TScaled.jl")
-include("distributions/NormalGamma.jl")
-include("distributions/ScaledInverseChisq.jl")
 
 include("models/CenterData.jl")
 include("models/InitialParams.jl")
