@@ -27,16 +27,20 @@ mutable struct BmmData
 
     noise_density::Float64;
 
-    gene_probs_given_single_transcript::Matrix{Float64};
+    cluster_per_molecule::Vector{Int};
+    cluster_per_cell::Vector{Int};
+    gene_probs_given_single_transcript::Matrix{Float64}; # DEPRECATED?
 
     center_sample_cache::Vector{Int}
 
     # Utils
     tracer::Dict{Symbol, Any};
-    misc::Dict{Symbol, Any}
+    misc::Dict{Symbol, Any};
 
     # Parameters
-    update_priors::Symbol;
+    update_priors::Symbol; # DEPRECATED?
+    cluster_penalty_mult::Float64;
+    use_gene_smoothing::Bool;
 
     """
     ...
@@ -51,15 +55,26 @@ mutable struct BmmData
     - `k_neighbors::Int=20`:
     - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
     """
-    function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1},
-                     adjacent_weights::Array{Array{Float64, 1}, 1}, real_edge_weight::Float64, distribution_sampler::Component,
-                     assignment::Array{Int, 1}; k_neighbors::Int=20, update_priors::Symbol=:no)
+    function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
+                     real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
+                     k_neighbors::Int=20, update_priors::Symbol=:no, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
+                     use_gene_smoothing::Bool=true)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
 
         if !all(s in names(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
+        end
+
+        if isa(cluster_per_molecule, Symbol)
+            if cluster_per_molecule in names(x)
+                cluster_per_molecule = x[:, cluster_per_molecule]
+            else
+                cluster_per_molecule = Vector{Int}()
+            end
+        elseif length(cluster_per_molecule) != size(x, 1)
+            error("cluster_per_molecule has length $(length(cluster_per_molecule)), but $(size(x, 1)) is expected")
         end
 
         p_data = position_data(x)
@@ -79,7 +94,8 @@ mutable struct BmmData
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, ones(n_genes, n_genes) ./ n_genes, Int[], Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors)
+                   0.0, cluster_per_molecule, Vector{Int}(), ones(n_genes, n_genes) ./ n_genes, Int[],
+                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, cluster_penalty_mult, use_gene_smoothing)
 
         for c in self.components
             c.n_samples = 0

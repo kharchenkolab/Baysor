@@ -64,19 +64,12 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     adj_weights = Float64[]
     denses = Float64[]
 
-    cluster_per_mol, cluster_per_cell, cluster_penalty = nothing, nothing, 1.0
-    if :cluster_per_mol in keys(data.misc)
-        cluster_per_mol = data.misc[:cluster_per_mol]::Vector{Int}
-        cluster_per_cell = data.misc[:cluster_per_cell]::Vector{Int}
-        cluster_penalty = data.misc[:wrong_type_penalty_mult]::Float64
-    end
-
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
         y::Float64 = position_data(data)[2,i]
         gene::Int = composition_data(data)[i]
         confidence::Float64 = data.confidence[i]
-        mol_cluster::Int = (cluster_per_mol === nothing) ? 0 : cluster_per_mol[i]
+        mol_cluster::Int = isempty(data.cluster_per_molecule) ? 0 : data.cluster_per_molecule[i]
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
         zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
@@ -91,8 +84,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         for j in eachindex(adj_weights)
             c_adj = adj_classes[j]
             cc = data.components[c_adj]
-            c_dens = confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene, use_smoothing=true) # TODO: move use_smoothing to bm_data params
-            if (c_adj > 0) && (cluster_per_cell !== nothing) && (c_adj < length(cluster_per_cell)) && (cluster_per_cell[c_adj] != mol_cluster)
+            c_dens = confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
+            if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (cluster_per_cell[c_adj] != mol_cluster)
                 c_dens *= cluster_penalty
             end
             push!(denses, c_dens)
@@ -174,8 +167,8 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
 
     data.noise_density = estimate_noise_density_level(data)
 
-    if :cluster_per_mol in keys(data.misc)
-        data.misc[:cluster_per_cell] = [isempty(x) ? 0 : mode(x) for x in split(data.misc[:cluster_per_mol], data.assignment .+ 1)[2:end]]
+    if length(data.cluster_per_molecule) > 0
+        data.cluster_per_cell = [isempty(x) ? 0 : mode(x) for x in split(data.cluster_per_molecule, data.assignment .+ 1)[2:end]]
     end
 end
 
