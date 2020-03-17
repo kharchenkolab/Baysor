@@ -18,7 +18,7 @@ include("utils/convex_hull.jl")
 include("utils/spatial.jl")
 
 include("distributions/MvNormal.jl")
-include("distributions/SingleTrialMultinomial.jl")
+include("distributions/CategoricalSmoothed.jl")
 include("distributions/TScaled.jl")
 include("distributions/NormalGamma.jl")
 include("distributions/ScaledInverseChisq.jl")

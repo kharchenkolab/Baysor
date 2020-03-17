@@ -336,7 +336,7 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
         n_degrees_of_freedom_center=n_degrees_of_freedom_center, default_std=default_std, gene_num=gene_num,
         noise_confidence_threshold=noise_confidence_threshold, n_cells_init=n_cells_init)
 
-    gene_prior = SingleTrialMultinomial(ones(Int, gene_num));
+    gene_prior = CategoricalSmoothed(ones(Int, gene_num));
     n_mols_per_center = count_array(assignment .+ 1, max_value=length(pos_distributions) + 1)[2:end];
     components = [Component(pd, deepcopy(gene_prior), shape_prior=deepcopy(size_prior), center_prior=cp,
                             n_samples=n, prior_weight=prior_component_weight, can_be_dropped=dr)
@@ -350,7 +350,7 @@ function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData;
         end
     end
 
-    gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
+    gene_sampler = CategoricalSmoothed(ones(Int, gene_num))
     sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, assignment
@@ -359,12 +359,12 @@ end
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
-    gene_distributions = [SingleTrialMultinomial(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
+    gene_distributions = [CategoricalSmoothed(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
-    gene_sampler = SingleTrialMultinomial(ones(Int, gene_num))
+    gene_sampler = CategoricalSmoothed(ones(Int, gene_num))
     sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment

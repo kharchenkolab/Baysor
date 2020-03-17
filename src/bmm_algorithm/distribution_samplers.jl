@@ -40,7 +40,7 @@ function sample_composition_params(data::BmmData)
     # gene_counts = rand(Multinomial(n_samples, gene_probs));
     samp_comp = sample(data.components);
     gene_counts = samp_comp.composition_params.counts .+ samp_comp.gene_count_prior
-    return SingleTrialMultinomial(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, n_samples=sum(gene_counts));
+    return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, n_samples=sum(gene_counts));
 end
 
 function maximize_from_prior!(comp::Component, data::BmmData)

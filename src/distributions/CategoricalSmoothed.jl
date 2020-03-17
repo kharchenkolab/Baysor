@@ -2,15 +2,15 @@ using Distributions
 using LinearAlgebra
 using StatsBase
 
-mutable struct SingleTrialMultinomial <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
+mutable struct CategoricalSmoothed <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
     counts::Array{Int, 1};
     smooth::Float64;
     n_samples::Int;
 
-    SingleTrialMultinomial(counts::Array{Int, 1}; smooth::Number=1.0, n_samples::Int=sum(counts)) = new(counts, smooth, n_samples)
+    CategoricalSmoothed(counts::Array{Int, 1}; smooth::Number=1.0, n_samples::Int=sum(counts)) = new(counts, smooth, n_samples)
 end
 
-# function pdf(dist::SingleTrialMultinomial, x::Int; use_smoothing::Bool=true)::Float64
+# function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64
 #     cnt, cnt_sum = counts(dist)[x], dist.n_samples
 
 #     if !use_smoothing || (cnt >= dist.smooth)
@@ -22,7 +22,7 @@ end
 #     return dist.smooth / cnt_sum
 # end
 
-pdf(dist::SingleTrialMultinomial, x::Int; use_smoothing::Bool=true)::Float64 =
+pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
     pdf(counts(dist), dist.n_samples, x, dist.smooth; use_smoothing=use_smoothing)
 
 function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64
@@ -36,7 +36,7 @@ function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smooth
     return smooth / cnt_sum
 end
 
-function pdf(dist::SingleTrialMultinomial, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
+function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
     if prior_sum == 0 # For speed
         return pdf(dist, x; use_smoothing=use_smoothing)
     end
@@ -63,13 +63,13 @@ function pdf(dist::SingleTrialMultinomial, x::Int, prior::Array{Int, 1}, prior_s
     return cnt_adj / cnt_adj_sum
 end
 
-# maximize(dist::SingleTrialMultinomial, x::Array{Int, 1}) =
-#     SingleTrialMultinomial(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
+# maximize(dist::CategoricalSmoothed, x::Array{Int, 1}) =
+#     CategoricalSmoothed(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
 
-function maximize!(dist::SingleTrialMultinomial, x::T where T <: AbstractArray{Int, 1})
+function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1})
     count_array!(dist.counts, x)
     dist.n_samples = length(x)
     return dist
 end
 
-counts(d::SingleTrialMultinomial) = d.counts
+counts(d::CategoricalSmoothed) = d.counts

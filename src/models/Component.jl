@@ -59,7 +59,7 @@ sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
 
 mutable struct Component
     position_params::MvNormalF;
-    composition_params::SingleTrialMultinomial;
+    composition_params::CategoricalSmoothed;
     n_samples::Int;
     prior_weight::Float64;
     prior_probability::Float64;
@@ -73,7 +73,7 @@ mutable struct Component
 
     guid::Int;
 
-    Component(position_params::MvNormalF, composition_params::SingleTrialMultinomial; prior_weight::Float64, can_be_dropped::Bool,
+    Component(position_params::MvNormalF, composition_params::CategoricalSmoothed; prior_weight::Float64, can_be_dropped::Bool,
               n_samples::Int=0, center_prior::Union{Nothing, CellCenter}=nothing, shape_prior::Union{Nothing, ShapePrior}=nothing,
               gene_count_prior::Vector{Int}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
         new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior), guid)
