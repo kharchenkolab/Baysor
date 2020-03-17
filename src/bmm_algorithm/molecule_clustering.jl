@@ -110,9 +110,9 @@ end
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes));
         k::Int=1, max_iters::Int=1000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
-        # mrf_prior_weight::Float64=1.0, # this parameter doesn't seem to play role
+        mrf_prior_weight::Float64=1.0, # this parameter doesn't seem to play any role
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
-    # adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights] # It's required to turn problem into classic MRF, but it doesn't affect result
+    adjacent_weights = [exp.(aw .* mrf_prior_weight) for aw in adjacent_weights] # It's required to turn problem into classic MRF. Improved results slightly on MERFISH human_0103
 
     if cell_type_exprs === nothing
         if k <= 1

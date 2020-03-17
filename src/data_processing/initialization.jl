@@ -140,7 +140,7 @@ function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float6
     cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
-    covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : scale ^ 2
+    covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 

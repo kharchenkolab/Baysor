@@ -85,8 +85,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             c_adj = adj_classes[j]
             cc = data.components[c_adj]
             c_dens = confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
-            if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (cluster_per_cell[c_adj] != mol_cluster)
-                c_dens *= cluster_penalty
+            if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
+                c_dens *= data.cluster_penalty_mult
             end
             push!(denses, c_dens)
         end
@@ -270,7 +270,7 @@ track_progress!(progress::Progress) = next!(progress)
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
               split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
-              clustering_distance::D=Distances.CosineDist(), # TODO: infer this parameters somehow
+              clustering_distance::D=Distances.CosineDist(), # TODO: Remove this
               prior_update_step::Int=split_period, assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
               component_split_step::Int=max(min(5, div(n_iters, 3)), 1)) where D <: Distances.SemiMetric
     time_start = now()
