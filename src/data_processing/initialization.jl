@@ -61,22 +61,6 @@ function parse_scale_std(scale_std::String, scale::Real)
     return parse(Float64, scale_std)
 end
 
-function append_confidence!(df_spatial::DataFrame, segmentation_mask::Union{BitArray{2}, Nothing}=nothing; nn_id::Int,
-                            border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975), seg_quantile_left::Float64=0.9, seg_quantile_mid::Float64=0.99)
-    pos_data = position_data(df_spatial);
-    mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
-    border_left, border_right = quantile(mean_dists, border_quantiles)
-
-    if segmentation_mask !== nothing
-        mol_in_nuclei_mask = segmentation_mask[CartesianIndex.(round.(Int, pos_data[2,:]), round.(Int, pos_data[1,:]))]
-        sb_left, sb_mid = quantile(mean_dists[mol_in_nuclei_mask], [seg_quantile_left, seg_quantile_mid])
-        border_left = max(sb_left, border_left)
-        border_right = min(sb_left + 2 * (sb_mid - sb_left), border_right)
-    end
-
-    df_spatial[!,:confidence] = interpolate_linear.(mean_dists, border_left, border_right);
-end
-
 function append_dapi_brightness!(df_spatial::DataFrame, dapi::Matrix{Float64}; min_frac::Float64=0.01, eps::Float64=1e-50)
     df_spatial[!, :dapi_brightness] .= dapi[CartesianIndex.(Int.(df_spatial.x), Int.(df_spatial.x))];
     lower_brihtness_bound = max(min_frac * maximum(df_spatial.dapi_brightness), eps);
