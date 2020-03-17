@@ -126,7 +126,7 @@ function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
 
     fact = eigen(Σ)
     if (any(fact.values .< 0))
-        fact.values[fact.values .< 0] .= 0
+        fact.values = max.(fact.values, 0.0)
     end
 
     eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
