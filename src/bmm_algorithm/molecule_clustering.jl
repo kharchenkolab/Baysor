@@ -17,7 +17,8 @@ using Random
     return μ + sign(dx) * sqrt(z) * σ * adj_mult
 end
 
-function maximize_mols!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int}, confidence::Vector{Float64}, assignment_probs::Matrix{Float64})
+function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
+        confidence::Vector{Float64}, assignment_probs::Matrix{Float64})
     cell_type_exprs .= 0.0;
     for i in 1:length(genes)
         t_gene = genes[i];
@@ -37,7 +38,7 @@ function maximize_mols!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::
     cell_type_exprs_norm .= cell_type_exprs ./ sum(cell_type_exprs, dims=2);
 end
 
-function expect_mols!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
+function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
     for i in 1:length(genes)
         gene = genes[i]
@@ -60,7 +61,7 @@ function expect_mols!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix
     end
 end
 
-function filter_correlated_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.95)
+function filter_correlated_molecule_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.95)
     cors = cor(cell_type_exprs');
     cors[diagind(cors)] .= 0
     triu!(cors);
@@ -81,7 +82,7 @@ function filter_correlated_clusters!(cell_type_exprs::Matrix{Float64}, assignmen
     return was_filtering
 end
 
-function remove_unused_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}; min_mols_per_type)
+function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}; min_mols_per_type)
     n_mols_per_type = count_array(assignment)
     real_type_ids = findall(n_mols_per_type .>= min_mols_per_type)
     if length(real_type_ids) == length(n_mols_per_type)
@@ -105,24 +106,8 @@ function remove_unused_clusters!(assignment::Vector{Int}, cell_type_exprs::Matri
     return cell_type_exprs
 end
 
-@inline function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64})::Float64
-    max_diff = 0.0
-    if !all(size(m1) .== size(m2))
-        error("Matrices must be of the same size")
-    end
-
-    @inbounds for ci in 1:size(m1, 2)
-        for ri in 1:size(m1, 1)
-            max_diff = fmax(abs(m1[ri, ci] - m2[ri, ci]), max_diff)
-        end
-    end
-
-    return max_diff
-end
-
-# TODO: rename
 # In case of unknown number of clusters, this function must be ran twice with filter and remove inbetween
-function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
+function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes));
         k::Int=1, max_iters::Int=1000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
         # mrf_prior_weight::Float64=1.0, # this parameter doesn't seem to play role
@@ -152,9 +137,9 @@ function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}},
     for i in 1:max_iters
         n_iters = i
         assignment_probs_prev .= assignment_probs
-        expect_mols!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
+        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
         if do_maximize
-            maximize_mols!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
         end
 
         push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev))
@@ -175,7 +160,7 @@ function optimize_mols(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}},
     end
 
     if do_maximize
-        maximize_mols!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
     end
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
