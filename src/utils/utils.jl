@@ -165,6 +165,8 @@ end
     v1 < v2 ? v1 : v2
 end
 
+### Statistics
+
 @inline function fsample(w::Vector{Float64})::Int
     n = length(w)
     if n == 0
@@ -182,3 +184,30 @@ end
 end
 
 @inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
+
+"""
+It works only for large samples with more or less uniform weights
+"""
+function wmedian(values::Vector{T} where T <: Real, weights::Vector{Float64}; ord::Vector{Int}=sortperm(values))
+    w_avg = sum(weights) / 2
+    w_cur = 0.0
+    for i in ord
+        w_cur += weights[i]
+        if w_cur >= w_avg
+            if i == 1
+                return values[1]
+            end
+
+            return values[i]
+        end
+    end
+end
+
+wmad(values::Vector{T} where T <: Real, weights::Vector{Float64}; ord::Vector{Int}=sortperm(values)) =
+    wmad(values, weights, wmedian(values, weights, ord=ord))
+
+"""
+It works only for large samples with more or less uniform weights
+"""
+wmad(values::Vector{T} where T <: Real, weights::Vector{Float64}, m::Float64) =
+    1.4826 * wmedian(abs.(values .- m), weights)
