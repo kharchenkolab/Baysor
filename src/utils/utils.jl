@@ -165,7 +165,7 @@ end
     v1 < v2 ? v1 : v2
 end
 
-@inline function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64})::Float64
+function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64})::Float64
     max_diff = 0.0
     if !all(size(m1) .== size(m2))
         error("Matrices must be of the same size")
