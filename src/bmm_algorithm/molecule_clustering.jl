@@ -4,18 +4,7 @@ using Statistics
 using StatsBase
 using Random
 
-"""
-    Adjust value based on prior. Doesn't penalize values < σ, penalize sub-linearly values in [σ; 3σ], and penalize super-linarly all >3σ
-"""
-@inline function adj_value_norm(x::Float64, μ::Float64, σ::Float64)::Float64
-    dx = x - μ
-    z = abs(dx) / σ
-    adj_mult = 1 / (1 + sqrt(2/3) - 2/3)
-    if z < adj_mult
-        return x
-    end
-    return μ + sign(dx) * sqrt(z) * σ * adj_mult
-end
+## Full EM. Probably will be needed when scRNA-seq is used as prior
 
 function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
         confidence::Vector{Float64}, assignment_probs::Matrix{Float64})
@@ -70,6 +59,73 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
     return total_ll
 end
 
+# In case of unknown number of clusters, this function must be ran twice with filter and remove inbetween
+function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
+        confidence::Vector{Float64}=ones(length(genes));
+        k::Int=1, min_iters::Int=100, max_iters::Int=10000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
+    if cell_type_exprs === nothing
+        if k <= 1
+            error("Either k or cell_type_exprs must be specified")
+        end
+
+        cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
+    end
+
+    cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
+    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
+
+    assignment_probs = cell_type_exprs_norm[:, genes];
+    assignment_probs_prev = deepcopy(assignment_probs)
+    max_diffs = Float64[]
+
+    if verbose && progress === nothing
+        progress = Progress(max_iters, 0.3)
+    end
+
+    n_iters = 0
+    for i in 1:max_iters
+        n_iters = i
+        assignment_probs_prev .= assignment_probs
+        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
+        if do_maximize
+            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+        end
+
+        push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev))
+
+        if verbose
+            next!(progress)
+        end
+
+        if (max_diffs[end] < 0.05) && (new_prob > 1e-5)
+            new_prob = 0.0
+            continue
+        end
+
+        if (i >= min_iters) && (max_diffs[end] < tol) # TODO: need a better criterion. Differences are not monotone, so this threshold doesn't meen much
+            if verbose
+                finish!(progress)
+            end
+            break
+        end
+    end
+
+    if verbose
+        println("Algorithm stopped after $n_iters iterations. Error: $(round(max_diffs[end], sigdigits=3)). Converged: $(max_diffs[end] <= tol).")
+    end
+
+    if do_maximize
+        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+    end
+
+    assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
+
+    return cell_type_exprs_norm, assignment, max_diffs, assignment_probs
+end
+
+## Sampling of assignments. Converges faster for clustering.
+
 function filter_correlated_molecule_clusters!(cell_type_exprs::Matrix{Float64}, assignment::Vector{Int}; correlation_threshold::Float64=0.95)
     cors = cor(cell_type_exprs');
     cors[diagind(cors)] .= 0
@@ -115,72 +171,104 @@ function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exp
     return cell_type_exprs
 end
 
-# In case of unknown number of clusters, this function must be ran twice with filter and remove inbetween
-function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
+
+function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, assignment::Vector{Int})
+    cell_type_exprs[unique(assignment), :] .= 0.0
+
+    for i in 1:length(assignment)
+        cell_type_exprs[assignment[i], genes[i]] += 1.0
+    end
+end
+
+function expect_molecule_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, confidence::Vector{Float64},
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.001)
+    denses = zeros(size(cell_type_exprs, 1))
+    cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1) # It doesn't sum to 1, but it simulates sparse pseudocounts
+    for i in 1:length(genes)
+        gene = genes[i]
+        cur_weights = adjacent_weights[i]
+        cur_points = adjacent_points[i]
+
+        denses .= 0.0
+
+        if rand() < new_prob # allowing to link new component improves global convergence
+            assignment[i] = fsample(cell_type_exprs[:, gene])
+        else
+            for j in 1:length(cur_points)
+                ca = assignment[cur_points[j]]
+                denses[ca] = cell_type_exprs[ca, gene] * confidence[cur_points[j]]
+            end
+
+            for j in 1:length(cur_weights)
+                denses[assignment[cur_points[j]]] *= cur_weights[j]
+            end
+
+            assignment[i] = fsample(denses)
+        end
+    end
+end
+
+function cluster_molecules_on_mrf_sampling(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes));
-        k::Int=1, min_iters::Int=100, max_iters::Int=10000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
-        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
+        k::Int=1, n_iters::Int=1000, history_depth::Int=200, new_prob::Float64=0.05, min_mols_per_type::Int=-1, correlation_threshold::Float64=0.95,
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing,
+        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
+    assignment_history = Vector{Int}[]
+    adjacent_weights = [exp.(aw) for aw in adjacent_weights]
+
     if cell_type_exprs === nothing
         if k <= 1
             error("Either k or cell_type_exprs must be specified")
         end
 
-        cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
+        cell_type_exprs = zeros(k, maximum(genes));
+
+        assignment = rand(1:k, length(genes));
+        maximize_molecule_clusters!(cell_type_exprs, genes, assignment)
+    else
+        cell_type_exprs = deepcopy(cell_type_exprs)
+        if assignment === nothing
+            assignment = [fsample(cell_type_exprs[:, g]) for g in genes]
+        else
+            assignment = deepcopy(assignment)
+        end
     end
 
-    cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
-    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
-
-    assignment_probs = cell_type_exprs_norm[:, genes];
-    assignment_probs_prev = deepcopy(assignment_probs)
-    max_diffs = Float64[]
-    log_likelihoods = Float64[]
+    if min_mols_per_type < 0
+        min_mols_per_type = round(Int, 0.05 * length(genes) / size(cell_type_exprs, 1))
+    end
 
     if verbose && progress === nothing
-        progress = Progress(max_iters, 0.3)
+        progress = Progress(n_iters, 0.3)
     end
 
-    n_iters = 0
-    for i in 1:max_iters
-        n_iters = i
-        assignment_probs_prev .= assignment_probs
-        cur_ll = expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
-        if do_maximize
-            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+    for i in 1:n_iters
+        expect_molecule_clusters!(assignment, cell_type_exprs, genes, confidence, adjacent_points, adjacent_weights, new_prob=new_prob)
+        maximize_molecule_clusters!(cell_type_exprs, genes, assignment)
+        if (n_iters - i) == (history_depth - 1)
+            cell_type_exprs = remove_unused_molecule_clusters!(assignment, cell_type_exprs, genes; min_mols_per_type=min_mols_per_type)
+            new_prob = 0.0
         end
 
-        push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev))
-        push!(log_likelihoods, cur_ll)
+        if (n_iters - i) < history_depth
+            push!(assignment_history, deepcopy(assignment))
+        else
+            if filter_correlated_molecule_clusters!(cell_type_exprs, assignment, correlation_threshold=correlation_threshold)
+                maximize_molecule_clusters!(cell_type_exprs, genes, assignment)
+            end
+        end
 
         if verbose
             next!(progress)
         end
-
-        if (max_diffs[end] < 0.05) && (new_prob > 1e-5)
-            new_prob = 0.0
-            continue
-        end
-
-        if (i >= min_iters) && (max_diffs[end] < tol) # TODO: need a better criterion. Differences are not monotone, so this threshold doesn't meen much
-            if verbose
-                finish!(progress)
-            end
-            break
-        end
     end
 
-    if verbose
-        println("Algorithm stopped after $n_iters iterations. Error: $(round(max_diffs[end], sigdigits=3)). Converged: $(max_diffs[end] <= tol).")
-    end
+    assignment_cons = vec(mapslices(mode, hcat(assignment_history...), dims=2));
 
-    if do_maximize
-        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
-    end
-
-    assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
-
-    return cell_type_exprs_norm, assignment, max_diffs, log_likelihoods[2:end], assignment_probs
+    return cell_type_exprs ./ sum(cell_type_exprs, dims=2), assignment_cons, assignment_history
 end
+
+## Utils
 
 function build_molecule_graph(df_spatial::DataFrame; kwargs...)
     edge_list, adjacent_dists = adjacency_list(df_spatial; kwargs...);
@@ -189,4 +277,17 @@ function build_molecule_graph(df_spatial::DataFrame; kwargs...)
     adjacent_weights = real_edge_length ./ max.(adjacent_dists, real_edge_length);
 
     return convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1));
+end
+
+"""
+    Adjust value based on prior. Doesn't penalize values < σ, penalize sub-linearly values in [σ; 3σ], and penalize super-linarly all >3σ
+"""
+@inline function adj_value_norm(x::Float64, μ::Float64, σ::Float64)::Float64
+    dx = x - μ
+    z = abs(dx) / σ
+    adj_mult = 1 / (1 + sqrt(2/3) - 2/3)
+    if z < adj_mult
+        return x
+    end
+    return μ + sign(dx) * sqrt(z) * σ * adj_mult
 end
