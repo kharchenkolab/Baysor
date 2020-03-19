@@ -6,7 +6,7 @@ using ProgressMeter
 using Statistics
 
 import CSV
-import TOML
+import Pkg.TOML
 import Plots
 
 parse_toml_config(config::T where T <: AbstractString) =

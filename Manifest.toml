@@ -551,10 +551,10 @@ uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[LsqFit]]
-deps = ["Distributions", "LinearAlgebra", "NLSolversBase", "OptimBase", "Random", "StatsBase", "Test"]
-git-tree-sha1 = "186c2afbdb3cd52191078cfc6176f7084ed9dfb7"
+deps = ["Distributions", "ForwardDiff", "LinearAlgebra", "NLSolversBase", "OptimBase", "Random", "StatsBase"]
+git-tree-sha1 = "65c0b7f181561cc8b535dd81ac4f78561b8e5e63"
 uuid = "2fda8390-95c7-5789-9bda-21331edee243"
-version = "0.8.1"
+version = "0.10.0"
 
 [[MKL_jll]]
 deps = ["IntelOpenMP_jll", "Libdl", "Pkg"]
@@ -962,7 +962,9 @@ version = "0.2.4"
 
 [[UMAP]]
 deps = ["Arpack", "Distances", "LinearAlgebra", "LsqFit", "NearestNeighborDescent", "Random", "SparseArrays"]
-git-tree-sha1 = "cfb648199a80ecb46eac88135714e38c23ff860d"
+git-tree-sha1 = "1ba181da107d3319990291145dc6089038ce39c9"
+repo-rev = "master"
+repo-url = "https://github.com/dillondaudert/UMAP.jl.git"
 uuid = "c4f8c510-2410-5be4-91d7-4fbaeb39457e"
 version = "0.1.5"
 
