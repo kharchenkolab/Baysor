@@ -76,7 +76,9 @@ function fit_noise_probabilities(edge_lengths::Vector{Float64}, adjacent_points:
         d2, d1 = d1, d2
     end
 
-    assignment_probs = hcat(pdf.(d1, edge_lengths), pdf.(d2, edge_lengths))
+    n1 = sum(assignment_probs[:, 1])
+    n2 = size(assignment_probs, 1) - n1
+    assignment_probs = hcat(n1 .* pdf.(d1, edge_lengths), n2 .* pdf.(d2, edge_lengths))
     assignment_probs[outlier_mask, 2] .= 1.0
     assignment_probs ./= sum(assignment_probs, dims=2)
 
