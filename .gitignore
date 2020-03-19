@@ -7,6 +7,7 @@ bin/segment_data.jl
 
 *.DS_Store
 .vscode
+.history
 
 examples/*/data*
 examples/*/output_*
