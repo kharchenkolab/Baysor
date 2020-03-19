@@ -38,6 +38,8 @@ function sample_composition_params(data::BmmData)
     # n_samples = sample_n_samples(data)
     # gene_probs = data.gene_probs_given_single_transcript[:,sample(1:size(data.gene_probs_given_single_transcript, 2))];
     # gene_counts = rand(Multinomial(n_samples, gene_probs));
+
+    # TODO: fix this
     samp_comp = sample(data.components);
     gene_counts = samp_comp.composition_params.counts .+ samp_comp.gene_count_prior
     return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, n_samples=sum(gene_counts));
