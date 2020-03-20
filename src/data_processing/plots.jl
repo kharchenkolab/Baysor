@@ -271,8 +271,17 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     @info "Plotting..."
 
-    return [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
+    plots_col = [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
         for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
+
+    if !in(:cluster, names(df_res))
+        return plots_col, nothing
+    end
+
+    plots_clust = [plot_cell_borders_polygons(dfs, p, dfc; annotation=dfs.cluster, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
+        for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
+
+    return plots_col, plots_clust
 end
 
 ### Colormaps

@@ -12,9 +12,9 @@ import Plots
 parse_toml_config(config::T where T <: AbstractString) =
     parse_toml_config(TOML.parsefile(config))
 
-function parse_toml_config(config::Dict{AbstractString, Any})
-    res_config = Dict{AbstractString, Any}(
-        "Data" => Dict{AbstractString, Any}(
+function parse_toml_config(config::Dict{AS, Any}) where AS <: AbstractString
+    res_config = Dict{AS, Any}(
+        "Data" => Dict{AS, Any}(
             "x-column" => "x",
             "y-column" => "y",
             "gene-column" => "gene",
@@ -25,13 +25,13 @@ function parse_toml_config(config::Dict{AbstractString, Any})
             "scale-std" => "25%",
             "min-center-size" => 200
         ),
-        "Sampling" => Dict{AbstractString, Any}(
+        "Sampling" => Dict{AS, Any}(
             "new-component-weight" => 0.2,
             "new-component-fraction" => 0.3,
             "center-component-weight" => 1.0,
             "n-degrees-of-freedom-center" => nothing
         ),
-        "Plotting" => Dict{AbstractString, Any}(
+        "Plotting" => Dict{AS, Any}(
             "gene-composition-neigborhood" => 20,
             "plot-frame-size" => 5000
         )
@@ -63,10 +63,13 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "TOML file with config"
         "--x-column", "-x"
             help = "Name of x column. Overrides the config value."
+            default = "x"
         "--y-column", "-y"
             help = "Name of gene column. Overrides the config value."
+            default = "y"
         "--gene-column"
             help = "Name of gene column. Overrides the config value."
+            default = "gene"
 
         "--iters", "-i"
             help = "Number of iterations"
@@ -127,7 +130,7 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     for k in ["gene-column", "x-column", "y-column"]
-        if !(k in keys(r)) || (r[k] === nothing)
+        if !(k in keys(r)) || (r[k] === nothing) # should never be the case as we have defaults
             error("$k must be specified")
         end
         r[k] = Symbol(r[k])
@@ -184,12 +187,18 @@ end
 function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict;
                                           plot_width::Int=800, margin=5*Plots.mm)
     @info "Plot transcript assignment"
-    plots = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"],
+    plots_col, plots_clust = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"],
         frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"], plot_width=plot_width, margin=margin)
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
-        for p in plots
+        for p in plots_col
             show(io, MIME("text/html"), p)
+        end
+
+        if plots_clust !== nothing
+            for p in plots_clust
+                show(io, MIME("text/html"), p)
+            end
         end
     end
 end
