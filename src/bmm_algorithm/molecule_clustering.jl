@@ -75,15 +75,15 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
 end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
-        confidence::Vector{Float64}=ones(length(genes)); k::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
-        min_iters::Int=div(length(genes), 300), max_iters::Int=3*min_iters,
+        confidence::Vector{Float64}=ones(length(genes)); n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
+        min_iters::Int=div(length(genes), 300), max_iters::Int=3*min_iters, # TODO: min_iters linearly depends on n_clusters
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
     if cell_type_exprs === nothing
-        if k <= 1
-            error("Either k or cell_type_exprs must be specified")
+        if n_clusters <= 1
+            error("Either n_clusters or cell_type_exprs must be specified")
         end
 
-        cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
+        cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
     end
 
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
