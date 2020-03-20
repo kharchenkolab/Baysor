@@ -1,3 +1,4 @@
+import Clustering
 using ProgressMeter
 using DataFrames
 using Statistics
@@ -55,7 +56,23 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
     return total_ll
 end
 
-# In case of unknown number of clusters, this function must be ran twice with filter and remove inbetween
+function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
+        n_clusters::Int, nn_num::Int=30, n_mols_init::Int=min(max(5000, round(Int, sqrt(size(df_spatial, 1)) * 30)), 50000), confidence_threshold::Float64=0.95, kwargs...)
+    c_mol_ids = select_ids_uniformly(df_spatial.x::Vector{Float64}, df_spatial.y::Vector{Float64}, df_spatial.confidence::Vector{Float64},
+        n_mols_init, confidence_threshold=confidence_threshold);
+    # gene_ids_per_adj = getindex.(Ref(df_spatial.gene), adjacent_points)[c_mol_ids];
+
+    # TODO: better initialization algorithm faster than O(n^2)
+    t_pd = Baysor.position_data(df_spatial)
+    gene_ids_per_adj = getindex.(Ref(df_spatial.gene), knn(KDTree(t_pd[:, df_spatial.confidence .> confidence_threshold]), t_pd[:, c_mol_ids], nn_num)[1])
+
+    dist_mat = pairwise_jaccard(gene_ids_per_adj);
+    t_clusts = Clustering.cutree(Clustering.hclust(dist_mat, linkage=:ward), k=n_clusters);
+    ct_exprs_init = copy(hcat([prob_array(vcat(x...), max_value=maximum(df_spatial.gene)) for x in split(gene_ids_per_adj, t_clusts)]...)');
+
+    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights; cell_type_exprs=ct_exprs_init, kwargs...)
+end
+
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes));
         k::Int=1, min_iters::Int=100, max_iters::Int=10000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
@@ -286,4 +303,20 @@ end
         return x
     end
     return μ + sign(dx) * sqrt(z) * σ * adj_mult
+end
+
+function select_ids_uniformly(xs::Vector{Float64}, ys::Vector{Float64}, confidence::Vector{Float64}, n::Int; confidence_threshold::Float64=0.95)::Vector{Int}
+    dense_ids = findall(confidence .>= confidence_threshold)
+    if length(dense_ids) < n
+        return dense_ids
+    end
+
+    xs = xs[dense_ids] .- minimum(xs[dense_ids])
+    ys = ys[dense_ids] .- minimum(ys[dense_ids])
+
+    n_y_bins = round(Int, sqrt(n) * maximum(ys) / maximum(xs))
+    n_x_bins = div(n, n_y_bins)
+
+    index_vals = round.(Int, xs .* (n_x_bins / maximum(xs))) .* n_y_bins .+ round.(Int, ys .* (n_y_bins / maximum(ys)));
+    return dense_ids[sortperm(index_vals)[unique(round.(Int, range(1, length(dense_ids), length=n)))]];
 end

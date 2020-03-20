@@ -180,6 +180,25 @@ function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64})::Float
     return max_diff
 end
 
+function pairwise_jaccard(values::Array{Vector{Int}, 1}, min_dist::Float64=0.0001)::Matrix{Float64}
+    dist_mat = zeros(length(values), length(values))
+    for i1 in 1:length(values)
+        s1 = values[i1]
+        for i2 in (i1+1):length(values)
+            s2 = values[i2]
+            inter_len = 0
+            for v in s1
+                if v in s2
+                    inter_len += 1
+                end
+            end
+            dist_mat[i1, i2] = dist_mat[i2, i1] = fmax(1.0 - length(inter_len) / (length(s1) + length(s2) - inter_len), min_dist)
+        end
+    end
+
+    return dist_mat
+end
+
 ### Statistics
 
 @inline function fsample(w::Vector{Float64})::Int
