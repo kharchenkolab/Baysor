@@ -75,6 +75,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--min-molecules-per-cell"
             help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
             arg_type = Int
+        "--n-clusters"
+            help = "Number of molecule clusters, i.e. major cell types. Depends on protocol resolution, but should not be too high. In most cases something between 3 and 15 should work well."
+            arg_type = Int
+            default=4
         "--n-frames", "-n"
             help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
             arg_type = Int
@@ -230,6 +234,22 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     df_centers = nothing
     bm_data_arr = BmmData[]
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+
+    @info "Estimating noise level"
+    append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
+    @info "Done"
+
+    if args["n-clusters"] > 1
+        @info "Clustering molecules..."
+        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
+        mol_cluster_centers, cluster_per_molecule = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"],
+            nn_num=confidence_nn_id)[1:2] # TODO: use graph from confidence estimation
+
+        df_spatial[!, :cluster] = cluster_per_molecule;
+
+        # TODO: store mol_cluster_centers at bm_data.misc?
+        @info "Done"
+    end
 
     if args["centers"] !== nothing
         centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"], min_segment_size=args["min-center-size"])
