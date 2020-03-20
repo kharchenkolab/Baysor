@@ -10,7 +10,7 @@ To install Baysor as a Julia package run the following code:
 
 ```julia
 using Pkg
-Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git"))
+Pkg.add([PackageSpec(name="UMAP", rev="master"), PackageSpec(url="https://github.com/hms-dbmi/Baysor.git")])
 import Baysor
 ```
 
