@@ -37,7 +37,7 @@ function trace_component_history!(data::BmmData) # TODO: remove it
 end
 
 function merge_tracers(tracers::Array{Dict{Symbol, Any}, 1})::Dict{Symbol, Any}
-    @warn "`merge_tracers` doesn't merge 'prior_shape', as it can't be aggregated over frames" # TODO: fix it
+    # @warn "`merge_tracers` doesn't merge 'prior_shape', as it can't be aggregated over frames"
 
     res = Dict{Symbol, Any}();
 
