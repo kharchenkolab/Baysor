@@ -74,8 +74,8 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
 end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
-        confidence::Vector{Float64}=ones(length(genes));
-        k::Int=1, min_iters::Int=100, max_iters::Int=10000, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
+        confidence::Vector{Float64}=ones(length(genes)); k::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
+        min_iters::Int=div(length(genes), 300), max_iters::Int=3*min_iters,
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
     if cell_type_exprs === nothing
         if k <= 1
@@ -84,6 +84,8 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
 
         cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
     end
+
+    # TODO: filter molecules with low confidence to prevent wasting clusters on them
 
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
     cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
@@ -113,6 +115,8 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
 
         if (max_diffs[end] < 0.05) && (new_prob > 1e-5)
             new_prob = 0.0
+            assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
+            cell_type_exprs = remove_unused_molecule_clusters!(assignment, cell_type_exprs, genes, confidence);
             continue
         end
 
@@ -160,10 +164,12 @@ function filter_correlated_molecule_clusters!(cell_type_exprs::Matrix{Float64}, 
     return was_filtering
 end
 
-function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}; min_mols_per_type)
-    n_mols_per_type = count_array(assignment)
-    real_type_ids = findall(n_mols_per_type .>= min_mols_per_type)
-    if length(real_type_ids) == length(n_mols_per_type)
+function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, confidence::Union{Vector{Float64}, Nothing}=nothing;
+        frac_of_expected::Float64=0.05)
+    mol_fracs_per_type = (confidence === nothing) ? prob_array(assignment) : (sum.(split(confidence, assignment)) ./ length(assignment))
+    frac_threshold = frac_of_expected / maximum(assignment)
+    real_type_ids = findall(mol_fracs_per_type .>= frac_threshold)
+    if length(real_type_ids) == length(mol_fracs_per_type)
         return cell_type_exprs
     end
 
@@ -174,7 +180,7 @@ function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exp
 
     cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
     for i in 1:length(assignment)
-        if n_mols_per_type[assignment[i]] < min_mols_per_type
+        if mol_fracs_per_type[assignment[i]] < frac_threshold
             assignment[i] = findmax(cell_type_exprs_norm[:, genes[i]])[2]
         else
             assignment[i] = id_map[assignment[i]]
