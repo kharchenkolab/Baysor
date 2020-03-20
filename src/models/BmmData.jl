@@ -58,7 +58,7 @@ mutable struct BmmData
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
                      k_neighbors::Int=20, update_priors::Symbol=:no, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
-                     use_gene_smoothing::Bool=true)
+                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -94,7 +94,7 @@ mutable struct BmmData
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, cluster_per_molecule, Vector{Int}(), ones(n_genes, n_genes) ./ n_genes, Int[],
+                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), ones(n_genes, n_genes) ./ n_genes, Int[],
                    Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, cluster_penalty_mult, use_gene_smoothing)
 
         for c in self.components
@@ -194,9 +194,14 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
 
     k_neighbors=length(bmm_data_arr[1].knn_neighbors[1])
 
+    cluster_per_molecule = vcat([bmd.cluster_per_molecule for bmd in bmm_data_arr]...)
+    cluster_per_cell = vcat([bmd.cluster_per_cell for bmd in bmm_data_arr]...)
+
     res = BmmData(components, x, adjacent_points, adjacent_weights, bmm_data_arr[1].real_edge_weight,
         deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
-        update_priors=bmm_data_arr[1].update_priors)
+        update_priors=bmm_data_arr[1].update_priors, cluster_per_molecule=cluster_per_molecule,
+        cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult, cluster_per_cell=cluster_per_cell,
+        use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
 
     res.tracer = merge_tracers(tracers)
 
@@ -239,6 +244,10 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
     df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
     df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
 
+    if !isempty(data.cluster_per_cell)
+        df[!, :cluster] = data.cluster_per_cell
+    end
+
     if add_qc
         if segmented_df === nothing
             segmented_df = get_segmentation_df(data);
@@ -276,6 +285,10 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
 
     if gene_names !== nothing
         df[!,:gene] = gene_names[df[!,:gene]]
+    end
+
+    if !isempty(data.cluster_per_molecule)
+        df[!, :cluster] = data.cluster_per_molecule
     end
 
     return df
