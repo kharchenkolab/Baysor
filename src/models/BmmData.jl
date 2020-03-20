@@ -235,14 +235,17 @@ end
 function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true)
     df = DataFrame(:cell => 1:length(data.components))
 
-    centers = hcat([c.position_params.μ for c in data.components]...)
+    centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
 
     for s in [:x, :y]
         df[!,s] = mean.(split(data.x[!,s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
     end
 
     df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
-    df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
+
+    if any([c.center_prior !== nothing for c in data.components])
+        df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
+    end
 
     if !isempty(data.cluster_per_cell)
         df[!, :cluster] = data.cluster_per_cell
@@ -268,6 +271,8 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         if :confidence in names(segmented_df)
             df[!,:avg_confidence] = [mean(df.confidence) for df in seg_df_per_cell]
         end
+
+        # TODO: add doublet scoring here
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]

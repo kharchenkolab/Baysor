@@ -18,6 +18,10 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Boo
     data.assignment[non_noise_ids] .= id_map[data.assignment[non_noise_ids]]
     data.components = data.components[existed_ids]
 
+    if !isempty(data.cluster_per_cell)
+        data.cluster_per_cell = data.cluster_per_cell[existed_ids]
+    end
+
     # @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
 end
 
@@ -168,7 +172,7 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
     data.noise_density = estimate_noise_density_level(data)
 
     if length(data.cluster_per_molecule) > 0
-        data.cluster_per_cell = [isempty(x) ? 0 : mode(x) for x in split(data.cluster_per_molecule, data.assignment .+ 1)[2:end]]
+        data.cluster_per_cell = [isempty(x) ? 0 : mode(x) for x in split(data.cluster_per_molecule, data.assignment .+ 1, max_factor=(length(data.components) + 1))[2:end]]
     end
 end
 
@@ -288,8 +292,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     it_num = 0
-    adj_classes_global = Dict{Int, Array{Int, 1}}()
-
     trace_prior_shape!(data);
     trace_n_components!(data, min_molecules_per_cell);
 
@@ -306,7 +308,10 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         #         min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
         # end
 
-        expect_dirichlet_spatial!(data, adj_classes_global)
+        append_empty_components!(data, new_component_frac)
+        update_prior_probabilities!(data.components)
+
+        expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
 
         if (i % component_split_step == 0) || (i == n_iters)
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
@@ -318,10 +323,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
         trace_n_components!(data, min_molecules_per_cell);
 
         drop_unused_components!(data)
-
-        append_empty_components!(data, new_component_frac)
-        update_prior_probabilities!(data.components)
-        adj_classes_global = get_global_adjacent_classes(data)
 
         it_num = i
         if verbose && i % log_step == 0
