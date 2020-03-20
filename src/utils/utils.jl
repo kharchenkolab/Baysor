@@ -165,15 +165,16 @@ end
     v1 < v2 ? v1 : v2
 end
 
-function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64})::Float64
+function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64}; col_weights::Union{Nothing, Vector{Float64}}=nothing)::Float64
     max_diff = 0.0
     if !all(size(m1) .== size(m2))
         error("Matrices must be of the same size")
     end
 
     @inbounds for ci in 1:size(m1, 2)
+        cw = (col_weights === nothing) ? 1.0 : col_weights[ci]
         for ri in 1:size(m1, 1)
-            max_diff = fmax(abs(m1[ri, ci] - m2[ri, ci]), max_diff)
+            max_diff = fmax(cw * abs(m1[ri, ci] - m2[ri, ci]), max_diff)
         end
     end
 

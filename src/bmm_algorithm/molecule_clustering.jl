@@ -8,13 +8,14 @@ using Random
 ## Full EM. Probably will be needed when scRNA-seq is used as prior
 
 function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
-        assignment_probs::Matrix{Float64})
+        confidence::Vector{Float64}, assignment_probs::Matrix{Float64})
     cell_type_exprs .= 0.0;
     for i in 1:length(genes)
         t_gene = genes[i];
+        t_conf = confidence[i];
 
         for j in 1:size(cell_type_exprs, 1)
-            cell_type_exprs[j, t_gene] += assignment_probs[j, i];
+            cell_type_exprs[j, t_gene] += t_conf * assignment_probs[j, i];
         end
     end
 
@@ -85,8 +86,6 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:k, length(genes))), max_value=maximum(genes))...)')
     end
 
-    # TODO: filter molecules with low confidence to prevent wasting clusters on them
-
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
     cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
 
@@ -104,19 +103,19 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         assignment_probs_prev .= assignment_probs
         expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, confidence, adjacent_points, adjacent_weights, new_prob=new_prob)
         if do_maximize
-            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, assignment_probs)
+            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
         end
 
-        push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev))
+        push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence))
 
         if verbose
             next!(progress)
         end
 
-        if (max_diffs[end] < 0.05) && (new_prob > 1e-5)
+        if (max_diffs[end] < 2 * tol) && (new_prob > 1e-5)
             new_prob = 0.0
             assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
-            cell_type_exprs = remove_unused_molecule_clusters!(assignment, cell_type_exprs, genes, confidence);
+            # cell_type_exprs = remove_unused_molecule_clusters!(assignment, cell_type_exprs, genes, confidence); # Here I need to update assignment_probs_prev
             continue
         end
 
@@ -133,7 +132,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     end
 
     if do_maximize
-        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, assignment_probs)
+        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
     end
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
