@@ -58,7 +58,7 @@ end
 
 function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TODO: add verbosity level
     s = ArgParseSettings()
-    @add_arg_table s begin
+    @add_arg_table! s begin
         "--config", "-c"
             help = "TOML file with config"
         "--x-column", "-x"
