@@ -125,11 +125,7 @@ function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
     end
 
     fact = eigen(Σ)
-    if (any(fact.values .< 0))
-        fact.values = max.(fact.values, 0.0)
-    end
-
-    eigen_values_posterior = var_posterior(prior, fact.values; n_samples=n_samples)
+    eigen_values_posterior = var_posterior(prior, fmax.(fact.values, 0.0); n_samples=n_samples)
     Σ .= fact.vectors * SMatrix{2, 2, Float64}(diagm(0 => eigen_values_posterior)) * inv(fact.vectors)
     Σ[1, 2] = Σ[2, 1]
 
