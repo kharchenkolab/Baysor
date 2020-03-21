@@ -5,10 +5,16 @@ function read_spatial_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col
     df_spatial = CSV.read(data_path) |> DataFrame;
 
     if (:x in names(df_spatial)) & (x_col != :x)
+        if :x_reserved in names(df_spatial)
+            DataFrames.select!(df_spatial, DataFrames.Not(:x_reserved))
+        end
         DataFrames.rename!(df_spatial, :x => :x_reserved);
     end
 
     if (:y in names(df_spatial)) & (y_col != :y)
+        if :y_reserved in names(df_spatial)
+            DataFrames.select!(df_spatial, DataFrames.Not(:y_reserved))
+        end
         DataFrames.rename!(df_spatial, :y => :y_reserved);
     end
 

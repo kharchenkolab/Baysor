@@ -63,13 +63,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "TOML file with config"
         "--x-column", "-x"
             help = "Name of x column. Overrides the config value."
-            default = "x"
         "--y-column", "-y"
             help = "Name of gene column. Overrides the config value."
-            default = "y"
         "--gene-column"
             help = "Name of gene column. Overrides the config value."
-            default = "gene"
 
         "--iters", "-i"
             help = "Number of iterations"
