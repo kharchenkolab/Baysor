@@ -25,22 +25,25 @@ function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type
     cell_type_exprs_norm .= cell_type_exprs ./ sum(cell_type_exprs, dims=2);
 end
 
+"""
+Params:
+- adjacent_weights: must be multiplied by confidence of the corresponding adjacent_point
+"""
 function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
-        confidence::Vector{Float64}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
     total_ll = 0.0
     for i in 1:length(genes)
         gene = genes[i]
         cur_weights = adjacent_weights[i]
         cur_points = adjacent_points[i]
 
-        assignment_probs[:, i] .= 0.0
         dense_sum = 0.0
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0
             adj_prob = 1.0 # probability that there are no neighbors from this component
             for j in 1:length(cur_points)
                 a_p = assignment_probs[ri, cur_points[j]]
-                c_d += confidence[cur_points[j]] * cur_weights[j] * a_p
+                c_d += cur_weights[j] * a_p
                 adj_prob *= 1 - a_p
             end
 
@@ -70,13 +73,18 @@ end
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes)); n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
         min_iters::Int=div(length(genes), 300), max_iters::Int=3*min_iters, # TODO: min_iters linearly depends on n_clusters
-        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing)
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing,
+        weights_per_adjusted::Bool=false)
     if cell_type_exprs === nothing
         if n_clusters <= 1
             error("Either n_clusters or cell_type_exprs must be specified")
         end
 
         cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
+    end
+
+    if !weights_per_adjusted
+        adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
@@ -94,7 +102,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     for i in 1:max_iters
         n_iters = i
         assignment_probs_prev .= assignment_probs
-        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, confidence, adjacent_points, adjacent_weights, new_prob=new_prob)
+        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
         if do_maximize
             maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
         end
