@@ -18,6 +18,9 @@ min-molecules-per-cell = 3
 # Scale parameter, which suggest approximate cell radius for the algorithm. This parameter is required.
 scale = 50
 
+# Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
+scale-std = "25%"
+
 # Use scale estimate from DAPI if provided. Default: true
 estimate-scale-from-centers = true
 
@@ -37,9 +40,6 @@ center-component-weight = 1.0
 
 # Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell.
 n-degrees-of-freedom-center = 1000
-
-# Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
-scale-std = "25%"
 
 [Plotting]
 
