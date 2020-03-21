@@ -58,18 +58,11 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
 end
 
 function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        n_clusters::Int, nn_num::Int=30, n_mols_init::Int=min(max(5000, round(Int, sqrt(size(df_spatial, 1)) * 30)), 50000), confidence_threshold::Float64=0.95, kwargs...)
-    c_mol_ids = select_ids_uniformly(df_spatial.x::Vector{Float64}, df_spatial.y::Vector{Float64}, df_spatial.confidence::Vector{Float64},
-        n_mols_init, confidence_threshold=confidence_threshold);
-    # gene_ids_per_adj = getindex.(Ref(df_spatial.gene), adjacent_points)[c_mol_ids];
+        n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
 
-    # TODO: better initialization algorithm faster than O(n^2)
-    t_pd = Baysor.position_data(df_spatial)
-    gene_ids_per_adj = getindex.(Ref(df_spatial.gene), knn(KDTree(t_pd[:, df_spatial.confidence .> confidence_threshold]), t_pd[:, c_mol_ids], nn_num)[1])
-
-    dist_mat = pairwise_jaccard(gene_ids_per_adj);
-    t_clusts = Clustering.cutree(Clustering.hclust(dist_mat, linkage=:ward), k=n_clusters);
-    ct_exprs_init = copy(hcat([prob_array(vcat(x...), max_value=maximum(df_spatial.gene)) for x in split(gene_ids_per_adj, t_clusts)]...)');
+    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
+    ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=10000);
+    ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
 
     return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights; cell_type_exprs=ct_exprs_init, kwargs...)
 end
@@ -310,18 +303,36 @@ end
     return μ + sign(dx) * sqrt(z) * σ * adj_mult
 end
 
-function select_ids_uniformly(xs::Vector{Float64}, ys::Vector{Float64}, confidence::Vector{Float64}, n::Int; confidence_threshold::Float64=0.95)::Vector{Int}
-    dense_ids = findall(confidence .>= confidence_threshold)
-    if length(dense_ids) < n
-        return dense_ids
+function pairwise_gene_spatial_cor(genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1};
+        confidence_threshold::Float64=0.95)::Matrix{Float64}
+    gene_cors = zeros(maximum(genes), maximum(genes))
+    sum_weight_per_gene = zeros(maximum(genes))
+    for gi in 1:length(genes)
+        cur_adj_points = adjacent_points[gi]
+        cur_adj_weights = adjacent_weights[gi]
+        g2 = genes[gi]
+        if confidence[gi] < confidence_threshold
+            continue
+        end
+
+        for ai in 1:length(cur_adj_points)
+            if confidence[cur_adj_points[ai]] < confidence_threshold
+                continue
+            end
+
+            g1 = genes[cur_adj_points[ai]]
+            cw = cur_adj_weights[ai]
+            gene_cors[g2, g1] += cw
+            sum_weight_per_gene[g1] += cw
+            sum_weight_per_gene[g2] += cw
+        end
     end
 
-    xs = xs[dense_ids] .- minimum(xs[dense_ids])
-    ys = ys[dense_ids] .- minimum(ys[dense_ids])
+    for ci in 1:length(sum_weight_per_gene)
+        for ri in 1:length(sum_weight_per_gene)
+            gene_cors[ri, ci] /= fmax(sqrt(sum_weight_per_gene[ri] * sum_weight_per_gene[ci]), 0.1)
+        end
+    end
 
-    n_y_bins = round(Int, sqrt(n) * maximum(ys) / maximum(xs))
-    n_x_bins = div(n, n_y_bins)
-
-    index_vals = round.(Int, xs .* (n_x_bins / maximum(xs))) .* n_y_bins .+ round.(Int, ys .* (n_y_bins / maximum(ys)));
-    return dense_ids[sortperm(index_vals)[unique(round.(Int, range(1, length(dense_ids), length=n)))]];
+    return gene_cors
 end
