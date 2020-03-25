@@ -153,13 +153,20 @@ load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm)
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm,
+        max_diffs::Union{Vector{Float64}, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
-        # Convergence
+        # Molecule clustering convergence
+        if max_diffs !== nothing
+            p_mol_conv = Plots.plot(max_diffs, xlabel="Iteration", ylabel="Maximal probability change", title="Molcecule clustering convergence", legend=false);
+            show(io, MIME("text/html"), p_mol_conv)
+        end
+
+        # Main algorithm convergence
         if ("n_components" in keys(tracer)) && length(tracer["n_components"]) != 0
-            p_cov = plot_num_of_cells_per_iterarion(tracer, margin=margin);
-            show(io, MIME("text/html"), p_cov)
+            p_conv = plot_num_of_cells_per_iterarion(tracer, margin=margin);
+            show(io, MIME("text/html"), p_conv)
         end
 
         # Confidence per molecule
@@ -193,6 +200,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
         end
 
         if plots_clust !== nothing
+            println(io, "<br>")
             for p in plots_clust
                 show(io, MIME("text/html"), p)
             end
@@ -245,11 +253,19 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
     @info "Done"
 
+    max_diffs = nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
         adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
-        mol_cluster_centers, cluster_per_molecule = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"],
-            nn_num=confidence_nn_id)[1:2] # TODO: use graph from confidence estimation
+        for i in 1:length(adjacent_weights)
+            cur_points = adjacent_points[i]
+            cur_weights = adjacent_weights[i]
+            for j in 1:length(cur_weights)
+                cur_weights[j] *= df_spatial.confidence[cur_points[j]]
+            end
+        end
+        mol_cluster_centers, cluster_per_molecule, max_diffs = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"],
+            weights_per_adjusted=true)[1:3]
 
         df_spatial[!, :cluster] = cluster_per_molecule;
 
@@ -289,7 +305,7 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args)
+        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs)
         plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args)
     end
 
