@@ -385,8 +385,8 @@ function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent
     return c_components, adjacent_points, df_spatial[presented_ids, :]
 end
 
-function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0)
-    df_spatial = read_spatial_df(data_path, x_col=x_col, y_col=y_col, gene_col=gene_col)
+function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
+    df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
 
     gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
     large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);
