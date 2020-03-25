@@ -52,6 +52,7 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         end
 
         total_ll += log10(dense_sum)
+        # TODO: for initial test, add lock array here and check whether taking it takes time
         for ri in 1:size(assignment_probs, 1)
             assignment_probs[ri, i] = (1 - new_prob) * assignment_probs[ri, i] / dense_sum + new_prob * cell_type_exprs_norm[ri, gene]
         end
@@ -72,7 +73,7 @@ end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes)); n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
-        min_iters::Int=div(length(genes), 300), max_iters::Int=3*min_iters, # TODO: min_iters linearly depends on n_clusters
+        max_iters::Int=div(length(genes), 200), n_iters_without_update::Int=20,
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing,
         weights_per_adjusted::Bool=false)
     if cell_type_exprs === nothing
@@ -116,11 +117,10 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         if (max_diffs[end] < 2 * tol) && (new_prob > 1e-5)
             new_prob = 0.0
             assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
-            # cell_type_exprs = remove_unused_molecule_clusters!(assignment, cell_type_exprs, genes, confidence); # Here I need to update assignment_probs_prev
             continue
         end
 
-        if (i >= min_iters) && (max_diffs[end] < tol) # TODO: need a better criterion. Differences are not monotone, so this threshold doesn't meen much
+        if (i > n_iters_without_update) && (maximum(max_diffs[(end - n_iters_without_update):end]) < tol)
             if verbose
                 finish!(progress)
             end
