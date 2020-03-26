@@ -12,9 +12,9 @@ import Plots
 parse_toml_config(config::T where T <: AbstractString) =
     parse_toml_config(TOML.parsefile(config))
 
-function parse_toml_config(config::Dict{AS, Any}) where AS <: AbstractString
-    res_config = Dict{AS, Any}(
-        "Data" => Dict{AS, Any}(
+function get_default_config()
+    return deepcopy(Dict{String, Any}(
+        "Data" => Dict{String, Any}(
             "x-column" => "x",
             "y-column" => "y",
             "gene-column" => "gene",
@@ -25,18 +25,21 @@ function parse_toml_config(config::Dict{AS, Any}) where AS <: AbstractString
             "scale-std" => "25%",
             "min-center-size" => 200
         ),
-        "Sampling" => Dict{AS, Any}(
+        "Sampling" => Dict{String, Any}(
             "new-component-weight" => 0.2,
             "new-component-fraction" => 0.3,
             "center-component-weight" => 1.0,
             "n-degrees-of-freedom-center" => nothing
         ),
-        "Plotting" => Dict{AS, Any}(
+        "Plotting" => Dict{String, Any}(
             "gene-composition-neigborhood" => 20,
             "plot-frame-size" => 5000
         )
-    )
+    ))
+end
 
+function parse_toml_config(config::Dict{AS, Any}) where AS <: AbstractString
+    res_config = get_default_config()
     for (k,v) in config
         if !(k in keys(res_config))
             error("Unexpected value in the config: '$k'")
@@ -72,7 +75,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Number of iterations"
             arg_type = Int
             default = 500
-        "--min-molecules-per-cell"
+        "--min-molecules-per-cell", "-m"
             help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
             arg_type = Int
         "--n-clusters"
@@ -107,6 +110,16 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
 end
 
+function extend_params_with_config!(params::Dict, config::Dict)
+    for sub_cfg in values(config)
+        for (k, v) in sub_cfg
+            if !(k in keys(params)) || params[k] === nothing
+                params[k] = v
+            end
+        end
+    end
+end
+
 function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     r = parse_commandline(args)
     if r["scale"] !== nothing
@@ -114,16 +127,10 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     if r["config"] !== nothing
-        cfg = parse_toml_config(r["config"])
-        for sub_cfg in values(cfg)
-            for (k, v) in sub_cfg
-                if !(k in keys(r)) || r[k] === nothing
-                    r[k] = v
-                end
-            end
-        end
+        extend_params_with_config!(r, parse_toml_config(r["config"]))
     else
         @warn "No config file provided. Back-up to default parameters."
+        extend_params_with_config!(r, get_default_config())
     end
 
     for k in ["gene-column", "x-column", "y-column"]
