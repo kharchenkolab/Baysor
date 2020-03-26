@@ -111,4 +111,6 @@ function append_confidence!(df_spatial::DataFrame, segmentation_mask::Union{BitA
     adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false); # TODO: can be optimized as we already have kNNs
     probs, (d1, d2) = fit_noise_probabilities(mean_dists, adjacent_points, adjacent_weights)[[1, 3]]
     df_spatial[!,:confidence] = probs[:, 1];
+
+    return mean_dists, df_spatial[!,:confidence], d1, d2
 end
