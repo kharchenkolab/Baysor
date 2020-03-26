@@ -32,7 +32,7 @@ function get_default_config()
             "n-degrees-of-freedom-center" => nothing
         ),
         "Plotting" => Dict{String, Any}(
-            "gene-composition-neigborhood" => 20,
+            "gene-composition-neigborhood" => 20, # TODO: should it be nothing to use default estimation?
             "plot-frame-size" => 5000
         )
     ))
