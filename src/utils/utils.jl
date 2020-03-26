@@ -4,6 +4,20 @@ using KernelDensity
 estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::T where T <: Real)::Vector{Float64} =
     InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
+function val_range(arr::Array{T} where T <: Real)
+    if length(arr) == 0
+        return (nothing, nothing)
+    end
+
+    min_val, max_val = arr[1], arr[1]
+    for v in arr
+        min_val = fmin(min_val, v)
+        max_val = fmax(max_val, v)
+    end
+
+    return min_val, max_val
+end
+
 function count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing)
     if max_value === nothing
         max_value = maximum(values)
