@@ -32,6 +32,7 @@ include("data_processing/noise_estimation.jl")
 include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
 include("data_processing/boundary_visualization.jl")
+include("data_processing/preview_diagnostics.jl")
 
 include("bmm_algorithm/molecule_clustering.jl")
 include("bmm_algorithm/tracing.jl")
@@ -45,5 +46,6 @@ include("data_processing/debug.jl")
 include("data_processing/validation.jl")
 
 include("cli_wrappers.jl")
+include("preview_cli.jl")
 
 end # module
