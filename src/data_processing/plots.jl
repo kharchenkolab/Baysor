@@ -25,7 +25,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
-                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85,
+                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85, fontsize=8,
                                     noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, shuffle_colors::Bool=false, kwargs...)
     noise_args_default = Dict(:markershape => :xcross, :alpha => alpha, :markersize => point_size / 2, :legend => legend, :markerstrokewidth => 0, :color => "black");
     if noise_kwargs === nothing
@@ -57,7 +57,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         ylims = (minimum(df_spatial.y), maximum(df_spatial.y))
     end
 
-    fig = append ? Plots.plot!(format=format) : Plots.plot(format=format, size=size)
+    fig = append ? Plots.plot!(format=format) : Plots.plot(format=format, size=size, xtickfontsize=fontsize, ytickfontsize=fontsize)
 
     df_noise = nothing
 
@@ -212,12 +212,19 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample
     return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
 end
 
-function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation)
+function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation; confidences::Union{Vector{Float64}, Nothing}=nothing)
     mtx_trans = MultivariateStats.transform(transformation, count_matrix);
 
-    mtx_colors = mtx_trans .- minimum(mtx_trans, dims=2)
-    mtx_colors ./= maximum(mtx_colors, dims=2);
-    mtx_colors .*= 100;
+    if confidences === nothing
+        mtx_colors = mtx_trans .- minimum(mtx_trans, dims=2)
+        mtx_colors ./= maximum(mtx_colors, dims=2);
+    else
+        @views mtx_colors = mtx_trans .- minimum(mtx_trans[:, confidences .> 0.9], dims=2)
+        @views mtx_colors ./= maximum(mtx_colors[:, confidences .> 0.9], dims=2);
+    end
+    mtx_colors[1,:] .*= 100
+    mtx_colors[2:3,:] .-= 0.5
+    mtx_colors[2:3,:] .*= 2000
 
     return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
 end
@@ -227,6 +234,20 @@ function shuffle_labels(labels::Array{Int})
     mask = (new_labs .!= 0)
     new_labs[mask] = shuffle(1:maximum(labels))[new_labs[mask]]
     return new_labs
+end
+
+function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.05, alpha::Float64=0.5, fontsize::Int=5, text_offset::Float64=0.005,
+        labels::Vector{String}=["y$i" for i in 1:length(vecs)], kwargs...)
+    p = Plots.plot(;kwargs...)
+    for (v,l) in zip(vecs, labels)
+        p = Plots.bar!(v, alpha=alpha, label=l)
+    end
+
+    y_vals = maximum(hcat(vecs...), dims=2) |> vec
+    scale = sum(y_vals)
+    ann_genes = findall(y_vals .>= min_expr_frac * scale)
+    p = Plots.annotate!(ann_genes, y_vals[ann_genes] .+ text_offset * scale, Plots.text.(gene_names[ann_genes], fontsize))
+    return p
 end
 
 ### Summary plots

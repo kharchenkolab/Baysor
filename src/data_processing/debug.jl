@@ -225,15 +225,3 @@ function set_to_step(bm_data::BmmData, iter::Int)
 
     return bd_res
 end
-
-function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr::Float64=0.05, alpha::Float64=0.5, fontsize::Int=5, text_offset::Float64=0.005, kwargs...)
-    p = Plots.plot(;kwargs...)
-    for v in vecs
-        p = Plots.bar!(v, alpha=alpha)
-    end
-
-    y_vals = maximum(hcat(vecs...), dims=2) |> vec
-    ann_genes = findall(y_vals .>= min_expr)
-    p = Plots.annotate!(ann_genes, y_vals[ann_genes] .+ text_offset, Plots.text.(gene_names[ann_genes], fontsize))
-    return p
-end
