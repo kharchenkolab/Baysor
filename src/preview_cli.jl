@@ -109,11 +109,27 @@ function run_preview_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     @info "Plotting"
 
     open(args["output"], "w") do io
-        println(io, "<h1>Transcript plots</h1><br>")
+        print(io, """
+            <!DOCTYPE html>
+            <html>
+            <head><style> body {background-color: #ffffff;}</style></head>
+
+            <body>
+            <div>
+            <h2>Content</h2>
+            <ul>
+                <li><a href="#Transcript_Plots">Transcript plots</a></li>
+                <li><a href="#Noise_Level">Noise level</a></li>
+                <li><a href="#Gene_Structure">Gene structure</a></li>
+            </ul>
+            </div>
+            """)
+
+        println(io, "<h1 id=\"Transcript_Plots\">Transcript plots</h1><br>")
         show(io, MIME("text/html"), gc_plot)
         println(io, "<br>")
 
-        println(io, "<h1>Noise level</h1><br>")
+        println(io, "<hr>\n<h1 id=\"Noise_Level\">Noise level</h1><br>")
         show(io, MIME("text/html"), cc_plot)
         println(io, "<br>")
         show(io, MIME("text/html"), noise_dist_plot)
@@ -122,10 +138,12 @@ function run_preview_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
             "Expected noise level=$(round(100 * mean(1 .- confidences), sigdigits=2))%.")
         println(io, "<br>")
 
-        println(io, "<h1>Gene structure</h1><br>")
+        println(io, "<hr>\n<h1 id=\"Gene_Structure\">Gene structure</h1><br>")
         show(io, MIME("text/html"), n_tr_plot)
         println(io, "<br>")
         show(io, MIME("text/html"), gene_structure_plot)
+        println("</body>")
+        println("</html>")
     end
 
     @info "All done!"

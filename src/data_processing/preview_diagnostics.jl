@@ -7,8 +7,8 @@ function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confide
         xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title="Noise estimation",
         linewidth=linewidth)
     x_vals = range(0, x_max, length=1000)
-    n2 = sum(confidences)
-    n1 = length(confidences) - n2
+    n1 = sum(confidences)
+    n2 = length(confidences) - n1
     Plots.plot!(x_vals, n1 / (n1 + n2) .* pdf.(d1, x_vals), label="'Real' distributon", linewidth=linewidth)
     Plots.plot!(x_vals, n2 / (n1 + n2) .* pdf.(d2, x_vals), label="Noise distribution", linewidth=linewidth)
 end
@@ -40,7 +40,8 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
 end
 
 function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
-        confidence::Union{Vector{Float64}, Nothing}=nothing, ms::Float64=0.1, alpha::Float64=0.1, kwargs...)
+        confidence::Union{Vector{Float64}, Nothing}=nothing, ms::Float64=0.1, alpha::Float64=0.1,
+        polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], title1="Local expression similarity", title2="Transcript confidence", kwargs...)
     plot_size = min_pixels_per_cell * sqrt(size(df_spatial, 1) / min_molecules_per_cell)
     x_rng = val_range(df_spatial.x)
     y_rng = val_range(df_spatial.y)
@@ -50,15 +51,15 @@ function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecule
     x_ratio = 1 / y_ratio^0.5;
     plot_size = (x_ratio * plot_size, y_ratio * plot_size)
 
-    gc_plot = plot_cell_borders_polygons(df_spatial, color=colors, ms=ms, alpha=alpha, size=plot_size,
-        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title="Local expression similarity", kwargs...)
+    gc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=colors, ms=ms, alpha=alpha, size=plot_size,
+        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title=title1, kwargs...)
 
     if confidence === nothing
         return gc_plot, nothing
     end
 
-    cc_plot = plot_cell_borders_polygons(df_spatial, color=map_to_colors(confidence)[:colors], ms=ms, alpha=alpha, size=plot_size,
-        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title="Transcript confidence", kwargs...)
+    cc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=map_to_colors(confidence)[:colors], ms=ms, alpha=alpha, size=plot_size,
+        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title=title2, kwargs...)
 
     return gc_plot, cc_plot
 end
