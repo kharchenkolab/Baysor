@@ -73,7 +73,7 @@ mutable struct BmmData
             else
                 cluster_per_molecule = Vector{Int}()
             end
-        elseif length(cluster_per_molecule) != size(x, 1)
+        elseif (length(cluster_per_molecule) > 0) && (length(cluster_per_molecule) != size(x, 1))
             error("cluster_per_molecule has length $(length(cluster_per_molecule)), but $(size(x, 1)) is expected")
         end
 
