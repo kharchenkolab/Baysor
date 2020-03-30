@@ -171,10 +171,12 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         end
 
         # Main algorithm convergence
-        if ("n_components" in keys(tracer)) && length(tracer["n_components"]) != 0
-            p_conv = plot_num_of_cells_per_iterarion(tracer, margin=margin);
+        if (:n_components in keys(tracer)) && length(tracer[:n_components]) != 0
+            p_conv = plot_num_of_cells_per_iterarion(tracer);
             show(io, MIME("text/html"), p_conv)
         end
+
+        println(io, "<br><br>")
 
         # Confidence per molecule
         if :confidence in names(df_res)
@@ -192,6 +194,14 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
                 title="Assignment confidence per real molecules")
             show(io, MIME("text/html"), p_conf)
         end
+
+        println(io, "<br><br>")
+
+        # Num. of molecules per cell
+        n_mols_per_cell = count_array(assignment .+ 1)[2:end]
+        p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
+            title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells")
+        show(io, MIME("text/html"), p_n_mols)
     end
 end
 
