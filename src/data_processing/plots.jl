@@ -23,7 +23,7 @@ plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs.
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2,
                                     color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
-                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0),
+                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0), subplot::Int=1,
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{Vector, Nothing} = nothing,
                                     ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85, fontsize=8,
                                     noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, shuffle_colors::Bool=false, kwargs...)
@@ -72,12 +72,12 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
     end
 
     if is_noise !== nothing
-        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; noise_kwargs...)
+        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; subplot=subplot, noise_kwargs...)
     end
 
     if annotation === nothing
         fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
-                             alpha=alpha, legend=false, kwargs...)
+                             alpha=alpha, legend=false, subplot=subplot, kwargs...)
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
         c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
@@ -88,26 +88,25 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
                                  markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend, color=color,
-                                 bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), style_dict..., kwargs...)
+                                 bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), subplot=subplot, style_dict..., kwargs...)
         end
 
         if noise_ann in annotation
             fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
-                                 label=noise_ann, noise_kwargs...)
+                                 label=noise_ann, subplot=subplot, noise_kwargs...)
         end
     end
 
-    for pg in polygons
-        Plots.plot!(Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]), fill=(0, 0.0), linewidth=polygon_line_width,
-            linecolor=polygon_line_color, alpha=polygon_alpha, label="")
-    end
+    shapes = [Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]) for pg in polygons]
+    Plots.plot!(shapes, fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, alpha=polygon_alpha, subplot=subplot, label="")
 
     if df_centers !== nothing
-        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size, label="")
+        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size,
+            subplot=subplot, label="")
     end
 
-    Plots.xlims!(xlims .+ offset[1])
-    Plots.ylims!(ylims .+ offset[2])
+    Plots.xlims!(xlims .+ offset[1], subplot=subplot)
+    Plots.ylims!(ylims .+ offset[2], subplot=subplot)
 
     return fig
 end
@@ -212,7 +211,7 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample
     return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
 end
 
-function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation; confidences::Union{Vector{Float64}, Nothing}=nothing)
+function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation; confidences::Union{Vector{Float64}, Nothing}=nothing, color_range::T where T<:Real =2000.0)
     mtx_trans = MultivariateStats.transform(transformation, count_matrix);
 
     if confidences === nothing
@@ -224,7 +223,7 @@ function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation
     end
     mtx_colors[1,:] .*= 100
     mtx_colors[2:3,:] .-= 0.5
-    mtx_colors[2:3,:] .*= 2000
+    mtx_colors[2:3,:] .*= color_range
 
     return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
 end
@@ -256,12 +255,13 @@ subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real)
     @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< (x_start + frame_size), :y .< (y_start + frame_size));
 
 function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing};
-                                         gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=300, return_raw::Bool=false,
-                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm, dens_threshold::Float64=1e-10)
+                                         gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=500, return_raw::Bool=false,
+                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm)
     df_res = @transform(df_res, cell=assignment)
 
+    frame_size = min(frame_size, max(maximum(df_res.x) - minimum(df_res.x), maximum(df_res.y) - minimum(df_res.y)))
     neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
-    color_transformation = gene_composition_transformation(neighb_cm)
+    color_transformation = gene_composition_transformation(neighb_cm[:, df_res.confidence .> 0.95])
 
     borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
     borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
@@ -273,14 +273,15 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
     borders = borders[:, filt_mask]
     df_subsets = df_subsets[filt_mask];
 
-    pos_datas = position_data.(df_subsets);
     assignments = [df.cell for df in df_subsets];
     genes_per_frame = [df.gene for df in df_subsets];
     grid_step = frame_size / grid_size
 
-    plot_info = @showprogress "Extracting plot info..." pmap(zip(pos_datas, genes_per_frame, assignments)) do (pd, g, a)
-        pol = boundary_polygons(pd, a; min_molecules_per_cell=min_molecules_per_cell, grid_step=grid_step, dens_threshold=dens_threshold)
-        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), color_transformation)
+    plot_info = @showprogress "Extracting plot info..." pmap(zip(df_subsets, genes_per_frame, assignments)) do (cdf, g, a)
+        pd = position_data(cdf)
+        pol = boundary_polygons(pd, a; grid_step=grid_step)
+        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)),
+            color_transformation; confidences=cdf.confidence)
         pol, col
     end;
 
