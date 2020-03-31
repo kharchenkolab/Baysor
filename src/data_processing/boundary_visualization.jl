@@ -234,7 +234,8 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
     paths = longest_paths.(border_mst.(borders_per_label));
 
     polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(borders_per_label, paths)]...);
-    return [Array(hcat([grid_points_plane[c...] for c in coords]...)') for coords in polygons]
+    polygons = [Array(hcat([grid_points_plane[c...] for c in coords]...)') for coords in polygons]
+    return [vcat(cp, cp[1,:]') for cp in polygons]
 end
 
 ## Futures
