@@ -33,6 +33,7 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
+        # TODO: add gene-composition-neighborhood
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -142,8 +143,8 @@ function run_preview_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
         show(io, MIME("text/html"), n_tr_plot)
         println(io, "<br>")
         show(io, MIME("text/html"), gene_structure_plot)
-        println("</body>")
-        println("</html>")
+        println(io, "</body>")
+        println(io, "</html>")
     end
 
     @info "All done!"
