@@ -195,10 +195,15 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
     return n_cm ./ sum(n_cm, dims=1);
 end
 
-function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, kwargs...)
+function gene_composition_transformation(count_matrix::Array{Float64, 2}, confidence::Vector{Float64}=ones(size(neighb_cm, 2)); #TODO: remove default and pass it everywhere
+        sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, kwargs...)
     sample_size = min(sample_size, size(count_matrix, 2))
     Random.seed!(seed)
-    count_matrix_sample = count_matrix[:,randperm(size(count_matrix, 2))[1:sample_size]]
+
+    pc2 = transform(fit(MultivariateStats.PCA, count_matrix, maxoutdim=2), count_matrix);
+    sample_ids = select_ids_uniformly(pc2[1,:], pc2[2,:], confidence, sample_size)
+
+    count_matrix_sample = count_matrix[:,sample_ids]
 
     if method == :umap
         return fit(UmapFit, count_matrix_sample, n_components=3; kwargs...);
@@ -211,16 +216,12 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}; sample
     return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
 end
 
-function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation; confidences::Union{Vector{Float64}, Nothing}=nothing, color_range::T where T<:Real =2000.0)
-    mtx_trans = MultivariateStats.transform(transformation, count_matrix);
+function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation::UmapFit; color_range::T where T<:Real =2000.0)
+    mtx_colors = MultivariateStats.transform(transformation, count_matrix);
+    min_vals = minimum(transformation.embedding, dims=2)
+    mtx_colors .-= min_vals
+    mtx_colors ./= (maximum(transformation.embedding, dims=2) - min_vals);
 
-    if confidences === nothing
-        mtx_colors = mtx_trans .- minimum(mtx_trans, dims=2)
-        mtx_colors ./= maximum(mtx_colors, dims=2);
-    else
-        @views mtx_colors = mtx_trans .- minimum(mtx_trans[:, confidences .> 0.9], dims=2)
-        @views mtx_colors ./= maximum(mtx_colors[:, confidences .> 0.9], dims=2);
-    end
     mtx_colors[1,:] .*= 100
     mtx_colors[2:3,:] .-= 0.5
     mtx_colors[2:3,:] .*= color_range
@@ -261,7 +262,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     frame_size = min(frame_size, max(maximum(df_res.x) - minimum(df_res.x), maximum(df_res.y) - minimum(df_res.y)))
     neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
-    color_transformation = gene_composition_transformation(neighb_cm[:, df_res.confidence .> 0.95])
+    transformation = gene_composition_transformation(neighb_cm[:, df_res.confidence .> 0.95])
 
     borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
     borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
@@ -281,7 +282,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
         pd = position_data(cdf)
         pol = boundary_polygons(pd, a; grid_step=grid_step)
         col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)),
-            color_transformation; confidences=cdf.confidence)
+            transformation; confidences=cdf.confidence)
         pol, col
     end;
 
