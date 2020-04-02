@@ -415,10 +415,10 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}, String}=nothing)
 
     composition_neighborhood = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     neighb_cm = neighborhood_count_matrix(df_spatial, composition_neighborhood);
-    color_transformation = gene_composition_transformation(neighb_cm[:, confidences .> 0.95]);
+    color_transformation = gene_composition_transformation(neighb_cm, confidences);
 
     @info "Estimating local colors"
-    gene_colors = Baysor.gene_composition_colors(neighb_cm, color_transformation)
+    gene_colors = gene_composition_colors(neighb_cm, color_transformation)
 
     @info "Building transcript plots"
     gc_plot, cc_plot = plot_dataset_colors(df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],

@@ -262,7 +262,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     frame_size = min(frame_size, max(maximum(df_res.x) - minimum(df_res.x), maximum(df_res.y) - minimum(df_res.y)))
     neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
-    transformation = gene_composition_transformation(neighb_cm[:, df_res.confidence .> 0.95])
+    transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
 
     borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
     borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
@@ -281,8 +281,7 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
     plot_info = @showprogress "Extracting plot info..." pmap(zip(df_subsets, genes_per_frame, assignments)) do (cdf, g, a)
         pd = position_data(cdf)
         pol = boundary_polygons(pd, a; grid_step=grid_step)
-        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)),
-            transformation; confidences=cdf.confidence)
+        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), transformation)
         pol, col
     end;
 
