@@ -78,7 +78,7 @@ append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 ## Main run
 
 function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TODO: add verbosity level
-    s = ArgParseSettings()
+    s = ArgParseSettings(prog="baysor run")
     @add_arg_table! s begin
         "--config", "-c"
             help = "TOML file with config"
@@ -229,11 +229,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
     end
 end
 
-function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
-    if args == "build" # need to call this function during build without any actual work
-        return 0
-    end
-
+function run_cli_main(args::Union{Nothing, Array{String, 1}, String}=nothing)
     args = parse_configs(args)
 
     # Dump parameters
@@ -341,7 +337,7 @@ end
 
 
 function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
-    s = ArgParseSettings()
+    s = ArgParseSettings(prog="baysor preview")
     @add_arg_table! s begin
         "--config", "-c"
             help = "TOML file with config"
@@ -390,11 +386,7 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     return r
 end
 
-function run_preview_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
-    if args == "build" # need to call this function during build without any actual work
-        return 0
-    end
-
+function run_cli_preview(args::Union{Nothing, Array{String, 1}, String}=nothing)
     args = parse_preview_configs(args)
 
     # Set up logger
@@ -484,4 +476,30 @@ function run_preview_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     close(log_file)
 
     return 0
+end
+
+## All
+
+function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
+    help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
+    if args == "build" # need to call this function during build without any actual work
+        return 0
+    end
+
+    if (length(ARGS) == 0) || (length(ARGS) == 1) && (ARGS[1] == "-h" || ARGS[1] == "--help")
+        println(help_message)
+        return 0
+    end
+
+    if ARGS[1] == "run"
+        return run_cli_main(ARGS[2:end])
+    end
+
+    if ARGS[1] == "preview"
+        return run_cli_preview(ARGS[2:end])
+    end
+
+    @error "Can't parse argument $(ARGS[1])"
+    println(help_message)
+    return 1
 end
