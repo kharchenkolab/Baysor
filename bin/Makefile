@@ -6,7 +6,7 @@ JULIA_EXEC_FLAG=$(JULIA_DIR)/bin/julia_success
 JULIA_EXEC=$(JULIA_DIR)/bin/julia
 JULIA_DEPS_FLAG = $(JULIA_DEPOT_DIR)/deps_success
 JULIA_SYS_IMAGE=$(JULIA_DIR)/lib/julia/sys.so
-SEGMENTATION_EXECUTABLE=./segment_data.jl
+SEGMENTATION_EXECUTABLE=./baysor
 
 all: $(SEGMENTATION_EXECUTABLE)
 clean:
@@ -20,7 +20,7 @@ $(JULIA_SYS_IMAGE): $(JULIA_DEPS_FLAG)
 	$(JULIA_EXEC) -e 'using GR; using PackageCompiler; import Baysor; ENV["JULIA_DEPOT_PATH"]="$(JULIA_DEPOT_DIR)"; bp=dirname(pathof(Baysor)) * "/../"; ENV["LD_LIBRARY_PATH"]=dirname(pathof(GR)) * "/../deps/gr/lib/"; compile_incremental("$$bp/Project.toml", "$$bp/bin/build.jl", force=true)'
 
 $(JULIA_DEPS_FLAG): $(JULIA_DEPOT_CONFIG) $(JULIA_EXEC_FLAG)
-	$(JULIA_EXEC) -e 'using Pkg; Pkg.add(PackageSpec(url="git@github.com:hms-dbmi/Baysor.git")); Pkg.add(["Plots", "PackageCompiler", "GR"]);'
+	$(JULIA_EXEC) -e 'using Pkg; Pkg.add(PackageSpec(url="git@github.com:hms-dbmi/Baysor.git", rev="develop)); Pkg.add(["Plots", "PackageCompiler", "GR"]);'
 	$(JULIA_EXEC) -e 'using Pkg; Pkg.build(); using Baysor' && touch $(JULIA_DEPS_FLAG)
 
 $(JULIA_DEPOT_CONFIG): $(JULIA_EXEC_FLAG)

@@ -30,11 +30,11 @@ cd Baysor/bin
 make
 ```
 
-The command takes ~10 minutes to complete. It creates executable file `./Baysor/bin/segment_data.jl`, which can be used for spatial data segmentation.
+The command takes ~10 minutes to complete. It creates executable file `./Baysor/bin/baysor`, which can be used for spatial data segmentation.
 
 ### Docker
 
-Alternatevely, you can use Dockerfile. It contains executable `segment_data` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
+Alternatevely, you can use Dockerfile. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
 
 Pre-built stable [image](https://hub.docker.com/r/vpetukhov/baysor):
 
@@ -65,7 +65,7 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 To run the algorithm on your data, use
 
 ```bash
-./Baysor/bin/segment_data.jl -i 500 [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
+baysor -i 500 [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
 ```
 
 Here:
@@ -77,7 +77,7 @@ Here:
 To see full list of command-line options run
 
 ```bash
-./Baysor/bin/segment_data.jl --help
+baysor --help
 ```
 
 For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples).

@@ -45,8 +45,8 @@ RUN julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Ba
 RUN julia -e 'using GR; using PackageCompiler; import Baysor; bp=dirname(pathof(Baysor)) * "/../"; ENV["LD_LIBRARY_PATH"]=dirname(pathof(GR)) * "/../deps/gr/lib/"; compile_incremental("$bp/Project.toml", "$bp/bin/build.jl", force=true)'
 
 RUN \
-    echo "#!/usr/bin/env julia\n\nimport Baysor\nBaysor.run_cli()" >> /bin/segment_data && \
-    chmod +x /bin/segment_data
+    echo "#!/usr/bin/env julia\n\nimport Baysor\nBaysor.run_cli()" >> /bin/baysor && \
+    chmod +x /bin/baysor
 
 ENTRYPOINT ["/bin/bash"]
 WORKDIR /root/

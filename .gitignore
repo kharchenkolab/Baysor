@@ -3,7 +3,7 @@
 builddir
 
 bin/*julia*
-bin/segment_data.jl
+bin/baysor
 
 *.DS_Store
 .vscode
