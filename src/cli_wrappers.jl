@@ -229,7 +229,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
     end
 end
 
-function run_cli_main(args::Union{Nothing, Array{String, 1}, String}=nothing)
+function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     args = parse_configs(args)
 
     # Dump parameters
@@ -386,7 +386,7 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     return r
 end
 
-function run_cli_preview(args::Union{Nothing, Array{String, 1}, String}=nothing)
+function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     args = parse_preview_configs(args)
 
     # Set up logger
@@ -480,11 +480,8 @@ end
 
 ## All
 
-function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
+function run_cli(args::Union{Nothing, Array{String, 1}}=nothing)::Cint
     help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
-    if args == "build" # need to call this function during build without any actual work
-        return 0
-    end
 
     if (length(ARGS) == 0) || (length(ARGS) == 1) && (ARGS[1] == "-h" || ARGS[1] == "--help")
         println(help_message)
@@ -503,3 +500,5 @@ function run_cli(args::Union{Nothing, Array{String, 1}, String}=nothing)
     println(help_message)
     return 1
 end
+
+julia_main()::Cint = run_cli()
