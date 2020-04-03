@@ -389,7 +389,7 @@ function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays
         return DistributedArrays.DArray(futures);
     catch ex
         bds = fetch.(wait.(futures))
-        err_idx = findfirst(typeof.(bm_data_arr) .!== Baysor.BmmData)
+        err_idx = findfirst(typeof.(bm_data_arr) .!== BmmData)
         if err_idx === nothing
             throw(ex)
         end

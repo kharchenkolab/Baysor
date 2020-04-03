@@ -26,7 +26,7 @@ function watershed(img::Array{T,2}, markers::Array{S,2}, img_bin::Union{Array{Bo
                 if (img_bin !== nothing) && (!img_bin[j])
                     continue
                 end
-                
+
                 if segments[j] == 0
                     segments[j] = markers[i]
                     enqueue!(pq, j, ImageSegmentation.PixelKey(img[i], time_step))
@@ -44,7 +44,7 @@ function watershed(img::Array{T,2}, markers::Array{S,2}, img_bin::Union{Array{Bo
             if (img_bin !== nothing) && (!img_bin[j])
                 continue
             end
-            
+
             if segments[j] == 0
                 segments[j] = segments_current
                 enqueue!(pq, j, ImageSegmentation.PixelKey(img_current, time_step))
@@ -116,7 +116,7 @@ function segment_molecules_watershed(df_spatial::DataFrame; bandwidth::Real, ver
         @info "Estimate KDE density"
     end
 
-    c_kde = estimate_kde_grid(round.(Int, Baysor.position_data(df_spatial)), bandwidth=bandwidth);
+    c_kde = estimate_kde_grid(round.(Int, position_data(df_spatial)), bandwidth=bandwidth);
     img_labels = segment_watershed(.-c_kde.density; verbose=verbose);
     return assign_molecules_to_kde_segmentation(img_labels, df_spatial, c_kde);
 end

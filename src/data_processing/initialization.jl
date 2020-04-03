@@ -78,7 +78,7 @@ function adjust_field_weights_by_dapi!(bm_data::BmmData, dapi::Matrix{Float64}; 
         for (i, p2) in enumerate(bm_data.adjacent_points[p1])
             bm_data.adjacent_weights[p1][i] *= bm_data.x.dapi_brightness[p2] / bm_data.x.dapi_brightness[p1];
 
-            min_br_on_line = Baysor.trace_values_along_line(dapi, Int(bm_data.x.x[p1]), Int(bm_data.x.y[p1]), Int(bm_data.x.x[p2]), Int(bm_data.x.y[p2])) |> minimum
+            min_br_on_line = trace_values_along_line(dapi, Int(bm_data.x.x[p1]), Int(bm_data.x.y[p1]), Int(bm_data.x.x[p2]), Int(bm_data.x.y[p2])) |> minimum
             min_br_on_ends = min(bm_data.x.dapi_brightness[p2], bm_data.x.dapi_brightness[p1])
             bm_data.adjacent_weights[p1][i] *= max(min_br_on_line / min_br_on_ends, min_weight)
         end

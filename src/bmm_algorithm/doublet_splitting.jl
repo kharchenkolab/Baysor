@@ -27,10 +27,10 @@ function score_doublets(data::BmmData; n_expression_clusters::Int, distance::T w
 end
 
 function score_doublets_by_local_clusters(cell_assignment::Vector{Int}, cluster_assignment::Vector; na_value::Union{Float64, Missing, Nothing}=missing)
-    mol_clusts_per_cell = Baysor.split(denserank(cluster_assignment), cell_assignment .+ 1)[2:end];
+    mol_clusts_per_cell = split(denserank(cluster_assignment), cell_assignment .+ 1)[2:end];
     non_empty_cells = findall(length.(mol_clusts_per_cell) .> 0);
     all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], length(mol_clusts_per_cell));
-    all_scores[non_empty_cells] .= 1 .- maximum.(Baysor.prob_array.(mol_clusts_per_cell[non_empty_cells]));
+    all_scores[non_empty_cells] .= 1 .- maximum.(prob_array.(mol_clusts_per_cell[non_empty_cells]));
     return all_scores
 end
 
@@ -140,7 +140,7 @@ function factorize_doublet_expression_ll(counts::Matrix{Float64}, cluster_center
     nn_dists = likelihood_dist(counts, cluster_centers);
     base1_ids = vec(mapslices(x -> findmin(x)[2], nn_dists, dims=2));
 
-    opt_comps = [[Baysor.linsearch_gs(w -> log_ll(counts[:, ci], cluster_centers[base1_ids[ci], :] .* w + cluster_centers[i, :] .* (1 - w)), 0.0, 1.0)
+    opt_comps = [[linsearch_gs(w -> log_ll(counts[:, ci], cluster_centers[base1_ids[ci], :] .* w + cluster_centers[i, :] .* (1 - w)), 0.0, 1.0)
         for i in 1:size(cluster_centers, 1)] for ci in 1:size(counts, 2)];
 
     opt_dists = hcat([[v[2] for v in x] for x in opt_comps]...);
