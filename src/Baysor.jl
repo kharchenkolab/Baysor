@@ -42,7 +42,6 @@ include("bmm_algorithm/doublet_splitting.jl")
 include("bmm_algorithm/bmm_algorithm.jl")
 include("bmm_algorithm/smoothing.jl")
 
-include("data_processing/debug.jl")
 include("data_processing/validation.jl")
 
 include("cli_wrappers.jl")
