@@ -171,11 +171,11 @@ function trace_values_along_line(arr::Matrix{T}, start_x::Int, start_y::Int, end
     return vals
 end
 
-@inline @fastmath function fmax(v1::Float64, v2::Float64)
+@inline @fastmath function fmax(v1::T, v2::T) where T <: Real
     v1 > v2 ? v1 : v2
 end
 
-@inline @fastmath function fmin(v1::Float64, v2::Float64)
+@inline @fastmath function fmin(v1::T, v2::T) where T <: Real
     v1 < v2 ? v1 : v2
 end
 
