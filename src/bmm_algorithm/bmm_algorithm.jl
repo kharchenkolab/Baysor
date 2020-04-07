@@ -224,19 +224,36 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
     return adj_classes_global
 end
 
-function build_cell_graph(bm_data::BmmData, mol_ids::Vector{Int}, cell_id::Int)
-    vert_id_per_mol_id = Dict(mi => vi for (vi, mi) in enumerate(mol_ids))
-    cur_adj_point = filter.(p -> bm_data.assignment[p] == cell_id, bm_data.adjacent_points[mol_ids])
-    cur_adj_point = [get.(Ref(vert_id_per_mol_id), points, -1) for points in cur_adj_point if length(points) > 0]
+function build_cell_graph(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, mol_ids::Vector{Int}, cell_id::Int; confidence::Union{Vector{Float64}, Nothing}=nothing, confidence_threshold::Float64=0.5)
+    cur_adj_point = Vector{Int}[]
+    if confidence === nothing
+        cur_adj_point = filter.(p -> assignment[p] == cell_id, adjacent_points[mol_ids])
+    else
+        mol_ids = mol_ids[confidence[mol_ids] .> confidence_threshold]
+        cur_adj_point = filter.(p -> (assignment[p] == cell_id) & (confidence[p] .> confidence_threshold), view(adjacent_points, mol_ids))
+    end
 
-    return LightGraphs.SimpleGraphFromIterator(vcat([LightGraphs.Edge.(i, ps) for (i, ps) in enumerate(cur_adj_point)]...))
+    vert_id_per_mol_id = Dict(mi => vi for (vi, mi) in enumerate(mol_ids))
+
+    for points in cur_adj_point
+        for j in 1:length(points)
+            points[j] = vert_id_per_mol_id[points[j]]
+        end
+    end
+
+    neg = LightGraphs.SimpleGraphs.cleanupedges!(cur_adj_point)
+    return LightGraphs.SimpleGraph(neg, cur_adj_point), mol_ids
+end
+
+function get_connected_component_per_label(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, min_molecules_per_cell::Int; kwargs...)
+    mol_ids_per_cell = split(1:length(assignment), assignment .+ 1)[2:end]
+    real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
+    graph_per_cell = [build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1] for ci in real_cell_ids];
+    return LightGraphs.connected_components.(graph_per_cell);
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
-    mol_ids_per_cell = split(1:length(data.assignment), data.assignment .+ 1)[2:end]
-    real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
-    graph_per_cell = [build_cell_graph(data, mol_ids_per_cell[ci], ci) for ci in real_cell_ids];
-    conn_comps_per_cell = LightGraphs.connected_components.(graph_per_cell);
+    conn_comps_per_cell = get_connected_component_per_label(data.assignment, min_molecules_per_cell)
 
     for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
         if length(conn_comps) < 2
@@ -313,7 +330,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
 
-        if (i % component_split_step == 0) || (i == n_iters)
+        if (i % component_split_step == 0) || (i == n_iters) # TODO: try without component_split_step, as I optimized split_cells_by_connected_components
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
