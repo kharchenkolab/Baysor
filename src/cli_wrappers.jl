@@ -242,7 +242,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     open(append_suffix(args["output"], "params.dump"), "w") do f
-        println(f, "# CLI params: `$(join(ARGS, " "))`")
+        println(f, "# CLI params: `$(join(args, " "))`")
         TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
     end
 
@@ -389,6 +389,7 @@ end
 function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     args = parse_preview_configs(args)
 
+    error("Help me")
     # Set up logger
 
     log_file = open(append_suffix(args["output"], "preview_log.log"), "w")
@@ -480,25 +481,31 @@ end
 
 ## All
 
-function run_cli(args::Union{Nothing, Array{String, 1}}=nothing)::Cint
+function run_cli(args::Vector{String}=ARGS)::Cint
     help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
 
-    if (length(ARGS) == 0) || (length(ARGS) == 1) && (ARGS[1] == "-h" || ARGS[1] == "--help")
+    try
+        if (length(args) == 0) || (length(args) == 1) && (args[1] == "-h" || args[1] == "--help")
+            println(help_message)
+            return 0
+        end
+
+        if args[1] == "run"
+            return run_cli_main(args[2:end])
+        end
+
+        if args[1] == "preview"
+            return run_cli_preview(args[2:end])
+        end
+
+        @error "Can't parse argument $(args[1])"
         println(help_message)
-        return 0
+        return 1
+    catch err
+        @error("$err\n\n" * join(["$s" for s in stacktrace(catch_backtrace())], "\n"))
     end
 
-    if ARGS[1] == "run"
-        return run_cli_main(ARGS[2:end])
-    end
-
-    if ARGS[1] == "preview"
-        return run_cli_preview(ARGS[2:end])
-    end
-
-    @error "Can't parse argument $(ARGS[1])"
-    println(help_message)
-    return 1
+    return 2
 end
 
 julia_main()::Cint = run_cli()
