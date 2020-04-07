@@ -2,6 +2,16 @@
 
 **B**a**y**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
+- [Installation](#installation)
+  - [Install as a Julia package](#install-as-a-julia-package)
+  - [Build CLI application from source](#build-cli-application-from-source)
+  - [Docker](#docker)
+- [Run](#run)
+  - [Dataset preview](#dataset-preview)
+  - [Full run](#full-run)
+    - [Choice of parameters](#choice-of-parameters)
+    - [Multi-threading](#multi-threading)
+
 ## Installation
 
 ### Install as a Julia package
@@ -34,7 +44,7 @@ The command takes ~10 minutes to complete. It creates executable file `./Baysor/
 
 ### Docker
 
-Alternatevely, you can use Dockerfile. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
+Alternatively, you can use Dockerfile. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
 
 Pre-built stable [image](https://hub.docker.com/r/vpetukhov/baysor):
 
@@ -60,45 +70,70 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 
 ## Run
 
-**NOTE: The algorithm is still in the alpha-version, so it can be unstable now and is continuously improved. Please, report all found problems and suggestions to Issues.**
+**NOTE: The algorithm is still in the alpha-version, so it can be unstable now and is continuously improved. Please, report any problems and suggestions to Issues.**
+
+### Dataset preview
+
+As full run takes some time, it can be useful to run a quick preview to get meaning from the data and to get some guesses about parameters of the full run.
+
+```bash
+baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_CSV
+```
+
+Here:
+
+- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each transcript
+- Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
+- OUTPUT_PATH determines path to the output html file with the diagnostic plots
+
+### Full run
 
 To run the algorithm on your data, use
 
 ```bash
-baysor -i 500 [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
+baysor run [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
 ```
 
 Here:
 
 - MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each transcript
 - CENTERS_CSV must have the same column name for *x* and *y* coordinates as MOLECULES_CSV
-- Paremters X_COL, Y_COL and GENE_COL must specify corresponding column names. Default values are "x", "y" and "gene" correspondingly.
+- Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly.
+- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x" and "y". In general it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
 
 To see full list of command-line options run
 
 ```bash
-baysor --help
+baysor run --help
 ```
 
-For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples).
+For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples) (though probably are out of date). <!-- TODO: fix it -->
 
-For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml).
+For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml). <!-- TODO: chech that it's up to date -->
 
 
-### Choise of parameters
+#### Choice of parameters
 
 Most important parameters:
 
-- `scale` is the most sensitive parameter, which specifies expected radius of a cell. It doesn't have to be precise, but wrong set-up can lead to over- or under-segmentation. This parameter is inferred automatically if cell senters are provided.
-- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on a protocol. For instance, for osm-FISH it's fine to set it to 5, while for MERFISH it can require hundreds of molecule.
+- `scale` is the most sensitive parameter, which specifies expected radius of a cell. It doesn't have to be precise, but wrong set-up can lead to over- or under-segmentation. This parameter is inferred automatically if cell centers are provided.
+- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on a protocol. For instance, for ISS it's fine to set it to 3, while for MERFISH it can require hundreds of molecule.
 
 Some other sensitive parameters (normally, shouldn't be changed):
 
-- `new-component-weight` is proportional to probability of generating new cell for a molecule, instead of assigning it to one of existing cells. More precisely, probability to assign a molecule to a particular cell linearly depends on number of molecules, alreadu assigned to this cell. And this parameter is used as number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in range 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force emergence of large number of small cells on each iteration, which can produce noise in the result. In general, default value should work well.
+- `new-component-weight` is proportional to probability of generating new cell for a molecule, instead of assigning it to one of existing cells. More precisely, probability to assign a molecule to a particular cell linearly depends on number of molecules, already assigned to this cell. And this parameter is used as number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in range 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force emergence of large number of small cells on each iteration, which can produce noise in the result. In general, default value should work well.
 - `center-component-weight` has the same meaning as `new-component-weight`, but works for cell centers, estimated from DAPI staining (i.e. from CENTERS_CSV). In general, it should be larger then `new-component-weight` and it reflects your confidence in the estimated centers. For instance, if you want all centers, which have enough molecules around, to be used, you just need to set some huge value here (e.g. 100000).
 
-Run paremeters:
+Run parameters:
 
 - `num-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
 - `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
-- `n-frames` determines parallelization level. To allow milti-threaded processing of the data, all the space is splitted in `n_frames` parts, which contain approximately equal number of molecules. Results can be a bit inaccurate on the borders of the frames, so it's better to avoid very large values.
+- `n-frames` determines maximum parallelization level. To allow multi-threaded processing of the data, all the space is splitted in `n_frames` parts, which contain approximately equal number of molecules. Results can be a bit inaccurate on the borders of the frames, so it's better to avoid very large values.
+
+#### Multi-threading
+
+Currently, running multi-threaded version is only available by splitting dataset to independent frames, which creates artifacts on the frame borders. If you're fine with that, please use the command
+
+```bash
+JULIA_NUM_THREADS=10; baysor run -n $JULIA_NUM_THREADS [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
+```
