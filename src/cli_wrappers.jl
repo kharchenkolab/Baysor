@@ -389,7 +389,6 @@ end
 function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     args = parse_preview_configs(args)
 
-    error("Help me")
     # Set up logger
 
     log_file = open(append_suffix(args["output"], "preview_log.log"), "w")
