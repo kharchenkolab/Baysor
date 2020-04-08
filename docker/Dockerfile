@@ -39,9 +39,9 @@ RUN julia -e 'using Pkg; Pkg.add("IJulia"); Pkg.build(); using IJulia;'
 
 ## Julia Baysor envitonment
 
-RUN julia -e 'using Pkg; Pkg.add(["Plots", "PackageCompiler", "GR"])'
+RUN julia -e 'using Pkg; Pkg.add("PackageCompiler")'
 RUN julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git")); Pkg.build(); using Baysor;'
-RUN julia -e 'using GR; using PackageCompiler; import Baysor; bp=dirname(pathof(Baysor)) * "/../"; ENV["LD_LIBRARY_PATH"]=dirname(pathof(GR)) * "/../deps/gr/lib/"; create_sysimage(:Baysor; project=bp, replace_default=true)'
+RUN julia -e 'using PackageCompiler; import Baysor; create_sysimage(:Baysor; precompile_execution_file="$(dirname(pathof(Baysor)))/../bin/build.jl", replace_default=true)'
 
 RUN \
     echo "#!/usr/bin/env julia\n\nimport Baysor\nBaysor.run_cli()" >> /bin/baysor && \

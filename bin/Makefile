@@ -17,10 +17,10 @@ $(SEGMENTATION_EXECUTABLE): $(JULIA_SYS_IMAGE)
 	chmod +x $(SEGMENTATION_EXECUTABLE)
 
 $(JULIA_SYS_IMAGE): $(JULIA_DEPS_FLAG)
-	$(JULIA_EXEC) -e 'using GR; using PackageCompiler; import Baysor; ENV["JULIA_DEPOT_PATH"]="$(JULIA_DEPOT_DIR)"; bp=dirname(pathof(Baysor)) * "/../"; ENV["LD_LIBRARY_PATH"]=dirname(pathof(GR)) * "/../deps/gr/lib/"; create_sysimage(:Baysor; project=bp, replace_default=true)'
+	$(JULIA_EXEC) -e 'using PackageCompiler; import Baysor; create_sysimage(:Baysor; precompile_execution_file="$$(dirname(pathof(Baysor)))/../bin/build.jl", replace_default=true)'
 
 $(JULIA_DEPS_FLAG): $(JULIA_DEPOT_CONFIG) $(JULIA_EXEC_FLAG)
-	$(JULIA_EXEC) -e 'using Pkg; Pkg.add(PackageSpec(url="git@github.com:hms-dbmi/Baysor.git")); Pkg.add(["Plots", "PackageCompiler", "GR"]);'
+	$(JULIA_EXEC) -e 'using Pkg; Pkg.add(PackageSpec(url="git@github.com:hms-dbmi/Baysor.git")); Pkg.add("PackageCompiler");'
 	$(JULIA_EXEC) -e 'using Pkg; Pkg.build(); using Baysor' && touch $(JULIA_DEPS_FLAG)
 
 $(JULIA_DEPOT_CONFIG): $(JULIA_EXEC_FLAG)
