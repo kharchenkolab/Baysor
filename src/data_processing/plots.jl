@@ -246,7 +246,7 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     y_vals = maximum(hcat(vecs...), dims=2) |> vec
     scale = sum(y_vals)
     ann_genes = findall(y_vals .>= min_expr_frac * scale)
-    p = Plots.annotate!(ann_genes, y_vals[ann_genes] .+ text_offset * scale, Plots.text.(gene_names[ann_genes], fontsize))
+    p = Plots.annotate!(collect(zip(ann_genes, y_vals[ann_genes] .+ text_offset * scale, Plots.text.(gene_names[ann_genes], fontsize))))
     return p
 end
 
