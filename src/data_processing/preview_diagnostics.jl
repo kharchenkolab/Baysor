@@ -36,7 +36,8 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
 
     Plots.scatter(embedding[1,:], embedding[2,:]; ms=marker_sizes, legend=false, alpha=0.1, size=(800, 800),
         ticks=false, xlabel="UMAP-1", ylabel="UMAP-2", title="Gene local structure", kwargs...)
-    Plots.annotate!(embedding[1,:], embedding[2,:], Plots.text.(gene_names, ceil.(Int, marker_sizes .* 1.5), color=Colors.RGBA(0.0, 0.0, 0.0, 0.75)))
+
+    Plots.annotate!(collect(zip(embedding[1,:], embedding[2,:], Plots.text.(gene_names, ceil.(Int, marker_sizes .* 1.5)))), color=Colors.RGBA(0.0, 0.0, 0.0, 0.75))
 end
 
 function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
