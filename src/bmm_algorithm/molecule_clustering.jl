@@ -41,7 +41,7 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0
             adj_prob = 1.0 # probability that there are no neighbors from this component
-            for j in 1:length(cur_points)
+            for j in 1:length(cur_points) # TODO: can try to use sparsity to optimize it. Can store BitMatrix with info about a_p > 1e-10
                 a_p = assignment_probs[ri, cur_points[j]]
                 c_d += cur_weights[j] * a_p
                 adj_prob *= 1 - a_p
@@ -74,8 +74,9 @@ end
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}},
         confidence::Vector{Float64}=ones(length(genes)); n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true,
         max_iters::Int=div(length(genes), 200), n_iters_without_update::Int=20,
-        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, verbose::Bool=true, progress::Union{Progress, Nothing}=nothing,
-        weights_per_adjusted::Bool=false)
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing,
+        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing,
+        weights_pre_adjusted::Bool=false)
     if cell_type_exprs === nothing
         if n_clusters <= 1
             error("Either n_clusters or cell_type_exprs must be specified")
@@ -84,16 +85,24 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
     end
 
-    if !weights_per_adjusted
+    if !weights_pre_adjusted
         adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
     cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
 
-    assignment_probs = cell_type_exprs_norm[:, genes];
+    assignment_probs = zeros(size(cell_type_exprs, 1), length(genes));
+
+    if assignment === nothing
+        assignment_probs .= cell_type_exprs_norm[:, genes];
+    else
+        assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
+    end
+
     assignment_probs_prev = deepcopy(assignment_probs)
     max_diffs = Float64[]
+    change_fracs = Float64[]
 
     if verbose && progress === nothing
         progress = Progress(max_iters, 0.3)
@@ -108,7 +117,9 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
         end
 
-        push!(max_diffs, estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence))
+        md, cf = estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence)
+        push!(max_diffs, md)
+        push!(change_fracs, cf)
 
         if verbose
             next!(progress)
@@ -138,7 +149,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
 
-    return cell_type_exprs_norm, assignment, max_diffs, assignment_probs
+    return (exprs=cell_type_exprs_norm, assignment=assignment, diffs=max_diffs, assignment_probs=assignment_probs, change_fracs=change_fracs)
 end
 
 ## Sampling of assignments. Converges faster for clustering.
@@ -162,6 +173,51 @@ function filter_correlated_molecule_clusters!(cell_type_exprs::Matrix{Float64}, 
     end
 
     return was_filtering
+end
+
+function filter_small_molecule_clusters(df_spatial::DataFrame, assignment::Vector{Int}, adjacent_points::Vector{Vector{Int}};
+        min_mols_per_cell::Int, confidence_threshold::Float64=0.95, method::Symbol=:size)
+    conn_comps_per_clust = get_connected_component_per_label(assignment, adjacent_points, 1;
+    confidence=df_spatial.confidence, confidence_threshold=confidence_threshold);
+    n_mols_per_comp = [length.(c) for c in conn_comps_per_clust];
+
+    noise_clusters = Int[]
+    if method == :size
+        noise_clusters = findall(maximum.(n_mols_per_comp) .< min_mols_per_cell)
+    elseif method == :frac
+        noise_clusters = findall([sum(x[x .< 30]) / sum(x) for x in n_mols_per_comp] .> 0.5)
+    else
+        error("Unknown method: $method")
+    end
+
+    if !isempty(noise_clusters)
+        is_mol_noise = in.(assignment, Ref(noise_clusters));
+        real_ids = findall(.!is_mol_noise);
+
+        pos_data = position_data(df_spatial);
+        neighb_ids = knn(KDTree(pos_data[:, real_ids]), pos_data[:, is_mol_noise], 5)[1];
+        assignment = deepcopy(assignment)
+        assignment[is_mol_noise] .= [mode(assignment[real_ids[ids]]) for ids in neighb_ids];
+    end
+
+    cell_type_exprs = zeros(maximum(assignment), maximum(df_spatial.gene));
+    for i in 1:length(assignment)
+        cell_type_exprs[assignment[i], df_spatial.gene[i]] += df_spatial.confidence[i]
+    end
+    cell_type_exprs ./= sum(cell_type_exprs, dims=2);
+
+    if isempty(noise_clusters)
+        return cell_type_exprs, assignment
+    end
+
+    real_type_ids = setdiff(1:size(cell_type_exprs, 1), noise_clusters)
+    id_map = zeros(Int, size(cell_type_exprs, 1));
+    id_map[real_type_ids] .= 1:length(real_type_ids);
+
+    assignment = id_map[assignment];
+    cell_type_exprs = cell_type_exprs[real_type_ids,:];
+
+    return cell_type_exprs, assignment
 end
 
 function remove_unused_molecule_clusters!(assignment::Vector{Int}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, confidence::Union{Vector{Float64}, Nothing}=nothing;

@@ -282,7 +282,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             end
         end
         mol_cluster_centers, cluster_per_molecule, max_diffs = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"],
-            weights_per_adjusted=true)[1:3]
+            weights_pre_adjusted=true)[1:3]
 
         df_spatial[!, :cluster] = cluster_per_molecule;
 

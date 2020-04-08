@@ -179,20 +179,31 @@ end
     v1 < v2 ? v1 : v2
 end
 
-function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64}; col_weights::Union{Nothing, Vector{Float64}}=nothing)::Float64
+function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64}; col_weights::Union{Nothing, Vector{Float64}}=nothing, change_threshold::Float64=1e-7)::Tuple{Float64, Float64}
     max_diff = 0.0
+    n_changed = 0
     if !all(size(m1) .== size(m2))
         error("Matrices must be of the same size")
     end
 
     @inbounds for ci in 1:size(m1, 2)
-        cw = (col_weights === nothing) ? 1.0 : col_weights[ci]
+        c_max = 0.0
         for ri in 1:size(m1, 1)
-            max_diff = fmax(cw * abs(m1[ri, ci] - m2[ri, ci]), max_diff)
+            c_max = fmax(abs(m1[ri, ci] - m2[ri, ci]), c_max)
         end
+
+        if col_weights !== nothing
+            c_max *= col_weights[ci]
+        end
+
+        if c_max > change_threshold
+            n_changed += 1
+        end
+
+        max_diff = fmax(c_max, max_diff)
     end
 
-    return max_diff
+    return max_diff, n_changed / size(m1, 2)
 end
 
 function pairwise_jaccard(values::Array{Vector{Int}, 1}, min_dist::Float64=0.0001)::Matrix{Float64}
