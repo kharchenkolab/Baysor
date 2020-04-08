@@ -249,11 +249,12 @@ function get_connected_component_per_label(assignment::Vector{Int}, adjacent_poi
     mol_ids_per_cell = split(1:length(assignment), assignment .+ 1)[2:end]
     real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
     graph_per_cell = [build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1] for ci in real_cell_ids];
-    return LightGraphs.connected_components.(graph_per_cell);
+    return LightGraphs.connected_components.(graph_per_cell), real_cell_ids, mol_ids_per_cell
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
-    conn_comps_per_cell = get_connected_component_per_label(data.assignment, min_molecules_per_cell)
+    conn_comps_per_cell, real_cell_ids, mol_ids_per_cell = get_connected_component_per_label(data.assignment, data.adjacent_points,
+        min_molecules_per_cell; confidence=data.confidence)
 
     for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
         if length(conn_comps) < 2

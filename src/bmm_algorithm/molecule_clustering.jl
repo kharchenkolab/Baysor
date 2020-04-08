@@ -178,7 +178,7 @@ end
 function filter_small_molecule_clusters(df_spatial::DataFrame, assignment::Vector{Int}, adjacent_points::Vector{Vector{Int}};
         min_mols_per_cell::Int, confidence_threshold::Float64=0.95, method::Symbol=:size)
     conn_comps_per_clust = get_connected_component_per_label(assignment, adjacent_points, 1;
-    confidence=df_spatial.confidence, confidence_threshold=confidence_threshold);
+        confidence=df_spatial.confidence, confidence_threshold=confidence_threshold)[1];
     n_mols_per_comp = [length.(c) for c in conn_comps_per_clust];
 
     noise_clusters = Int[]

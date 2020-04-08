@@ -165,12 +165,15 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 end
 
 function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm,
-        max_diffs::Union{Vector{Float64}, Nothing}=nothing)
+        max_diffs::Union{Vector{Float64}, Nothing}=nothing, change_fracs::Union{Vector{Float64}, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
         # Molecule clustering convergence
         if max_diffs !== nothing
-            p_mol_conv = Plots.plot(max_diffs, xlabel="Iteration", ylabel="Maximal probability change", title="Molcecule clustering convergence", legend=false);
+            p_mol_conv = Plots.plot(max_diffs, xlabel="Iteration", ylabel="Maximal probability change", title="Molcecule clustering convergence", label="Maximal change");
+            if change_fracs !== nothing
+                p_mol_conv = Plots.plot!(change_fracs, label="Fraction of molecules changed")
+            end
             show(io, MIME("text/html"), p_mol_conv)
         end
 
@@ -270,7 +273,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
     @info "Done"
 
-    max_diffs = nothing
+    max_diffs, change_fracs = nothing, nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
         adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
@@ -281,12 +284,13 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
                 cur_weights[j] *= df_spatial.confidence[cur_points[j]]
             end
         end
-        mol_cluster_centers, cluster_per_molecule, max_diffs = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"],
-            weights_pre_adjusted=true)[1:3]
 
-        df_spatial[!, :cluster] = cluster_per_molecule;
+        mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"], weights_pre_adjusted=true)
 
-        # TODO: store mol_cluster_centers at bm_data.misc?
+        df_spatial[!, :cluster] = mol_clusts.assignment;
+        max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
+
+        # TODO: store mol_clusts.exprs at bm_data.misc?
         @info "Done"
     end
 
@@ -322,7 +326,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs)
+        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
         plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args)
     end
 
@@ -483,6 +487,12 @@ end
 function run_cli(args::Vector{String}=ARGS)::Cint
     help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
 
+    debug = false
+    if "--debug" in args
+        args = args[args .!= "--debug"]
+        debug = true
+    end
+
     try
         if (length(args) == 0) || (length(args) == 1) && (args[1] == "-h" || args[1] == "--help")
             println(help_message)
@@ -501,7 +511,11 @@ function run_cli(args::Vector{String}=ARGS)::Cint
         println(help_message)
         return 1
     catch err
-        @error("$err\n\n" * join(["$s" for s in stacktrace(catch_backtrace())], "\n"))
+        if debug
+            rethrow()
+        else
+            @error("$err\n\n" * join(["$s" for s in stacktrace(catch_backtrace())], "\n"))
+        end
     end
 
     return 2
