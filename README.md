@@ -2,6 +2,8 @@
 
 **B**a**y**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
+- [Abstract](#abstract)
+  - [Method description](#method-description)
 - [Installation](#installation)
   - [Install as a Julia package](#install-as-a-julia-package)
   - [Build CLI application from source](#build-cli-application-from-source)
@@ -52,21 +54,14 @@ The command takes ~10 minutes to complete. It creates executable file `./Baysor/
 
 ### Docker
 
-Alternatively, you can use Dockerfile. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
-
-Pre-built stable [image](https://hub.docker.com/r/vpetukhov/baysor):
+Alternatively, you can use Docker. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
+The [repo](https://hub.docker.com/r/vpetukhov/baysor) also has images for older versions.
 
 ```bash
 docker run -it --rm vpetukhov/baysor:latest
 ```
 
-Pre-built develop [image](https://hub.docker.com/r/vpetukhov/baysor):
-
-```bash
-docker run -it --rm vpetukhov/baysor:develop
-```
-
-Buil by hands:
+Build by hands:
 
 ```bash
 docker pull julia:latest
