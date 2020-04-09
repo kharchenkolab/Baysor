@@ -119,16 +119,16 @@ For the description of all config parameters, see [example_config.toml](https://
 
 #### Outputs
 
-- segmentation_borders.html: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part)
-- segmentation_cell_stats.csv: diagnostic info about cells. Parameters "n_transcripts", "density", "elongation", "area" and "avg_confidence" can be used to filter low-quality cells.
-- segmentation_config.toml: copy of the config to improve reproducibility
-- segmentation_params.dump: aggregated parameters from the config and CLI
-- segmentation.csv: segmentation info per molecule:
-  - confidence: probability of a molecule to be real (i.e. not noise)
-  - cell: id of the assigned cell. Value "0" correspond to noise.
-  - cluster: id of molecule cluster
-  - assignment_confidence: confidence that the molecule is assigned to a correct cell
-  - is_noise: shows whether molecule was assigned to noise (it's equal "true" if and only if "cell" == 0)
+- *segmentation_borders.html*: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part)
+- *segmentation_cell_stats.csv*: diagnostic info about cells. Parameters "n_transcripts", "density", "elongation", "area" and "avg_confidence" can be used to filter low-quality cells.
+- *segmentation_config.toml*: copy of the config to improve reproducibility
+- *segmentation_params.dump*: aggregated parameters from the config and CLI
+- *segmentation.csv*: segmentation info per molecule:
+  - *confidence*: probability of a molecule to be real (i.e. not noise)
+  - *cell*: id of the assigned cell. Value "0" correspond to noise.
+  - *cluster*: id of molecule cluster
+  - *assignment_confidence*: confidence that the molecule is assigned to a correct cell
+  - *is_noise*: shows whether molecule was assigned to noise (it's equal "true" if and only if "cell" == 0)
 
 #### Choice of parameters
 
