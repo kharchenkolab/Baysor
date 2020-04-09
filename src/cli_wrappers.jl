@@ -233,6 +233,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
 end
 
 function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
+    args_str = join(args, " ")
     args = parse_configs(args)
 
     # Dump parameters
@@ -245,7 +246,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     open(append_suffix(args["output"], "params.dump"), "w") do f
-        println(f, "# CLI params: `$(join(args, " "))`")
+        println(f, "# CLI params: `$args_str`")
         TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
     end
 
