@@ -117,15 +117,15 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             new_prob=new_prob, comp_weights=comp_weights)
 
         if (min_mols_per_cell > 1) && (i > n_iters_without_update) && (i % 10 == 0)
-            assignment_probs, n_mols_per_comp_per_clust, real_clust_ids = filter_small_molecule_clusters(
-                genes, confidence, adjacent_points, assignment_probs, cell_type_exprs; min_mols_per_cell=min_mols_per_cell)
+            assignment_probs, n_mols_per_comp_per_clust, real_clust_ids = filter_small_molecule_clusters( # filter empty clusters
+                genes, confidence, adjacent_points, assignment_probs, cell_type_exprs; min_mols_per_cell=1)
 
             if length(real_clust_ids) != length(comp_weights)
                 assignment_probs_prev = assignment_probs_prev[real_clust_ids,:]
                 cell_type_exprs = cell_type_exprs[real_clust_ids, :]
                 cell_type_exprs_norm = cell_type_exprs_norm[real_clust_ids, :]
             end
-            comp_weights = [sum(x[x .>= min_mols_per_cell]) / sum(x) for x in n_mols_per_comp_per_clust]
+            comp_weights = [max(sum(x[x .>= min_mols_per_cell]) / sum(x), 0.001) for x in n_mols_per_comp_per_clust]
         end
 
         if do_maximize
