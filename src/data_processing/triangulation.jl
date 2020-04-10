@@ -23,7 +23,8 @@ getx(p::IndexedPoint2D) = p._x
 gety(p::IndexedPoint2D) = p._y
 geti(p::IndexedPoint2D) = p._index
 
-function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::T2 where T2 <: Real =2, k_adj::Int=5, adjacency_type::Symbol=:triangulation)
+function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::T2 where T2 <: Real =2, k_adj::Int=5,
+        adjacency_type::Symbol=:triangulation, distance::TD where TD <: Distances.SemiMetric = Euclidean())
     @assert size(points, 1) == 2
 
     points = deepcopy(points)
@@ -56,7 +57,8 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
         error("Unknown adjacency type: $adjacency_type")
     end
 
-    adj_dists = vec(sum((points[:, edge_list[1,:]] .- points[:, edge_list[2,:]]) .^ 2, dims=1)) .^ 0.5
+    # adj_dists = vec(sum((points[:, edge_list[1,:]] .- points[:, edge_list[2,:]]) .^ 2, dims=1)) .^ 0.5
+    adj_dists = Distances.colwise(distance, points[:, edge_list[1,:]], points[:, edge_list[2,:]])
 
     if filter
         adj_dists_log = log10.(adj_dists)
