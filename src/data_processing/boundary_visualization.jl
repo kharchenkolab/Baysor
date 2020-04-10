@@ -50,13 +50,13 @@ end
 
 function border_mst(border_points::Array{Array{T,1},1} where T<:Real; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
     leafsize = min(size(border_points, 1), 10) # Some performance feature?
-    tree = NearestNeighbors.KDTree(Array{Float64, 2}(hcat(border_points...)), leafsize=leafsize);
+    tree = KDTree(Array{Float64, 2}(hcat(border_points...)), leafsize=leafsize);
     src_verts, dst_verts, weights = Int[], Int[], Float64[]
     edges = Set{Tuple{Int, Int}}()
 
     n_neighbs = min(length(border_points), 5)
     for (i, p) in enumerate(border_points)
-        inds, dists = NearestNeighbors.knn(tree, p, n_neighbs, true) # 5 to get border for sure
+        inds, dists = knn(tree, p, n_neighbs, true) # 5 to get border for sure
         filt_mask = (dists .> min_edge_length) .& (dists .< max_edge_length)
 
         for (ind, dist) in zip(inds[filt_mask], dists[filt_mask])
@@ -84,13 +84,8 @@ function longest_paths(edges::Array{T, 1})::Array{Array{Int, 1}, 1} where T <: L
     n_verts = maximum(keys(vert_counts));
     leafs = collect(keys(vert_counts))[collect(values(vert_counts)) .== 1];
 
-    # conn_components = LightGraphs.connected_components.(LightGraphs.SimpleGraph.(adj_per_cell));
     adj_mtx = sparse(src.(edges), dst.(edges), weight.(edges), n_verts, n_verts)
     g_inc = SimpleWeightedGraph(adj_mtx + adj_mtx')
-    # g_inc = SimpleWeightedGraph(length(vert_counts))
-    # for edge in edges
-    #     LightGraphs.add_edge!(g_inc, edge)
-    # end
 
     conn_comps = LightGraphs.connected_components(g_inc);
     longest_paths = Array{Int, 1}[]
@@ -141,6 +136,31 @@ function longest_paths(edges::Array{T, 1})::Array{Array{Int, 1}, 1} where T <: L
     end
 
     return longest_paths
+end
+
+function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T} where T <: Real; max_dev::T2 where T2 <: Real=10.0)
+    polygon_inds = Vector{Int}[]
+    while !isempty(vert_inds)
+        ci = vert_inds[1]
+        cur_ids = [ci]
+        kdt = KDTree(Float64.(border_coords[:, vert_inds]));
+        while true
+            nn_ids = setdiff(vert_inds[inrange(kdt, Float64.(border_coords[:, ci]), max_dev)], cur_ids)
+            if length(nn_ids) == 0
+                break
+            end
+
+            nn_ids = nn_ids[sortperm(vec(sum((border_coords[:, ci] .- border_coords[:, nn_ids]) .^ 2, dims=1)))]
+
+            ci = nn_ids[1]
+            push!(cur_ids, ci)
+        end
+
+        push!(polygon_inds, cur_ids)
+        vert_inds = setdiff(vert_inds, cur_ids)
+    end
+
+    return polygon_inds
 end
 
 boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
@@ -205,8 +225,8 @@ function find_grid_point_labels_knn(pos_data::Matrix{T} where T <: Real, cell_la
 end
 
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-                           grid_step::Float64=5.0, min_border_length::Int=3, method::Symbol=:knn,
-                           bandwidth::T2 where T2 <: Real =grid_step / 2, kwargs...)::Array{Array{Float64, 2}, 1}
+                           grid_step::Float64=5.0, min_border_length::Int=3, method::Symbol=:knn, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
+                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Array{Float64, 2}, 1}
     min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
     max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
 
@@ -229,10 +249,25 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
     grid_labels_plane = reshape(grid_labels, [length(unique(grid_points_mat[i,:])) for i in 1:2]...);
 
     borders_per_label = grid_borders_per_label(grid_labels_plane);
-    borders_per_label = borders_per_label[map(length, borders_per_label) .>= min_border_length]
-    grid_points_plane = reshape(grid_points, size(grid_labels_plane));
-    paths = longest_paths.(border_mst.(borders_per_label));
+    if !isempty(exclude_labels)
+        borders_per_label = borders_per_label[setdiff(1:length(borders_per_label), exclude_labels)]
+    end
 
+    borders_per_label = borders_per_label[length.(borders_per_label) .>= min_border_length]
+    grid_points_plane = reshape(grid_points, size(grid_labels_plane));
+
+    paths = nothing
+    edges_per_label = border_mst.(borders_per_label)
+    if shape_method == :path
+        paths = longest_paths.(edges_per_label);
+    elseif shape_method == :order
+        conn_comps = [LightGraphs.connected_components(LightGraphs.SimpleGraphFromIterator(LightGraphs.SimpleGraphs.SimpleEdge.(src.(edges), dst.(edges)))) for edges in edges_per_label]
+        paths = [vcat(order_points_to_polygon.(cc, Ref(hcat(borders...)), max_dev=max_dev)...) for (borders, cc) in zip(borders_per_label, conn_comps)];
+    else
+        error("Unknown shape_method: $shape_method")
+    end
+
+    paths = [ps[length.(ps) .> min_border_length] for ps in paths]
     polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(borders_per_label, paths)]...);
     polygons = [Array(hcat([grid_points_plane[c...] for c in coords]...)') for coords in polygons]
     return [vcat(cp, cp[1,:]') for cp in polygons]
