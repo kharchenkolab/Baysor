@@ -1,11 +1,11 @@
 import UMAP
 
 function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T;
-        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=2.0) where T <: Distributions.UnivariateDistribution
+        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=2.0, bins::Int=200, kwargs...) where T <: Distributions.UnivariateDistribution
     x_max = quantile(edge_length, 0.99)
-    Plots.histogram(edge_length[edge_length .< x_max], bins=200, normalize=true, label="Observed distribution",
+    Plots.histogram(edge_length[edge_length .< x_max]; bins=bins, normalize=true, label="Observed distribution",
         xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title="Noise estimation",
-        linewidth=linewidth)
+        linewidth=linewidth, kwargs...)
     x_vals = range(0, x_max, length=1000)
     n1 = sum(confidences)
     n2 = length(confidences) - n1
@@ -59,7 +59,8 @@ function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecule
         return gc_plot, nothing
     end
 
-    cc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=map_to_colors(confidence)[:colors], ms=ms, alpha=alpha, size=plot_size,
+    conf_colors = map_to_colors(confidence, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
+    cc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=conf_colors[:colors], ms=ms, alpha=alpha, size=plot_size,
         minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title=title2, kwargs...)
 
     return gc_plot, cc_plot

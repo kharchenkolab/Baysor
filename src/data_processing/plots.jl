@@ -80,7 +80,8 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
                              alpha=alpha, legend=false, subplot=subplot, kwargs...)
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
-        c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
+        c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10", lchoices=range(20, stop=70, length=15))
+        # c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
         if shuffle_colors
             Random.shuffle!(c_map)
         end
@@ -308,8 +309,7 @@ end
 
 ### Colormaps
 
-function map_to_colors(vals::Array{T, 1} where T; h=0, n::Int=11, lims=nothing)
-    palette = Colors.sequential_palette(h, n)
+function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette=Colors.sequential_palette(0, 11))
     offset = (lims === nothing) ? minimum(vals) : lims[1]
     scale = (lims === nothing) ? maximum(vals) - offset : (lims[2] - lims[1])
 
@@ -317,8 +317,8 @@ function map_to_colors(vals::Array{T, 1} where T; h=0, n::Int=11, lims=nothing)
         vals = min.(max.(vals, lims[1]), lims[2])
     end
 
-    color_ticks = collect(range(0.0, 1.0, length=n)) .* scale .+ offset
-    colors = palette[floor.(Int, ((vals .- offset) ./ scale) .* (n - 1) .+ 1)]
+    color_ticks = collect(range(0.0, 1.0, length=length(palette))) .* scale .+ offset
+    colors = palette[floor.(Int, ((vals .- offset) ./ scale) .* (length(palette) - 1) .+ 1)]
 
     return Dict(:colors=>colors, :ticks=>color_ticks, :palette=>palette)
 end
