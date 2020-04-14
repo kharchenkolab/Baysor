@@ -74,14 +74,16 @@ end
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
         n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=div(length(genes), 200), n_iters_without_update::Int=20,
         min_mols_per_cell::Int=0,
-        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing,
+        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
         verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false)
     if cell_type_exprs === nothing
         if n_clusters <= 1
             error("Either n_clusters or cell_type_exprs must be specified")
         end
 
-        cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
+        cell_type_exprs = copy(hcat(count_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
+    else
+        cell_type_exprs .*= sum(cell_type_exprs, dims=2) ./ sum(cell_type_exprs) .* length(genes)
     end
 
     if !weights_pre_adjusted
@@ -91,12 +93,15 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
     cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
 
-    assignment_probs = zeros(size(cell_type_exprs, 1), length(genes));
+    if assignment_probs === nothing
+        assignment_probs = zeros(size(cell_type_exprs, 1), length(genes));
 
-    if assignment === nothing
-        assignment_probs .= cell_type_exprs_norm[:, genes];
-    else
-        assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
+        if assignment === nothing
+            assignment_probs .= cell_type_exprs_norm[:, genes];
+            assignment_probs ./= sum(assignment_probs, dims=1)
+        else
+            assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
+        end
     end
 
     assignment_probs_prev = deepcopy(assignment_probs)
