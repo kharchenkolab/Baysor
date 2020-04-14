@@ -333,8 +333,8 @@ end
 
 plot_colorbar(colors; kwargs...) = plot_colorbar(colors[:ticks], colors[:palette]; kwargs...)
 
-function plot_colorbar(color_ticks, palette; size=(500, 60), rotation=0)
-    p = Plots.bar(color_ticks, ones(length(palette)), color=palette, size=size, legend=false, yticks=false)
+function plot_colorbar(color_ticks, palette; size=(500, 60), rotation=0, kwargs...)
+    p = Plots.bar(color_ticks, ones(length(palette)); color=palette, size=size, legend=false, yticks=false, kwargs...)
     p.subplots[1][:xaxis][:rotation] = rotation;
 
     return p
