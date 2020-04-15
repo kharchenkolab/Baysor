@@ -91,3 +91,33 @@ function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation
 
     return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
 end
+
+function extract_filtered_local_vectors(df_spatial::DataFrame, adjacent_points::Array{Vector{Int}, 1}, k::Int;
+        confidence::Union{Vector{Float64}, Nothing}=df_spatial.confidence, clust_per_mol::Union{Vector{Int}, Nothing}=nothing,
+        n_vectors::Int=0, confidence_threshold::Float64=0.95, kwargs...)
+    if clust_per_mol === nothing
+        clust_per_mol = ones(Int, size(df_spatial, 1))
+    end
+
+    if confidence !== nothing
+        clust_per_mol[confidence .< confidence_threshold] .= 0
+    end
+
+    conn_comps, rci, mol_ids_per_cell = get_connected_components_per_label(clust_per_mol, adjacent_points, 1)
+    mol_ids_per_comp = vcat([[mol_ids_per_cell[i][ids] for ids in conn_comps[i]] for i in 1:length(conn_comps)]...)
+    mol_ids_per_comp = mol_ids_per_comp[length.(mol_ids_per_comp) .>= k];
+
+    pos_data = position_data(df_spatial)
+    n_genes = maximum(df_spatial.gene)
+    neighb_mat_filt = hcat([neighborhood_count_matrix(pos_data[:, ids], df_spatial.gene[ids], k; n_genes=n_genes, kwargs...) for ids in mol_ids_per_comp]...)
+
+    mol_id_per_vec = vcat(mol_ids_per_comp...)
+    if n_vectors > 0
+        ids = select_ids_uniformly(df_spatial.x[mol_id_per_vec], df_spatial.y[mol_id_per_vec]; n=n_vectors)
+        mol_id_per_vec = mol_id_per_vec[ids]
+        neighb_mat_filt = neighb_mat_filt[:, ids]
+    end
+
+    order = sortperm(mol_id_per_vec)
+    return neighb_mat_filt[:, order], mol_id_per_vec[order]
+end
