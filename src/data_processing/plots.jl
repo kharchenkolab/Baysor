@@ -9,7 +9,7 @@ using Statistics
 import MultivariateStats
 import Plots
 
-plot_cell_borders_density(bmm_data::BmmData; kwargs...) = plot_cell_borders_density(bmm_data.x, bmm_data.assignment; kwargs...)
+plot_cell_borders_density(data::BmmData; kwargs...) = plot_cell_borders_density(data.x, data.assignment; kwargs...)
 function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)
     polygons = boundary_polygons(df_spatial, cell_labels, min_molecules_per_cell=min_n_molecules);
     return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
@@ -87,8 +87,9 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         end
         for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
+            c_alpha = (length(alpha) == 1) ? alpha : alpha[annotation .== ann]
             fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=alpha, label=ann, legend=legend, color=color,
+                                 markerstrokewidth=0, markersize=point_size, alpha=c_alpha, label=ann, legend=legend, color=color,
                                  bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), subplot=subplot, style_dict..., kwargs...)
         end
 
@@ -152,11 +153,11 @@ end
 
 ### Gene composition visualization
 
-neighborhood_count_matrix(bmm_data::BmmData, k::Int) = neighborhood_count_matrix(bmm_data.x, k, maximum(bmm_data.x.gene))
-neighborhood_count_matrix(df::DataFrame, k::Int, args...; kwargs...) =
-    neighborhood_count_matrix(position_data(df), df.gene, k, args...; kwargs...)
+neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
+    neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
-function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int, n_genes::Int=maximum(genes); normalize_by_dist::Bool=true, normalize::Bool=true)
+function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int;
+    n_genes::Int=maximum(genes), normalize_by_dist::Bool=true, normalize::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
         k = 3
@@ -202,7 +203,7 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}, confid
     Random.seed!(seed)
 
     pc2 = transform(fit(MultivariateStats.PCA, count_matrix, maxoutdim=2), count_matrix);
-    sample_ids = select_ids_uniformly(pc2[1,:], pc2[2,:], confidence, sample_size)
+    sample_ids = select_ids_uniformly(pc2[1,:], pc2[2,:], confidence, n=sample_size)
 
     count_matrix_sample = count_matrix[:,sample_ids]
 
@@ -275,8 +276,8 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
     borders = borders[:, filt_mask]
     df_subsets = df_subsets[filt_mask];
 
-    assignments = [df.cell for df in df_subsets];
-    genes_per_frame = [df.gene for df in df_subsets];
+    assignments = [df_spatial.cell for df_spatial in df_subsets];
+    genes_per_frame = [df_spatial.gene for df_spatial in df_subsets];
     grid_step = frame_size / grid_size
 
     plot_info = @showprogress "Extracting plot info..." pmap(zip(df_subsets, genes_per_frame, assignments)) do (cdf, g, a)

@@ -127,9 +127,9 @@ end
 
 position_data(df::AbstractDataFrame)::Matrix{Float64} = Matrix{Float64}(df[:, [:x, :y]])'
 position_data(data::BmmData)::Matrix{Float64} = data.position_data
-composition_data(df::AbstractDataFrame)::Vector{Int} = df[!, :gene]
+composition_data(df::AbstractDataFrame)::Vector{Int} = df.gene
 composition_data(data::BmmData)::Vector{Int} = data.composition_data
-confidence(df::AbstractDataFrame)::Vector{Float64} = df[!, :confidence]
+confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
 confidence(data::BmmData)::Vector{Float64} = data.confidence
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
