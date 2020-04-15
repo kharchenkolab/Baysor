@@ -199,7 +199,7 @@ function filter_small_molecule_clusters(genes::Vector{Int}, confidence::Vector{F
         assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}; min_mols_per_cell::Int, confidence_threshold::Float64=0.95)
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
-    conn_comps_per_clust = get_connected_component_per_label(assignment, adjacent_points, 1;
+    conn_comps_per_clust = get_connected_components_per_label(assignment, adjacent_points, 1;
         confidence=confidence, confidence_threshold=confidence_threshold)[1];
     n_mols_per_comp_per_clust = [length.(c) for c in conn_comps_per_clust];
 
