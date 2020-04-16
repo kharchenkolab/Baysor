@@ -15,9 +15,10 @@ end
 
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; size=(800, 300), kwargs...)
     order = sortperm(gene_names)
-    plot_expression_vectors(count_array(genes[confidences .>= 0.5])[order],
-        count_array(genes[confidences .< 0.5])[order], gene_names=gene_names[order];
-        labels=["Real", "Noise"], xlabel="Gene ID", ylabel="#Transcripts",
+    plot_expression_vectors(
+        count_array(genes[confidences .>= 0.5], max_value=length(gene_names))[order],
+        count_array(genes[confidences .< 0.5], max_value=length(gene_names))[order],
+        gene_names=gene_names[order]; labels=["Real", "Noise"], xlabel="Gene ID", ylabel="#Transcripts",
         min_expr_frac=0.01, legend=:topleft, alpha=0.3, xlims=(0, length(gene_names)), size=size, kwargs...)
 end
 

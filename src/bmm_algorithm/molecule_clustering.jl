@@ -68,7 +68,7 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
     ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=100000);
     ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
 
-    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights; cell_type_exprs=ct_exprs_init, kwargs...)
+    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; cell_type_exprs=ct_exprs_init, kwargs...)
 end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};

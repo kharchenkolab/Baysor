@@ -202,8 +202,8 @@ function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{In
 
     plot_info = @showprogress "Extracting plot info..." pmap(zip(df_subsets, genes_per_frame, assignments)) do (cdf, g, a)
         pd = position_data(cdf)
-        pol = boundary_polygons(pd, a; grid_step=grid_step)
-        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood, maximum(df_res.gene)), transformation)
+        pol = boundary_polygons(pd, a; grid_step=grid_step, method=:kde, bandwidth=grid_step)
+        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood; n_genes=maximum(df_res.gene)), transformation)
         pol, col
     end;
 

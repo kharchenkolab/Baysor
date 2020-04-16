@@ -1,4 +1,6 @@
-function select_ids_uniformly(xs::Vector{T}, ys::Vector{T}, confidence::Vector{Float64}, n::Int; confidence_threshold::Float64=0.95)::Vector{Int} where T <: Real
+using Base.Threads
+
+function select_ids_uniformly(xs::Vector{T}, ys::Vector{T}, confidence::Vector{Float64}; n::Int, confidence_threshold::Float64=0.95)::Vector{Int} where T <: Real
     dense_ids = findall(confidence .>= confidence_threshold)
     if length(dense_ids) < n
         return dense_ids
