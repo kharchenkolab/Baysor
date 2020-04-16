@@ -167,52 +167,51 @@ boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm
 boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...) =
     boundary_polygons(position_data(spatial_df), cell_labels; kwargs...)
 
-function find_grid_point_labels_dens(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}, grid_points_mat::Matrix{T} where T <: Real;
-        dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false, use_kde::Bool=true, bandwidth::Float64=1.0)::Vector{Int}
-    coords_per_label = [pos_data[:, cell_labels .== i] for i in 1:maximum(cell_labels)];
+function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Array{Int64,1}, min_x::Vector{T}, max_x::Vector{T};
+        grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
+    coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)[2:end]];
     coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
 
     if length(coords_per_label) == 0
-        return Int[]
+        return Matrix{Int}(undef,0,0)
     end
 
     FFTW.set_num_threads(1); # see https://github.com/JuliaStats/KernelDensity.jl/issues/80
 
-    dens_per_label = [Float64[] for i in 1:length(coords_per_label)]
-    if use_kde
-        p = verbose ? Progress(length(coords_per_label)) : nothing
-        # @threads
-        for i in 1:length(coords_per_label)
-            dens_per_label[i] = estimate_density_kde(coords_per_label[i], grid_points_mat, bandwidth)
-            if verbose
-                next!(p)
+    xw, yw = ceil.(Int, (max_x .- min_x) ./ grid_step)
+    label_mat = zeros(Int, xw, yw);
+    dens_mat = zeros(xw, yw);
+
+    p = verbose ? Progress(length(coords_per_label)) : nothing
+    for ci in 1:length(coords_per_label)
+        coords = coords_per_label[ci]
+        sxi = max(floor(Int, (minimum(coords[1,:]) - min_x[1] - 3 * bandwidth) / grid_step), 1);
+        ex = maximum(coords[1,:]) + 3 * bandwidth;
+
+        syi = max(floor(Int, (minimum(coords[2,:]) - min_x[2] - 3 * bandwidth) / grid_step), 1);
+        ey = maximum(coords[2,:]) + 3 * bandwidth;
+
+        cxs = (sxi * grid_step + min_x[1]):grid_step:ex;
+        cys = (syi * grid_step + min_x[2]):grid_step:ey;
+
+        dens = kde((coords[1,:], coords[2,:]), (cxs, cys), bandwidth=(bandwidth, bandwidth)).density
+
+        for dyi in 1:length(cys)
+            yi = dyi + syi
+            if yi > size(dens_mat, 2)
+                break
             end
-        end
-    else
-        dens_per_label = estimate_density_norm.(coords_per_label, Ref(grid_points_mat))
-    end
 
-    densities = hcat(dens_per_label...);
-
-    grid_labels = mapslices(x -> findmax(x)[2], densities, dims=2)
-    grid_labels[sum(densities, dims=2) .< dens_threshold] .= 0;
-    return vec(grid_labels)
-end
-
-function find_grid_point_labels_knn(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}, grid_points_mat::Matrix{T} where T <: Real;
-        grid_step::Float64, k::Int=10, verbose::Bool=false)::Vector{Int}
-    real_ids = findall(cell_labels .> 0)
-    knn_ids, knn_dists = knn(KDTree(grid_points_mat), pos_data[:, real_ids], k);
-    grid_labels = zeros(Int, size(grid_points_mat, 2))
-    grid_dits = zeros(Int, size(grid_points_mat, 2)) .+ Inf
-    p = verbose ? Progress(length(knn_ids)) : nothing
-    for ci in 1:length(knn_ids)
-        c_ids = knn_ids[ci]
-        c_dists = knn_dists[ci]
-        for gi in 1:length(c_ids)
-            if (c_dists[gi] .< grid_step) && (c_dists[gi] .< grid_dits[c_ids[gi]])
-                grid_labels[c_ids[gi]] = cell_labels[real_ids[ci]]
-                grid_dits[c_ids[gi]] = c_dists[gi]
+            for dxi in 1:length(cxs)
+                xi = dxi + sxi
+                if xi > size(dens_mat, 1)
+                    break
+                end
+                d = dens[dxi, dyi]
+                if (d > dens_threshold) && (d > dens_mat[xi, yi])
+                    dens_mat[xi, yi] = d
+                    label_mat[xi, yi] = ci
+                end
             end
         end
 
@@ -221,32 +220,20 @@ function find_grid_point_labels_knn(pos_data::Matrix{T} where T <: Real, cell_la
         end
     end
 
-    return grid_labels
+    return label_mat
 end
 
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-                           grid_step::Float64=5.0, min_border_length::Int=3, method::Symbol=:knn, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
-                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Array{Float64, 2}, 1}
+                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
+                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
     min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
     max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
 
-    grid_points = grid_point_coords(min_x, max_x, grid_step);
-    grid_points_mat = hcat(grid_points...)
+    grid_labels_plane = find_grid_point_labels_kde_opt(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
 
-    grid_labels = Int[]
-    if method == :knn
-        grid_labels = find_grid_point_labels_knn(pos_data, cell_labels, grid_points_mat; grid_step=grid_step, kwargs...)
-    elseif method in (:norm, :kde)
-        grid_labels = find_grid_point_labels_dens(pos_data, cell_labels, grid_points_mat; use_kde=(method == :kde), bandwidth=bandwidth, kwargs...)
-    else
-        error("Unknown method: $method")
-    end
-
-    if length(grid_labels) == 0
+    if length(grid_labels_plane) == 0
         return Matrix{Float64}[]
     end
-
-    grid_labels_plane = reshape(grid_labels, [length(unique(grid_points_mat[i,:])) for i in 1:2]...);
 
     borders_per_label = grid_borders_per_label(grid_labels_plane);
     if !isempty(exclude_labels)
@@ -254,7 +241,6 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
     end
 
     borders_per_label = borders_per_label[length.(borders_per_label) .>= min_border_length]
-    grid_points_plane = reshape(grid_points, size(grid_labels_plane));
 
     paths = nothing
     edges_per_label = border_mst.(borders_per_label)
@@ -269,43 +255,6 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
 
     paths = [ps[length.(ps) .> min_border_length] for ps in paths]
     polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(borders_per_label, paths)]...);
-    polygons = [Array(hcat([grid_points_plane[c...] for c in coords]...)') for coords in polygons]
+    polygons = [copy((hcat(coords...) .* grid_step .+ min_x)') for coords in polygons]
     return [vcat(cp, cp[1,:]') for cp in polygons]
-end
-
-## Futures
-
-_is_inner(ps::Array{Float64, 2}, grid_step::Float64; k=min(5, size(ps, 2))) =
-    [all(ds .< grid_step * 1.001) for ds in knn(KDTree(ps), ps, k)[2]]
-
-# For future optimizations. Should replace boundary_polygons
-function _boundary_polygons_opt(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-        grid_step::Float64=5.0, min_border_length::Int=3)
-    real_ids = findall(cell_labels .> 0)
-    pos_tree = KDTree(pos_data[:, real_ids])
-    grid_labels = Int[]
-    grid_points = Vector{Float64}[]
-    for (x,y) in Iterators.product([s:grid_step:e for (s, e) in zip(min_x, max_x)]...)
-        id,dist = knn(pos_tree, [x,y], 1)
-        if dist[1] > grid_step * 2.5 # TODO: 2.5 is to account for holes in molecules inside a cell. Won't work in general case. Also makes polygons larger than it should be.
-            continue
-        end
-        push!(grid_points, [x,y])
-        push!(grid_labels, cur_df.cell[real_ids[id[1]]])
-    end
-
-    # t_pd = hcat(grid_points...);
-    # Plots.scatter(t_pd[1,:], t_pd[2,:], color=Baysor.distinguishable_colors(grid_labels)[:colors], format=:png, legend=:none,
-    #     ms=0.1, markerstrokewidth=0)
-
-    grid_points_per_label = split(grid_points, grid_labels .+ 1)[2:end];
-    # TODO: it's alternative to grid_borders_per_label, which picks only border molecules. As cells can have holes, it won't work in general case
-    grid_points_per_label = [ps[.!_is_inner(hcat(ps...), grid_step)] for ps in grid_points_per_label if length(ps) >= min_border_length];
-    grid_points_per_label = grid_points_per_label[length.(grid_points_per_label) .>= min_border_length];
-
-    # t_pd = hcat([hcat(x...) for x in grid_points_per_label]...);
-    # Plots.scatter(t_pd[1,:], t_pd[2,:], format=:png, legend=:none, ms=0.1, markerstrokewidth=0, size=(750, 750))
-    paths = longest_paths.(border_mst.(grid_points_per_label, min_edge_length=grid_step * 0.1, max_edge_length=grid_step * 1.5));
-    polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(grid_points_per_label, paths)]...);
-    return [copy(hcat(x...)') for x in polygons];
 end
