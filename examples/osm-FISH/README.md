@@ -25,19 +25,21 @@ wget -P data http://pklab.med.harvard.edu/viktor/baysor/osm_fish/centers_from_se
 Or convert it to an image using the following python code:
 
 ```python
-import skimage
+from skimage import io
 import numpy as np
+import pandas as pd
 
-segmentation_labels = np.load("./data/polyT_seg.pkl", allow_pickle=True)
+segmentation_labels = pd.read_pickle("./data/polyT_seg.pkl")
+df = pd.read_csv("./data/mRNA_coords_raw_counting.csv")
 
 dapi_shape = np.concatenate([[x.max(axis=0)] for x in segmentation_labels.values()]).max(axis=0)
-dapi_shape = np.maximum(dapi_shape, vdata.df[["x", "y"]].max().astype(int).values)
+dapi_shape = np.maximum(dapi_shape, df[["x", "y"]].max().astype(int).values)
 segmentation_mask = np.zeros(dapi_shape + 1, dtype=int)
 
 for label,coords in segmentation_labels.items():
     segmentation_mask[coords[:,0], coords[:,1]] = int(label)
 
-skimage.io.imsave("./data/segmentation.tiff", segmentation_mask.T.astype(np.uint16))
+io.imsave("./data/segmentation.tiff", segmentation_mask.T.astype(np.uint16))
 ```
 
 ## CLI run
