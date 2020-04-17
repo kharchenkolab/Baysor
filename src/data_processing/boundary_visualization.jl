@@ -223,19 +223,9 @@ function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Array{
     return label_mat
 end
 
-function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
-                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
-    min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
-    max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
-
-    grid_labels_plane = find_grid_point_labels_kde_opt(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
-
-    if length(grid_labels_plane) == 0
-        return Matrix{Float64}[]
-    end
-
-    borders_per_label = grid_borders_per_label(grid_labels_plane);
+function extract_polygons_from_label_grid(grid_labels::Matrix{Int}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
+        exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=zeros(2), grid_step::Float64=1.0)
+    borders_per_label = grid_borders_per_label(grid_labels);
     if !isempty(exclude_labels)
         borders_per_label = borders_per_label[setdiff(1:length(borders_per_label), exclude_labels)]
     end
@@ -255,6 +245,22 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
 
     paths = [ps[length.(ps) .> min_border_length] for ps in paths]
     polygons = vcat([[borders[p] for p in cur_paths] for (borders, cur_paths) in zip(borders_per_label, paths)]...);
-    polygons = [copy((hcat(coords...) .* grid_step .+ min_x)') for coords in polygons]
+    polygons = [copy((hcat(coords...) .* grid_step .+ offset)') for coords in polygons]
     return [vcat(cp, cp[1,:]') for cp in polygons]
+end
+
+function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
+                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
+                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
+    min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
+    max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
+
+    grid_labels_plane = find_grid_point_labels_kde_opt(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
+
+    if length(grid_labels_plane) == 0
+        return Matrix{Float64}[]
+    end
+
+    return extract_polygons_from_label_grid(grid_labels_plane; min_border_length=min_border_length, shape_method=shape_method, max_dev=max_dev,
+        exclude_labels=exclude_labels, offset=min_x, grid_step=grid_step)
 end
