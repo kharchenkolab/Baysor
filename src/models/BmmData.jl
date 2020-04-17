@@ -307,10 +307,3 @@ function global_assignment_ids(data::BmmData)::Vector{Int}
 
     return res
 end
-
-function convert_segmentation_df_to_cm(segmentation_df::DataFrame; noise_id::Int=0) # TODO: move to other file
-    coll_df = deepcopy(segmentation_df[:, [:cell, :gene]])
-    coll_df[!, :val] .= 1
-    cm = unstack(@by(coll_df, [:cell, :gene], val=sum(:val)), :cell, :gene, :val);
-    return coalesce.(@where(cm, :cell .!= noise_id), 0);
-end

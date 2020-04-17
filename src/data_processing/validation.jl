@@ -135,3 +135,23 @@ function assignment_summary_df(assignments::Pair{Symbol, Vector{Int}}...; min_mo
         "n_cells" => [sum(count_array(x .+ 1)[2:end] .>= min_molecules_per_cell) for x in values(assignments)]
     ))[:, [:name, :n_cells, :noise_frac]]
 end
+
+function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vector{Int}; drop_empty_labels::Bool=false)
+    if drop_empty_labels
+        if minimum(cell_assignment) == 0
+            cell_assignment = denserank(cell_assignment) .- 1
+        else
+            cell_assignment = denserank(cell_assignment)
+        end
+    end
+
+    cm = zeros(Int, maximum(genes), maximum(cell_assignment))
+    for i in 1:length(genes)
+        if cell_assignment[i] == 0
+            continue
+        end
+        cm[genes[i], cell_assignment[i]] += 1
+    end
+
+    return cm
+end
