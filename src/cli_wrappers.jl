@@ -71,7 +71,7 @@ function extend_params_with_config!(params::Dict, config::Dict)
     end
 end
 
-load_df(args::Dict) = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], min_molecules_per_gene=args["min-molecules-per-gene"])
+load_df(args::Dict; kwargs...) = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], min_molecules_per_gene=args["min-molecules-per-gene"], kwargs...)
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
@@ -86,7 +86,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Name of x column. Overrides the config value."
         "--y-column", "-y"
             help = "Name of gene column. Overrides the config value."
-        "--gene-column"
+        "--gene-column", "-g"
             help = "Name of gene column. Overrides the config value."
 
         "--iters", "-i"
@@ -264,7 +264,8 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Run"
     @info "Load data..."
-    df_spatial, gene_names = load_df(args)
+    df_spatial, gene_names = load_df(args, filter_cols=true)
+    df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
 
     df_centers = nothing
     bm_data_arr = BmmData[]
@@ -321,11 +322,15 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     # Save results
 
     segmentated_df = get_segmentation_df(bm_data, gene_names)
-    cell_stat_df = get_cell_stat_df(bm_data; add_qc=true)
+    cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true, min_molecules_per_cell=args["min-molecules-per-cell"])
 
     @info "Save data to $(args["output"])"
-    CSV.write(args["output"], segmentated_df);
+    CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
+
+    cm = DataFrame(convert_segmentation_to_counts(composition_data(bm_data), bm_data.assignment), [Symbol("$c") for c in 1:maximum(bm_data.assignment)])
+    cm[!, :gene] = gene_names
+    CSV.write(append_suffix(args["output"], "counts.tsv"), cm[:, vcat(end, 1:end-1)]; delim='\t');
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
@@ -351,7 +356,7 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
             help = "Name of x column. Overrides the config value."
         "--y-column", "-y"
             help = "Name of gene column. Overrides the config value."
-        "--gene-column"
+        "--gene-column", "-g"
             help = "Name of gene column. Overrides the config value."
         "--min-molecules-per-cell", "-m"
             help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
