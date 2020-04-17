@@ -3,21 +3,39 @@ import MultivariateStats
 
 ### Main functions
 
-"""
-kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs
-"""
-function score_doublets(data::BmmData; n_expression_clusters::Int, distance::T where T <: Distances.SemiMetric,
-        min_molecules_per_cell::Int, na_value::Union{Float64, Missing, Nothing}=missing, min_impact_level::Float64=0.1, kwargs...)
-    # TODO: re-write using factorize_doublet_expression_ll and data.misc (see split_components_by_expression!)
-    cm = extract_gene_matrix_from_distributions2(data.components);
+function score_doublets(data::BmmData; kwargs...)
+    cm = extract_gene_matrix_from_distributions2(data.components)
+    if :cluster_centers in keys(data.misc)
+        return score_doublets(cm, data.misc[:cluster_centers]; kwargs...)
+    end
+
+    return score_doublets(cm; kwargs...)
+end
+
+function score_doublets(cm::Matrix{TR} where TR <: Real, n_expression_clusters::Int=0; distance::T where T <: Distances.SemiMetric, min_molecules_per_cell::Int, kwargs...)
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
 
     cm_norm = cm ./ max.(sum(cm, dims=1), 1e-50);
-    feature_mtx, cluster_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
-    comb_improvements, mixing_fractions = factorize_doublet_expression(feature_mtx, cluster_centers; distance=distance)[3:4]
+    feature_mtx, feature_space_centers = estimate_expression_clusters(cm_norm[:, real_cell_inds], n_expression_clusters; distance=distance, kwargs...)
+    clust_per_cell = assign_to_centers(feature_mtx, feature_space_centers, distance);
+    cluster_centers = hcat([mean(cm_norm[:, ids], dims=2) for ids in split(real_cell_inds, clust_per_cell)]...);
 
-    all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], length(data.components))
-    all_fractions = repeat(Union{Float64, typeof(na_value)}[na_value], length(data.components))
+    return score_doublets(cm, cluster_centers; min_molecules_per_cell=min_molecules_per_cell, kwargs...)
+end
+
+"""
+kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs
+"""
+function score_doublets(cm::Matrix{TR} where TR <: Real, cluster_centers::Union{Matrix{Float64}, Nothing}=nothing; min_molecules_per_cell::Int,
+        na_value::Union{Float64, Missing, Nothing}=missing, min_impact_level::Float64=0.1, kwargs...)
+    real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
+
+    comb_improvements, mixing_fractions = factorize_doublet_expression_ll(Float64.(cm[:, real_cell_inds]), cluster_centers)[3:4]
+
+    all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
+    all_fractions = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
+    all_pvals = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
+
     all_scores[real_cell_inds] .= comb_improvements
     all_fractions[real_cell_inds] .= 1 .- mixing_fractions
 
@@ -84,23 +102,6 @@ function split_component!(data::BmmData, component_id::Int, n_clusters::Int)
     append!(data.components, comps);
 
     return data
-end
-
-## DEPRECATED
-function factorize_doublet_expression(feature_mtx::Matrix{Float64}, cluster_centers::Matrix{Float64}; distance::T where T <: Distances.SemiMetric)
-    nn_dists = Distances.pairwise(Distances.CosineDist(), feature_mtx, cluster_centers; dims=2);
-    base1_ids = vec(mapslices(x -> findmin(x)[2], nn_dists, dims=2));
-
-    opt_comps = [[linsearch_gs(w -> distance(cluster_centers[:, base1_ids[ci]] .* w + cluster_centers[:, i] .* (1 - w), feature_mtx[:, ci]), 0.0, 1.0)
-        for i in 1:size(cluster_centers, 2)] for ci in 1:size(feature_mtx, 2)];
-
-    opt_dists = hcat([[v[2] for v in x] for x in opt_comps]...);
-
-    base2_ids = vec(mapslices(x -> findmin(x)[2], opt_dists, dims=1))
-    comb_improvements = vec(mapslices(x -> (maximum(x) - minimum(x)) / maximum(x), opt_dists, dims=1));
-    mixing_fractions = hcat([[v[1] for v in x] for x in opt_comps]...)[CartesianIndex.(base2_ids, 1:length(base2_ids))];
-
-    return base1_ids, base2_ids, comb_improvements, mixing_fractions
 end
 
 function estimate_expression_clusters(feature_mtx::Matrix{Float64}, n_clusters::Int, real_cell_inds::T where T<: AbstractArray{Int, 1} = 1:size(feature_mtx, 2); n_pcs::Int=0, kwargs...)
