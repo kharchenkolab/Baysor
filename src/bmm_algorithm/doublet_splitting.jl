@@ -12,7 +12,7 @@ function score_doublets(data::BmmData; kwargs...)
     return score_doublets(cm; kwargs...)
 end
 
-function score_doublets(cm::Matrix{TR} where TR <: Real, n_expression_clusters::Int=0; distance::T where T <: Distances.SemiMetric, min_molecules_per_cell::Int, kwargs...)
+function score_doublets(cm::Matrix{TR} where TR <: Real, n_expression_clusters::Int; distance::T where T <: Distances.SemiMetric, min_molecules_per_cell::Int, kwargs...)
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
 
     cm_norm = cm ./ max.(sum(cm, dims=1), 1e-50);
@@ -26,11 +26,13 @@ end
 """
 kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs
 """
-function score_doublets(cm::Matrix{TR} where TR <: Real, cluster_centers::Union{Matrix{Float64}, Nothing}=nothing; min_molecules_per_cell::Int,
+function score_doublets(cm::Matrix{TR} where TR <: Real, cluster_centers::Matrix{Float64}; min_molecules_per_cell::Int,
         na_value::Union{Float64, Missing, Nothing}=missing, min_impact_level::Float64=0.1, kwargs...)
     real_cell_inds = findall(vec(sum(cm, dims=1)) .>= min_molecules_per_cell);
 
     comb_improvements, mixing_fractions = factorize_doublet_expression_ll(Float64.(cm[:, real_cell_inds]), cluster_centers)[3:4]
+
+    comb_improvements[comb_improvements .< min_impact_level] .= 0.;
 
     all_scores = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
     all_fractions = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
@@ -38,8 +40,6 @@ function score_doublets(cm::Matrix{TR} where TR <: Real, cluster_centers::Union{
 
     all_scores[real_cell_inds] .= comb_improvements
     all_fractions[real_cell_inds] .= 1 .- mixing_fractions
-
-    all_fractions[all_scores .< min_impact_level] .= 0;
 
     return all_scores, all_fractions
 end
