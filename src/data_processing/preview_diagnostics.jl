@@ -42,7 +42,7 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
 end
 
 function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
-        confidence::Union{Vector{Float64}, Nothing}=nothing, ms::Float64=0.1, alpha::Float64=0.1,
+        confidence::Union{Vector{Float64}, Nothing}=nothing, ms::Float64=0.1, alpha::Union{Float64, Vector{Float64}}=0.1,
         polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], title1="Local expression similarity", title2="Transcript confidence", kwargs...)
     plot_size = min_pixels_per_cell * sqrt(size(df_spatial, 1) / min_molecules_per_cell)
     x_rng = val_range(df_spatial.x)
