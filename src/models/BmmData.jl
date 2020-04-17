@@ -232,7 +232,7 @@ function estimate_assignment_by_history(data::BmmData)
     return get.(Ref(guid_map), vec(reassignment), 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
-function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true)
+function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, do_score_doublets::Bool=true, min_molecules_per_cell::Int=3, sigdigits::Int=4)
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
@@ -265,14 +265,21 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         df[!,:elongation] = fill(NaN, size(df, 1))
         df[!,:area] = fill(NaN, size(df, 1))
 
-        df.area[large_cell_mask] = area.(convex_hull.(pos_data_per_cell[large_cell_mask]));
-        df.density[large_cell_mask] = df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask];
-        df.elongation[large_cell_mask] = [x[2] / x[1] for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
+        df.area[large_cell_mask] = round.(area.(convex_hull.(pos_data_per_cell[large_cell_mask])), sigdigits=sigdigits);
+        df.density[large_cell_mask] = round.(df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask], sigdigits=sigdigits);
+        df.elongation[large_cell_mask] = [round(x[2] / x[1], sigdigits=sigdigits) for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
         if :confidence in names(segmented_df)
-            df[!,:avg_confidence] = [mean(df.confidence) for df in seg_df_per_cell]
+            df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
         end
 
-        # TODO: add doublet scoring here
+        if do_score_doublets & !isempty(data.cluster_per_molecule)
+            cluster_centers = convert_segmentation_to_counts(composition_data(data), data.cluster_per_molecule);
+            cluster_centers = cluster_centers' ./ sum(cluster_centers', dims=2);
+
+            cm = convert_segmentation_to_counts(composition_data(data), data.assignment);
+            doublet_fractions = score_doublets(cm, cluster_centers; min_molecules_per_cell=min_molecules_per_cell)[2];
+            df[!, :doublet_score] = round.(min.(doublet_fractions, 0.5) .* 2, sigdigits=sigdigits)
+        end
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
@@ -284,6 +291,11 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
 
     if use_assignment_history && (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
         df[!,:cell], df[!,:assignment_confidence] = estimate_assignment_by_history(data)
+        df.assignment_confidence .= round.(df.assignment_confidence, digits=5)
+    end
+
+    if :confidence in names(df)
+        df.confidence = round.(df.confidence, digits=5)
     end
 
     df[!,:is_noise] = (df.cell .== 0);
