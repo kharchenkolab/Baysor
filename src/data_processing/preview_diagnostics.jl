@@ -41,10 +41,9 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
     Plots.annotate!(collect(zip(embedding[1,:], embedding[2,:], Plots.text.(gene_names, ceil.(Int, marker_sizes .* 1.5)))), color=Colors.RGBA(0.0, 0.0, 0.0, 0.75))
 end
 
-function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
-        confidence::Union{Vector{Float64}, Nothing}=nothing, ms::Float64=0.1, alpha::Union{Float64, Vector{Float64}}=0.1,
-        polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], title1="Local expression similarity", title2="Transcript confidence", kwargs...)
-    plot_size = min_pixels_per_cell * sqrt(size(df_spatial, 1) / min_molecules_per_cell)
+function estimate_panel_plot_size(df_spatial::DataFrame, min_molecules_per_cell::Int, min_pixels_per_cell::Int=7)
+    n_cells_per_side = sqrt(size(df_spatial, 1) / min_molecules_per_cell)
+    plot_size = min_pixels_per_cell * n_cells_per_side
     x_rng = val_range(df_spatial.x)
     y_rng = val_range(df_spatial.y)
     y_ratio = (y_rng[2] - y_rng[1]) / (x_rng[2] - x_rng[1])
@@ -52,17 +51,13 @@ function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecule
     y_ratio = y_ratio^0.5;
     x_ratio = 1 / y_ratio^0.5;
     plot_size = (x_ratio * plot_size, y_ratio * plot_size)
+    return plot_size, n_cells_per_side
+end
 
-    gc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=colors, ms=ms, alpha=alpha, size=plot_size,
-        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title=title1, kwargs...)
+function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
+        ms::Float64=0.1, alpha::Union{Float64, Vector{Float64}}=0.1, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], kwargs...)
+    plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
 
-    if confidence === nothing
-        return gc_plot, nothing
-    end
-
-    conf_colors = map_to_colors(confidence, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
-    cc_plot = plot_cell_borders_polygons(df_spatial, polygons; color=conf_colors[:colors], ms=ms, alpha=alpha, size=plot_size,
-        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), title=title2, kwargs...)
-
-    return gc_plot, cc_plot
+    return plot_cell_borders_polygons(df_spatial, polygons; color=colors, ms=ms, alpha=alpha, size=plot_size,
+        minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), kwargs...)
 end
