@@ -1,4 +1,4 @@
-import Clustering
+import NMF
 using ProgressMeter
 using DataFrames
 using Statistics
@@ -61,12 +61,13 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
     return total_ll
 end
 
+# DEPRECATED?
 function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
         n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
 
     cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
-    ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=100000);
-    ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
+    ct_exprs_init = NMF.nndsvd(cor_mat, n_clusters)[1]
+    ct_exprs_init = 0.75 .* (ct_exprs_init ./ sum(ct_exprs_init, dims=1))' .+ 0.25 .* prob_array(df_spatial.gene)'
 
     return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; cell_type_exprs=ct_exprs_init, kwargs...)
 end
@@ -81,10 +82,11 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             error("Either n_clusters or cell_type_exprs must be specified")
         end
 
-        cell_type_exprs = copy(hcat(count_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
-    else
-        cell_type_exprs .*= sum(cell_type_exprs, dims=2) ./ sum(cell_type_exprs) .* length(genes)
+        gene_probs = prob_array(genes)
+        cell_type_exprs = gene_probs' .* (1 .+ (hcat([[hash((x1 + 1) ^ x2) for x2 in 1:n_clusters] for x1 in 1:length(gene_probs)]...) .% 10000) ./ 100000) # determenistic way of adding pseudo-random noise
     end
+
+    cell_type_exprs .*= sum(cell_type_exprs, dims=2) ./ sum(cell_type_exprs) .* length(genes)
 
     if !weights_pre_adjusted
         adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
@@ -113,6 +115,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     end
 
     comp_weights = ones(size(assignment_probs, 1))
+    penalize_small_clusters = false
     n_iters = 0
     for i in 1:max_iters
         n_iters = i
@@ -121,7 +124,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights,
             new_prob=new_prob, comp_weights=comp_weights)
 
-        if (min_mols_per_cell > 1) && (i > n_iters_without_update) && (i % 10 == 0)
+        if penalize_small_clusters & (min_mols_per_cell > 1) & (i > n_iters_without_update) & (i % 10 == 0)
             assignment_probs, n_mols_per_comp_per_clust, real_clust_ids = filter_small_molecule_clusters( # filter empty clusters
                 genes, confidence, adjacent_points, assignment_probs, cell_type_exprs; min_mols_per_cell=1)
 
@@ -145,9 +148,9 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             next!(progress)
         end
 
-        if (max_diffs[end] < 2 * tol) && (new_prob > 1e-5)
+        if (max_diffs[end] < 2 * tol) & ((new_prob > 1e-5) | !penalize_small_clusters)
             new_prob = 0.0
-            assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
+            penalize_small_clusters = true
             continue
         end
 
