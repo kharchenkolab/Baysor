@@ -34,8 +34,9 @@ function get_default_config()
             "n-degrees-of-freedom-center" => nothing
         ),
         "Plotting" => Dict{String, Any}(
-            "gene-composition-neigborhood" => 20, # TODO: should it be nothing to use default estimation?
-            "plot-frame-size" => 5000
+            "gene-composition-neigborhood" => nothing,
+            "plot-frame-size" => 5000, # DEPRECATED?
+            "min-pixels-per-cell" => 15
         )
     ))
 end
@@ -157,6 +158,10 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         r["n-degrees-of-freedom-center"] = default_param_value(:n_degrees_of_freedom_center, r["min-molecules-per-cell"])
     end
 
+    if r["gene-composition-neigborhood"] === nothing
+        r["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, r["min-molecules-per-cell"])
+    end
+
     if isdir(r["output"]) || isdirpath(r["output"])
         r["output"] = joinpath(r["output"], "segmentation.csv")
     end
@@ -212,23 +217,28 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
     end
 end
 
-function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict;
-                                          plot_width::Int=800, margin=5*Plots.mm)
+function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict)
+    @info "Estimating local colors"
+    neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
+    transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
+    gene_colors = gene_composition_colors(neighb_cm, transformation)
+
     @info "Plot transcript assignment"
-    plots_col, plots_clust = plot_cell_boundary_polygons_all(df_res, assignment, df_centers; gene_composition_neigborhood=args["gene-composition-neigborhood"],
-        frame_size=args["plot-frame-size"], min_molecules_per_cell=args["min-molecules-per-cell"], plot_width=plot_width, margin=margin)
+    grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
+    polygons = boundary_polygons(df_res, df_res.cell; grid_step=grid_step, bandwidth=2*args["scale"]);
+
+    gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
+        min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity", alpha=0.5)
+
+    clust_plot = nothing
+    if :cluster in names(df_res)
+        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, annotation=df_res.cluster, min_molecules_per_cell=args["min-molecules-per-cell"],
+            min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering", alpha=0.5)
+    end
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
-        for p in plots_col
-            show(io, MIME("text/html"), p)
-        end
-
-        if plots_clust !== nothing
-            println(io, "<br>")
-            for p in plots_clust
-                show(io, MIME("text/html"), p)
-            end
-        end
+        show(io, MIME("text/html"), gc_plot)
+        show(io, MIME("text/html"), clust_plot)
     end
 end
 
@@ -287,8 +297,8 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             end
         end
 
-        mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=args["n-clusters"], weights_pre_adjusted=true,
-            min_mols_per_cell=args["min-molecules-per-cell"])
+        mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
+            n_clusters=args["n-clusters"], weights_pre_adjusted=true, min_mols_per_cell=args["min-molecules-per-cell"])
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
         max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
@@ -346,7 +356,6 @@ end
 
 ## Pre-view
 
-
 function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
     s = ArgParseSettings(prog="baysor preview")
     @add_arg_table! s begin
@@ -394,6 +403,10 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         r["output"] = joinpath(r["output"], "preview.html")
     end
 
+    if r["gene-composition-neigborhood"] === nothing
+        r["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, r["min-molecules-per-cell"])
+    end
+
     return r
 end
 
@@ -432,8 +445,12 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     gene_colors = gene_composition_colors(neighb_cm, color_transformation)
 
     @info "Building transcript plots"
-    gc_plot, cc_plot = plot_dataset_colors(df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],
-        min_pixels_per_cell=args["min-pixels-per-cell"], confidence=confidences)
+    gc_plot = plot_dataset_colors(df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],
+        min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity")
+
+    conf_colors = map_to_colors(confidence, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
+    cc_plot = plot_dataset_colors(df_spatial, conf_colors[:colors]; min_molecules_per_cell=args["min-molecules-per-cell"],
+        min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence")
 
     @info "Building gene structure plot"
     gene_structure_plot = plot_gene_structure(df_spatial, gene_names)
