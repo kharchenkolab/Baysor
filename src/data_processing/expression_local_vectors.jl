@@ -49,7 +49,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
     end
 
     # normalize_by_dist doesn't affect result much, but neither it slow the work down. In theory, should work better for border cases.
-    med_closest_dist = median(getindex.(dists, 2))
+    med_closest_dist = median([d[d .> 1e-15][1] for d in dists]) # account for problems with points with duplicating coordinates
     @threads for (i,(ids, dists)) in collect(enumerate(zip(neighbors, dists)))
         c_probs = view(n_cm, :, i)
         for (gene, dist) in zip(genes[ids], dists)
@@ -81,7 +81,7 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}, confid
     return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
 end
 
-function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation::UmapFit; color_range::T where T<:Real =2000.0)
+function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation::UmapFit; color_range::T where T<:Real =750.0)
     mtx_colors = MultivariateStats.transform(transformation, count_matrix);
     min_vals = minimum(transformation.embedding, dims=2)
     mtx_colors .-= min_vals
@@ -115,7 +115,7 @@ function extract_filtered_local_vectors(df_spatial::DataFrame, adjacent_points::
 
     mol_id_per_vec = vcat(mol_ids_per_comp...)
     if n_vectors > 0
-        ids = select_ids_uniformly(df_spatial.x[mol_id_per_vec], df_spatial.y[mol_id_per_vec]; n=n_vectors)
+        ids = select_ids_uniformly(df_spatial.x[mol_id_per_vec], df_spatial.y[mol_id_per_vec], confidence[mol_id_per_vec]; n=n_vectors)
         mol_id_per_vec = mol_id_per_vec[ids]
         neighb_mat_filt = neighb_mat_filt[:, ids]
     end
