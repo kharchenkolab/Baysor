@@ -134,6 +134,16 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     return p
 end
 
+function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String})
+    gene_dists = 1 .- cor(mtx');
+    cell_dists = 1 .- cor(mtx);
+
+    gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+    cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+
+    Plots.heatmap(mtx[gene_ord, cell_ord], yticks=(1:length(gene_names), gene_names[gene_ord])), cell_ord, gene_ord
+end
+
 ### Tracing
 
 function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
@@ -177,6 +187,7 @@ end
 subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real) =
     @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< (x_start + frame_size), :y .< (y_start + frame_size));
 
+# DEPRECATED?
 function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing};
                                          gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=500, return_raw::Bool=false,
                                          min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm)

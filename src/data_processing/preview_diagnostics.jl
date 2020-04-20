@@ -31,7 +31,7 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
     p_dists = 1 .- max.(min.(cor_mat, max_cor), min_cor) ./ max_cor;
     p_dists[diagind(p_dists)] .= 0.0;
 
-    embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000);
+    embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000, n_neighbors=max(min(15, length(gene_names) ÷ 2), 2));
     marker_sizes = log.(count_array(df_spatial.gene));
     marker_sizes ./= median(marker_sizes) ./ 2;
 
@@ -55,8 +55,11 @@ function estimate_panel_plot_size(df_spatial::DataFrame, min_molecules_per_cell:
 end
 
 function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7,
-        ms::Float64=0.1, alpha::Union{Float64, Vector{Float64}}=0.1, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], kwargs...)
+        ms::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.25, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], kwargs...)
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
+    if ms < 0
+        ms = 5 / min_molecules_per_cell
+    end
 
     return plot_cell_borders_polygons(df_spatial, polygons; color=colors, ms=ms, alpha=alpha, size=plot_size,
         minorgrid=true, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), kwargs...)
