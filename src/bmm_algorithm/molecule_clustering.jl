@@ -73,7 +73,7 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
 end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
-        n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=div(length(genes), 200), n_iters_without_update::Int=20,
+        n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         min_mols_per_cell::Int=0,
         cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
         verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false)
