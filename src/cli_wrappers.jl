@@ -217,7 +217,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
     end
 end
 
-function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict)
+function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict; clusters::Vector{Int})
     @info "Estimating local colors"
     neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
     transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
@@ -225,20 +225,23 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
 
     @info "Plot transcript assignment"
     grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
-    polygons = boundary_polygons(df_res, df_res.cell; grid_step=grid_step, bandwidth=2*args["scale"]);
+    polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
 
     gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity", alpha=0.5)
 
     clust_plot = nothing
-    if :cluster in names(df_res)
-        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, annotation=df_res.cluster, min_molecules_per_cell=args["min-molecules-per-cell"],
+    if !isempty(clusters)
+        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
             min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering", alpha=0.5)
     end
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
         show(io, MIME("text/html"), gc_plot)
-        show(io, MIME("text/html"), clust_plot)
+
+        if clust_plot !== nothing
+            show(io, MIME("text/html"), clust_plot)
+        end
     end
 end
 
@@ -344,7 +347,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args; clusters=bm_data.cluster_per_molecule)
     end
 
     @info "All done!"
@@ -373,7 +376,7 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
         "--min-pixels-per-cell"
             help = "Minimal number of pixels per cell. Used to estimate size of the dataset plot."
             arg_type = Int
-            default = 7
+            default = 15
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
             default = "preview.html"
@@ -430,6 +433,11 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     args["min-molecules-per-gene"] = 0
     df_spatial, gene_names = load_df(args)
 
+    @info "Loaded $(size(df_spatial, 1)) transcripts"
+    if size(df_spatial, 1) != size(unique(df_spatial), 1)
+        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
+    end
+
     @info "Estimating noise level"
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
     edge_lengths, confidences, d1, d2 = append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
@@ -448,7 +456,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     gc_plot = plot_dataset_colors(df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity")
 
-    conf_colors = map_to_colors(confidence, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
+    conf_colors = map_to_colors(confidences, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
     cc_plot = plot_dataset_colors(df_spatial, conf_colors[:colors]; min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence")
 
