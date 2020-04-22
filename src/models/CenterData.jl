@@ -14,22 +14,39 @@ end
 CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Float64) =
     CenterData(centers, nothing, scale_estimate, scale_std_estimate)
 
-estimate_scale_from_centers(center_scales::Array{Float64, 1}) =
+estimate_scale_from_centers(center_scales::Vector{Float64}) =
     (median(center_scales), mad(center_scales; normalize=true))
 
 """
 Estimates scale as a 0.5 * median distance between two nearest centers
 """
-estimate_scale_from_centers(centers::Array{Float64, 2}) =
+estimate_scale_from_centers(centers::Matrix{Float64}) =
     estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
 
-function estimate_scale_from_centers(seg_mask::Array{Int, 2}; min_segment_size::Int=0)
+function estimate_scale_from_centers(seg_mask::Matrix{Int}; min_segment_size::Int=0)
     comp_lengths = Images.component_lengths(seg_mask)[2:end]
     return estimate_scale_from_centers(sqrt.(comp_lengths[comp_lengths .>= min_segment_size] / π))
 end
 
-function extract_centers_from_mask(segmentation::Union{Matrix, BitArray{2}}; min_segment_size::Int=5)
-    segmentation_labels = segmentation |> Images.label_components |> Array{Int}
+extract_centers_from_mask(segmentation::BitMatrix; kwargs...) =
+    extract_centers_from_mask(Images.label_components(segmentation); kwargs...)
+
+function extract_centers_from_mask(segmentation::Matrix{Float64}; kwargs...)
+    segmentation = round.(Int, Float64.(segmentation) .* 2^16)
+    uniq_labels = sort(unique(segmentation))
+    if length(uniq_labels) == 2
+        return extract_centers_from_mask(Images.label_components(segmentation); kwargs...)
+    end
+
+    rank_per_label = Dict(Pair.(0:(length(uniq_labels)-1), uniq_labels))
+    for i in 1:length(segmentation)
+        segmentation[i] = rank_per_label[segmentation[i]]
+    end
+
+    return extract_centers_from_mask(segmentation; kwargs...)
+end
+
+function extract_centers_from_mask(segmentation_labels::Matrix{Int}; min_segment_size::Int=5)
     coords_per_label = coords_per_segmentation_label(segmentation_labels);
     coords_per_label = coords_per_label[size.(coords_per_label, 1) .>= min_segment_size]
 
