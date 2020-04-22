@@ -1,9 +1,7 @@
 using Random
 
 function sample_distribution!(data::BmmData, shape_prior::ShapePrior; center_prior::Union{CellCenter, Nothing}=nothing)::MvNormalF
-    μ = (center_prior === nothing) ?
-        sample_center!(data) :
-        rand(MvNormalF(center_prior.μ, center_prior.Σ))
+    μ = (center_prior === nothing) ? sample_center!(data) : rand(MvNormal(Vector(center_prior.μ), Matrix(center_prior.Σ))) # TODO: should we stor it as non-static arrays from the beginning?
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 
     return MvNormalF(μ, Σ)
