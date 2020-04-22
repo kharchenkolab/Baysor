@@ -283,7 +283,7 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
 end
 
 log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
-    @info "EM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
+    @info "BMM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
 track_progress!(progress::Nothing) = nothing
@@ -298,7 +298,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     time_start = now()
 
     if verbose
-        println("EM fit started")
+        println("BMM fit started")
     end
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
