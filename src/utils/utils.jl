@@ -18,23 +18,27 @@ function val_range(arr::Array{T} where T <: Real)
     return min_val, max_val
 end
 
-function count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing)
-    if max_value === nothing
-        max_value = maximum(values)
+count_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing, kwargs...) =
+    count_array!(zeros(Int, something(max_value, maximum(values))), values; erase_counts=false, kwargs...)
+
+# TODO: check all usages and remove outer processing of 0 values
+function count_array!(counts::T1 where T1 <: AbstractArray{Int, 1}, values::T2 where T2 <: AbstractArray{Int, 1}; drop_zero::Bool=false, erase_counts::Bool=true)
+    if erase_counts
+        counts .= 0
     end
 
-    counts = zeros(Int, max_value)
+    has_zero = false
     for v in values
+        if v == 0
+            has_zero = true
+            continue
+        end
+
         counts[v] += 1
     end
 
-    return counts
-end
-
-function count_array!(counts::T1 where T1 <: AbstractArray{Int, 1}, values::T2 where T2 <: AbstractArray{Int, 1})
-    counts .= 0
-    for v in values
-        counts[v] += 1
+    if !drop_zero && has_zero
+        @warn "Array has zero values. It was ignored."
     end
 
     return counts
