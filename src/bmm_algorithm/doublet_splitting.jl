@@ -39,7 +39,7 @@ function score_doublets(cm::Matrix{TR} where TR <: Real, cluster_centers::Matrix
     all_pvals = repeat(Union{Float64, typeof(na_value)}[na_value], size(cm, 2))
 
     all_scores[real_cell_inds] .= comb_improvements
-    all_fractions[real_cell_inds] .= 1 .- mixing_fractions
+    all_fractions[real_cell_inds] .= min.(mixing_fractions, 1 .- mixing_fractions)
 
     return all_scores, all_fractions
 end
@@ -131,8 +131,11 @@ end
 
 ### Likelihood-based factorizaton
 
+# With mean instead sum, likelihood scale is more meaningful, which is required for improvement_threshold
 @inline log_ll(expression::Vector{T} where T<: Real, gene_probs::Vector{Float64}; prob_pseudocount::Float64=1e-10)::Float64 =
-    -mean(expression .* log.(gene_probs .+ prob_pseudocount)) # With mean instead sum, likelihood scale is more meaningful, which is required for improvement_threshold
+    # -mean(expression .* log.(gene_probs .+ prob_pseudocount) .- [sum(1:x) for x in expression])
+    # -mean(expression .* log.(gene_probs .+ prob_pseudocount) .- expression .* expression ./ 2) #+ sum(1:sum(expression))
+    mean(expression .* (expression ./ 2 .- log.(gene_probs .+ prob_pseudocount)))
 
 likelihood_dist(counts::Matrix{T} where T <: Real, gene_probs::Matrix{Float64})::Matrix{Float64} =
     hcat([[log_ll(counts[:, j], gene_probs[i,:]) for j in 1:size(counts, 2)] for i in 1:size(gene_probs, 1)]...)
@@ -148,7 +151,9 @@ function factorize_doublet_expression_ll(counts::Matrix{Float64}, cluster_center
 
     base2_ids = vec(mapslices(x -> findmin(x)[2], opt_dists, dims=1))
     # comb_improvements = vec(mapslices(x -> (maximum(x) - minimum(x)) / maximum(x), opt_dists, dims=1));
-    comb_improvements = vec(mapslices(x -> 1 - exp(minimum(x) - maximum(x)), opt_dists, dims=1)); # (max(likelihood) - min(likelihood)) / max(likelihood)
+
+    # Here, max(-likelihood) is the likelihood value in the current assigned center, as it can never get worse
+    comb_improvements = vec(mapslices(x -> 1 - exp(minimum(x) - maximum(x)), opt_dists, dims=1)); # (max(-likelihood) - min(-likelihood)) / max(-likelihood)
     mixing_fractions = hcat([[v[1] for v in x] for x in opt_comps]...)[CartesianIndex.(base2_ids, 1:length(base2_ids))];
 
     return base1_ids, base2_ids, comb_improvements, mixing_fractions

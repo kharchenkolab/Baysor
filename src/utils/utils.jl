@@ -125,6 +125,8 @@ end
 """Golden section search
 to find the minimum of f on [a,b]
 opt_func: a strictly unimodal function on [a,b]
+
+Returns: tuple with the optimal parameter and the optimal function value
 """
 function linsearch_gs(opt_func::Function, a::T, b::T; tol=1e-3) where T<: Real
     gr = (sqrt(5) + 1) / 2
