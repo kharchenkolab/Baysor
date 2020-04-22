@@ -25,7 +25,7 @@ function get_default_config()
             "estimate-scale-from-centers" => true,
             "scale" => nothing,
             "scale-std" => "25%",
-            "min-center-size" => 200
+            "min-transcripts-per-center" => nothing
         ),
         "Sampling" => Dict{String, Any}(
             "new-component-weight" => 0.2,
@@ -163,6 +163,10 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if r["gene-composition-neigborhood"] === nothing
         r["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, r["min-molecules-per-cell"])
+    end
+
+    if r["min-transcripts-per-center"] === nothing
+        r["min-transcripts-per-center"] = default_param_value(:min_transcripts_per_center, r["min-molecules-per-cell"])
     end
 
     if isdir(r["output"]) || isdirpath(r["output"])
@@ -319,7 +323,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     if args["centers"] !== nothing
-        centers = load_centers(args["centers"], x_col=args["x-column"], y_col=args["y-column"], min_segment_size=args["min-center-size"])
+        centers = load_centers(args["centers"], df_spatial, x_col=args["x-column"], y_col=args["y-column"], min_transcripts_per_center=args["min-transcripts-per-center"])
         df_centers = centers.centers
 
         scale = args["estimate-scale-from-centers"] ? nothing : args["scale"]
