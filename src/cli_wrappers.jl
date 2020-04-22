@@ -276,9 +276,14 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     # Run algorithm
 
     @info "Run"
-    @info "Load data..."
+    @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=true)
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
+
+    @info "Loaded $(size(df_spatial, 1)) transcripts"
+    if size(df_spatial, 1) != size(unique(df_spatial), 1)
+        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
+    end
 
     df_centers = nothing
     bm_data_arr = BmmData[]
@@ -337,13 +342,13 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true, min_molecules_per_cell=args["min-molecules-per-cell"])
 
-    @info "Save data to $(args["output"])"
+    @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
-    cm = DataFrame(convert_segmentation_to_counts(composition_data(bm_data), bm_data.assignment), [Symbol("$c") for c in 1:maximum(bm_data.assignment)])
-    cm[!, :gene] = gene_names
-    CSV.write(append_suffix(args["output"], "counts.tsv"), cm[:, vcat(end, 1:end-1)]; delim='\t');
+    cm = convert_segmentation_to_counts(composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
+    count_str = join(names(cm), "\t") * "\n" * join([join(["$v" for v in r], '\t') for r in eachrow(cm)], '\n');
+    open(append_suffix(args["output"], "counts.tsv"), "w") do f print(f, count_str) end
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
@@ -429,7 +434,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     # Run preview
 
     @info "Run"
-    @info "Load data..."
+    @info "Loading data..."
     args["min-molecules-per-gene"] = 0
     df_spatial, gene_names = load_df(args)
 
