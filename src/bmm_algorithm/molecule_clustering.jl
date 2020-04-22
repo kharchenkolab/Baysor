@@ -1,4 +1,3 @@
-import NMF
 using ProgressMeter
 using DataFrames
 using Statistics
@@ -59,17 +58,6 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
     end
 
     return total_ll
-end
-
-# DEPRECATED?
-function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
-
-    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
-    ct_exprs_init = NMF.nndsvd(cor_mat, n_clusters)[1]
-    ct_exprs_init = 0.75 .* (ct_exprs_init ./ sum(ct_exprs_init, dims=1))' .+ 0.25 .* prob_array(df_spatial.gene)'
-
-    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; cell_type_exprs=ct_exprs_init, kwargs...)
 end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
