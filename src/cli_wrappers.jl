@@ -114,16 +114,19 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
+        "--staining"
+            help = "Image with DAPI or poly-T staining with brighter colors corresponing to nucleis / cell bodies"
+            arg_type = String
 
         "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Set 'estimate-scale-from-centers' to false."
+            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
             arg_type = Float64
 
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
         "centers"
-            help = "Either CSV file with coordinates of cell centers, extracted from DAPI staining or image with segmentation mask (either boolean or component indexing)"
+            help = "Either CSV file with coordinates of cell centers, extracted from DAPI staining or image with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -325,10 +328,22 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"],
             center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+
+        if args["estimate-scale-from-centers"]
+            args["scale"] = centers.scale_estimate
+            args["scale-std"] = centers.scale_std_estimate
+        end
     else
         bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+    end
+
+    if args["staining"] !== nothing
+        @info "Adjusting random field based on the staining..."
+        dapi = Float64.(Images.load(expanduser(args["staining"])))
+        adjust_field_weights_by_dapi!.(bm_data_arr, Ref(dapi))
+        @info "Done."
     end
 
     history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.05 : 0.01))
