@@ -219,7 +219,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         # Num. of molecules per cell
         n_mols_per_cell = count_array(assignment .+ 1)[2:end]
         p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
-            title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells")
+            title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells", label=:none)
         show(io, MIME("text/html"), p_n_mols)
     end
 end

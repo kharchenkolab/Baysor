@@ -224,7 +224,7 @@ function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Array{
 end
 
 function extract_polygons_from_label_grid(grid_labels::Matrix{Int}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
-        exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=zeros(2), grid_step::Float64=1.0)
+        exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=zeros(2), grid_step::Float64=1.0)::Array{Matrix{Float64}, 1}
     borders_per_label = grid_borders_per_label(grid_labels);
     if !isempty(exclude_labels)
         borders_per_label = borders_per_label[setdiff(1:length(borders_per_label), exclude_labels)]

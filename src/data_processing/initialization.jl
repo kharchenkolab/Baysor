@@ -65,7 +65,7 @@ function parse_scale_std(scale_std::String, scale::Real)
     return parse(Float64, scale_std)
 end
 
-function staining_value_per_transcript(df_spatial::DataFrame, staining::Matrix{T}) where T <: Real
+function staining_value_per_transcript(df_spatial::DataFrame, staining::Matrix{T})::Vector{T} where T <: Real
     x_vals = round.(Int, df_spatial.x)
     y_vals = round.(Int, df_spatial.y)
     if (maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1))
