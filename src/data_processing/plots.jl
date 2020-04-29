@@ -85,6 +85,7 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array
         if shuffle_colors
             Random.shuffle!(c_map)
         end
+
         for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             c_alpha = (length(alpha) == 1) ? alpha : alpha[annotation .== ann]
@@ -134,14 +135,18 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     return p
 end
 
-function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String})
-    gene_dists = 1 .- cor(mtx');
-    cell_dists = 1 .- cor(mtx);
+function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{Vector{Int}, Nothing}=nothing, cell_ord::Union{Vector{Int}, Nothing}=nothing, kwargs...)
+    if gene_ord === nothing
+        gene_dists = 1 .- cor(mtx');
+        gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+    end
 
-    gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
-    cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+    if cell_ord === nothing
+        cell_dists = 1 .- cor(mtx);
+        cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+    end
 
-    Plots.heatmap(mtx[gene_ord, cell_ord], yticks=(1:length(gene_names), gene_names[gene_ord])), cell_ord, gene_ord
+    Plots.heatmap(mtx[gene_ord, cell_ord]; yticks=(1:length(gene_names), gene_names[gene_ord]), kwargs...), cell_ord, gene_ord
 end
 
 ### Tracing
