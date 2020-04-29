@@ -161,3 +161,117 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
 
     return cm
 end
+
+function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{T} where T <: Real, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2,
+        grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width=2, noise::Bool=true, size_mult=1/3,
+        plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
+    df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
+
+    if (typeof(polygons) == Bool)
+        if polygons
+            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=10, bandwidth=bandwidth)
+        else
+            polygons = Matrix{Float64}[]
+        end
+    end
+
+    xsa, xea, ysa, yea = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
+
+    xticks_vals = range(0, xea-xsa, length=5)
+    yticks_vals = range(0, yea-ysa, length=5)
+
+    yticks = xticks = false
+    if ticks
+        xticks = (xticks_vals, ["$f" for f in round.(Int, range(xsa, xea, length=5))])
+        yticks = (yticks_vals, ["$f" for f in round.(Int, range(ysa, yea, length=5))])
+    end
+
+    dapi_subs = dapi_arr[ysa:yea, xsa:xea]
+    plot_size = ((xea-xsa), yea-ysa) .* size_mult
+    plt1 = Plots.heatmap(maximum(dapi_subs) .- dapi_subs, color=:grayscale, colorbar=:none, size=plot_size,
+                alpha=dapi_alpha, format=:png, legend=:none, xticks=xticks, yticks=yticks)
+
+    is_noise = noise ? (df_subs[!, cell_col] .== 0) : nothing
+
+    annotation = (annotation_col === nothing) ? nothing : df_subs[!, annotation_col]
+    plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xsa, -ysa),
+        polygon_line_width=polygon_line_width, polygon_alpha=0.75, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+
+    Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
+    Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+
+    if !plot_raw_dapi
+        return plt1
+    end
+
+    # Possible colorschemes: tarn, diff, lime_grad, thermal
+    plt2 = Plots.heatmap(dapi_subs, color=:diff, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size)
+
+    Plots.plot!([Plots.Shape(pg[:,1] .- xsa, pg[:,2] .- ysa) for pg in polygons],
+        fill=(0, 0.0), linewidth=2.0, linecolor="black", alpha=0.4, label="", xlims=(0, (xea-xsa)), ylims=(0, (yea-ysa)));
+
+    Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
+    Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+
+    if !build_panel
+        return plt1, plt2
+    end
+
+    return Plots.plot(plt1, plt2, layout=2, size=(2 * (xea-xsa), yea-ysa) .* size_mult)
+end
+
+rectangle((xs, xe), (ys, ye)) = Plots.Shape([xs, xe, xe, xs], [ys, ys, ye, ye])
+
+function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; cell1_col::Symbol=:cell, cell2_col::Symbol=:cell_paper, offset::Float64=0.1, kwargs...)
+    sample_df = df_spatial[df_spatial[!, cell1_col] .== cell_id,:];
+    paper_ids = setdiff(unique(sample_df[!, cell2_col]), [0]);
+
+    if !isempty(paper_ids)
+        sample_df = df_spatial[(df_spatial[!, cell1_col] .== cell_id) .| in.(df_spatial[!, cell2_col], Ref(paper_ids)),:];
+    end;
+
+    xc, yc = median(sample_df.x[sample_df[!, cell1_col] .== cell_id]), median(sample_df.y[sample_df[!, cell1_col] .== cell_id])
+    xls, yls = [round.(Int, ((1. + offset) * s - offset * e, (1. + offset) * e - offset * s)) for (s,e) in [val_range(sample_df.x), val_range(sample_df.y)]];
+    return plot_comparison_for_cell(df_spatial, xls, yls, args...; xc=xc, yc=yc, kwargs...)
+end
+
+function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{Int}, dapi_arr::Matrix{Float64};
+        size_mult::Float64=1.0, grid_alpha::Float64=0.0, ms::Float64=2.0, title="", center_mult::Float64=3.0, noise::Bool=false,
+        xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, kwargs...) where T <: Real
+
+    xls, yls = max.(xls, 1), max.(yls, 1)
+    xls = min.(xls, size(dapi_arr, 2))
+    yls = min.(yls, size(dapi_arr, 1))
+
+    t_paper_labels = seg_arr[yls[1]:yls[2], xls[1]:xls[2]];
+
+    plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise, kwargs...);
+
+    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in Baysor.extract_polygons_from_label_grid(copy(t_paper_labels'))]
+    for plt in plts
+        Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=1.5, alpha=0.75, linecolor="darkred", legend=:none);
+        if xc !== nothing
+            Plots.scatter!([xc - xls[1]], [yc - yls[1]], color="black", ms=center_mult*ms)
+        end
+    end;
+
+    Plots.plot(plts..., layout=2, size=(plts[1].attr[:size] .* (2, 1)), title=title)
+end
+
+function joint_ordering(matrices::Matrix{T}...) where T <: Real
+    joint_mtx = hcat(matrices...)
+    cell_dists = Symmetric(1 .- cor(joint_mtx));
+    cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+
+    cell_ords = [Int[] for m in matrices]
+    cum_sum = 0
+    for i in 1:length(matrices)
+        cell_ords[i] = cell_ord[(cell_ord .<= (cum_sum + size(matrices[i], 2))) .& (cell_ord .> cum_sum)] .- cum_sum
+        cum_sum += size(matrices[i], 2)
+    end
+
+    gene_dists = Symmetric(1 .- cor(joint_mtx'));
+    gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+
+    return cell_ords, gene_ord
+end
