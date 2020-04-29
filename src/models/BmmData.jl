@@ -232,6 +232,27 @@ function estimate_assignment_by_history(data::BmmData)
     return get.(Ref(guid_map), vec(reassignment), 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
+function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=segmented_df.cell; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment))
+    seg_df_per_cell = split(segmented_df, cell_assignment .+ 1; max_factor=max_cell+1)[2:end];
+    pos_data_per_cell = position_data.(seg_df_per_cell);
+
+    df = DataFrame(:n_transcripts => size.(pos_data_per_cell, 2));
+    large_cell_mask = (df.n_transcripts .> 2)
+
+    df[!,:density] = fill(NaN, size(df, 1))
+    df[!,:elongation] = fill(NaN, size(df, 1))
+    df[!,:area] = fill(NaN, size(df, 1))
+
+    df.area[large_cell_mask] = round.(area.(convex_hull.(pos_data_per_cell[large_cell_mask])), sigdigits=sigdigits);
+    df.density[large_cell_mask] = round.(df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask], sigdigits=sigdigits);
+    df.elongation[large_cell_mask] = [round(x[2] / x[1], sigdigits=sigdigits) for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
+    if :confidence in names(segmented_df)
+        df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
+    end
+
+    return df
+end
+
 function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, do_score_doublets::Bool=true, min_molecules_per_cell::Int=3, sigdigits::Int=4)
     df = DataFrame(:cell => 1:length(data.components))
 
@@ -255,22 +276,8 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         if segmented_df === nothing
             segmented_df = get_segmentation_df(data);
         end
-        seg_df_per_cell = split(segmented_df, segmented_df.cell .+ 1; max_factor=length(data.components)+1)[2:end];
-        pos_data_per_cell = position_data.(seg_df_per_cell);
 
-        df[!,:n_transcripts] = size.(pos_data_per_cell, 2);
-        large_cell_mask = (df.n_transcripts .> 2)
-
-        df[!,:density] = fill(NaN, size(df, 1))
-        df[!,:elongation] = fill(NaN, size(df, 1))
-        df[!,:area] = fill(NaN, size(df, 1))
-
-        df.area[large_cell_mask] = round.(area.(convex_hull.(pos_data_per_cell[large_cell_mask])), sigdigits=sigdigits);
-        df.density[large_cell_mask] = round.(df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask], sigdigits=sigdigits);
-        df.elongation[large_cell_mask] = [round(x[2] / x[1], sigdigits=sigdigits) for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
-        if :confidence in names(segmented_df)
-            df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
-        end
+        df = vcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
 
         if do_score_doublets & !isempty(data.cluster_per_molecule)
             cluster_centers = convert_segmentation_to_counts(composition_data(data), data.cluster_per_molecule);
