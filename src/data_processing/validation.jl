@@ -175,26 +175,26 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{T} where T <: Real,
         end
     end
 
-    xsa, xea, ysa, yea = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
+    # xs, xe, ys, ye = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
 
-    xticks_vals = range(0, xea-xsa, length=5)
-    yticks_vals = range(0, yea-ysa, length=5)
+    xticks_vals = range(0, xe-xs, length=5)
+    yticks_vals = range(0, ye-ys, length=5)
 
     yticks = xticks = false
     if ticks
-        xticks = (xticks_vals, ["$f" for f in round.(Int, range(xsa, xea, length=5))])
-        yticks = (yticks_vals, ["$f" for f in round.(Int, range(ysa, yea, length=5))])
+        xticks = (xticks_vals, ["$f" for f in round.(Int, range(xs, xe, length=5))])
+        yticks = (yticks_vals, ["$f" for f in round.(Int, range(ys, ye, length=5))])
     end
 
-    dapi_subs = dapi_arr[ysa:yea, xsa:xea]
-    plot_size = ((xea-xsa), yea-ysa) .* size_mult
+    dapi_subs = dapi_arr[ys:ye, xs:xe]
+    plot_size = ((xe-xs), ye-ys) .* size_mult
     plt1 = Plots.heatmap(maximum(dapi_subs) .- dapi_subs, color=:grayscale, colorbar=:none, size=plot_size,
                 alpha=dapi_alpha, format=:png, legend=:none, xticks=xticks, yticks=yticks)
 
     is_noise = noise ? (df_subs[!, cell_col] .== 0) : nothing
 
     annotation = (annotation_col === nothing) ? nothing : df_subs[!, annotation_col]
-    plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xsa, -ysa),
+    plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
         polygon_line_width=polygon_line_width, polygon_alpha=0.75, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
 
     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
@@ -207,8 +207,8 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{T} where T <: Real,
     # Possible colorschemes: tarn, diff, lime_grad, thermal
     plt2 = Plots.heatmap(dapi_subs, color=:diff, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size)
 
-    Plots.plot!([Plots.Shape(pg[:,1] .- xsa, pg[:,2] .- ysa) for pg in polygons],
-        fill=(0, 0.0), linewidth=2.0, linecolor="black", alpha=0.4, label="", xlims=(0, (xea-xsa)), ylims=(0, (yea-ysa)));
+    Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
+        fill=(0, 0.0), linewidth=2.0, linecolor="black", alpha=0.4, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
 
     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
     Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
@@ -217,7 +217,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{T} where T <: Real,
         return plt1, plt2
     end
 
-    return Plots.plot(plt1, plt2, layout=2, size=(2 * (xea-xsa), yea-ysa) .* size_mult)
+    return Plots.plot(plt1, plt2, layout=2, size=(2 * (xe-xs), ye-ys) .* size_mult)
 end
 
 rectangle((xs, xe), (ys, ye)) = Plots.Shape([xs, xe, xe, xs], [ys, ys, ye, ye])
@@ -247,7 +247,7 @@ function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::
 
     plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise, kwargs...);
 
-    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in Baysor.extract_polygons_from_label_grid(copy(t_paper_labels'))]
+    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in extract_polygons_from_label_grid(copy(t_paper_labels'))]
     for plt in plts
         Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=1.5, alpha=0.75, linecolor="darkred", legend=:none);
         if xc !== nothing
