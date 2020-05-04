@@ -71,12 +71,15 @@ mutable struct Component
     gene_count_prior::Array{Int, 1};
     gene_count_prior_sum::Int;
 
+    n_molecules_per_segment::Dict{Int, Int};
+
     guid::Int;
 
     Component(position_params::MvNormalF, composition_params::CategoricalSmoothed; prior_weight::Float64, can_be_dropped::Bool,
               n_samples::Int=0, center_prior::Union{Nothing, CellCenter}=nothing, shape_prior::Union{Nothing, ShapePrior}=nothing,
               gene_count_prior::Vector{Int}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
-        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior), guid)
+        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior),
+            Dict{Int, Int}(), guid)
 end
 
 function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64,2}, comp_data::T2 where T2 <: AbstractArray{Int, 1})

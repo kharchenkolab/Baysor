@@ -28,6 +28,9 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
+@inline segment_frac_penalty(x::Float64; x_min::Float64=0.3, min_val::Float64=0.1)::Float64 =
+    fmin(fmax(x - x_min, x_min - x) / x_min * (1.0 - min_val) + min_val, 1.0)
+
 """
 ...
 # Arguments
@@ -74,6 +77,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         gene::Int = composition_data(data)[i]
         confidence::Float64 = data.confidence[i]
         mol_cluster::Int = isempty(data.cluster_per_molecule) ? 0 : data.cluster_per_molecule[i]
+        segment_id = ((:segment_per_molecule in keys(data.misc)) && !isempty(data.misc[:segment_per_molecule])) ? data.misc[:segment_per_molecule][i] : 0
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
         zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
@@ -92,6 +96,21 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
                 c_dens *= data.cluster_penalty_mult
             end
+
+            if segment_id > 0
+                n_cell_mols_per_seg = get(data.components[c_adj].n_molecules_per_segment, segment_id, 0)
+                seg_size = data.misc[:n_molecules_per_segment][segment_id]
+                f_ms = n_cell_mols_per_seg / seg_size
+                if n_cell_mols_per_seg / fmin(cc.n_samples, seg_size) > 0.5 # if this is the "main" segment for this cell
+                    c_dens *= f_ms + 0.01
+                else
+                    c_dens *= segment_frac_penalty(f_ms)
+                end
+
+                # f_mc = get(data.misc[:n_molecules_per_cell_per_segment][segment_id], c_adj, 0) / data.misc[:n_seg_molecules_per_cell][c_adj]
+                # c_dens *= f_ms * segment_frac_penalty(f_ms) * segment_frac_penalty(f_mc)
+            end
+
             push!(denses, c_dens)
         end
 
@@ -328,6 +347,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components)
+        update_n_mols_per_segment!(data)
 
         expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
 

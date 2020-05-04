@@ -33,6 +33,9 @@ mutable struct BmmData
 
     center_sample_cache::Vector{Int}
 
+    # segment_per_molecule::Vector{Int}
+    # n_molecules_per_cell_per_segment::Array{Dict{Int, Int}, 1}
+
     # Utils
     tracer::Dict{Symbol, Any};
     misc::Dict{Symbol, Any};
@@ -135,7 +138,26 @@ confidence(data::BmmData)::Vector{Float64} = data.confidence
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
 
 function assign!(data::BmmData, point_ind::Int, component_id::Int)
+    old_id = data.assignment[point_ind]
+    if old_id == component_id
+        return
+    end
+
     @assert component_id <= length(data.components) "Too large component id: $component_id, maximum available: $(length(data.components))"
+
+    segment_id = ((:segment_per_molecule in keys(data.misc)) && !isempty(data.misc[:segment_per_molecule])) ? data.misc[:segment_per_molecule][point_ind] : 0
+    if segment_id > 0
+        if component_id > 0
+            data.misc[:n_molecules_per_cell_per_segment][segment_id][component_id] = get(data.misc[:n_molecules_per_cell_per_segment][segment_id], component_id, 0) + 1
+            data.components[component_id].n_molecules_per_segment[segment_id] = get(data.components[component_id].n_molecules_per_segment, segment_id, 0) + 1
+        end
+
+        if old_id > 0
+            data.misc[:n_molecules_per_cell_per_segment][segment_id][old_id] -= 1
+            data.components[old_id].n_molecules_per_segment[segment_id] -= 1
+        end
+    end
+
     data.assignment[point_ind] = component_id
 end
 
@@ -325,4 +347,29 @@ function global_assignment_ids(data::BmmData)::Vector{Int}
     res[non_noise_mask] .= cur_guids[res[non_noise_mask]]
 
     return res
+end
+
+function update_n_mols_per_segment!(bm_data::BmmData)
+    if !(:segment_per_molecule in keys(bm_data.misc)) || isempty(bm_data.misc[:segment_per_molecule])
+        return
+    end
+
+    # TODO: initialize it outside of the function and here only resize n_seg_molecules_per_cell or clear n_molecules_per_cell_per_segment
+    bm_data.misc[:n_molecules_per_cell_per_segment] = [Dict{Int, Int}() for i in 1:maximum(bm_data.misc[:segment_per_molecule])];
+    bm_data.misc[:n_seg_molecules_per_cell] = zeros(Int, length(bm_data.components))
+
+    for comp in bm_data.components
+        empty!(comp.n_molecules_per_segment)
+    end
+    for i in 1:length(bm_data.assignment)
+        c_cell = bm_data.assignment[i]
+        c_seg = bm_data.misc[:segment_per_molecule][i]
+        if (c_cell == 0) || (c_seg == 0)
+            continue
+        end
+
+        bm_data.misc[:n_seg_molecules_per_cell][c_cell] += 1
+        bm_data.misc[:n_molecules_per_cell_per_segment][c_seg][c_cell] = get(bm_data.misc[:n_molecules_per_cell_per_segment][c_seg], c_cell, 0) + 1
+        bm_data.components[c_cell].n_molecules_per_segment[c_seg] = get(bm_data.components[c_cell].n_molecules_per_segment, c_seg, 0) + 1
+    end
 end

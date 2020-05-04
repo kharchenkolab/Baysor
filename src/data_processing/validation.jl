@@ -243,11 +243,11 @@ function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::
     xls = min.(xls, size(dapi_arr, 2))
     yls = min.(yls, size(dapi_arr, 1))
 
-    t_paper_labels = seg_arr[yls[1]:yls[2], xls[1]:xls[2]];
+    seg_labels = seg_arr[yls[1]:yls[2], xls[1]:xls[2]];
 
     plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise, kwargs...);
 
-    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in extract_polygons_from_label_grid(copy(t_paper_labels'))]
+    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in extract_polygons_from_label_grid(copy(seg_labels'))]
     for plt in plts
         Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=1.5, alpha=0.75, linecolor="darkred", legend=:none);
         if xc !== nothing
