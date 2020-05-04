@@ -350,7 +350,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @info "Done."
     end
 
-    history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.05 : 0.01))
+    history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.2 : 0.1))
     bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
                                 min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
