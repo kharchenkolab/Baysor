@@ -33,8 +33,11 @@ mutable struct BmmData
 
     center_sample_cache::Vector{Int}
 
-    # segment_per_molecule::Vector{Int}
-    # n_molecules_per_cell_per_segment::Array{Dict{Int, Int}, 1}
+    # Prior segmentation
+
+    segment_per_molecule::Vector{Int}
+    n_molecules_per_segment::Vector{Int}
+    main_segment_per_cell::Vector{Int}
 
     # Utils
     tracer::Dict{Symbol, Any};
@@ -42,6 +45,7 @@ mutable struct BmmData
 
     # Parameters
     update_priors::Symbol; # DEPRECATED?
+    prior_seg_confidence::Float64;
     cluster_penalty_mult::Float64;
     use_gene_smoothing::Bool;
 
@@ -61,7 +65,7 @@ mutable struct BmmData
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
                      k_neighbors::Int=20, update_priors::Symbol=:no, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
-                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true)
+                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -98,7 +102,8 @@ mutable struct BmmData
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
                    0.0, cluster_per_molecule, deepcopy(cluster_per_cell), ones(n_genes, n_genes) ./ n_genes, Int[],
-                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, cluster_penalty_mult, use_gene_smoothing)
+                   Int[], Int[], Int[], # prior segmentation info
+                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
 
         for c in self.components
             c.n_samples = 0
@@ -124,6 +129,12 @@ mutable struct BmmData
             self.max_component_guid = maximum(guids)
         end
 
+        if :prior_segmentation in names(x)
+            self.segment_per_molecule = deepcopy(x.prior_segmentation);
+            self.n_molecules_per_segment = count_array(self.segment_per_molecule, drop_zero=true);
+            update_n_mols_per_segment!(self);
+        end
+
         return self
     end
 end
@@ -145,18 +156,14 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
 
     @assert component_id <= length(data.components) "Too large component id: $component_id, maximum available: $(length(data.components))"
 
-    segment_id = ((:segment_per_molecule in keys(data.misc)) && !isempty(data.misc[:segment_per_molecule])) ? data.misc[:segment_per_molecule][point_ind] : 0
+    segment_id = isempty(data.segment_per_molecule) ? 0 : data.segment_per_molecule[point_ind]
     if segment_id > 0
         if component_id > 0
-            data.misc[:n_molecules_per_cell_per_segment][segment_id][component_id] = get(data.misc[:n_molecules_per_cell_per_segment][segment_id], component_id, 0) + 1
             data.components[component_id].n_molecules_per_segment[segment_id] = get(data.components[component_id].n_molecules_per_segment, segment_id, 0) + 1
-            data.misc[:n_seg_molecules_per_cell][component_id] += 1
         end
 
         if old_id > 0
-            data.misc[:n_molecules_per_cell_per_segment][segment_id][old_id] -= 1
             data.components[old_id].n_molecules_per_segment[segment_id] -= 1
-            data.misc[:n_seg_molecules_per_cell][old_id] -= 1
         end
     end
 
@@ -352,30 +359,27 @@ function global_assignment_ids(data::BmmData)::Vector{Int}
 end
 
 function update_n_mols_per_segment!(bm_data::BmmData)
-    if !(:segment_per_molecule in keys(bm_data.misc)) || isempty(bm_data.misc[:segment_per_molecule])
+    if isempty(bm_data.segment_per_molecule)
         return
     end
-
-    # TODO: initialize it outside of the function and here only resize n_seg_molecules_per_cell or clear n_molecules_per_cell_per_segment
-    bm_data.misc[:n_molecules_per_cell_per_segment] = [Dict{Int, Int}() for i in 1:maximum(bm_data.misc[:segment_per_molecule])];
-    bm_data.misc[:n_seg_molecules_per_cell] = zeros(Int, length(bm_data.components))
 
     for comp in bm_data.components
         empty!(comp.n_molecules_per_segment)
     end
+
     for i in 1:length(bm_data.assignment)
         c_cell = bm_data.assignment[i]
-        c_seg = bm_data.misc[:segment_per_molecule][i]
+        c_seg = bm_data.segment_per_molecule[i]
         if (c_cell == 0) || (c_seg == 0)
             continue
         end
 
-        bm_data.misc[:n_seg_molecules_per_cell][c_cell] += 1
-        bm_data.misc[:n_molecules_per_cell_per_segment][c_seg][c_cell] = get(bm_data.misc[:n_molecules_per_cell_per_segment][c_seg], c_cell, 0) + 1
         bm_data.components[c_cell].n_molecules_per_segment[c_seg] = get(bm_data.components[c_cell].n_molecules_per_segment, c_seg, 0) + 1
     end
 
-    bm_data.misc[:main_segment_per_cell] = zeros(Int, length(bm_data.components))
+    resize!(bm_data.main_segment_per_cell, length(bm_data.components))
+    bm_data.main_segment_per_cell .= 0
+
     for ci in 1:length(bm_data.components)
         if isempty(bm_data.components[ci].n_molecules_per_segment)
             continue
@@ -384,12 +388,12 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         i_max = 0
         f_max = 0.0
         for (si,nms) in bm_data.components[ci].n_molecules_per_segment
-            seg_size = bm_data.misc[:n_molecules_per_segment][si]
-            if ((si / seg_size) > (f_max + 1e-10)) || ((nms == seg_size) && (seg_size > bm_data.misc[:n_molecules_per_segment][i_max]))
+            seg_size = bm_data.n_molecules_per_segment[si]
+            if ((si / seg_size) > (f_max + 1e-10)) || ((nms == seg_size) && (seg_size > bm_data.n_molecules_per_segment[i_max]))
                 f_max = nms / seg_size
                 i_max = si
             end
         end
-        bm_data.misc[:main_segment_per_cell][ci] = i_max
+        bm_data.main_segment_per_cell[ci] = i_max
     end
 end

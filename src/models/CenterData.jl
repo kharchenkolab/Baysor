@@ -17,6 +17,19 @@ CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Floa
 estimate_scale_from_centers(center_scales::Vector{Float64}) =
     (median(center_scales), mad(center_scales; normalize=true))
 
+
+load_segmentation_mask(path::String) =
+    load_segmentation_mask(Float64.(Images.load(path)))
+
+function load_segmentation_mask(mask::Matrix{Float64})::Matrix{Int}
+    segmentation = round.(Int, mask .* 2^16)
+    if length(unique(segmentation)) == 2
+        return Images.label_components(segmentation)
+    end
+
+    return segmentation
+end
+
 """
 Estimates scale as a 0.5 * median distance between two nearest centers
 """
@@ -29,14 +42,8 @@ estimate_scale_from_centers(seg_mask::Matrix{Int}) =
 extract_centers_from_mask(segmentation::BitMatrix, args...; kwargs...) =
     extract_centers_from_mask!(Images.label_components(segmentation), args...; kwargs...)
 
-function extract_centers_from_mask(segmentation::Matrix{Float64}, args...; kwargs...)
-    segmentation = round.(Int, Float64.(segmentation) .* 2^16)
-    if length(unique(segmentation)) == 2
-        return extract_centers_from_mask!(Images.label_components(segmentation), args...; kwargs...)
-    end
-
-    return extract_centers_from_mask!(segmentation, args...; kwargs...)
-end
+extract_centers_from_mask(segmentation::Matrix{Float64}, args...; kwargs...) =
+    extract_centers_from_mask!(load_segmentation_mask(segmentation), args...; kwargs...)
 
 function extract_centers_from_mask!(segmentation_labels::Matrix{Int}, df_spatial::Union{DataFrame, Nothing}=nothing; min_transcripts_per_center::Int=2)
     if df_spatial !== nothing

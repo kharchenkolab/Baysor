@@ -17,10 +17,6 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
     min_molecules_per_cell = max(min_molecules_per_cell, 3)
 
-    if param == :n_degrees_of_freedom_center
-        return min_molecules_per_cell
-    end
-
     if param == :min_transcripts_per_center
         return max(round(Int, min_molecules_per_cell / 4), 2)
     end
@@ -119,10 +115,6 @@ function encode_genes(gene_list)
     return [gene_ids[g] for g in gene_list], gene_names
 end
 
-assign_cells_to_centers(spatial_df::DataFrame, centers::DataFrame)::Array{Int, 1} =
-    [v[1] for v in knn(KDTree(position_data(centers)), position_data(spatial_df), 1)[1]]
-
-
 function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1})
     filt_ids = findall(assignment .> 0)
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
@@ -135,9 +127,11 @@ function initial_params_from_assignment(spatial_df::DataFrame, assignment::Array
     return InitialParams(copy(position_data(center_data.centers)'), CovMat.(center_data.center_covs), assignment)
 end
 
+# DEPRECATED?
 center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
     center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
 
+# DEPRECATED?
 function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
     pos_data = position_data(spatial_df)
     cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(pos_data, assignment)]...)
@@ -194,7 +188,7 @@ function estimate_local_composition_similarities(df_spatial::DataFrame, edge_lis
 end
 
 function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no,
-                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, kwargs...)::BmmData
+                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
     edge_list, adjacent_dists = adjacency_list(df_spatial, adjacency_type=adjacency_type)
     real_edge_length = quantile(adjacent_dists, 0.3)
 
@@ -208,27 +202,27 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighbo
 
     adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1))
 
-    max_weight = quantile(vcat(adjacent_weights...), 0.975) # increase robustnes
+    max_weight = quantile(vcat(adjacent_weights...), 0.975) # increases robustnes
     adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
 
     components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 ./ real_edge_length, sampler, assignment, update_priors=update_priors)
+    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 ./ real_edge_length, sampler, assignment, update_priors=update_priors, prior_seg_confidence=prior_seg_confidence)
 end
 
 """
     main function for initialization of bm_data
 """
 function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
-                                  confidence_nn_id::Union{Int, Nothing}=nothing, confidence_border_quantiles::Tuple{Float64, Float64}=(0.3, 0.975),
-                                  min_molecules_per_cell::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-                                  n_gene_pcs::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
+                                  confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
+                                  n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
     confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
 
-    if !(:confidence in names(df_spatial)) && (confidence_nn_id > 0)
+    if confidence_nn_id > 0
         @info "Estimate confidence per molecule"
-        append_confidence!(df_spatial; nn_id=confidence_nn_id, border_quantiles=confidence_border_quantiles)
+        prior_segmentation = (:prior_segmentation in names(df_spatial)) ? df_spatial.prior_segmentation : nothing
+        append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
         @info "Done"
     end
 
@@ -244,9 +238,10 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
     n_gene_pcs = something(n_gene_pcs, default_param_value(:n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
 
     return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell,
-        composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, kwargs...)
+        composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
 end
 
+# DEPRECATED?
 function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int,
                                   scale::Union{Number, Nothing}=nothing, scale_std::Union{Float64, String, Nothing}=nothing,
                                   new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
@@ -299,6 +294,7 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Numbe
     return bm_datas_res;
 end
 
+# DEPRECATED?
 function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
            gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1, n_cells_init::Int=0)
     mtx_centers = position_data(prior_centers.centers)
@@ -337,13 +333,14 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
     return assignment, pos_distributions, center_priors, can_be_dropped
 end
 
+# DEPRECATED?
 """
     Creates `distributions with `prior_centers` centers and `default_std` standard deviation
 
     # Arguments
     - `df_spatial::DataFrame`: DataFrame with columns `:x`, `:y` and `:gene`
     - `prior_centers::CenterData`: info on centers, extracted from DAPIs. Must have `center_covs` filled.
-    - `size_prior::ShapePrior`: shape prior for position_params
+    - `size_prior::Union{ShapePrior, Nothing}`: shape prior for position_params
     - `new_component_weight::Float64`:
     - `prior_component_weight::Float64`:
     - `n_degrees_of_freedom_center::Int`:
@@ -352,7 +349,7 @@ end
     - `noise_confidence_threshold::Float64=0.1`: all molecules with confidence < `noise_confidence_threshold` are assigned to noise class
     - `n_cells_init::Int=0`: number of clusters for initialization. Ignored if less than number of centers. Otherwise corresponding clusters are added with KShift clustering
 """
-function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::ShapePrior, new_component_weight::Float64,
+function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::Union{ShapePrior, Nothing}, new_component_weight::Float64,
                                prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
                                gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1,
                                n_cells_init::Int=0)

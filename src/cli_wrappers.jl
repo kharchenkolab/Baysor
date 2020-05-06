@@ -29,9 +29,7 @@ function get_default_config()
         ),
         "Sampling" => Dict{String, Any}(
             "new-component-weight" => 0.2,
-            "new-component-fraction" => 0.3,
-            "center-component-weight" => 1.0,
-            "n-degrees-of-freedom-center" => nothing
+            "new-component-fraction" => 0.3
         ),
         "Plotting" => Dict{String, Any}(
             "gene-composition-neigborhood" => nothing,
@@ -114,7 +112,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
-        "--staining"
+        "--staining" # TODO: use it only for diagnostics plots
             help = "Image with DAPI or poly-T staining with brighter colors corresponing to nucleis / cell bodies"
             arg_type = String
 
@@ -125,8 +123,8 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
-        "centers"
-            help = "Either CSV file with coordinates of cell centers, extracted from DAPI staining or image with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
+        "prior_segmentation" # TODO: add support for CSV with centers or for column name with segmentation ids
+            help = "Image with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -152,13 +150,9 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         r[k] = Symbol(r[k])
     end
 
-    if r["centers"] === nothing && r["scale"] === nothing
-        println("Either `centers` or `scale` must be provided.")
+    if r["prior_segmentation"] === nothing && r["scale"] === nothing
+        println("Either `prior_segmentation` or `scale` must be provided.")
         exit(1)
-    end
-
-    if r["n-degrees-of-freedom-center"] === nothing
-        r["n-degrees-of-freedom-center"] = default_param_value(:n_degrees_of_freedom_center, r["min-molecules-per-cell"])
     end
 
     if r["gene-composition-neigborhood"] === nothing
@@ -322,29 +316,26 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @info "Done"
     end
 
-    if args["centers"] !== nothing
-        centers = load_centers(args["centers"], df_spatial, x_col=args["x-column"], y_col=args["y-column"], min_transcripts_per_center=args["min-transcripts-per-center"])
-        df_centers = centers.centers
+    if args["prior_segmentation"] !== nothing
+        prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
+        df_spatial[!, :segmentation_prior] = staining_value_per_transcript(df_spatial, prior_seg_labels);
 
-        scale = args["estimate-scale-from-centers"] ? nothing : args["scale"]
-        scale_std = args["estimate-scale-from-centers"] ? nothing : args["scale-std"]
-        bm_data_arr = initial_distribution_arr(df_spatial, centers; n_frames=args["n-frames"], scale=scale, scale_std=scale_std,
-            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"],
-            center_component_weight=args["center-component-weight"], n_degrees_of_freedom_center=args["n-degrees-of-freedom-center"],
-            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+        centers = extract_centers_from_mask!(prior_seg_labels, df_spatial, min_transcripts_per_center=args["min-transcripts-per-center"])
+        df_centers = centers.centers
 
         if args["estimate-scale-from-centers"]
             args["scale"] = centers.scale_estimate
             args["scale-std"] = centers.scale_std_estimate
         end
-    else
-        bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
+    end
+
+    bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
-    end
 
     if args["staining"] !== nothing
         @info "Adjusting random field based on the staining..."
+        @warn "Staining option is experimental. Results can easily be worse than without it."
         dapi = Float64.(Images.load(expanduser(args["staining"])))
         adjust_field_weights_by_dapi!.(bm_data_arr, Ref(dapi))
         @info "Done."

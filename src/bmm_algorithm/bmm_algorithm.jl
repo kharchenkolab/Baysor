@@ -68,8 +68,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     adj_weights = Float64[]
     denses = Float64[]
 
-    has_seg_prior = ((:segment_per_molecule in keys(data.misc)) && !isempty(data.misc[:segment_per_molecule]))
-    seg_prior_pow::Float64 = has_seg_prior ? data.misc[:seg_prior_confidence] * exp(4*data.misc[:seg_prior_confidence]) : 0.0
+    has_seg_prior = !isempty(data.segment_per_molecule)
+    seg_prior_pow::Float64 = has_seg_prior ? data.prior_seg_confidence * exp(4*data.prior_seg_confidence) : 0.0
 
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
@@ -77,7 +77,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         gene::Int = composition_data(data)[i]
         confidence::Float64 = data.confidence[i]
         mol_cluster::Int = isempty(data.cluster_per_molecule) ? 0 : data.cluster_per_molecule[i]
-        segment_id = has_seg_prior ? data.misc[:segment_per_molecule][i] : 0
+        segment_id = has_seg_prior ? data.segment_per_molecule[i] : 0
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
         zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
@@ -99,9 +99,9 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             end
 
             if segment_id > 0
-                main_seg = data.misc[:main_segment_per_cell][c_adj]
+                main_seg = data.main_segment_per_cell[c_adj]
                 if (segment_id == main_seg) || (main_seg == 0)
-                    main_seg_sum += min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, data.misc[:n_molecules_per_segment][segment_id])
+                    main_seg_sum += min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
                 end
             end
 
@@ -112,8 +112,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             for j in eachindex(adj_weights)
                 c_adj = adj_classes[j]
 
-                seg_size = data.misc[:n_molecules_per_segment][segment_id]
-                main_seg = data.misc[:main_segment_per_cell][c_adj]
+                seg_size = data.n_molecules_per_segment[segment_id]
+                main_seg = data.main_segment_per_cell[c_adj]
                 n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
 
                 # Possible competitions:
@@ -122,14 +122,12 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
                 # - one cell outside of segment, and doublet or overlap inside: outside cell has advantage
 
                 if (segment_id == main_seg) || (main_seg == 0)
-                    denses[j] *= (n_cell_mols_per_seg / main_seg_sum) ^ (2 * data.misc[:seg_prior_confidence])
+                    denses[j] *= (n_cell_mols_per_seg / main_seg_sum) ^ (2 * data.prior_seg_confidence)
                 else
-                    denses[j] *= (1. - data.misc[:seg_prior_confidence])^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
+                    denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
                 end
             end
         end
-
-
 
         if sum(denses) < noise_density_threshold
             assign!(data, i, 0) # Noise class
