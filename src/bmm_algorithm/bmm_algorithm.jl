@@ -28,9 +28,6 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
-@inline segment_frac_penalty(x::Float64; x_min::Float64=0.3, min_val::Float64=0.1, max_val=1.0)::Float64 =
-    fmin(fmax(x - x_min, x_min - x) / x_min * (max_val - min_val) + min_val, max_val)
-
 """
 ...
 # Arguments
@@ -72,10 +69,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     denses = Float64[]
 
     has_seg_prior = ((:segment_per_molecule in keys(data.misc)) && !isempty(data.misc[:segment_per_molecule]))
-
-    seg_prior_min_val::Float64 = has_seg_prior ? (1.0 - data.misc[:seg_prior_confidence])^1.5 : 0.0
-    seg_prior_max_val::Float64 = has_seg_prior ? min(1.0, 2.0 - 2.0 * data.misc[:seg_prior_confidence]) : 0.0
-    seg_prior_pow::Float64 = has_seg_prior ? max(data.misc[:seg_prior_confidence], (data.misc[:seg_prior_confidence] .- 0.5) .* 10 .+ 1) : 0.0
+    seg_prior_pow::Float64 = has_seg_prior ? data.misc[:seg_prior_confidence] * exp(4*data.misc[:seg_prior_confidence]) : 0.0
 
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
@@ -95,6 +89,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         end
 
         empty!(denses)
+        main_seg_sum = 0
         for j in eachindex(adj_weights)
             c_adj = adj_classes[j]
             cc = data.components[c_adj]
@@ -104,21 +99,37 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             end
 
             if segment_id > 0
-                n_cell_mols_per_seg = get(data.components[c_adj].n_molecules_per_segment, segment_id, 0)
-                seg_size = data.misc[:n_molecules_per_segment][segment_id]
-                f_ms = n_cell_mols_per_seg / seg_size
-                if n_cell_mols_per_seg / fmin(cc.n_samples, seg_size) > 0.5 # if this is the "main" segment for this cell
-                    c_dens *= f_ms ^ seg_prior_pow # push larger segments to win the competition
-                else
-                    c_dens *= segment_frac_penalty(f_ms; min_val=seg_prior_min_val, max_val=seg_prior_max_val) # if it's not, penalize for having large part of this segment
+                main_seg = data.misc[:main_segment_per_cell][c_adj]
+                if (segment_id == main_seg) || (main_seg == 0)
+                    main_seg_sum += min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, data.misc[:n_molecules_per_segment][segment_id])
                 end
-
-                # f_mc = get(data.misc[:n_molecules_per_cell_per_segment][segment_id], c_adj, 0) / data.misc[:n_seg_molecules_per_cell][c_adj] # TODO: remove n_seg_molecules_per_cell
-                # c_dens *= f_ms * segment_frac_penalty(f_ms) * segment_frac_penalty(f_mc)
             end
 
             push!(denses, c_dens)
         end
+
+        if segment_id > 0
+            for j in eachindex(adj_weights)
+                c_adj = adj_classes[j]
+
+                seg_size = data.misc[:n_molecules_per_segment][segment_id]
+                main_seg = data.misc[:main_segment_per_cell][c_adj]
+                n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
+
+                # Possible competitions:
+                # - two cells within one segment: largest has advantage if it's not overlap or doublet
+                # - one cell outside of segment, and one correct cell inside: outside has possibility to take part if gene composition is in favour of it
+                # - one cell outside of segment, and doublet or overlap inside: outside cell has advantage
+
+                if (segment_id == main_seg) || (main_seg == 0)
+                    denses[j] *= (n_cell_mols_per_seg / main_seg_sum) ^ (2 * data.misc[:seg_prior_confidence])
+                else
+                    denses[j] *= (1. - data.misc[:seg_prior_confidence])^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
+                end
+            end
+        end
+
+
 
         if sum(denses) < noise_density_threshold
             assign!(data, i, 0) # Noise class

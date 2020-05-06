@@ -150,11 +150,13 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
         if component_id > 0
             data.misc[:n_molecules_per_cell_per_segment][segment_id][component_id] = get(data.misc[:n_molecules_per_cell_per_segment][segment_id], component_id, 0) + 1
             data.components[component_id].n_molecules_per_segment[segment_id] = get(data.components[component_id].n_molecules_per_segment, segment_id, 0) + 1
+            data.misc[:n_seg_molecules_per_cell][component_id] += 1
         end
 
         if old_id > 0
             data.misc[:n_molecules_per_cell_per_segment][segment_id][old_id] -= 1
             data.components[old_id].n_molecules_per_segment[segment_id] -= 1
+            data.misc[:n_seg_molecules_per_cell][old_id] -= 1
         end
     end
 
@@ -371,5 +373,23 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         bm_data.misc[:n_seg_molecules_per_cell][c_cell] += 1
         bm_data.misc[:n_molecules_per_cell_per_segment][c_seg][c_cell] = get(bm_data.misc[:n_molecules_per_cell_per_segment][c_seg], c_cell, 0) + 1
         bm_data.components[c_cell].n_molecules_per_segment[c_seg] = get(bm_data.components[c_cell].n_molecules_per_segment, c_seg, 0) + 1
+    end
+
+    bm_data.misc[:main_segment_per_cell] = zeros(Int, length(bm_data.components))
+    for ci in 1:length(bm_data.components)
+        if isempty(bm_data.components[ci].n_molecules_per_segment)
+            continue
+        end
+
+        i_max = 0
+        f_max = 0.0
+        for (si,nms) in bm_data.components[ci].n_molecules_per_segment
+            seg_size = bm_data.misc[:n_molecules_per_segment][si]
+            if ((si / seg_size) > (f_max + 1e-10)) || ((nms == seg_size) && (seg_size > bm_data.misc[:n_molecules_per_segment][i_max]))
+                f_max = nms / seg_size
+                i_max = si
+            end
+        end
+        bm_data.misc[:main_segment_per_cell][ci] = i_max
     end
 end
