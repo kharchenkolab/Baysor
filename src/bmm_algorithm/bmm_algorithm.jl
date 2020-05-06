@@ -328,7 +328,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
               split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
               clustering_distance::D=Distances.CosineDist(), # TODO: Remove this
               prior_update_step::Int=split_period, assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
-              component_split_step::Int=max(min(5, div(n_iters, 3)), 1)) where D <: Distances.SemiMetric
+              component_split_step::Int=3) where D <: Distances.SemiMetric
     time_start = now()
 
     if verbose
@@ -366,7 +366,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
 
-        if (i % component_split_step == 0) || (i == n_iters) # TODO: try without component_split_step, as I optimized split_cells_by_connected_components
+        if (i % component_split_step == 0) || (i == n_iters)
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
