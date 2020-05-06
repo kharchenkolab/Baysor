@@ -119,6 +119,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
             arg_type = Float64
+        "--prior-segmentation-confidence"
+            help = "Confidence of the `prior_segmentation` results. Value in [0; 1]. If you want final segmentation not contradicting to prior_segmentation, set it to 1. Otherwise, if you assume errors in prior_segmentation, values in [0.5-0.75] gives the algorithm a lot of flexibility."
+            arg_type = Float64
+            default = 0.5
 
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
@@ -330,7 +334,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
-            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"],
+            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
 
     if args["staining"] !== nothing
