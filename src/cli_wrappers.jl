@@ -295,17 +295,17 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @info "Loading segmentation mask..."
         prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
         GC.gc()
-        df_spatial[!, :segmentation_prior] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
+        df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
 
         if args["estimate-scale-from-centers"]
             min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
-            filter_segmentation_labels!(prior_seg_labels, df_spatial.segmentation_prior; min_transcripts_per_segment=min_transcripts_per_segment)
+            filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
             args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
         end
         @info "Done"
 
         @info "Estimating prior segmentation polygons..."
-        prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels))
+        prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
         @info "Done"
     end
     GC.gc()
@@ -314,7 +314,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
 
     @info "Estimating noise level"
-    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.segmentation_prior), nn_id=confidence_nn_id)
+    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.prior_segmentation), nn_id=confidence_nn_id)
     @info "Done"
 
     max_diffs, change_fracs = nothing, nothing
@@ -351,7 +351,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @info "Done."
     end
 
-    history_depth = round(Int, args["iters"] * (args["iters"] >= 1000 ? 0.2 : 0.1))
+    history_depth = round(Int, args["iters"] * 0.1)
     bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
                                 min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
@@ -372,7 +372,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, nothing, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons)
     end
 
     @info "All done!"
