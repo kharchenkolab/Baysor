@@ -308,7 +308,7 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
             segmented_df = get_segmentation_df(data);
         end
 
-        df = vcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
+        df = hcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
 
         if do_score_doublets & !isempty(data.cluster_per_molecule)
             cluster_centers = convert_segmentation_to_counts(composition_data(data), data.cluster_per_molecule);
