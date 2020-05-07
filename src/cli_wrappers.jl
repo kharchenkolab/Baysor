@@ -128,7 +128,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
         "prior_segmentation" # TODO: add support for CSV with centers or for column name with segmentation ids
-            help = "Image with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
+            help = "Image or MAT file with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -290,12 +290,26 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
     end
 
-    df_centers = nothing
+    if args["prior_segmentation"] !== nothing
+        @info "Loading segmentation mask..."
+        prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
+        GC.gc()
+        df_spatial[!, :segmentation_prior] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
+
+        if args["estimate-scale-from-centers"]
+            min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
+            filter_segmentation_labels!(prior_seg_labels, df_spatial.segmentation_prior; min_transcripts_per_segment=min_transcripts_per_segment)
+            args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
+        end
+        @info "Done"
+    end
+    GC.gc()
+
     bm_data_arr = BmmData[]
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
 
     @info "Estimating noise level"
-    append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
+    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.segmentation_prior), nn_id=confidence_nn_id)
     @info "Done"
 
     max_diffs, change_fracs = nothing, nothing
@@ -318,19 +332,6 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
         # TODO: store mol_clusts.exprs at bm_data.misc?
         @info "Done"
-    end
-
-    if args["prior_segmentation"] !== nothing
-        prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
-        df_spatial[!, :segmentation_prior] = staining_value_per_transcript(df_spatial, prior_seg_labels);
-
-        centers = extract_centers_from_mask!(prior_seg_labels, df_spatial, min_transcripts_per_center=args["min-transcripts-per-center"])
-        df_centers = centers.centers
-
-        if args["estimate-scale-from-centers"]
-            args["scale"] = centers.scale_estimate
-            args["scale-std"] = centers.scale_std_estimate
-        end
     end
 
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
@@ -366,7 +367,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, df_centers, args; clusters=bm_data.cluster_per_molecule)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, nothing, args; clusters=bm_data.cluster_per_molecule)
     end
 
     @info "All done!"

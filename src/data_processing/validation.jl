@@ -235,7 +235,7 @@ function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; 
     return plot_comparison_for_cell(df_spatial, xls, yls, args...; xc=xc, yc=yc, kwargs...)
 end
 
-function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{Int}, dapi_arr::Matrix{Float64};
+function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{<:Integer}, dapi_arr::Matrix{Float64};
         size_mult::Float64=1.0, grid_alpha::Float64=0.0, ms::Float64=2.0, title="", center_mult::Float64=3.0, noise::Bool=false,
         xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, kwargs...) where T <: Real
 

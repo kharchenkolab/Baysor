@@ -1,8 +1,71 @@
 using DataFrames
 using NearestNeighbors
+using SparseArrays
 using StatsBase
 
 import Images
+import MAT
+
+function load_segmentation_mask(path::String)::SparseMatrixCSC
+    if lowercase(splitext(path)[end]) == ".mat"
+        labels = first(MAT.matread(path))[2]
+        if !(typeof(labels) <: Integer)
+            for v in labels
+                if (v < -1e-5) || (abs(round(Int, v) - v) > 1e-5)
+                    error(".mat file must have non-negative integer array with labels in its first slot, but it contains value '$v'")
+                end
+            end
+        end
+
+        return SparseMatrixCSC{Int, Int}(labels)
+    end
+
+    labels = Images.load(path) |> Images.channelview |> Images.rawview |> sparse
+    if length(unique(nonzeros(labels))) == 2
+        return BitMatrix(labels) |> Images.label_components |> sparse
+    end
+
+    return labels
+end
+
+estimate_scale_from_centers(center_scales::Vector{Float64}) =
+    (median(center_scales), mad(center_scales; normalize=true))
+
+"""
+Estimates scale as a 0.5 * median distance between two nearest centers
+"""
+estimate_scale_from_centers(centers::Matrix{Float64}) =
+    estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
+
+estimate_scale_from_centers(seg_labels::Matrix{Int}) =
+    estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_labels)[2:end] ./ π))
+
+estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer}) =
+    estimate_scale_from_centers(sqrt.(filter(x -> x > 0, count_array(nonzeros(seg_labels))) ./ π))
+
+
+filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractMatrix{<:Integer}, df_spatial::DataFrame; quiet::Bool=false, kwargs...) =
+    filter_segmentation_labels!(segmentation_labels, staining_value_per_transcript(df_spatial, segmentation_labels, quiet=quiet); kwargs...)
+
+function filter_segmentation_labels!(segmentation_labels::SparseMatrixCSC{<:Integer}, segment_per_transcript::Vector{<:Integer}; kwargs...)
+    filter_segmentation_labels!(segmentation_labels.nzval, segment_per_transcript; kwargs...)
+    dropzeros!(segmentation_labels)
+    return segmentation_labels
+end
+
+function filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractArray{<:Integer}, segment_per_transcript::Vector{<:Integer}; min_transcripts_per_segment::Int)
+    n_mols_per_label = count_array(segment_per_transcript, max_value=maximum(segmentation_labels), drop_zero=true)
+
+    for i in 1:length(segmentation_labels)
+        lab = segmentation_labels[i]
+        if (lab > 0) && (n_mols_per_label[lab] < min_transcripts_per_segment)
+            segmentation_labels[i] = 0
+        end
+    end
+    return segmentation_labels
+end
+
+### DEPRECATED FUNCTIONS
 
 mutable struct CenterData
     centers::DataFrame
@@ -14,14 +77,7 @@ end
 CenterData(centers::DataFrame, scale_estimate::Float64, scale_std_estimate::Float64) =
     CenterData(centers, nothing, scale_estimate, scale_std_estimate)
 
-estimate_scale_from_centers(center_scales::Vector{Float64}) =
-    (median(center_scales), mad(center_scales; normalize=true))
-
-
-load_segmentation_mask(path::String) =
-    load_segmentation_mask(Float64.(Images.load(path)))
-
-function load_segmentation_mask(mask::Matrix{Float64})::Matrix{Int}
+function parse_segmentation_mask(mask::Matrix{Float64})::Matrix{Int}
     segmentation = round.(Int, mask .* 2^16)
     if length(unique(segmentation)) == 2
         return Images.label_components(segmentation)
@@ -30,33 +86,24 @@ function load_segmentation_mask(mask::Matrix{Float64})::Matrix{Int}
     return segmentation
 end
 
-"""
-Estimates scale as a 0.5 * median distance between two nearest centers
-"""
-estimate_scale_from_centers(centers::Matrix{Float64}) =
-    estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
+# extract_centers_from_mask(segmentation::BitMatrix, args...; kwargs...) =
+#     extract_centers_from_mask!(Images.label_components(segmentation), args...; kwargs...)
 
-estimate_scale_from_centers(seg_mask::Matrix{Int}) =
-    estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_mask)[2:end] ./ π))
+# extract_centers_from_mask(segmentation::Matrix{Float64}, args...; kwargs...) =
+#     extract_centers_from_mask!(load_segmentation_mask(segmentation), args...; kwargs...)
 
-extract_centers_from_mask(segmentation::BitMatrix, args...; kwargs...) =
-    extract_centers_from_mask!(Images.label_components(segmentation), args...; kwargs...)
-
-extract_centers_from_mask(segmentation::Matrix{Float64}, args...; kwargs...) =
-    extract_centers_from_mask!(load_segmentation_mask(segmentation), args...; kwargs...)
-
-function extract_centers_from_mask!(segmentation_labels::Matrix{Int}, df_spatial::Union{DataFrame, Nothing}=nothing; min_transcripts_per_center::Int=2)
+function extract_centers_from_mask!(segmentation_labels::MT where MT <: AbstractMatrix{T}, df_spatial::Union{DataFrame, Nothing}=nothing; min_transcripts_per_segment::Int=2, quiet::Bool=false) where T <: Integer
     if df_spatial !== nothing
-        n_mols_per_label = count_array(staining_value_per_transcript(df_spatial, segmentation_labels), max_value=maximum(segmentation_labels), drop_zero=true)
+        n_mols_per_label = count_array(staining_value_per_transcript(df_spatial, segmentation_labels, quiet=quiet), max_value=maximum(segmentation_labels), drop_zero=true)
 
         for i in 1:length(segmentation_labels)
             lab = segmentation_labels[i]
-            if (lab > 0) && (n_mols_per_label[lab] < min_transcripts_per_center)
+            if (lab > 0) && (n_mols_per_label[lab] < min_transcripts_per_segment)
                 segmentation_labels[i] = 0
             end
         end
-    elseif min_transcripts_per_center > 0
-        @warn "df_spatial not provided, but min_transcripts_per_center > 0. Centers weren't filtered by min_transcripts_per_center."
+    elseif min_transcripts_per_segment > 0
+        @warn "df_spatial not provided, but min_transcripts_per_segment > 0. Centers weren't filtered by min_transcripts_per_segment."
     end
 
     uniq_labels = sort(unique(segmentation_labels))
@@ -85,7 +132,7 @@ function extract_centers_from_mask!(segmentation_labels::Matrix{Int}, df_spatial
     return CenterData(DataFrame(centers', [:y, :x])[:,[:x, :y]], center_covs, scale, scale_std)
 end
 
-function load_centers(path::String, df_spatial::Union{DataFrame, Nothing}=nothing; min_transcripts_per_center::Int=2, kwargs...)#::CenterData
+function load_centers(path::String, df_spatial::Union{DataFrame, Nothing}=nothing; min_transcripts_per_segment::Int=2, kwargs...)#::CenterData
     file_ext = splitext(path)[2]
     if file_ext == ".csv"
         df_centers = read_spatial_df(path; gene_col=nothing, kwargs...) |> unique;
@@ -94,7 +141,7 @@ function load_centers(path::String, df_spatial::Union{DataFrame, Nothing}=nothin
     end
 
     if file_ext in [".png", ".jpg", ".jpeg", ".tiff", ".tif"]
-        return extract_centers_from_mask(Float64.(Images.load(path)), df_spatial; min_transcripts_per_center=min_transcripts_per_center)
+        return extract_centers_from_mask(Float64.(Images.load(path)), df_spatial; min_transcripts_per_segment=min_transcripts_per_segment)
     end
 
     error("Unsupported file extension: '$file_ext'")
@@ -118,5 +165,5 @@ function subset_by_coords(centers::CenterData, coord_df::DataFrame)
     return CenterData(deepcopy(centers.centers[ids,:]), center_covs, centers.scale_estimate, centers.scale_std_estimate)
 end
 
-coords_per_segmentation_label(labels::Array{Int, 2}) =
+coords_per_segmentation_label(labels::MT where MT <: AbstractMatrix{<:Integer}) =
     [hcat(mod.(ids .- 1, size(labels, 1)) .+ 1, div.(ids .- 1, size(labels, 1)) .+ 1) for ids in Images.component_indices(labels)[2:end]]

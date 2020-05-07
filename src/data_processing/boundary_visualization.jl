@@ -20,7 +20,7 @@ function grid_point_coords(min_x::Vector{T}, max_x::Vector{T}, step::T) where T 
     return map(collect, grid_points);
 end
 
-function grid_borders_per_label(grid_labels::Array{Int64,2})
+function grid_borders_per_label(grid_labels::Matrix{<:Integer})
     d_cols = [-1 0 1 0]
     d_rows = [0 1 0 -1]
     borders_per_label = [Array{Int, 1}[] for i in 1:maximum(grid_labels)]
@@ -223,7 +223,7 @@ function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Array{
     return label_mat
 end
 
-function extract_polygons_from_label_grid(grid_labels::Matrix{Int}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
+function extract_polygons_from_label_grid(grid_labels::Matrix{<:Integer}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
         exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=zeros(2), grid_step::Float64=1.0)::Array{Matrix{Float64}, 1}
     borders_per_label = grid_borders_per_label(grid_labels);
     if !isempty(exclude_labels)

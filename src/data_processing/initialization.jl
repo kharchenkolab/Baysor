@@ -17,7 +17,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
     min_molecules_per_cell = max(min_molecules_per_cell, 3)
 
-    if param == :min_transcripts_per_center
+    if param == :min_transcripts_per_segment
         return max(round(Int, min_molecules_per_cell / 4), 2)
     end
 
@@ -61,24 +61,27 @@ function parse_scale_std(scale_std::String, scale::Real)
     return parse(Float64, scale_std)
 end
 
-function staining_value_per_transcript(df_spatial::DataFrame, staining::Matrix{T})::Vector{T} where T <: Real
+function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where MT <: AbstractMatrix{T}; quiet::Bool=false)::Vector{T} where T <: Real
     x_vals = round.(Int, df_spatial.x)
     y_vals = round.(Int, df_spatial.y)
-    if (maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1))
+    if !quiet && ((maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1)))
         @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the DAPI size: $(size(staining)). Filling it with 0."
     end
 
-    if (minimum(x_vals) < 1) || (minimum(y_vals) < 1)
+    if !quiet && ((minimum(x_vals) < 1) || (minimum(y_vals) < 1))
         @warn "Minimum transcript coordinates are < 1: $((minimum(y_vals), minimum(x_vals))). Filling it with 0."
     end
 
-    if (maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1))
+    if !quiet && ((maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1)))
         @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
     end
 
-    ind_mask = (x_vals .> 0) .& (x_vals .< size(staining, 2)) .& (y_vals .> 0) .& (y_vals .< size(staining, 1))
-    staining_vals = zeros(T, length(ind_mask))
-    staining_vals[ind_mask] .= staining[CartesianIndex.(y_vals, x_vals)[ind_mask]];
+    inds = findall((x_vals .> 0) .& (x_vals .< size(staining, 2)) .& (y_vals .> 0) .& (y_vals .< size(staining, 1)))
+    staining_vals = zeros(T, length(x_vals))
+    for i in inds
+        staining_vals[i] = staining[y_vals[i], x_vals[i]];
+    end
+
     return staining_vals
 end
 
