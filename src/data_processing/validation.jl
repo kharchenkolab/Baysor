@@ -162,7 +162,7 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
     return cm
 end
 
-function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{T} where T <: Real, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2,
+function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width=2, noise::Bool=true, size_mult=1/3,
         plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
@@ -235,7 +235,7 @@ function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; 
     return plot_comparison_for_cell(df_spatial, xls, yls, args...; xc=xc, yc=yc, kwargs...)
 end
 
-function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{<:Integer}, dapi_arr::Matrix{Float64};
+function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{<:Integer}, dapi_arr::Matrix{<:Real};
         size_mult::Float64=1.0, grid_alpha::Float64=0.0, ms::Float64=2.0, title="", center_mult::Float64=3.0, noise::Bool=false,
         xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, kwargs...) where T <: Real
 

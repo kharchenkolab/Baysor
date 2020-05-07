@@ -222,7 +222,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
     end
 end
 
-function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing}, args::Dict; clusters::Vector{Int})
+function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, args::Dict; clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1})
     @info "Estimating local colors"
     neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
     transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
@@ -232,12 +232,12 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
     grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
     polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
 
-    gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
+    gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity", alpha=0.5)
 
     clust_plot = nothing
     if !isempty(clusters)
-        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
+        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
             min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering", alpha=0.5)
     end
 
@@ -290,6 +290,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
     end
 
+    prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
         @info "Loading segmentation mask..."
         prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
@@ -301,6 +302,10 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             filter_segmentation_labels!(prior_seg_labels, df_spatial.segmentation_prior; min_transcripts_per_segment=min_transcripts_per_segment)
             args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
         end
+        @info "Done"
+
+        @info "Estimating prior segmentation polygons..."
+        prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels))
         @info "Done"
     end
     GC.gc()
@@ -367,7 +372,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, nothing, args; clusters=bm_data.cluster_per_molecule)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, nothing, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons)
     end
 
     @info "All done!"
