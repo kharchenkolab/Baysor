@@ -121,6 +121,12 @@ function shuffle_labels(labels::Array{Int})
     return new_labs
 end
 
+function shuffle_colors(colors::Vector)
+    uniq_cols = unique(colors);
+    col_ord = Dict(Pair.(uniq_cols, shuffle(1:length(uniq_cols))));
+    return [uniq_cols[col_ord[tc]] for tc in colors]
+end
+
 function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.05, alpha::Float64=0.5, fontsize::Int=5, text_offset::Float64=0.005,
         labels::Vector{String}=["y$i" for i in 1:length(vecs)], kwargs...)
     p = Plots.plot(;kwargs...)

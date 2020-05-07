@@ -69,7 +69,7 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     denses = Float64[]
 
     has_seg_prior = !isempty(data.segment_per_molecule)
-    seg_prior_pow::Float64 = has_seg_prior ? data.prior_seg_confidence * exp(4*data.prior_seg_confidence) : 0.0
+    seg_prior_pow::Float64 = has_seg_prior ? data.prior_seg_confidence * exp(3*data.prior_seg_confidence) : 0.0
 
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
@@ -89,7 +89,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         end
 
         empty!(denses)
-        main_seg_sum = 0
+        largest_cell_id = 0
+        largest_cell_size = 0
         for j in eachindex(adj_weights)
             c_adj = adj_classes[j]
             cc = data.components[c_adj]
@@ -101,7 +102,11 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
             if segment_id > 0
                 main_seg = data.main_segment_per_cell[c_adj]
                 if (segment_id == main_seg) || (main_seg == 0)
-                    main_seg_sum += min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
+                    cur_size = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
+                    if (cur_size > largest_cell_size) || ((cur_size == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
+                        largest_cell_size = cur_size
+                        largest_cell_id = c_adj
+                    end
                 end
             end
 
@@ -122,7 +127,9 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
                 # - one cell outside of segment, and doublet or overlap inside: outside cell has advantage
 
                 if (segment_id == main_seg) || (main_seg == 0)
-                    denses[j] *= (n_cell_mols_per_seg / main_seg_sum) ^ (2 * data.prior_seg_confidence)
+                    if c_adj != largest_cell_id
+                        denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (n_cell_mols_per_seg / largest_cell_size)^data.prior_seg_confidence
+                    end
                 else
                     denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
                 end

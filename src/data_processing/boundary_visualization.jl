@@ -164,10 +164,10 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
 end
 
 boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
-boundary_polygons(spatial_df::DataFrame, cell_labels::Array{Int64,1}; kwargs...) =
+boundary_polygons(spatial_df::DataFrame, cell_labels::Vector{Int}; kwargs...) =
     boundary_polygons(position_data(spatial_df), cell_labels; kwargs...)
 
-function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Array{Int64,1}, min_x::Vector{T}, max_x::Vector{T};
+function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Vector{T}, max_x::Vector{T};
         grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)[2:end]];
     coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];

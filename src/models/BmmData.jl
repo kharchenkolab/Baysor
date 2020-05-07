@@ -389,7 +389,7 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         f_max = 0.0
         for (si,nms) in bm_data.components[ci].n_molecules_per_segment
             seg_size = bm_data.n_molecules_per_segment[si]
-            if ((si / seg_size) > (f_max + 1e-10)) || ((nms == seg_size) && (seg_size > bm_data.n_molecules_per_segment[i_max]))
+            if ((nms / seg_size) > (f_max + 1e-10)) || ((nms == seg_size) && (seg_size > bm_data.n_molecules_per_segment[i_max]))
                 f_max = nms / seg_size
                 i_max = si
             end
