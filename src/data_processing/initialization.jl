@@ -162,7 +162,7 @@ cell_centers_with_clustering(spatial_df::DataFrame, args...; kwargs...) =
 function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
     n_clusters = min(n_clusters, size(pos_data, 2))
 
-    cluster_centers = kshiftmedoids(pos_data, n_clusters)[1];
+    cluster_centers = pos_data[:, select_ids_uniformly(pos_data[1,:], pos_data[2,:]; n=n_clusters)]
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
     covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
@@ -306,6 +306,7 @@ function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterD
     n_added_clusters = 0
 
     if n_cells_init > size(mtx_centers, 2)
+        # TODO: use select_ids_uniformly instead if decide to keep this function
         cluster_centers = kshiftmedoids(pos_data, n_cells_init)[1];
 
         if size(mtx_centers, 2) > 0
