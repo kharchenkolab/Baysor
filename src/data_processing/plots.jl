@@ -22,7 +22,7 @@ plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs.
     plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
 
 function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Array{Float64, 2}, 1}=Array{Float64, 2}[], df_centers=nothing; point_size=2,
-                                    color::Union{Vector, Symbol}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
+                                    color::Union{Vector, Symbol, String}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
                                     size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0), subplot::Int=1,
                                     is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{TA, Nothing} where TA <: AbstractVector = nothing,
                                     ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85, fontsize=8,

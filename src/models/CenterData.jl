@@ -40,8 +40,14 @@ estimate_scale_from_centers(centers::Matrix{Float64}) =
 estimate_scale_from_centers(seg_labels::Matrix{Int}) =
     estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_labels)[2:end] ./ π))
 
-estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer}) =
-    estimate_scale_from_centers(sqrt.(filter(x -> x > 0, count_array(nonzeros(seg_labels))) ./ π))
+function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
+    nz_vals = nonzeros(seg_labels);
+    nz_vals = nz_vals[nz_vals .> 0]
+    if isempty(nz_vals)
+        error("No transcripts detected inside the segmented regions. Please, check that transcript coordinates match those in the segmentation mask.")
+    end
+    return estimate_scale_from_centers(sqrt.(filter(x -> x > 0, count_array(nz_vals)) ./ π))
+end
 
 
 filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractMatrix{<:Integer}, df_spatial::DataFrame; quiet::Bool=false, kwargs...) =
