@@ -341,7 +341,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], prior_seg_confidence=args["prior-segmentation-confidence"],
-            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=confidence_nn_id);
+            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
 
     if args["staining"] !== nothing
         @info "Adjusting random field based on the staining..."
