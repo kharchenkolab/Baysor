@@ -222,7 +222,7 @@ end
 
 rectangle((xs, xe), (ys, ye)) = Plots.Shape([xs, xe, xe, xs], [ys, ys, ye, ye])
 
-function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; cell1_col::Symbol=:cell, cell2_col::Symbol=:cell_paper, offset::Float64=0.1, kwargs...)
+function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; cell1_col::Symbol=:cell, cell2_col::Symbol=:cell_dapi, offset::Float64=0.1, kwargs...)
     sample_df = df_spatial[df_spatial[!, cell1_col] .== cell_id,:];
     paper_ids = setdiff(unique(sample_df[!, cell2_col]), [0]);
 
@@ -274,4 +274,98 @@ function joint_ordering(matrices::Matrix{T}...) where T <: Real
     gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
 
     return cell_ords, gene_ord
+end
+
+## Comparison of segmentations
+
+function prepare_qc_df(df_spatial::DataFrame, cell_col::Symbol=:cell; min_area::T where T<:Real, min_molecules_per_cell::T2 where T2 <: Real)
+    qc_per_cell = get_cell_qc_df(df_spatial, Int.(df_spatial[!, cell_col]));
+    qc_per_cell[!, :cell_id] = 1:size(qc_per_cell, 1)
+    qc_per_cell[!, :sqr_area] = sqrt.(qc_per_cell.area)
+    return @where(qc_per_cell, :n_transcripts .>= min_molecules_per_cell, :sqr_area .>= min_area)
+end
+
+hist_bins(vals::Vector{<:Real}...; n_bins::Int=100, min_val::T where T<: Real=0.0, m_quantile::T2 where T2<:Real=0.99, max_val_mult::Float64=1.0) =
+    range(min_val, maximum([quantile(v, m_quantile) / m_quantile for v in vals])*max_val_mult, length=n_bins)
+
+function plot_qc_comparison(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}; labels::Vector{String}=["Baysor", "DAPI"],
+        max_quants::Vector{<:Real}=[0.9999, 0.99, 0.99, 0.999], n_bins::Vector{<:Real}=[75, 100, 100, 100], kwargs...)
+    m_names = [:n_transcripts, :density, :elongation, :sqr_area]
+    plot_titles = ["Num. of transcripts", "Density", "Elongation", "sqrt(Area)"]
+    plots = Plots.Plot[]
+    for (cs, xlab, mq, nb) in zip(m_names, plot_titles, max_quants, n_bins)
+        t_bins = hist_bins([qdf[!, cs] for qdf in qc_per_cell_dfs]..., m_quantile=mq, n_bins=nb)
+        plt = Plots.plot(widen=false, xlabel=xlab, ylabel="Num. of cells", xlims=Baysor.val_range(t_bins))
+        for (qdf, lab) in zip(qc_per_cell_dfs, labels)
+            Plots.histogram!(qdf[!, cs], label=lab, bins=t_bins, alpha=0.6, kwargs...)
+        end
+        push!(plots, plt)
+    end
+
+    return Plots.plot(plots..., layout=(2, 2), size=(900, 600))
+end
+
+function match_assignments(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, df_spatial::DataFrame, cell_cols::Vector{Symbol}; kwargs...)
+    assignments = [denserank(ifelse.(in.(df_spatial[!,s], Ref(Set(qdf.cell_id))), df_spatial[!,s], 0)) .- 1 for (s, qdf) in zip(cell_cols, qc_per_cell_dfs)];
+    return match_assignments(assignments...; kwargs...)
+end
+
+function match_assignments(assignment1::Vector{<:Integer}, assignment2::Vector{<:Integer}; bin_match_frac::Float64=0.05)
+    # Basic statistics
+    contingency_table = sparse_counts(assignment1 .+ 1, assignment2 .+ 1);
+    ci,ri,v = SparseArrays.findnz(contingency_table)
+    m_norm1 = sparse(ci, ri, v ./ sum(contingency_table, dims=1)[ri])
+    m_norm2 = sparse(ci, ri, v ./ sum(contingency_table, dims=2)[ci])
+
+    noise_fracs = Vector.((m_norm2[2:end,1], m_norm1[1,2:end]));
+    max_overlaps = Vector.((maximum(m_norm2[2:end,:], dims=2)[:], maximum(m_norm1[:,2:end], dims=1)[:]));
+
+    # @time bin_match = (contingency_table[2:end, 2:end] ./ sum(contingency_table[2:end, 2:end], dims=1) .> bin_match_frac);
+    bin_match = dropzeros!(sparse(ci, ri, m_norm1.nzval .> bin_match_frac))[2:end, 2:end];
+    n_overlaps = (sum(bin_match, dims=2)[:], sum(bin_match, dims=1)[:])
+
+    ctn_min = sparse(ci, ri, min.(m_norm1.nzval, m_norm2.nzval))
+    match_fracs = range(0.0, 1.0, length=30)
+    match_nums = [sum(any(ctn_min .>= mt, dims=1)) for mt in match_fracs];
+
+    # Derivative statistics
+    match_noise = [nf .> 0.5 for nf in noise_fracs]
+    multiple_overlap = [((mo .< 0.7) .& (nf .< 0.25)) for (mo, nf) in zip(max_overlaps, noise_fracs)];
+    @assert all([!any(mn .& mo) for (mn, mo) in zip(match_noise, multiple_overlap)])
+
+    return (contingency=contingency_table, noise_fracs=noise_fracs, max_overlaps=max_overlaps, n_overlaps=n_overlaps, match_fracs=match_fracs,
+        match_nums=match_nums, match_noise=match_noise, multiple_overlap=multiple_overlap)
+end
+
+function plot_matching_comparison(match_results::NamedTuple; labels::Vector{String}=["Baysor", "DAPI"], n_bins::Vector{<:Real}=[50, 30, 30], kwargs...)
+    m_names = [:noise_fracs, :max_overlaps, :n_overlaps]
+    plot_titles = ["Fraction of molecules, not assigned in other segmentation", "Fraction of molecules, matching to a single cell", "Number of overlapping cells"]
+    plots = Plots.Plot[]
+    for (n, xlab, nb) in zip(m_names, plot_titles, n_bins)
+        vals = match_results[n]
+        t_bins = hist_bins(vals..., m_quantile=1.0, n_bins=nb, max_val_mult=1.02)
+        plt = Plots.histogram(vals[1], label=labels[1], bins=t_bins, xlims=val_range(t_bins), widen=false,
+            xlabel=xlab, ylabel="Num. of cells", kwargs...)
+        Plots.histogram!(vals[2], label=labels[2], bins=t_bins, alpha=0.6)
+        push!(plots, plt)
+    end
+
+    plt = Plots.plot(match_results.match_fracs, match_results.match_nums, xlabel="Minimal fraction of matching molecules", ylabel="Num. of matching cells",
+        xlims=(0.0, 1.0), ylims=(0, maximum(match_results.match_nums) * 1.05), widen=false, legend=:none, lw=2.0)
+    push!(plots, plt)
+
+    return Plots.plot(plots..., layout=(2, 2), size=(900, 600))
+end
+
+function build_statistics_df(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, df_spatial::DataFrame; labels::Vector{Symbol}=[:Baysor, :DAPI], sigdigits::Int=3)
+    stat_df = DataFrame(Dict(:Metric => ["Num. cells", "Total num. molecules", "Fraction of noise", "Fraction of matching cells", "Fraction of matching to noise", "Fraction of multiple overlap"]))
+    for i in 1:length(qc_per_cell_dfs)
+        stat_df[!, labels[i]] = Any[
+            size(qc_per_cell_dfs[i], 1), sum(qc_per_cell_dfs[i].n_transcripts), round(1 .- sum(qc_per_cell_dfs[i].n_transcripts) / size(df_spatial, 1), sigdigits=sigdigits),
+            round(mean(.!match_res.match_noise[i] .& (.!match_res.multiple_overlap[i])), sigdigits=sigdigits), round(mean(match_res.match_noise[i]), sigdigits=sigdigits),
+            round(mean(match_res.multiple_overlap[i]), sigdigits=sigdigits)
+        ]
+    end
+
+    return stat_df
 end
