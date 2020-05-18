@@ -163,8 +163,8 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
 end
 
 function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2,
-        grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width=2, noise::Bool=true, size_mult=1/3,
-        plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
+        grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4,
+        noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
@@ -195,7 +195,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), 
 
     annotation = (annotation_col === nothing) ? nothing : df_subs[!, annotation_col]
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
-        polygon_line_width=polygon_line_width, polygon_alpha=0.75, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
 
     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
     Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
@@ -208,7 +208,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), 
     plt2 = Plots.heatmap(dapi_subs, color=:diff, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size)
 
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
-        fill=(0, 0.0), linewidth=2.0, linecolor="black", alpha=0.4, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
+        fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
 
     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
     Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
@@ -235,7 +235,8 @@ function plot_comparison_for_cell(df_spatial::DataFrame, cell_id::Int, args...; 
     return plot_comparison_for_cell(df_spatial, xls, yls, args...; xc=xc, yc=yc, kwargs...)
 end
 
-function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Matrix{<:Integer}, dapi_arr::Matrix{<:Real};
+function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Union{Matrix{<:Integer}, Nothing},
+        dapi_arr::Matrix{<:Real}; paper_polys::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygon_line_width::Float64=2.0, polygon_alpha::Float64=0.5,
         size_mult::Float64=1.0, grid_alpha::Float64=0.0, ms::Float64=2.0, title="", center_mult::Float64=3.0, noise::Bool=false,
         xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, kwargs...) where T <: Real
 
@@ -243,13 +244,18 @@ function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::
     xls = min.(xls, size(dapi_arr, 2))
     yls = min.(yls, size(dapi_arr, 1))
 
-    seg_labels = seg_arr[yls[1]:yls[2], xls[1]:xls[2]];
+    if seg_arr !== nothing
+        paper_polys = extract_polygons_from_label_grid(copy(seg_arr[yls[1]:yls[2], xls[1]:xls[2]]'))
+        paper_polys = [Plots.Shape(pg[:,1], pg[:,2]) for pg in paper_polys]
+    else
+        paper_polys = [Plots.Shape(pg[:,1] .- xls[1], pg[:,2] .- yls[1]) for pg in paper_polys]
+    end
 
-    plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise, kwargs...);
+    plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise,
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, kwargs...);
 
-    paper_polys = [Plots.Shape(pg[:, 1], pg[:, 2]) for pg in extract_polygons_from_label_grid(copy(seg_labels'))]
     for plt in plts
-        Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=1.5, alpha=0.75, linecolor="darkred", legend=:none);
+        Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=polygon_line_width, alpha=polygon_alpha, linecolor="darkred", legend=:none);
         if xc !== nothing
             Plots.scatter!([xc - xls[1]], [yc - yls[1]], color="black", ms=center_mult*ms)
         end
@@ -278,8 +284,8 @@ end
 
 ## Comparison of segmentations
 
-function prepare_qc_df(df_spatial::DataFrame, cell_col::Symbol=:cell; min_area::T where T<:Real, min_molecules_per_cell::T2 where T2 <: Real)
-    qc_per_cell = get_cell_qc_df(df_spatial, Int.(df_spatial[!, cell_col]));
+function prepare_qc_df(df_spatial::DataFrame, cell_col::Symbol=:cell; min_area::T where T<:Real, min_molecules_per_cell::T2 where T2 <: Real, dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
+    qc_per_cell = get_cell_qc_df(df_spatial, Int.(df_spatial[!, cell_col]), dapi_arr=dapi_arr);
     qc_per_cell[!, :cell_id] = 1:size(qc_per_cell, 1)
     qc_per_cell[!, :sqr_area] = sqrt.(qc_per_cell.area)
     return @where(qc_per_cell, :n_transcripts .>= min_molecules_per_cell, :sqr_area .>= min_area)
@@ -289,11 +295,14 @@ hist_bins(vals::Vector{<:Real}...; n_bins::Int=100, min_val::T where T<: Real=0.
     range(min_val, maximum([quantile(v, m_quantile) / m_quantile for v in vals])*max_val_mult, length=n_bins)
 
 function plot_qc_comparison(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}; labels::Vector{String}=["Baysor", "DAPI"],
-        max_quants::Vector{<:Real}=[0.9999, 0.99, 0.99, 0.999], n_bins::Vector{<:Real}=[75, 100, 100, 100], kwargs...)
-    m_names = [:n_transcripts, :density, :elongation, :sqr_area]
-    plot_titles = ["Num. of transcripts", "Density", "Elongation", "sqrt(Area)"]
+        max_quants::Vector{<:Real}=[0.9999, 0.99, 0.99, 0.999, 0.999], n_bins::Vector{<:Real}=[75, 100, 100, 100, 100], kwargs...)
+    m_names = [:n_transcripts, :density, :elongation, :sqr_area, :mean_dapi_brightness]
+    plot_titles = ["Num. of transcripts", "Density", "Elongation", "sqrt(Area)", "Mean DAPI brightness"]
     plots = Plots.Plot[]
     for (cs, xlab, mq, nb) in zip(m_names, plot_titles, max_quants, n_bins)
+        if any(!(cs in names(qdf)) for qdf in qc_per_cell_dfs)
+            continue
+        end
         t_bins = hist_bins([qdf[!, cs] for qdf in qc_per_cell_dfs]..., m_quantile=mq, n_bins=nb)
         plt = Plots.plot(widen=false, xlabel=xlab, ylabel="Num. of cells", xlims=Baysor.val_range(t_bins))
         for (qdf, lab) in zip(qc_per_cell_dfs, labels)
@@ -302,7 +311,7 @@ function plot_qc_comparison(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
         push!(plots, plt)
     end
 
-    return Plots.plot(plots..., layout=(2, 2), size=(900, 600))
+    return Plots.plot(plots..., size=(400 * ceil(Int, length(plots) / 2), 600))
 end
 
 function match_assignments(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, df_spatial::DataFrame, cell_cols::Vector{Symbol}; kwargs...)
@@ -338,8 +347,8 @@ function match_assignments(assignment1::Vector{<:Integer}, assignment2::Vector{<
 end
 
 function plot_matching_comparison(match_results::NamedTuple; labels::Vector{String}=["Baysor", "DAPI"], n_bins::Vector{<:Real}=[50, 30, 30], kwargs...)
-    m_names = [:noise_fracs, :max_overlaps, :n_overlaps]
-    plot_titles = ["Fraction of molecules, not assigned in other segmentation", "Fraction of molecules, matching to a single cell", "Number of overlapping cells"]
+    m_names = [:noise_fracs, :max_overlaps]
+    plot_titles = ["Fraction of molecules, not assigned in other segmentation", "Fraction of molecules, matching to a single cell"]
     plots = Plots.Plot[]
     for (n, xlab, nb) in zip(m_names, plot_titles, n_bins)
         vals = match_results[n]
@@ -349,6 +358,12 @@ function plot_matching_comparison(match_results::NamedTuple; labels::Vector{Stri
         Plots.histogram!(vals[2], label=labels[2], bins=t_bins, alpha=0.6)
         push!(plots, plt)
     end
+
+    max_bin = maximum(maximum.(match_results.n_overlaps))
+    plt = Plots.histogram(match_results.n_overlaps[1], label=labels[1], bins=0:0.5:max_bin, xticks=0:max_bin, widen=false,
+        xlabel="Number of overlapping cells", ylabel="Num. of cells", kwargs...)
+    Plots.histogram!(match_results.n_overlaps[2], label=labels[2], bins=0:0.5:max_bin, alpha=0.6)
+    push!(plots, plt)
 
     plt = Plots.plot(match_results.match_fracs, match_results.match_nums, xlabel="Minimal fraction of matching molecules", ylabel="Num. of matching cells",
         xlims=(0.0, 1.0), ylims=(0, maximum(match_results.match_nums) * 1.05), widen=false, legend=:none, lw=2.0)
@@ -368,4 +383,39 @@ function build_statistics_df(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{D
     end
 
     return stat_df
+end
+
+estimate_embedding(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}; kwargs...) =
+    estimate_embedding([convert_segmentation_to_counts(df_spatial.gene, df_spatial[!, cq])[:, qdf.cell_id] for (cq, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; kwargs...)
+
+function estimate_embedding(count_matrices::Matrix{<:Real}...; joint::Bool=true, kwargs...)::Array{Matrix{Float64}, 1}
+    cm_merged = hcat(count_matrices...);
+    ids_per_mat = split_ids(vcat([repeat([i], inner=size(cm, 2)) for (i,cm) in enumerate(count_matrices)]...))
+    umap_merged = fit(UmapFit, cm_merged ./ sum(cm_merged, dims=1); kwargs...).embedding;
+    return [umap_merged[:, ids] for ids in ids_per_mat]
+end
+
+function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, embeddings::Array{Matrix{Float64}, 1}; log_colors::Bool=true, size=(1000, 1000), labels::Vector{String}=["Baysor", "DAPI"])
+    plts = Plots.Plot[]
+    c_vals = [qdf.n_transcripts for qdf in qc_per_cell_dfs]
+    if log_colors
+        c_vals = [log.(cv) for cv in c_vals]
+    end
+
+    factor_per_cell = [ifelse.(match_res.multiple_overlap[i], "Multiple overlap", ifelse.(match_res.match_noise[i], "Match noise",
+        ifelse.(match_res.max_overlaps[i] .< 0.7, "Partial overlap", "Match"))) for i in 1:length(qc_per_cell_dfs)];
+    for i in 1:length(qc_per_cell_dfs)
+        plt = Plots.plot(format=:png, size=(600, 600), legend=:topleft, bg_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), title="$(labels[i]), matching")
+        for ids in split_ids(denserank(factor_per_cell[i]))
+            Plots.scatter!(embeddings[i][1,ids], embeddings[i][2,ids], label=factor_per_cell[i][ids[1]], ms=2.0, alpha=0.25, markerstrokewidth=0)
+        end
+        push!(plts, plt)
+
+        colors = map_to_colors(c_vals[i], lims=val_range(vcat(c_vals...)))[:colors]
+        plt = Plots.scatter(embeddings[i][1,:], embeddings[i][2,:], color=colors, ms=2.0, markerstrokewidth=0, format=:png, size=(600, 600), legend=false,
+            title="$(labels[i]), num. transcripts")
+        push!(plts, plt)
+    end;
+
+    return Plots.plot(plts..., size=size, format=:png)
 end
