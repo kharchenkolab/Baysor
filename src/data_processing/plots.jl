@@ -128,16 +128,20 @@ function shuffle_colors(colors::Vector)
 end
 
 function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.05, alpha::Float64=0.5, fontsize::Int=5, text_offset::Float64=0.005,
-        labels::Vector{String}=["y$i" for i in 1:length(vecs)], kwargs...)
-    p = Plots.plot(;kwargs...)
+        labels::Vector{String}=["y$i" for i in 1:length(vecs)], xrotation=60, xticks::Bool=false, kwargs...)
+    y_vals = maximum(hcat(vecs...), dims=2) |> vec
+    scale = sum(y_vals)
+
+    p = Plots.plot(;widen=false, ylims=(0, maximum(y_vals) + text_offset * scale), kwargs...)
     for (v,l) in zip(vecs, labels)
         p = Plots.bar!(v, alpha=alpha, label=l)
     end
 
-    y_vals = maximum(hcat(vecs...), dims=2) |> vec
-    scale = sum(y_vals)
     ann_genes = findall(y_vals .>= min_expr_frac * scale)
     p = Plots.annotate!(collect(zip(ann_genes, y_vals[ann_genes] .+ text_offset * scale, Plots.text.(gene_names[ann_genes], fontsize))))
+    if xticks
+        Plots.xticks!(1:length(gene_names), gene_names, xrotation=xrotation, xgrid=false)
+    end
     return p
 end
 

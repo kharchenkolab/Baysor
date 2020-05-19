@@ -388,14 +388,15 @@ end
 estimate_embedding(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}; kwargs...) =
     estimate_embedding([convert_segmentation_to_counts(df_spatial.gene, df_spatial[!, cq])[:, qdf.cell_id] for (cq, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; kwargs...)
 
-function estimate_embedding(count_matrices::Matrix{<:Real}...; joint::Bool=true, kwargs...)::Array{Matrix{Float64}, 1}
+function estimate_embedding(count_matrices::Matrix{<:Real}...; joint::Bool=true, kwargs...)
     cm_merged = hcat(count_matrices...);
+    cm_merged = cm_merged ./ sum(cm_merged, dims=1)
     ids_per_mat = split_ids(vcat([repeat([i], inner=size(cm, 2)) for (i,cm) in enumerate(count_matrices)]...))
-    umap_merged = fit(UmapFit, cm_merged ./ sum(cm_merged, dims=1); kwargs...).embedding;
-    return [umap_merged[:, ids] for ids in ids_per_mat]
+    umap_merged = fit(UmapFit, cm_merged; kwargs...);
+    return [umap_merged.embedding[:, ids] for ids in ids_per_mat], umap_merged, cm_merged
 end
 
-function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, embeddings::Array{Matrix{Float64}, 1}; log_colors::Bool=true, size=(1000, 1000), labels::Vector{String}=["Baysor", "DAPI"])
+function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, embeddings::Array{Matrix{Float64}, 1}; log_colors::Bool=true, size=(1000, 1000), labels::Vector{String}=["Baysor", "DAPI"], legend::Symbol=:best)
     plts = Plots.Plot[]
     c_vals = [qdf.n_transcripts for qdf in qc_per_cell_dfs]
     if log_colors
@@ -405,7 +406,7 @@ function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
     factor_per_cell = [ifelse.(match_res.multiple_overlap[i], "Multiple overlap", ifelse.(match_res.match_noise[i], "Match noise",
         ifelse.(match_res.max_overlaps[i] .< 0.7, "Partial overlap", "Match"))) for i in 1:length(qc_per_cell_dfs)];
     for i in 1:length(qc_per_cell_dfs)
-        plt = Plots.plot(format=:png, size=(600, 600), legend=:topleft, bg_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), title="$(labels[i]), matching")
+        plt = Plots.plot(format=:png, size=(600, 600), legend=legend, bg_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), title="$(labels[i]), matching")
         for ids in split_ids(denserank(factor_per_cell[i]))
             Plots.scatter!(embeddings[i][1,ids], embeddings[i][2,ids], label=factor_per_cell[i][ids[1]], ms=2.0, alpha=0.25, markerstrokewidth=0)
         end
@@ -419,3 +420,6 @@ function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
 
     return Plots.plot(plts..., size=size, format=:png)
 end
+
+plot_expression_vec_comparison(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}, gene_names; labels=["Baysor", "DAPI"], kwargs...) =
+    plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs] .+ 1)[2:end][qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
