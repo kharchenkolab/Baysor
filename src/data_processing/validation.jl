@@ -162,14 +162,14 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
     return cm
 end
 
-function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2,
+function plot_subset(df_spatial::DataFrame, dapi_arr::Matrix{<:Real}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
         if polygons
-            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=10, bandwidth=bandwidth)
+            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell, bandwidth=bandwidth)
         else
             polygons = Matrix{Float64}[]
         end
@@ -238,7 +238,7 @@ end
 function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::Tuple{T, T}, seg_arr::Union{Matrix{<:Integer}, Nothing},
         dapi_arr::Matrix{<:Real}; paper_polys::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygon_line_width::Float64=2.0, polygon_alpha::Float64=0.5,
         size_mult::Float64=1.0, grid_alpha::Float64=0.0, ms::Float64=2.0, title="", center_mult::Float64=3.0, noise::Bool=false,
-        xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, kwargs...) where T <: Real
+        xc::Union{Float64, Nothing}=nothing, yc::Union{Float64, Nothing}=nothing, plot_raw_dapi::Bool=true, kwargs...) where T <: Real
 
     xls, yls = max.(xls, 1), max.(yls, 1)
     xls = min.(xls, size(dapi_arr, 2))
@@ -252,7 +252,10 @@ function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::
     end
 
     plts = plot_subset(df_spatial, dapi_arr, xls, yls; size_mult=size_mult, build_panel=false, grid_alpha=grid_alpha, ms=ms, noise=noise,
-        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, kwargs...);
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, plot_raw_dapi=plot_raw_dapi, kwargs...);
+    if !plot_raw_dapi
+        plts = [plts]
+    end
 
     for plt in plts
         Plots.plot!(plt, paper_polys, fill=(0, 0.0), linewidth=polygon_line_width, alpha=polygon_alpha, linecolor="darkred", legend=:none);
@@ -260,6 +263,10 @@ function plot_comparison_for_cell(df_spatial::DataFrame, xls::Tuple{T, T}, yls::
             Plots.scatter!([xc - xls[1]], [yc - yls[1]], color="black", ms=center_mult*ms)
         end
     end;
+
+    if !plot_raw_dapi
+        return plts[1]
+    end
 
     Plots.plot(plts..., layout=2, size=(plts[1].attr[:size] .* (2, 1)), title=title)
 end
@@ -396,7 +403,8 @@ function estimate_embedding(count_matrices::Matrix{<:Real}...; joint::Bool=true,
     return [umap_merged.embedding[:, ids] for ids in ids_per_mat], umap_merged, cm_merged
 end
 
-function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, embeddings::Array{Matrix{Float64}, 1}; log_colors::Bool=true, size=(1000, 1000), labels::Vector{String}=["Baysor", "DAPI"], legend::Symbol=:best)
+function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, match_res::NamedTuple, embeddings::Array{Matrix{Float64}, 1}; log_colors::Bool=true, size=(1000, 1000),
+        labels::Vector{String}=["Baysor", "DAPI"], legend::Symbol=:best, ms::Float64=3.0, alpha1::Float64=0.25, kwargs...)
     plts = Plots.Plot[]
     c_vals = [qdf.n_transcripts for qdf in qc_per_cell_dfs]
     if log_colors
@@ -408,12 +416,12 @@ function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
     for i in 1:length(qc_per_cell_dfs)
         plt = Plots.plot(format=:png, size=(600, 600), legend=legend, bg_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), title="$(labels[i]), matching")
         for ids in split_ids(denserank(factor_per_cell[i]))
-            Plots.scatter!(embeddings[i][1,ids], embeddings[i][2,ids], label=factor_per_cell[i][ids[1]], ms=2.0, alpha=0.25, markerstrokewidth=0)
+            Plots.scatter!(embeddings[i][1,ids], embeddings[i][2,ids], label=factor_per_cell[i][ids[1]], ms=ms, alpha=alpha1, markerstrokewidth=0; kwargs...)
         end
         push!(plts, plt)
 
         colors = map_to_colors(c_vals[i], lims=val_range(vcat(c_vals...)))[:colors]
-        plt = Plots.scatter(embeddings[i][1,:], embeddings[i][2,:], color=colors, ms=2.0, markerstrokewidth=0, format=:png, size=(600, 600), legend=false,
+        plt = Plots.scatter(embeddings[i][1,:], embeddings[i][2,:], color=colors, ms=ms, markerstrokewidth=0, format=:png, size=(600, 600), legend=false,
             title="$(labels[i]), num. transcripts")
         push!(plts, plt)
     end;
@@ -423,3 +431,28 @@ end
 
 plot_expression_vec_comparison(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}, gene_names; labels=["Baysor", "DAPI"], kwargs...) =
     plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs] .+ 1)[2:end][qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
+
+function estimate_non_matching_part_correlation(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}},
+        match_res::NamedTuple; cell_cols::Vector{Symbol}=[:cell, :cell_dapi], rev::Bool=false, max_overlap_borders::Tuple{Float64, Float64}=(0.25, 0.75))
+    data_id = rev ? 2 : 1
+    if rev
+        cell_cols = reverse(cell_cols)
+    end
+    part_overlap_mask = (match_res.max_overlaps[data_id] .> max_overlap_borders[1]) .& (match_res.max_overlaps[data_id] .< max_overlap_borders[2]);
+    cur_overlaps = match_res.max_overlaps[data_id][part_overlap_mask]
+    partially_matching_ids = qc_per_cell_dfs[data_id].cell_id[part_overlap_mask];
+    match_cors = Float64[]
+
+    n_genes = maximum(df_spatial.gene)
+    for t_cell_id in partially_matching_ids
+        t_df = df_spatial[df_spatial[!, cell_cols[1]] .== t_cell_id,:];
+        t_mcp = mode(t_df[!, cell_cols[2]][t_df[!, cell_cols[2]] .!= 0]);
+
+        match_expr = prob_array(t_df.gene[t_df[!, cell_cols[2]] .== t_mcp], max_value=n_genes);
+        non_match_expr = prob_array(t_df.gene[t_df[!, cell_cols[2]] .!= t_mcp], max_value=n_genes);
+
+        push!(match_cors, cor(non_match_expr, match_expr))
+    end
+
+    return match_cors, partially_matching_ids
+end
