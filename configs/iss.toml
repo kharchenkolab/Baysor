@@ -6,4 +6,3 @@ min-center-size = 200
 
 [Plotting]
 gene-composition-neigborhood = 10
-plot-frame-size = 1500

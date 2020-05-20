@@ -33,7 +33,6 @@ function get_default_config()
         ),
         "Plotting" => Dict{String, Any}(
             "gene-composition-neigborhood" => nothing,
-            "plot-frame-size" => 5000, # DEPRECATED?
             "min-pixels-per-cell" => 15
         )
     ))
@@ -314,7 +313,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
 
     @info "Estimating noise level"
-    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.prior_segmentation), nn_id=confidence_nn_id)
+    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.prior_segmentation), nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
     @info "Done"
 
     max_diffs, change_fracs = nothing, nothing

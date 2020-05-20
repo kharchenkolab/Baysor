@@ -24,8 +24,8 @@ scale-std = "25%"
 # Use scale estimate from DAPI if provided. Default: true
 estimate-scale-from-centers = true
 
-# If image with cell centers is provided, all regons with #pixels < min-center-size will be filtered out. Default: 200
-min-center-size = 200
+# Minimal number of transcript in a segmented region, required for this region to be considered as a possible cell. Default: min-molecules-per-cell / 4
+min-transcripts-per-center = 2
 
 [Sampling] # These parameters shouldn't normally be changed
 
@@ -35,16 +35,10 @@ new-component-weight = 0.2
 # Fraction of distributions, sampled at each stage. Default: 0.3
 new-component-fraction = 0.3
 
-# Prior weight of assignment a molecule to a new component, created from DAPI centers. Ignored if cell centers are not provided. Default: 1.0
-center-component-weight = 1.0
-
-# Number of degrees of freedom for cell center distribution, used for posterior estimates of parameters. Ignored if centers are not provided. Default: equal to min-molecules-per-cell.
-n-degrees-of-freedom-center = 1000
-
 [Plotting]
 
-# Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns
+# Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
 gene-composition-neigborhood = 20
 
-# Size of frame, which is used for result plotting. Ignored without '-p' option. Default: 5000
-plot-frame-size = 5000
+# Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
+min-pixels-per-cell = 15

@@ -8,4 +8,3 @@ center-component-weight = 5.0
 
 [Plotting]
 gene-composition-neigborhood = 70
-plot-frame-size = 400
