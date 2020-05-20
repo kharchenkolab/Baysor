@@ -20,8 +20,8 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
-    labels = Images.load(path) |> Images.channelview |> Images.rawview |> sparse
-    if length(unique(nonzeros(labels))) == 2
+    labels = Images.load(path) |> Images.channelview |> Images.rawview |> sparse |> dropzeros!
+    if length(unique(nonzeros(labels))) == 1
         return BitMatrix(labels) |> Images.label_components |> sparse
     end
 
@@ -37,7 +37,7 @@ Estimates scale as a 0.5 * median distance between two nearest centers
 estimate_scale_from_centers(centers::Matrix{Float64}) =
     estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
 
-estimate_scale_from_centers(seg_labels::Matrix{Int}) =
+estimate_scale_from_centers(seg_labels::Matrix{<:Integer}) =
     estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_labels)[2:end] ./ π))
 
 function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
