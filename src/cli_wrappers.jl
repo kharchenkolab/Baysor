@@ -126,8 +126,8 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
-        "prior_segmentation" # TODO: add support for CSV with centers or for column name with segmentation ids
-            help = "Image or MAT file with segmentation mask (either boolean or component indexing). Only 8- and 16-bit images are supported."
+        "prior_segmentation"
+            help = "Image or MAT file with segmentation mask (either boolean or component indexing) or CSV column with integer segmentation labels. If it's the column name, it should be preceded ':' symbol (e.g. :cell)"
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)
@@ -281,7 +281,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Run"
     @info "Loading data..."
-    df_spatial, gene_names = load_df(args, filter_cols=true)
+    df_spatial, gene_names = load_df(args, filter_cols=false)
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
 
     @info "Loaded $(size(df_spatial, 1)) transcripts"
@@ -291,21 +291,30 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
-        @info "Loading segmentation mask..."
-        prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
-        GC.gc()
-        df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
+        if args["prior_segmentation"][1] == ':'
+            df_spatial[!, :prior_segmentation] = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
+            if args["scale"] === nothing
+                println("`scale` must be provided if you use prior segmentation as a CSV column")
+                exit(1)
+            end
+            # TODO: estimate scale
+        else
+            @info "Loading segmentation mask..."
+            prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
+            GC.gc()
+            df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
 
-        if args["estimate-scale-from-centers"]
-            min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
-            filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
-            args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
+            if args["estimate-scale-from-centers"]
+                min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
+                filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
+                args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
+            end
+            @info "Done"
+
+            @info "Estimating prior segmentation polygons..."
+            prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
+            @info "Done"
         end
-        @info "Done"
-
-        @info "Estimating prior segmentation polygons..."
-        prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
-        @info "Done"
     end
     GC.gc()
 
