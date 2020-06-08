@@ -6,6 +6,7 @@ using ProgressMeter
 using Statistics
 
 import CSV
+import Pkg
 import Pkg.TOML
 import Plots
 
@@ -279,7 +280,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Run algorithm
 
-    @info "Run"
+    @info "Run Baysor v$(Pkg.installed()["Baysor"])"
     @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=false)
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
