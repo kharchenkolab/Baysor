@@ -178,7 +178,7 @@ function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, edge_weights::Uni
     end
 
     res_weights = [vcat(v...) for v in zip(split(edge_weights, edge_list[1,:], max_factor=n_verts),
-                                         split(edge_weights, edge_list[2,:], max_factor=n_verts))];
+                                           split(edge_weights, edge_list[2,:], max_factor=n_verts))];
 
     return res_ids, res_weights
 end
@@ -190,17 +190,18 @@ function estimate_local_composition_similarities(df_spatial::DataFrame, edge_lis
     return max.(map(x -> cor(x...), zip(eachrow.([neighb_cm[edge_list[1,:], :], neighb_cm[edge_list[2,:], :]])...)), min_similarity);
 end
 
-function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no,
+function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no, real_edge_quant::Float64=0.3,
                              use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
     edge_list, adjacent_dists = adjacency_list(df_spatial, adjacency_type=adjacency_type)
-    real_edge_length = quantile(adjacent_dists, 0.3)
+    real_edge_length = quantile(adjacent_dists, real_edge_quant)
+    min_edge_length = quantile(adjacent_dists, 0.1)
 
     adjacent_weights = nothing
     if use_local_gene_similarities
         gene_comp_sims = estimate_local_composition_similarities(df_spatial, edge_list; composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs)
-        adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, real_edge_length)
+        adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, min_edge_length)
     else
-        adjacent_weights = 1 ./ max.(adjacent_dists, real_edge_length)
+        adjacent_weights = 1 ./ max.(adjacent_dists, min_edge_length)
     end
 
     adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1))
