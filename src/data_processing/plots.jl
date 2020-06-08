@@ -145,10 +145,15 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     return p
 end
 
-function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{Vector{Int}, Nothing}=nothing, cell_ord::Union{Vector{Int}, Nothing}=nothing, kwargs...)
+function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Nothing}=nothing,
+        cell_ord::Union{<:AbstractVector{<:Integer},Nothing}=nothing, diag_genes::Bool=false, kwargs...)
     if gene_ord === nothing
-        gene_dists = 1 .- cor(mtx');
-        gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+        if diag_genes
+            gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx, dims=2)), rev=true);
+        else
+            gene_dists = 1 .- cor(mtx');
+            gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+        end
     end
 
     if cell_ord === nothing

@@ -1,10 +1,10 @@
 import UMAP
 
-function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T;
+function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
         confidence_nn_id::Union{Int, String}="k", linewidth::Float64=2.0, bins::Int=200, kwargs...) where T <: Distributions.UnivariateDistribution
     x_max = quantile(edge_length, 0.99)
     Plots.histogram(edge_length[edge_length .< x_max]; bins=bins, normalize=true, label="Observed distribution",
-        xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title="Noise estimation",
+        xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title=title,
         linewidth=linewidth, kwargs...)
     x_vals = range(0, x_max, length=1000)
     n1 = sum(confidences)
