@@ -11,6 +11,8 @@
 - [Run](#run)
   - [Dataset preview](#dataset-preview)
   - [Full run](#full-run)
+    - [Normal run](#normal-run)
+    - [Using a prior segmentation](#using-a-prior-segmentation)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
     - [Multi-threading](#multi-threading)
@@ -43,7 +45,7 @@ echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chm
 
 ### Build CLI application from source
 
-On linux you can build the command-line tool from source. To do that you need to clone this package and run the Makefile:
+On linux, you can build the command-line tool from source. To do that you need to clone this package and run the Makefile:
 
 ```bash
 git clone https://github.com/hms-dbmi/Baysor.git
@@ -94,18 +96,20 @@ Here:
 
 ### Full run
 
+#### Normal run
+
 To run the algorithm on your data, use
 
 ```bash
-baysor run [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
+baysor run [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
 Here:
 
 - MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each transcript
-- CENTERS_CSV must have the same column name for *x* and *y* coordinates as MOLECULES_CSV
+- PRIOR_SEGMENTATION is optional molecule segmentation obtrained from other method (see [Using prior segmentation](#using-prior-segmentation))
 - Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly.
-- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x" and "y". In general it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
+- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x" and "y". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
 
 To see full list of command-line options run
 
@@ -113,9 +117,29 @@ To see full list of command-line options run
 baysor run --help
 ```
 
-For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples) (though probably are out of date). <!-- TODO: fix it -->
+For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples) (though probably are out-of-date). <!-- TODO: fix it -->
 
 For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml). <!-- TODO: chech that it's up to date -->
+
+#### Using a prior segmentation
+
+In some cases, you may want to use another segmentation as a prior for Baysor. The most popular case is having a segmentation based on DAPI/poly-A stainings: such information helps to understand where nucleis are positioned, but it's often quite imprecise. To take this segmentation into account you can pass it as the second positional arguments to Baysor:
+
+```bash
+baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
+```
+
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you must use `baysor run [ARGS] molecules.csv :cell`.
+
+To specify expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential usecase is high-quality data with visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
+
+If you have a non-segmented DAPI image, the simplest way to segment it would go through the following steps [ImageJ](https://fiji.sc/):
+1. Open the image (File -> Open)
+2. Go to Image -> Type and pick "8-bit"
+3. Run Process -> Filters -> Gaussian Blur, using Sigma = 1.0. *The value can vary, depending on your DAPI, but 1.0 generally works fine.*
+4. Run Image -> Adjust -> Auto Threshold, using Method = Default. *Different methods can give the best results for different cases. Often "Mean" also works well.*
+5. Run Process -> Binary -> Watershed
+6. Save the resulting image in the .tif
 
 #### Outputs
 
@@ -140,7 +164,6 @@ Most important parameters:
 Some other sensitive parameters (normally, shouldn't be changed):
 
 - `new-component-weight` is proportional to probability of generating new cell for a molecule, instead of assigning it to one of existing cells. More precisely, probability to assign a molecule to a particular cell linearly depends on number of molecules, already assigned to this cell. And this parameter is used as number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in range 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force emergence of large number of small cells on each iteration, which can produce noise in the result. In general, default value should work well.
-- `center-component-weight` has the same meaning as `new-component-weight`, but works for cell centers, estimated from DAPI staining (i.e. from CENTERS_CSV). In general, it should be larger then `new-component-weight` and it reflects your confidence in the estimated centers. For instance, if you want all centers, which have enough molecules around, to be used, you just need to set some huge value here (e.g. 100000).
 
 Run parameters:
 
