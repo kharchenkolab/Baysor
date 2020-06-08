@@ -27,13 +27,12 @@ pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
 
 function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64
     cnt = cnt[x]
-    if !use_smoothing || (cnt >= smooth)
+    if !use_smoothing
         return cnt / cnt_sum
     end
 
     # Can't simply add smoothing to each vector component because of sparsity
-    cnt_sum += (smooth - cnt)
-    return smooth / cnt_sum
+    return fmax(Float64(cnt), smooth) / (cnt_sum + smooth)
 end
 
 function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
