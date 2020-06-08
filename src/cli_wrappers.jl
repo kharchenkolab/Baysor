@@ -119,9 +119,9 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
             arg_type = Float64
         "--prior-segmentation-confidence"
-            help = "Confidence of the `prior_segmentation` results. Value in [0; 1]. If you want final segmentation not contradicting to prior_segmentation, set it to 1. Otherwise, if you assume errors in prior_segmentation, values in [0.5-0.75] gives the algorithm a lot of flexibility."
+            help = "Confidence of the `prior_segmentation` results. Value in [0; 1]. If you want the final segmentation not contradicting to prior_segmentation, set it to 1. Otherwise, if you assume errors in prior_segmentation, values in [0.2-0.7] allow flexibility for the algorithm."
             arg_type = Float64
-            default = 0.5
+            default = 0.2
 
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
