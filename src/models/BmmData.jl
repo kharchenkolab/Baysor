@@ -240,6 +240,7 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
 end
 
 function estimate_assignment_by_history(data::BmmData)
+    # TODO: it doesn't guarantee connectivity. Can try to run deterministic EM, or use some better estimate here
     if !(:assignment_history in keys(data.tracer)) || (length(data.tracer[:assignment_history]) == 0)
         @warn "Data has no saved history of assignments. Fall back to the basic assignment"
         return data.assignment, ones(length(data.assignment)) / 2

@@ -219,7 +219,7 @@ end
 
 function noise_composition_density(data::BmmData)::Float64
 #     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components]);
-    acc = 0.0 # Equivalent to the above commented expression
+    acc = 0.0 # Equivalent to the above commented expression if n_samples == sum(counts)
     for c in data.components
         inn_acc = 0
         for v in c.composition_params.counts
