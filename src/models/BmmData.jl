@@ -70,7 +70,7 @@ mutable struct BmmData
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
 
-        if !all(s in names(x) for s in [:x, :y, :gene])
+        if !all(s in propertynames(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
         end
 
