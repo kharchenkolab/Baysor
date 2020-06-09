@@ -1,6 +1,6 @@
 # Baysor
 
-**B**a**y**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
+**Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
 - [Abstract](#abstract)
   - [Method description](#method-description)
