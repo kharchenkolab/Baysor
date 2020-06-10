@@ -49,7 +49,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
     end
 
     # normalize_by_dist doesn't affect result much, but neither it slow the work down. In theory, should work better for border cases.
-    med_closest_dist = median([d[d .> 1e-15][1] for d in dists]) # account for problems with points with duplicating coordinates
+    med_closest_dist = median([d[d .> 1e-15][1] for d in dists if any(d .> 1e-15)]) # account for problems with points with duplicating coordinates
     @threads for (i,(ids, dists)) in collect(enumerate(zip(neighbors, dists)))
         c_probs = view(n_cm, :, i)
         for (gene, dist) in zip(genes[ids], dists)

@@ -22,7 +22,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
     end
 
     if param == :confidence_nn_id
-        return max(div(min_molecules_per_cell, 2) + 1, 3)
+        return max(div(min_molecules_per_cell, 2) + 1, 5)
     end
 
     if param == :composition_neighborhood
