@@ -68,20 +68,20 @@ function prob_array!(counts::Union{Array{Float64, 1}, SubArray{Float64,1}}, valu
     return counts
 end
 
-function split(vector::AbstractArray{T, 1} where T; n_parts::Int)
+function split(vector::T where T <: AbstractVector; n_parts::Int)
     offset = ceil(Int, length(vector) / n_parts)
     return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]
 end
 
 trim_mean(x::Array{T, 1} where T <: Real; prop::Float64=0.2) = mean(trim(x; prop=prop))
 
-function split(array::Array{T, 1}, factor::Array{Int, 1}; max_factor::Union{Int, Nothing}=nothing)::Array{Array{T, 1}, 1} where T
+function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: AbstractVector{<:Integer}; max_factor::Union{Int, Nothing}=nothing)::Array{Vector{TV}, 1} where TV
     @assert length(array) == length(factor)
     if max_factor === nothing
         max_factor = maximum(factor)
     end
 
-    splitted = [T[] for i in 1:max_factor]
+    splitted = [TV[] for i in 1:max_factor]
     for i in 1:length(array)
         push!(splitted[factor[i]], array[i])
     end
