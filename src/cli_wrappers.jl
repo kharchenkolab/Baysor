@@ -128,7 +128,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
         "prior_segmentation"
-            help = "Image or MAT file with segmentation mask (either boolean or component indexing) or CSV column with integer segmentation labels. If it's the column name, it should be preceded ':' symbol (e.g. :cell)"
+            help = "Image or a MAT file with segmentation mask (either boolean or component indexing) or CSV column with integer segmentation labels. If it's the column name, it should be preceded ':' symbol (e.g. :cell)"
     end
 
     return (args === nothing) ? parse_args(s) : parse_args(args, s)

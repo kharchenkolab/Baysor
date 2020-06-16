@@ -119,7 +119,7 @@ baysor run --help
 
 For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples) (though probably are out-of-date). <!-- TODO: fix it -->
 
-For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml). <!-- TODO: chech that it's up to date -->
+For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml). <!-- TODO: check that it's up to date -->
 
 #### Using a prior segmentation
 
@@ -129,7 +129,7 @@ In some cases, you may want to use another segmentation as a prior for Baysor. T
 baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
-Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you must use `baysor run [ARGS] molecules.csv :cell`.
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you must use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels.
 
 To specify expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential usecase is high-quality data with visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
 
