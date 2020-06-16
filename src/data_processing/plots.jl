@@ -147,18 +147,18 @@ end
 
 function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Nothing}=nothing,
         cell_ord::Union{<:AbstractVector{<:Integer},Nothing}=nothing, diag_genes::Bool=false, kwargs...)
+    if cell_ord === nothing
+        cell_dists = 1 .- cor(mtx);
+        cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+    end
+
     if gene_ord === nothing
         if diag_genes
-            gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx, dims=2)), rev=true);
+            gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx[:, cell_ord], dims=2)), rev=true);
         else
             gene_dists = 1 .- cor(mtx');
             gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
         end
-    end
-
-    if cell_ord === nothing
-        cell_dists = 1 .- cor(mtx);
-        cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
     end
 
     Plots.heatmap(mtx[gene_ord, cell_ord]; yticks=(1:length(gene_names), gene_names[gene_ord]), kwargs...), cell_ord, gene_ord
@@ -275,7 +275,7 @@ function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette=Colors.s
     return Dict(:colors=>colors, :ticks=>color_ticks, :palette=>palette)
 end
 
-function distinguishable_colors(vals::Array{T, 1} where T, args...; kwargs...)
+function distinguishable_colors(vals::T where T <: AbstractVector, args...; kwargs...)
     id_per_type = Dict(c => i for (i,c) in enumerate(unique(vals)));
     colors_uniq = Colors.distinguishable_colors(length(id_per_type), args...; kwargs...);
     colors = colors_uniq[get.(Ref(id_per_type), vals, 0)];

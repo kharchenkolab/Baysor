@@ -36,7 +36,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
 
     n_cm = zeros((normalize ? Float64 : Int), n_genes, size(pos_data, 2));
 
-    if !normalize_by_dist # TODO: doesn't work with k=3 on STARmap VISp 160
+    if !normalize_by_dist
         @threads for (i,ids) in collect(enumerate(neighbors))
             if !normalize
                 count_array!(view(n_cm, :, i), genes[ids])

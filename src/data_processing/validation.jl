@@ -164,7 +164,8 @@ end
 
 function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
-        noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false, kwargs...)
+        noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
+        grid::Bool=true, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
@@ -202,8 +203,10 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
         polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
 
-    Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
-    Plots.hline!(yticks_vals, color="black", alpha=grid_alpha, label="")
+    if grid
+        Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
+        Plots.hline!(yticks_vals, color="black", alpha=grid_alpha, label="")
+    end
 
     if !plot_raw_dapi
         return plt1
@@ -215,8 +218,10 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
         fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
 
-    Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
-    Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+    if grid
+        Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
+        Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+    end
 
     if !build_panel
         return plt1, plt2
