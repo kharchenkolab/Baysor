@@ -159,10 +159,6 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         exit(1)
     end
 
-    if r["gene-composition-neigborhood"] === nothing
-        r["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, r["min-molecules-per-cell"])
-    end
-
     if r["min-transcripts-per-center"] === nothing
         r["min-transcripts-per-center"] = default_param_value(:min_transcripts_per_center, r["min-molecules-per-cell"])
     end
@@ -288,6 +284,10 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     @info "Loaded $(size(df_spatial, 1)) transcripts"
     if size(df_spatial, 1) != size(unique(df_spatial), 1)
         @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
+    end
+
+    if args["gene-composition-neigborhood"] === nothing
+        args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
 
     prior_polygons = Matrix{Float64}[]
@@ -440,10 +440,6 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         r["output"] = joinpath(r["output"], "preview.html")
     end
 
-    if r["gene-composition-neigborhood"] === nothing
-        r["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, r["min-molecules-per-cell"])
-    end
-
     return r
 end
 
@@ -479,8 +475,11 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Estimating local neighborhoods"
 
-    composition_neighborhood = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
-    neighb_cm = neighborhood_count_matrix(df_spatial, composition_neighborhood);
+    if args["gene-composition-neigborhood"] === nothing
+        args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
+    end
+
+    neighb_cm = neighborhood_count_matrix(df_spatial, args["gene-composition-neigborhood"]);
     color_transformation = gene_composition_transformation(neighb_cm, confidences);
 
     @info "Estimating local colors"
