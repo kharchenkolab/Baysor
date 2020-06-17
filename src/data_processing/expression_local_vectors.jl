@@ -1,19 +1,19 @@
 using Base.Threads
 
-function select_ids_uniformly(xs::Vector{T}, ys::Vector{T}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int} where T <: Real
-    dense_ids = (confidence===nothing) ? (1:length(xs)) : findall(confidence .>= confidence_threshold)
-    if length(dense_ids) < n
-        return dense_ids
+# This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
+function select_ids_uniformly(vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int}
+    if n <= 1
+        error("n must be > 1")
     end
 
-    xs = xs[dense_ids] .- minimum(xs[dense_ids])
-    ys = ys[dense_ids] .- minimum(ys[dense_ids])
+    high_conf_ids = (confidence===nothing) ? (1:size(vals, 1)) : findall(confidence .>= confidence_threshold)
+    if length(high_conf_ids) < n
+        @warn "n=$n, which is > length(high_conf_ids) ($(length(high_conf_ids)))"
+        return high_conf_ids
+    end
 
-    n_y_bins = round(Int, sqrt(n) * maximum(ys) / maximum(xs))
-    n_x_bins = div(n, n_y_bins)
-
-    index_vals = round.(Int, xs .* (n_x_bins / maximum(xs))) .* n_y_bins .+ round.(Int, ys .* (n_y_bins / maximum(ys)));
-    return dense_ids[sortperm(index_vals)[unique(round.(Int, range(1, length(dense_ids), length=n)))]];
+    vals = sum(vals, dims=2)[high_conf_ids]
+    return high_conf_ids[sortperm(vals)[unique(round.(Int, range(1, length(high_conf_ids), length=n)))]];
 end
 
 neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
@@ -60,25 +60,39 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
     return n_cm ./ sum(n_cm, dims=1);
 end
 
+truncate_pca(pca::MultivariateStats.PCA, outdim::Int) =
+    MultivariateStats.PCA(pca.mean, pca.proj[:, 1:outdim], pca.prinvars[1:outdim], pca.tvar)
+
 function gene_composition_transformation(count_matrix::Array{Float64, 2}, confidence::Vector{Float64}=ones(size(count_matrix, 2));
-        sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, kwargs...)
+        sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, return_all::Bool=false, n_pcs::Int=15, kwargs...)
     sample_size = min(sample_size, size(count_matrix, 2))
     Random.seed!(seed)
 
-    pc2 = transform(fit(MultivariateStats.PCA, count_matrix, maxoutdim=2), count_matrix);
-    sample_ids = select_ids_uniformly(pc2[1,:], pc2[2,:], confidence, n=sample_size)
+    if n_pcs <= 3
+        n_pcs = 3
+        method = :pca
+    end
+
+    pca = fit(MultivariateStats.PCA, count_matrix, maxoutdim=n_pcs)
+    pca_res = transform(truncate_pca(pca, 2), count_matrix);
+    sample_ids = select_ids_uniformly(pca_res', confidence, n=sample_size)
 
     count_matrix_sample = count_matrix[:,sample_ids]
 
+    emb = nothing
     if method == :umap
-        return fit(UmapFit, count_matrix_sample, n_components=3; kwargs...);
-    end
-
-    if method != :pca
+        emb = fit(UmapFit, count_matrix_sample, pca; n_components=3, kwargs...);
+    elseif method == :pca
+        emb = truncate_pca(pca, 3);
+    else
         error("Unknown method: '$method'")
     end
 
-    return fit(MultivariateStats.PCA, count_matrix_sample, maxoutdim=3; kwargs...);
+    if return_all
+        return (emb, sample_ids, pca)
+    end
+
+    return emb
 end
 
 function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation::UmapFit; color_range::T where T<:Real =750.0)
@@ -115,7 +129,7 @@ function extract_filtered_local_vectors(df_spatial::DataFrame, adjacent_points::
 
     mol_id_per_vec = vcat(mol_ids_per_comp...)
     if n_vectors > 0
-        ids = select_ids_uniformly(df_spatial.x[mol_id_per_vec], df_spatial.y[mol_id_per_vec], confidence[mol_id_per_vec]; n=n_vectors)
+        ids = select_ids_uniformly(Matrix(df_spatial[[:x, :y], mol_id_per_vec]), confidence[mol_id_per_vec]; n=n_vectors)
         mol_id_per_vec = mol_id_per_vec[ids]
         neighb_mat_filt = neighb_mat_filt[:, ids]
     end

@@ -162,7 +162,7 @@ cell_centers_with_clustering(spatial_df::DataFrame, args...; kwargs...) =
 function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
     n_clusters = min(n_clusters, size(pos_data, 2))
 
-    cluster_centers = pos_data[:, select_ids_uniformly(pos_data[1,:], pos_data[2,:]; n=n_clusters)]
+    cluster_centers = pos_data[:, select_ids_uniformly(pos_data'; n=n_clusters)]
     cluster_labels = kshiftlabels(pos_data, cluster_centers);
 
     covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
