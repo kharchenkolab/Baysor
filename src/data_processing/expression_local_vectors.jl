@@ -95,17 +95,34 @@ function gene_composition_transformation(count_matrix::Array{Float64, 2}, confid
     return emb
 end
 
-function gene_composition_colors(count_matrix::Array{Float64, 2}, transformation::UmapFit; color_range::T where T<:Real =750.0)
-    mtx_colors = MultivariateStats.transform(transformation, count_matrix);
-    min_vals = minimum(transformation.embedding, dims=2)
-    mtx_colors .-= min_vals
-    mtx_colors ./= (maximum(transformation.embedding, dims=2) - min_vals);
+gene_composition_colors(count_matrix::Matrix{Float64}, transformation::UmapFit; kwargs...) =
+    gene_composition_colors!(MultivariateStats.transform(transformation, count_matrix); kwargs...)
 
-    mtx_colors[1,:] .*= 100
-    mtx_colors[2:3,:] .-= 0.5
-    mtx_colors[2:3,:] .*= color_range
+gene_composition_colors(embedding::Matrix{Float64}; kwargs...) =
+    gene_composition_colors!(deepcopy(embedding); kwargs...)
 
-    return vec(mapslices(col -> Colors.Lab(col...), mtx_colors, dims=1))
+function gene_composition_colors!(embedding::Matrix{Float64}; lrange::Tuple{<:Real, <:Real}=(10, 90), log_colors::Bool=false, trim_frac::Float64=0.0125)
+    @assert size(embedding, 1) == 3 "Color embedding must have exactly 3 rows"
+
+    embedding .-= mapslices(x -> quantile(x, trim_frac), embedding, dims=2)
+    embedding .= max.(embedding, 0.0)
+    max_val = quantile(vec(embedding), 1.0 - trim_frac)
+    embedding ./= max_val;
+    embedding .= min.(embedding, 1.0)
+
+    if log_colors
+        embedding .= log10.(embedding .+ max(quantile(vec(embedding), 0.05), 1e-3))
+        embedding .-= minimum(embedding, dims=2)
+        embedding ./= maximum(embedding, dims=2)
+    end
+
+    embedding[1,:] .*= lrange[2] - lrange[1]
+    embedding[1,:] .+= lrange[1]
+
+    embedding[2:3,:] .-= 0.5
+    embedding[2:3,:] .*= 200
+
+    return vec(mapslices(col -> Colors.Lab(col...), embedding, dims=1))
 end
 
 function extract_filtered_local_vectors(df_spatial::DataFrame, adjacent_points::Array{Vector{Int}, 1}, k::Int;
