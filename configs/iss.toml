@@ -2,7 +2,6 @@
 min-molecules-per-gene = 50
 min-molecules-per-cell = 8
 scale = 14
-min-center-size = 200
 
 [Plotting]
 gene-composition-neigborhood = 10
