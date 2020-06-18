@@ -293,6 +293,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
         if args["prior_segmentation"][1] == ':'
+            # TODO: use min-transcripts-per-center parameter here to filter small segments
             df_spatial[!, :prior_segmentation] = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
             if args["scale"] === nothing
                 println("`scale` must be provided if you use prior segmentation as a CSV column")
@@ -301,11 +302,14 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             # TODO: estimate scale
         else
             @info "Loading segmentation mask..."
+
+            # TODO: use min-transcripts-per-center parameter here to filter small segments
             prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
             GC.gc()
             df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
 
             if args["estimate-scale-from-centers"]
+                # TODO: use min-transcripts-per-center parameter here
                 min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
                 filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
                 args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
@@ -329,7 +333,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     max_diffs, change_fracs = nothing, nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
-        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
+        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false); # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
         for i in 1:length(adjacent_weights)
             cur_points = adjacent_points[i]
             cur_weights = adjacent_weights[i]
@@ -339,7 +343,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         end
 
         mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
-            n_clusters=args["n-clusters"], weights_pre_adjusted=true, min_mols_per_cell=args["min-molecules-per-cell"])
+            n_clusters=args["n-clusters"], weights_pre_adjusted=true, min_mols_per_cell=0)
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
         max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
