@@ -24,16 +24,6 @@ import Random: seed!
     end
 
     @testset "distributions" begin
-        @testset "ScaledInverseChisq" begin
-            seed!(42)
-            for (μ, σ) in zip(rand(20) .* 1000 .+ 1000, rand(20) .* 100)
-                c_sample = rand(Baysor.ScaledInverseChisq(μ=μ, σ²=σ^2), 10000000)
-
-                @test isapprox(mean(c_sample), μ, atol=0.5)
-                @test isapprox(std(c_sample), σ, atol=0.5)
-            end
-        end
-
         @testset "ShapePrior" begin
             seed!(42)
 
@@ -56,6 +46,14 @@ import Random: seed!
             @test parse_scale_std("23.55%", 121.0) ≈ 23.55
             @test parse_scale_std(33.87, 121.0) ≈ 33.87
             @test parse_scale_std(nothing, 121.0) ≈ 121.0 * 0.25
+        end
+
+        @testset "molecule_graph"
+            for adj_type in [:triangulation, :knn, :both]
+                adjacent_points, adjacent_weights = Baysor.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30);
+                @test all(length.(adjacent_points) .== length.(adjacent_weights))
+                @test all(length.(adjacent_points) .== length.(unique.(adjacent_points)))
+            end
         end
     end
 end
