@@ -6,8 +6,8 @@ using Random
 
 ## Full EM. Probably will be needed when scRNA-seq is used as prior
 
-function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
-        confidence::Vector{Float64}, assignment_probs::Matrix{Float64})
+function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, genes::Vector{Int}, confidence::Vector{Float64}, assignment_probs::Matrix{Float64};
+        prior_exprs::Union{Matrix{Float64}, Nothing}=nothing, prior_stds::Union{Matrix{Float64}, Nothing}=nothing, add_pseudocount::Bool=false)
     cell_type_exprs .= 0.0;
     for i in 1:length(genes)
         t_gene = genes[i];
@@ -18,18 +18,24 @@ function maximize_molecule_clusters!(cell_type_exprs::Matrix{Float64}, cell_type
         end
     end
 
-    # TODO: here should be adjustment based on prior from scRNA-seq using adj_value_norm
+    if prior_exprs !== nothing
+        mult = sum(cell_type_exprs, dims=2)
+        cell_type_exprs .= adj_value_norm.(cell_type_exprs, prior_exprs .* mult, prior_stds .* mult)
+    end
 
-    cell_type_exprs .= (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1);
-    cell_type_exprs_norm .= cell_type_exprs ./ sum(cell_type_exprs, dims=2);
+    if add_pseudocount
+        cell_type_exprs .= (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1);
+    else
+        cell_type_exprs ./= sum(cell_type_exprs, dims=2);
+    end
 end
 
 """
 Params:
 - adjacent_weights: must be multiplied by confidence of the corresponding adjacent_point
 """
-function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, cell_type_exprs_norm::Matrix{Float64}, genes::Vector{Int},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05, comp_weights::Vector{Float64}=ones(size(assignment_probs, 1)))
+function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int},
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
     total_ll = 0.0
     for i in 1:length(genes)
         gene = genes[i]
@@ -37,23 +43,30 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         cur_points = adjacent_points[i]
 
         dense_sum = 0.0
+        ct_dense_sum = 0.0 # Because of pseudocounts, cell_type_exprs aren't normalized
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0
-            adj_prob = 1.0 # probability that there are no neighbors from this component
+            adj_prob = 1.0 # probability that there are no neighbors from this component. Without it, having all assignment_probs=0 still lead to non-zero probability of assignment
             for j in 1:length(cur_points) # TODO: can try to use sparsity to optimize it. Can store BitMatrix with info about a_p > 1e-10
                 a_p = assignment_probs[ri, cur_points[j]]
+                if a_p < 1e-5
+                    continue
+                end
+
                 c_d += cur_weights[j] * a_p
                 adj_prob *= 1 - a_p
             end
 
-            assignment_probs[ri, i] = cell_type_exprs[ri, gene] * exp(c_d) * (1 - adj_prob) * comp_weights[ri]
+            ctp = cell_type_exprs[ri, gene]
+            assignment_probs[ri, i] = ctp * exp(c_d) * (1 - adj_prob)
             dense_sum += assignment_probs[ri, i]
+            ct_dense_sum += ctp
         end
 
         total_ll += log10(dense_sum)
         # TODO: for initial test, add lock array here and check whether taking it takes time
         for ri in 1:size(assignment_probs, 1)
-            assignment_probs[ri, i] = (1 - new_prob) * assignment_probs[ri, i] / dense_sum + new_prob * cell_type_exprs_norm[ri, gene]
+            assignment_probs[ri, i] = (1 - new_prob) * assignment_probs[ri, i] / dense_sum + new_prob * cell_type_exprs[ri, gene] / ct_dense_sum
         end
     end
 
@@ -62,9 +75,9 @@ end
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
         n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
-        min_mols_per_cell::Int=0,
-        cell_type_exprs::Union{Matrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
-        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false)
+        cell_type_exprs::Union{<:AbstractMatrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
+        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false, kwargs...)
+    # Initialization
     if cell_type_exprs === nothing
         if n_clusters <= 1
             error("Either n_clusters or cell_type_exprs must be specified")
@@ -72,22 +85,21 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
 
         gene_probs = prob_array(genes)
         cell_type_exprs = gene_probs' .* (1 .+ (hcat([[hash((x1 + 1) ^ x2) for x2 in 1:n_clusters] for x1 in 1:length(gene_probs)]...) .% 10000) ./ 100000) # determenistic way of adding pseudo-random noise
+        cell_type_exprs ./= sum(cell_type_exprs, dims=2)
+    else
+        cell_type_exprs = deepcopy(Matrix(cell_type_exprs))
     end
-
-    cell_type_exprs .*= sum(cell_type_exprs, dims=2) ./ sum(cell_type_exprs) .* length(genes)
+    ## On the first iteration we don't have a pseudocount, but it shouldn't be a problem
 
     if !weights_pre_adjusted
         adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
-    cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
-    cell_type_exprs_norm = cell_type_exprs ./ sum(cell_type_exprs, dims=2)
-
     if assignment_probs === nothing
         assignment_probs = zeros(size(cell_type_exprs, 1), length(genes));
 
         if assignment === nothing
-            assignment_probs .= cell_type_exprs_norm[:, genes];
+            assignment_probs .= cell_type_exprs[:, genes];
             assignment_probs ./= sum(assignment_probs, dims=1)
         else
             assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
@@ -102,30 +114,17 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         progress = Progress(max_iters, 0.3)
     end
 
-    comp_weights = ones(size(assignment_probs, 1))
+    # EM iterations
     penalize_small_clusters = false
     n_iters = 0
     for i in 1:max_iters
         n_iters = i
         assignment_probs_prev .= assignment_probs
 
-        expect_molecule_clusters!(assignment_probs, cell_type_exprs, cell_type_exprs_norm, genes, adjacent_points, adjacent_weights,
-            new_prob=new_prob, comp_weights=comp_weights)
-
-        if penalize_small_clusters & (min_mols_per_cell > 1) & (i > n_iters_without_update) & (i % 10 == 0)
-            assignment_probs, n_mols_per_comp_per_clust, real_clust_ids = filter_small_molecule_clusters( # filter empty clusters
-                genes, confidence, adjacent_points, assignment_probs, cell_type_exprs; min_mols_per_cell=1)
-
-            if length(real_clust_ids) != length(comp_weights)
-                assignment_probs_prev = assignment_probs_prev[real_clust_ids,:]
-                cell_type_exprs = cell_type_exprs[real_clust_ids, :]
-                cell_type_exprs_norm = cell_type_exprs_norm[real_clust_ids, :]
-            end
-            comp_weights = [max(sum(x[x .>= min_mols_per_cell]) / sum(x), 0.001) for x in n_mols_per_comp_per_clust]
-        end
+        expect_molecule_clusters!(assignment_probs, cell_type_exprs, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
 
         if do_maximize
-            maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+            maximize_molecule_clusters!(cell_type_exprs, genes, confidence, assignment_probs; add_pseudocount=true, kwargs...)
         end
 
         md, cf = estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence)
@@ -155,12 +154,12 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     end
 
     if do_maximize
-        maximize_molecule_clusters!(cell_type_exprs, cell_type_exprs_norm, genes, confidence, assignment_probs)
+        maximize_molecule_clusters!(cell_type_exprs, genes, confidence, assignment_probs, add_pseudocount=false)
     end
 
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
 
-    return (exprs=cell_type_exprs_norm, assignment=assignment, diffs=max_diffs, assignment_probs=assignment_probs, change_fracs=change_fracs)
+    return (exprs=cell_type_exprs, assignment=assignment, diffs=max_diffs, assignment_probs=assignment_probs, change_fracs=change_fracs)
 end
 
 function filter_small_molecule_clusters(genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Vector{Vector{Int}},
@@ -172,14 +171,6 @@ function filter_small_molecule_clusters(genes::Vector{Int}, confidence::Vector{F
     n_mols_per_comp_per_clust = [length.(c) for c in conn_comps_per_clust];
 
     real_clust_ids = findall(maximum.(n_mols_per_comp_per_clust) .>= min_mols_per_cell)
-    # real_clust_ids = Int[]
-    # if method == :size
-    #     real_clust_ids = findall(maximum.(n_mols_per_comp_per_clust) .>= min_mols_per_cell)
-    # elseif method == :frac
-    #     real_clust_ids = findall([sum(x[x .>= 30]) / sum(x) for x in n_mols_per_comp_per_clust] .> 0.5) # TODO: remove this method
-    # else
-    #     error("Unknown method: $method")
-    # end
 
     if length(real_clust_ids) == size(assignment_probs, 1)
         return assignment_probs, n_mols_per_comp_per_clust, real_clust_ids
