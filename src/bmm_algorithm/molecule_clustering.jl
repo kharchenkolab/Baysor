@@ -191,16 +191,20 @@ end
 ## Utils
 
 """
-    Adjust value based on prior. Doesn't penalize values < σ, penalize sub-linearly values in [σ; 3σ], and penalize super-linarly all >3σ
+    Adjust value based on prior. Doesn't penalize values < σ, penalize linearly values in [σ; 3σ], and super-linarly all >= 3σ
 """
 @inline function adj_value_norm(x::Float64, μ::Float64, σ::Float64)::Float64
     dx = x - μ
     z = abs(dx) / σ
-    adj_mult = 1 / (1 + sqrt(2/3) - 2/3)
-    if z < adj_mult
+    if z < 1
         return x
     end
-    return μ + sign(dx) * sqrt(z) * σ * adj_mult
+
+    if z < 3
+        return μ + sign(dx) * (1 + (z - 1) / 4) * σ
+    end
+
+    return μ + sign(dx) * (sqrt(z) + 1.5 - sqrt(3)) * σ
 end
 
 function pairwise_gene_spatial_cor(genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1};
