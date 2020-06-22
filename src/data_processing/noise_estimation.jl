@@ -106,7 +106,7 @@ function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vecto
 
     min_confidence = (prior_assignment !== nothing) ? (prior_confidence^2 .* (prior_assignment .> 0)) : nothing
 
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false); # TODO: can be optimized as we already have kNNs
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2]; # TODO: can be optimized as we already have kNNs
     probs, (d1, d2) = fit_noise_probabilities(mean_dists, adjacent_points, adjacent_weights, min_confidence=min_confidence)[[1, 3]]
     df_spatial[!,:confidence] = probs[:, 1];
 

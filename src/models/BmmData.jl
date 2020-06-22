@@ -203,7 +203,7 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
     adjacent_weights = Array{Float64,1}[]
 
     if reestimate_triangulation
-        adjacent_points, adjacent_weights = adjacency_list(x)
+        adjacent_points, adjacent_weights = build_molecule_graph(x)[1:2]
     else
         ap_offset = 0;
         for bd in bmm_data_arr

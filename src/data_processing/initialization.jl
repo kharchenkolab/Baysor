@@ -185,32 +185,54 @@ end
 
 function estimate_local_composition_similarities(df_spatial::DataFrame, edge_list::Matrix{Int}; composition_neighborhood::Int, n_gene_pcs::Int, min_similarity::Float64=0.01)
     neighb_cm = neighborhood_count_matrix(df_spatial, composition_neighborhood);
+    # TODO: why is it projection, but not transform???
     neighb_cm = MultivariateStats.projection(MultivariateStats.fit(MultivariateStats.PCA, neighb_cm', maxoutdim=n_gene_pcs));
 
     return max.(map(x -> cor(x...), zip(eachrow.([neighb_cm[edge_list[1,:], :], neighb_cm[edge_list[2,:], :]])...)), min_similarity);
 end
 
-function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int, n_gene_pcs::Int, update_priors::Symbol=:no, real_edge_quant::Float64=0.3,
-                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
-    edge_list, adjacent_dists = adjacency_list(df_spatial, adjacency_type=adjacency_type)
-    real_edge_length = quantile(adjacent_dists, real_edge_quant)
-    min_edge_length = quantile(adjacent_dists, 0.1)
+function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3, use_local_gene_similarities::Bool=false,
+        n_gene_pcs::Int=0, composition_neighborhood::Int=0, scale_min_length::Bool=true, kwargs...)
+    if use_local_gene_similarities && ((composition_neighborhood == 0) || (n_gene_pcs == 0))
+        @warn "composition_neighborhood=$composition_neighborhood and n_gene_pcs=$n_gene_pcs, while use_local_gene_similarities=true. Force use_local_gene_similarities=false."
+        use_local_gene_similarities = false
+    end
+
+    edge_list, adjacent_dists = adjacency_list(df_spatial; kwargs...);
+
+    min_edge_length = quantile(adjacent_dists, min_edge_quant);
 
     adjacent_weights = nothing
     if use_local_gene_similarities
         gene_comp_sims = estimate_local_composition_similarities(df_spatial, edge_list; composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs)
         adjacent_weights = gene_comp_sims ./ max.(adjacent_dists, min_edge_length)
     else
-        adjacent_weights = 1 ./ max.(adjacent_dists, min_edge_length)
+        adjacent_weights = 1.0 ./ max.(adjacent_dists, min_edge_length)
     end
 
-    adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1))
+    if scale_min_length
+        adjacent_weights .*= min_edge_length
+    end
 
+    adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1));
+    return adjacent_points, adjacent_weights, adjacent_dists
+end
+
+function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0, update_priors::Symbol=:no, real_edge_quant::Float64=0.3,
+        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
+    # TODO: test if min_edge_length=0.1 and scale_min_length=false are needed
+    adjacent_points, adjacent_weights, adjacent_dists = build_molecule_graph(df_spatial; min_edge_length=0.1, scale_min_length=false,
+        use_local_gene_similarities=use_local_gene_similarities, n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood)
+
+    # TODO: test if it's needed
     max_weight = quantile(vcat(adjacent_weights...), 0.975) # increases robustnes
     adjacent_weights = [min.(w, max_weight) for w in adjacent_weights]
 
+    real_edge_length = quantile(adjacent_dists, real_edge_quant)
     components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 ./ real_edge_length, sampler, assignment, update_priors=update_priors, prior_seg_confidence=prior_seg_confidence)
+
+    # TODO: replace "1 / real_edge_length" with "min_edge_length / real_edge_length" for scale=true
+    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 / real_edge_length, sampler, assignment, update_priors=update_priors, prior_seg_confidence=prior_seg_confidence)
 end
 
 """

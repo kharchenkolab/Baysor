@@ -190,15 +190,6 @@ end
 
 ## Utils
 
-function build_molecule_graph(df_spatial::DataFrame; kwargs...)
-    edge_list, adjacent_dists = adjacency_list(df_spatial; kwargs...);
-
-    real_edge_length = quantile(adjacent_dists, 0.3);
-    adjacent_weights = real_edge_length ./ max.(adjacent_dists, real_edge_length);
-
-    return convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1));
-end
-
 """
     Adjust value based on prior. Doesn't penalize values < σ, penalize sub-linearly values in [σ; 3σ], and penalize super-linarly all >3σ
 """

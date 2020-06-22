@@ -333,7 +333,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     max_diffs, change_fracs = nothing, nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
-        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false); # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
+        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2]; # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
         for i in 1:length(adjacent_weights)
             cur_points = adjacent_points[i]
             cur_weights = adjacent_weights[i]

@@ -23,7 +23,7 @@ function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Fl
 end
 
 function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confidence::Vector{Float64}=df_spatial.confidence; kwargs...)
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2];
     cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights);
     cor_vals = vec(cor_mat)
     min_cor = quantile(cor_vals[cor_vals .> 0], 0.001) ./ 5;

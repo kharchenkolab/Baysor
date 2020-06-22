@@ -50,9 +50,9 @@ import Random: seed!
 
         @testset "molecule_graph"
             for adj_type in [:triangulation, :knn, :both]
-                adjacent_points, adjacent_weights = Baysor.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30);
-                @test all(length.(adjacent_points) .== length.(adjacent_weights))
-                @test all(length.(adjacent_points) .== length.(unique.(adjacent_points)))
+                adj_points, adj_weights = Baysor.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30)[1:2];
+                @test all(length.(adj_points) .== length.(adj_dists))
+                @test all(length.(adj_points) .== length.(unique.(adj_points)))
             end
         end
     end
