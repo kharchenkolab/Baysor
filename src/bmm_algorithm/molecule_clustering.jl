@@ -135,7 +135,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             next!(progress)
         end
 
-        if (max_diffs[end] < 2 * tol) & ((new_prob > 1e-5) | !penalize_small_clusters)
+        if (max_diffs[end] < tol) & ((new_prob > 1e-10) | !penalize_small_clusters)
             new_prob = 0.0
             penalize_small_clusters = true
             continue
