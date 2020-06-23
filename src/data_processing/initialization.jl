@@ -85,33 +85,6 @@ function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where
     return staining_vals
 end
 
-function adjust_field_weights_by_dapi!(bm_data::BmmData, dapi::Matrix{Float64}; min_weight::Float64=0.01)
-    if !(:dapi_brightness in names(bm_data.x))
-        staining_vals = staining_value_per_transcript(bm_data.x, dapi)
-        if maximum(staining_vals) < 1e-20
-            @warn "Maximum value of dapi brightness per molecule is < 1e-20. Random field can't be adjusted with it."
-            return
-        end
-        bm_data.x[!, :dapi_brightness] = max.(staining_vals, 0.01 * maximum(staining_vals));
-    end
-
-    for p1 in 1:length(bm_data.adjacent_points)
-        x1, y1 = round(Int, bm_data.x.x[p1]), round(Int, bm_data.x.y[p1])
-        for (i, p2) in enumerate(bm_data.adjacent_points[p1])
-            bm_data.adjacent_weights[p1][i] *= bm_data.x.dapi_brightness[p2] / bm_data.x.dapi_brightness[p1];
-
-            x2, y2 = round(Int, bm_data.x.x[p2]), round(Int, bm_data.x.y[p2])
-            if (x1 < 1) || (x2 < 1) || (y1 < 1) || (y2 < 1) || (x1 > size(dapi, 2)) || (x2 > size(dapi, 2)) || (y1 > size(dapi, 1)) || (y2 > size(dapi, 1))
-                continue
-            end
-
-            min_br_on_line = trace_values_along_line(dapi, x1, y1, x2, y2) |> minimum
-            min_br_on_ends = min(bm_data.x.dapi_brightness[p2], bm_data.x.dapi_brightness[p1])
-            bm_data.adjacent_weights[p1][i] *= max(min_br_on_line / min_br_on_ends, min_weight)
-        end
-    end
-end
-
 function encode_genes(gene_list)
     gene_names = unique(gene_list);
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))

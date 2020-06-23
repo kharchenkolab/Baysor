@@ -112,9 +112,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
-        "--staining" # TODO: use it only for diagnostics plots
-            help = "Image with DAPI or poly-T staining with brighter colors corresponing to nucleis / cell bodies"
-            arg_type = String
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
@@ -355,14 +352,6 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
-
-    if args["staining"] !== nothing
-        @info "Adjusting random field based on the staining..."
-        @warn "Staining option is experimental. Results can easily be worse than without it."
-        dapi = Float64.(Images.load(expanduser(args["staining"])))
-        adjust_field_weights_by_dapi!.(bm_data_arr, Ref(dapi))
-        @info "Done."
-    end
 
     history_depth = round(Int, args["iters"] * 0.1)
     bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
