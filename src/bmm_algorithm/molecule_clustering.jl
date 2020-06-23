@@ -76,7 +76,7 @@ end
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
         n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         cell_type_exprs::Union{<:AbstractMatrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
-        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false, kwargs...)
+        verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, kwargs...)
     # Initialization
     if cell_type_exprs === nothing
         if n_clusters <= 1
@@ -84,7 +84,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         end
 
         gene_probs = prob_array(genes)
-        cell_type_exprs = gene_probs' .* (1 .+ (hcat([[hash((x1 + 1) ^ x2) for x2 in 1:n_clusters] for x1 in 1:length(gene_probs)]...) .% 10000) ./ 100000) # determenistic way of adding pseudo-random noise
+        cell_type_exprs = gene_probs' .* (0.95 .+ (hcat([[hash(x1 * x2^2) for x2 in 1:n_clusters] for x1 in 1:length(gene_probs)]...) .% 10000) ./ 100000) # determenistic way of adding pseudo-random noise
         cell_type_exprs ./= sum(cell_type_exprs, dims=2)
     else
         cell_type_exprs = deepcopy(Matrix(cell_type_exprs))
@@ -92,7 +92,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     ## On the first iteration we don't have a pseudocount, but it shouldn't be a problem
 
     if !weights_pre_adjusted
-        adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
+        adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
     if assignment_probs === nothing
