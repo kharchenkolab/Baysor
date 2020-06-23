@@ -20,11 +20,11 @@ include("utils/spatial.jl")
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
 
-include("models/CenterData.jl")
 include("models/InitialParams.jl")
 include("models/Component.jl")
 include("models/BmmData.jl")
 
+include("data_processing/prior_segmentation.jl")
 include("data_processing/watershed.jl")
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")

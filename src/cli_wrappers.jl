@@ -300,7 +300,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         else
             @info "Loading segmentation mask..."
 
-            # TODO: use min-transcripts-per-center parameter here to filter small segments
+            # TODO: use min-transcripts-per-center parameter and filter_segmentation_labels here to filter small segments
             prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
             GC.gc()
             df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));

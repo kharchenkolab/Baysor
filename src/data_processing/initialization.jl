@@ -96,26 +96,6 @@ function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
-function initial_params_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1})
-    assignment = deepcopy(assignment)
-    assignment[assignment .> 0] .= denserank(assignment[assignment .> 0])
-    center_data = center_data_from_assignment(spatial_df, assignment, cov_mult=1.0)
-    return InitialParams(copy(position_data(center_data.centers)'), CovMat.(center_data.center_covs), assignment)
-end
-
-# DEPRECATED?
-center_data_from_assignment(spatial_df::DataFrame, assignment_col::Symbol; kwargs...)  =
-    center_data_from_assignment(spatial_df, Array(spatial_df[!, assignment_col]); kwargs...)
-
-# DEPRECATED?
-function center_data_from_assignment(spatial_df::DataFrame, assignment::Array{Int, 1}; cov_mult::Float64=0.5)
-    pos_data = position_data(spatial_df)
-    cluster_centers = hcat([vec(mean(pos_data, dims=2)) for pos_data in position_data_by_assignment(pos_data, assignment)]...)
-    covs = covs_from_assignment(pos_data, assignment)
-    scale = estimate_scale_from_centers(mean.(eigvals.(covs)) .^ 0.5)
-    return CenterData(DataFrame(cluster_centers', [:x, :y]), [cov_mult .* m for m in covs], scale...)
-end
-
 function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1}; min_size::Int=1)::Array{CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
     covs = sample_cov.(pos_data_by_assignment);
@@ -240,42 +220,6 @@ function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int,
         composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
 end
 
-# DEPRECATED?
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}, centers::CenterData; n_cells_init::Int,
-                                  scale::Union{Number, Nothing}=nothing, scale_std::Union{Float64, String, Nothing}=nothing,
-                                  new_component_weight::Number=0.2, center_component_weight::Number=1.0, n_degrees_of_freedom_center::Union{Int, Nothing}=nothing,
-                                  update_priors::Symbol=:no, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
-    scale = something(scale, centers.scale_estimate)
-    scale_std = parse_scale_std(something(scale_std, centers.scale_std_estimate), scale)
-
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
-
-    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
-
-    n_degrees_of_freedom_center = something(n_degrees_of_freedom_center, default_param_value(:n_degrees_of_freedom_center, min_molecules_per_cell))
-    centers.center_covs = something(centers.center_covs, [diagm(0 => [scale / 2, scale / 2] .^ 2) for i in 1:size(centers.centers, 1)])
-
-    centers_per_frame = subset_by_coords.(Ref(centers), dfs_spatial);
-
-    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
-
-    if any([size(c.centers, 1) == 0 for c in centers_per_frame])
-        if (n_cells_init == 0)
-            error("Some frames don't contain cell centers. Try to reduce number of frames or provide better segmentation or increase n-cells-init.")
-        else
-            @warn "Some frames don't contain cell centers. Possibly, coordinates of DAPI and transcripts are not aligned or DAPI should be transposed."
-        end
-    end
-
-    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
-    @threads for i in 1:length(dfs_spatial)
-        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], centers_per_frame[i]; size_prior=size_prior, new_component_weight=new_component_weight,
-            prior_component_weight=center_component_weight, default_std=scale, n_degrees_of_freedom_center=n_degrees_of_freedom_center,
-            update_priors=update_priors, n_cells_init=n_cells_init, kwargs...)
-    end
-    return bm_datas_res;
-end
-
 function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int,
                                   new_component_weight::Number=0.2, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
     scale_std = parse_scale_std(scale_std, scale)
@@ -293,94 +237,6 @@ function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Numbe
     return bm_datas_res;
 end
 
-# DEPRECATED?
-function initial_distribution_data(df_spatial::DataFrame, prior_centers::CenterData; n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-           gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1, n_cells_init::Int=0)
-    mtx_centers = position_data(prior_centers.centers)
-    pos_data = position_data(df_spatial)
-    can_be_dropped = falses(size(mtx_centers, 2))
-    n_added_clusters = 0
-
-    if n_cells_init > size(mtx_centers, 2)
-        # TODO: use select_ids_uniformly instead if decide to keep this function
-        cluster_centers = kshiftmedoids(pos_data, n_cells_init)[1];
-
-        if size(mtx_centers, 2) > 0
-            dists_to_prior = getindex.(knn(KDTree(mtx_centers), cluster_centers, 1)[2], 1);
-            cluster_centers = cluster_centers[:, dists_to_prior .> sort(dists_to_prior)[size(mtx_centers, 2)]];
-        end
-
-        n_added_clusters = size(cluster_centers, 2)
-        mtx_centers = hcat(mtx_centers, cluster_centers);
-        can_be_dropped = vcat(can_be_dropped, trues(n_added_clusters));
-    end
-
-    assignment = kshiftlabels(pos_data, mtx_centers);
-    if :confidence in names(df_spatial)
-        assignment[df_spatial[!,:confidence] .< noise_confidence_threshold] .= 0
-    end
-
-    covs = (default_std === nothing) ?
-        covs_from_assignment(pos_data, assignment) :
-        [Float64[default_std 0; 0 default_std] .^ 2 for i in 1:size(mtx_centers, 2)]
-
-    pos_distributions = [MvNormalF(vec(mtx_centers[:, i]), cov) for (i, cov) in enumerate(covs)]
-
-    center_priors = [CellCenter(pd.μ, deepcopy(cov), n_degrees_of_freedom_center)
-        for (pd,cov) in zip(pos_distributions[1:length(prior_centers.center_covs)], prior_centers.center_covs)]
-    center_priors = vcat(center_priors, [nothing for x in 1:n_added_clusters])
-
-    return assignment, pos_distributions, center_priors, can_be_dropped
-end
-
-# DEPRECATED?
-"""
-    Creates `distributions with `prior_centers` centers and `default_std` standard deviation
-
-    # Arguments
-    - `df_spatial::DataFrame`: DataFrame with columns `:x`, `:y` and `:gene`
-    - `prior_centers::CenterData`: info on centers, extracted from DAPIs. Must have `center_covs` filled.
-    - `size_prior::Union{ShapePrior, Nothing}`: shape prior for position_params
-    - `new_component_weight::Float64`:
-    - `prior_component_weight::Float64`:
-    - `n_degrees_of_freedom_center::Int`:
-    - `default_std::Union{Real, Nothing}=nothing`: initial std for position_params in components. Estimated from assignment if `nothing` is passed.
-    - `gene_num::Int=maximum(df_spatial[:gene])`: total number of genes in the dataset
-    - `noise_confidence_threshold::Float64=0.1`: all molecules with confidence < `noise_confidence_threshold` are assigned to noise class
-    - `n_cells_init::Int=0`: number of clusters for initialization. Ignored if less than number of centers. Otherwise corresponding clusters are added with KShift clustering
-"""
-function initial_distributions(df_spatial::DataFrame, prior_centers::CenterData; size_prior::Union{ShapePrior, Nothing}, new_component_weight::Float64,
-                               prior_component_weight::Float64, n_degrees_of_freedom_center::Int, default_std::Union{Real, Nothing}=nothing,
-                               gene_num::Int=maximum(df_spatial[!,:gene]), noise_confidence_threshold::Float64=0.1,
-                               n_cells_init::Int=0)
-    if new_component_weight < 1e-10
-        n_cells_init = 0
-    end
-
-    assignment, pos_distributions, center_priors, can_be_dropped = initial_distribution_data(df_spatial, prior_centers;
-        n_degrees_of_freedom_center=n_degrees_of_freedom_center, default_std=default_std, gene_num=gene_num,
-        noise_confidence_threshold=noise_confidence_threshold, n_cells_init=n_cells_init)
-
-    gene_prior = CategoricalSmoothed(ones(Int, gene_num));
-    n_mols_per_center = count_array(assignment .+ 1, max_value=length(pos_distributions) + 1)[2:end];
-    components = [Component(pd, deepcopy(gene_prior), shape_prior=deepcopy(size_prior), center_prior=cp,
-                            n_samples=n, prior_weight=prior_component_weight, can_be_dropped=dr)
-                    for (pd, cp, n, dr) in zip(pos_distributions, center_priors, n_mols_per_center, can_be_dropped)];
-
-    ids_per_comp = split(collect(1:length(assignment)), assignment .+ 1)[2:end]
-    for (ids, comp) in zip(ids_per_comp, components)
-        if comp.n_samples > 0
-            maximize!(comp.position_params, position_data(df_spatial[ids,:]))
-            maximize!(comp.composition_params, composition_data(df_spatial[ids,:]))
-        end
-    end
-
-    gene_sampler = CategoricalSmoothed(ones(Int, gene_num))
-    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
-
-    return components, sampler, assignment
-end
-
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
@@ -393,21 +249,6 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment
-end
-
-# DEPRECATED?
-function filter_small_components(c_components::Array{Array{Int, 1}, 1}, adjacent_points::Array{Array{Int, 1}, 1}, df_spatial::DataFrame;
-                                 min_molecules_per_cell::Int=10)
-    c_components = c_components[length.(c_components) .> min_molecules_per_cell];
-
-    presented_ids = sort(vcat(c_components...))
-    map_dict = Dict(presented_ids .=> 1:length(presented_ids));
-
-    c_components = [get.(Ref(map_dict), comp, 0) for comp in c_components];
-    adjacent_points = [get.(Ref(map_dict), ids, 0) for ids in adjacent_points[presented_ids]];
-    adjacent_points = [v[v .!= 0] for v in adjacent_points];
-
-    return c_components, adjacent_points, df_spatial[presented_ids, :]
 end
 
 function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
