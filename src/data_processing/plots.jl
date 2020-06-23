@@ -145,19 +145,27 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     return p
 end
 
-function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Nothing}=nothing,
-        cell_ord::Union{<:AbstractVector{<:Integer},Nothing}=nothing, diag_genes::Bool=false, kwargs...)
-    if cell_ord === nothing
-        cell_dists = 1 .- cor(mtx);
-        cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Bool}=true,
+        cell_ord::Union{<:AbstractVector{<:Integer},Bool}=true, diag_genes::Bool=false, kwargs...)
+    if typeof(cell_ord) === Bool
+        if cell_ord
+            cell_dists = 1 .- cor(mtx);
+            cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+        else
+            cell_ord = 1:size(mtx, 2)
+        end
     end
 
-    if gene_ord === nothing
-        if diag_genes
-            gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx[:, cell_ord], dims=2)), rev=true);
+    if typeof(gene_ord) === Bool
+        if gene_ord
+            if diag_genes
+                gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx[:, cell_ord], dims=2)), rev=true);
+            else
+                gene_dists = 1 .- cor(mtx');
+                gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+            end
         else
-            gene_dists = 1 .- cor(mtx');
-            gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+            gene_ord = 1:size(mtx, 1)
         end
     end
 
