@@ -171,6 +171,70 @@ function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3
     return adjacent_points, adjacent_weights, adjacent_dists
 end
 
+function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
+    df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
+
+    gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
+    large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);
+    df_spatial = df_spatial[in.(df_spatial[!, :gene], Ref(large_genes)),:];
+
+    df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
+    df_spatial[!, :y] = Array{Float64, 1}(df_spatial[!, :y])
+    df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
+    return df_spatial, gene_names;
+end
+
+# Initialize BmmData
+
+"""
+    main function for initialization of bm_data
+"""
+function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
+                                  scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
+                                  confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{<:Integer, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
+                                  new_component_weight::T2 where T2 <: Real=0.2, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
+    df_spatial = deepcopy(df_spatial)
+
+    ## Parse parameters
+    confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
+    n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
+    n_cells_init = max(div(n_cells_init, n_frames), 1)
+
+    composition_neighborhood = something(composition_neighborhood, default_param_value(:composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
+    n_gene_pcs = something(n_gene_pcs, default_param_value(:n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
+
+    scale_std = parse_scale_std(scale_std, scale)
+
+    ## Estimate confidence
+    if confidence_nn_id > 0
+        @info "Estimate confidence per molecule"
+        prior_segmentation = (:prior_segmentation in names(df_spatial)) ? df_spatial.prior_segmentation : nothing
+        append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
+        @info "Done"
+    end
+
+    ## Split data
+    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
+    @info "#frames: $(length(dfs_spatial)); mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))."
+
+    if (n_frames_return > 0) && (n_frames_return < n_frames)
+        dfs_spatial = dfs_spatial[1:n_frames_return]
+    end
+
+    ## Initialize BmmData array
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
+
+    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
+    for i in 1:length(dfs_spatial)
+        init_params = cell_centers_with_clustering(dfs_spatial[i], n_cells_init; scale=scale)
+        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight,
+            composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
+    end
+
+    return bm_datas_res;
+end
+
 function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0, update_priors::Symbol=:no, real_edge_quant::Float64=0.3,
         use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
     # TODO: test if min_edge_length=0.1 and scale_min_length=false are needed
@@ -188,55 +252,6 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighbo
     return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1 / real_edge_length, sampler, assignment, update_priors=update_priors, prior_seg_confidence=prior_seg_confidence)
 end
 
-"""
-    main function for initialization of bm_data
-"""
-function initial_distribution_arr(df_spatial::DataFrame, args...; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
-                                  confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-                                  n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
-    df_spatial = deepcopy(df_spatial)
-
-    confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
-
-    if confidence_nn_id > 0
-        @info "Estimate confidence per molecule"
-        prior_segmentation = (:prior_segmentation in names(df_spatial)) ? df_spatial.prior_segmentation : nothing
-        append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
-        @info "Done"
-    end
-
-    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
-    @info "#frames: $(length(dfs_spatial)); mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))."
-
-    if (n_frames_return > 0) && (n_frames_return < n_frames)
-        dfs_spatial = dfs_spatial[1:n_frames_return]
-    end
-
-    n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
-    composition_neighborhood = something(composition_neighborhood, default_param_value(:composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
-    n_gene_pcs = something(n_gene_pcs, default_param_value(:n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
-
-    return initial_distribution_arr(dfs_spatial, args...; n_cells_init=n_cells_init, min_molecules_per_cell=min_molecules_per_cell,
-        composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
-end
-
-function initial_distribution_arr(dfs_spatial::Array{DataFrame, 1}; scale::Number, scale_std::Union{Float64, String, Nothing}=nothing, n_cells_init::Int,
-                                  new_component_weight::Number=0.2, min_molecules_per_cell::Union{Int, Nothing}=nothing, kwargs...)::Array{BmmData, 1}
-    scale_std = parse_scale_std(scale_std, scale)
-
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
-
-    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
-    n_cells_init = max(div(n_cells_init, length(dfs_spatial)), 1)
-
-    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
-    for i in 1:length(dfs_spatial)
-        init_params = cell_centers_with_clustering(dfs_spatial[i], n_cells_init; scale=scale)
-        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight, kwargs...)
-    end
-    return bm_datas_res;
-end
-
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
@@ -251,19 +266,7 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return components, sampler, initial_params.assignment
 end
 
-function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
-    df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
-
-    gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
-    large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);
-    df_spatial = df_spatial[in.(df_spatial[!, :gene], Ref(large_genes)),:];
-
-    df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
-    df_spatial[!, :y] = Array{Float64, 1}(df_spatial[!, :y])
-    df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
-    return df_spatial, gene_names;
-    # return filter_background(df_spatial), gene_names;
-end
+# Split data by frames
 
 function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame, 1}
     factor = vec(sum(hcat([df[!,key] .<= quantile(df[!,key], q) for q in range(1 / n, stop=1.0, length=n)]...), dims=2))
