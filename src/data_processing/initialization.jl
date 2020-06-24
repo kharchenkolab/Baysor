@@ -65,12 +65,12 @@ end
 
 # Initialize cell positions
 
-function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1})
+function position_data_by_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer})
     filt_ids = findall(assignment .> 0)
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
-function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1}; min_size::Int=1)::Array{CovMat, 1}
+function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer}; min_size::Int=1)::Array{CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
     covs = estimate_sample_cov.(pos_data_by_assignment);
     mean_covs = MeanVec(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .>= min_size]))...), dims=2)))
@@ -79,14 +79,13 @@ function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, a
         covs[i] = CovMat(diagm(0 => deepcopy(mean_covs)))
     end
 
-    # return adjust_cov_matrix!.(covs)
     return covs
 end
 
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
     cell_centers_uniformly(position_data(spatial_df), args...; kwargs...)
 
-function cell_centers_uniformly(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
+function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int; scale::Union{<:Real, Nothing})
     n_clusters = min(n_clusters, size(pos_data, 2))
 
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data'; n=n_clusters)]
