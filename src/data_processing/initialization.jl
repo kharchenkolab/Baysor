@@ -280,7 +280,7 @@ function split_spatial_data(df::DataFrame, n::Int) # TODO: very approximate sepa
     x_elongation = df_sizes[:x] / sum(values(df_sizes))
     a = round(Int, sqrt(x_elongation * n / (1 - x_elongation))) # solution of "a * b = n; a / (a + b) = x_elongation"
 
-    return split_spatial_data(df, a, round(Int, n / a))
+    return split_spatial_data(df, a, max(floor(Int, n / a), 1))
 end
 
 split_spatial_data(df::DataFrame; mean_mols_per_frame::Int) = split_spatial_data(df, round(Int, size(df, 1) / mean_mols_per_frame))
