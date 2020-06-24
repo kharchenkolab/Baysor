@@ -45,10 +45,10 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
-sample_cov(args...; kwargs...) =
-    sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
+estimate_sample_cov(args...; kwargs...) =
+    estimate_sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
 
-function sample_cov!(Σ::CovMat, x::T; μ::Union{MeanVec, Nothing}=nothing) where T <: AbstractArray{Float64,2}
+function estimate_sample_cov!(Σ::CovMat, x::T; μ::Union{MeanVec, Nothing}=nothing) where T <: AbstractArray{Float64,2}
     if μ === nothing
         μ = MeanVec(vec(mean(x, dims=2)))
     end
@@ -78,7 +78,7 @@ function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Fl
     end
 
     # Σ = adjust_cov_matrix!(robust_cov(x; prop=0.1))
-    sample_cov!(dist.Σ, x; μ=dist.μ)
+    estimate_sample_cov!(dist.Σ, x; μ=dist.μ)
 
     # if det(dist.Σ) ≈ 0
     #     error("Singular covariance matrix")

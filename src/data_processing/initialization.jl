@@ -9,6 +9,8 @@ using Base.Threads
 import CSV
 import Distances
 
+# Parse parameters
+
 function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
                              n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing)
     if min_molecules_per_cell === nothing
@@ -61,35 +63,7 @@ function parse_scale_std(scale_std::String, scale::Real)
     return parse(Float64, scale_std)
 end
 
-function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where MT <: AbstractMatrix{T}; quiet::Bool=false)::Vector{T} where T <: Real
-    x_vals = round.(Int, df_spatial.x)
-    y_vals = round.(Int, df_spatial.y)
-    if !quiet && ((maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the DAPI size: $(size(staining)). Filling it with 0."
-    end
-
-    if !quiet && ((minimum(x_vals) < 1) || (minimum(y_vals) < 1))
-        @warn "Minimum transcript coordinates are < 1: $((minimum(y_vals), minimum(x_vals))). Filling it with 0."
-    end
-
-    if !quiet && ((maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
-    end
-
-    inds = findall((x_vals .> 0) .& (x_vals .< size(staining, 2)) .& (y_vals .> 0) .& (y_vals .< size(staining, 1)))
-    staining_vals = zeros(T, length(x_vals))
-    for i in inds
-        staining_vals[i] = staining[y_vals[i], x_vals[i]];
-    end
-
-    return staining_vals
-end
-
-function encode_genes(gene_list)
-    gene_names = unique(gene_list);
-    gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
-    return [gene_ids[g] for g in gene_list], gene_names
-end
+# Initialize cell positions
 
 function position_data_by_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1})
     filt_ids = findall(assignment .> 0)
@@ -98,11 +72,11 @@ end
 
 function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, assignment::Array{Int, 1}; min_size::Int=1)::Array{CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
-    covs = sample_cov.(pos_data_by_assignment);
-    mean_stds = MeanVec(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .> min_size]))...), dims=2)))
+    covs = estimate_sample_cov.(pos_data_by_assignment);
+    mean_covs = MeanVec(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .>= min_size]))...), dims=2)))
 
     for i in findall(size.(pos_data_by_assignment, 2) .<= min_size)
-        covs[i] = CovMat(diagm(0 => deepcopy(mean_stds)))
+        covs[i] = CovMat(diagm(0 => deepcopy(mean_covs)))
     end
 
     # return adjust_cov_matrix!.(covs)
@@ -121,6 +95,8 @@ function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float6
     covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
+
+# Build MRF
 
 function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, edge_weights::Union{Vector{Float64}, Nothing}=nothing; n_verts::Int=maximum(edge_list))
     res_ids = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=n_verts),
@@ -284,3 +260,35 @@ function split_spatial_data(df::DataFrame, n::Int) # TODO: very approximate sepa
 end
 
 split_spatial_data(df::DataFrame; mean_mols_per_frame::Int) = split_spatial_data(df, round(Int, size(df, 1) / mean_mols_per_frame))
+
+# Utils
+
+function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where MT <: AbstractMatrix{T}; quiet::Bool=false)::Vector{T} where T <: Real
+    x_vals = round.(Int, df_spatial.x)
+    y_vals = round.(Int, df_spatial.y)
+    if !quiet && ((maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1)))
+        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the DAPI size: $(size(staining)). Filling it with 0."
+    end
+
+    if !quiet && ((minimum(x_vals) < 1) || (minimum(y_vals) < 1))
+        @warn "Minimum transcript coordinates are < 1: $((minimum(y_vals), minimum(x_vals))). Filling it with 0."
+    end
+
+    if !quiet && ((maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1)))
+        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
+    end
+
+    inds = findall((x_vals .> 0) .& (x_vals .< size(staining, 2)) .& (y_vals .> 0) .& (y_vals .< size(staining, 1)))
+    staining_vals = zeros(T, length(x_vals))
+    for i in inds
+        staining_vals[i] = staining[y_vals[i], x_vals[i]];
+    end
+
+    return staining_vals
+end
+
+function encode_genes(gene_list)
+    gene_names = unique(gene_list);
+    gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
+    return [gene_ids[g] for g in gene_list], gene_names
+end
