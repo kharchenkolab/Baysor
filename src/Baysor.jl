@@ -37,7 +37,7 @@ include("data_processing/expression_local_vectors.jl")
 include("data_processing/noise_estimation.jl")
 include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
-include("data_processing/boundary_visualization.jl")
+include("data_processing/boundary_estimation.jl")
 include("data_processing/preview_diagnostics.jl")
 
 include("bmm_algorithm/molecule_clustering.jl")

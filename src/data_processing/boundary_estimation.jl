@@ -1,10 +1,10 @@
 import LightGraphs
-using StatsBase: countmap
 import FFTW
 
 using DataFrames
 using SimpleWeightedGraphs
 using SparseArrays
+using StatsBase: countmap
 
 using LightGraphs: src, dst
 
