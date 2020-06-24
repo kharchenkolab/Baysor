@@ -9,12 +9,6 @@ using Statistics
 import MultivariateStats
 import Plots
 
-plot_cell_borders_density(data::BmmData; kwargs...) = plot_cell_borders_density(data.x, data.assignment; kwargs...)
-function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)
-    polygons = boundary_polygons(df_spatial, cell_labels, min_molecules_per_cell=min_n_molecules);
-    return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
-end
-
 plot_cell_borders_polygons!(args...; kwargs...) =
     plot_cell_borders_polygons(args...; append=true, kwargs...)
 
@@ -203,6 +197,7 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
     return p
 end
 
+# DEPRECATED?
 function plot_prior_shape_per_iteration(tracer::Dict{Symbol, Any})
     Plots.plot(get.(tracer[:prior_shape], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
         xlabel="Iteration", ylabel="Eigenvalue", title="Shape prior")

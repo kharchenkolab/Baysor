@@ -15,6 +15,8 @@ export
     build_molecule_graph, load_df, initial_distribution_arr,
     boundary_polygons,
     neighborhood_count_matrix, gene_composition_transformation, gene_composition_colors,
+    append_confidence!,
+    plot_cell_borders_polygons, plot_cell_borders_polygons!, plot_expression_vectors
     cluster_molecules_on_mrf
 
 include("utils/utils.jl")
