@@ -39,7 +39,7 @@ function sample_var(d::Normal)
     while true
         v = rand(d)
         if v > 0
-            return v
+            return v.^2
         end
     end
 end
@@ -120,7 +120,6 @@ function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothi
     #     return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
     # end
 end
-
 
 function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
