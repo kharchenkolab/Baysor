@@ -83,14 +83,14 @@ function covs_from_assignment(pos_data::T where T<: AbstractArray{Float64, 2}, a
     return covs
 end
 
-cell_centers_with_clustering(spatial_df::DataFrame, args...; kwargs...) =
-    cell_centers_with_clustering(position_data(spatial_df), args...; kwargs...)
+cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
+    cell_centers_uniformly(position_data(spatial_df), args...; kwargs...)
 
-function cell_centers_with_clustering(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
+function cell_centers_uniformly(pos_data::T where T<: AbstractArray{Float64, 2}, n_clusters::Int; scale::Union{Real, Nothing})
     n_clusters = min(n_clusters, size(pos_data, 2))
 
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data'; n=n_clusters)]
-    cluster_labels = kshiftlabels(pos_data, cluster_centers);
+    cluster_labels = vcat(knn(KDTree(cluster_centers), pos_data, 1)[1]...)
 
     covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
@@ -203,7 +203,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
 
     bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
     for i in 1:length(dfs_spatial)
-        init_params = cell_centers_with_clustering(dfs_spatial[i], n_cells_init; scale=scale)
+        init_params = cell_centers_uniformly(dfs_spatial[i], n_cells_init; scale=scale)
         bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight,
             composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
     end
