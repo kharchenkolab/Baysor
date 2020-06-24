@@ -237,8 +237,8 @@ end
 
 function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0, update_priors::Symbol=:no, real_edge_quant::Float64=0.3,
         use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
-    # TODO: test if min_edge_length=0.1 and scale_min_length=false are needed
-    adjacent_points, adjacent_weights, adjacent_dists = build_molecule_graph(df_spatial; min_edge_length=0.1, scale_min_length=false,
+    # TODO: test if min_edge_quant=0.1 and scale_min_length=false are needed
+    adjacent_points, adjacent_weights, adjacent_dists = build_molecule_graph(df_spatial; min_edge_quant=0.1, scale_min_length=false,
         use_local_gene_similarities=use_local_gene_similarities, n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood)
 
     # TODO: test if it's needed
