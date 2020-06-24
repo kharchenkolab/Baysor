@@ -1,7 +1,5 @@
-import Distributions
 import LightGraphs
-import NearestNeighbors
-import StatsBase
+using StatsBase: countmap
 import FFTW
 
 using DataFrames
@@ -9,16 +7,6 @@ using SimpleWeightedGraphs
 using SparseArrays
 
 using LightGraphs: src, dst
-
-function estimate_density_norm(train_points::Array{Float64,2}, eval_points::Array{Float64,2})::Array{Float64, 1}
-    dist = Distributions.MvNormal(vec(mean(train_points, dims=1)), adjust_cov_matrix!(cov(train_points)));
-    return Distributions.pdf(dist, eval_points)
-end
-
-function grid_point_coords(min_x::Vector{T}, max_x::Vector{T}, step::T) where T <: Real
-    grid_points = collect(Iterators.product([s:step:e for (s, e) in zip(min_x, max_x)]...));
-    return map(collect, grid_points);
-end
 
 function grid_borders_per_label(grid_labels::Matrix{<:Integer})
     d_cols = [-1 0 1 0]
@@ -48,7 +36,7 @@ function grid_borders_per_label(grid_labels::Matrix{<:Integer})
     return borders_per_label
 end
 
-function border_mst(border_points::Array{Array{T,1},1} where T<:Real; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
+function border_mst(border_points::Array{Vector{<:Real},1}; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
     leafsize = min(size(border_points, 1), 10) # Some performance feature?
     tree = KDTree(Array{Float64, 2}(hcat(border_points...)), leafsize=leafsize);
     src_verts, dst_verts, weights = Int[], Int[], Float64[]
@@ -75,7 +63,7 @@ function border_mst(border_points::Array{Array{T,1},1} where T<:Real; min_edge_l
     return LightGraphs.kruskal_mst(SimpleWeightedGraph(adj_mtx + adj_mtx'));
 end
 
-function longest_paths(edges::Array{T, 1})::Array{Array{Int, 1}, 1} where T <: LightGraphs.AbstractEdge
+function find_longest_paths(edges::Array{T, 1})::Array{Vector{Int}, 1} where T <: LightGraphs.AbstractEdge
     if length(edges) == 0
         return []
     end
@@ -163,11 +151,7 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
     return polygon_inds
 end
 
-boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
-boundary_polygons(spatial_df::DataFrame, cell_labels::Vector{Int}; kwargs...) =
-    boundary_polygons(position_data(spatial_df), cell_labels; kwargs...)
-
-function find_grid_point_labels_kde_opt(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Vector{T}, max_x::Vector{T};
+function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Vector{T}, max_x::Vector{T};
         grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)[2:end]];
     coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
@@ -235,7 +219,7 @@ function extract_polygons_from_label_grid(grid_labels::Matrix{<:Integer}; min_bo
     paths = nothing
     edges_per_label = border_mst.(borders_per_label)
     if shape_method == :path
-        paths = longest_paths.(edges_per_label);
+        paths = find_longest_paths.(edges_per_label);
     elseif shape_method == :order
         conn_comps = [LightGraphs.connected_components(LightGraphs.SimpleGraphFromIterator(LightGraphs.SimpleGraphs.SimpleEdge.(src.(edges), dst.(edges)))) for edges in edges_per_label]
         paths = [vcat(order_points_to_polygon.(cc, Ref(hcat(borders...)), max_dev=max_dev)...) for (borders, cc) in zip(borders_per_label, conn_comps)];
@@ -249,13 +233,17 @@ function extract_polygons_from_label_grid(grid_labels::Matrix{<:Integer}; min_bo
     return [vcat(cp, cp[1,:]') for cp in polygons]
 end
 
+boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
+boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
+    boundary_polygons(position_data(spatial_df), args...; kwargs...)
+
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
                            bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
     min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
     max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
 
-    grid_labels_plane = find_grid_point_labels_kde_opt(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
+    grid_labels_plane = find_grid_point_labels_kde(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
 
     if length(grid_labels_plane) == 0
         return Matrix{Float64}[]
