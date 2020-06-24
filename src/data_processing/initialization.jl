@@ -291,3 +291,19 @@ function encode_genes(gene_list)
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
     return [gene_ids[g] for g in gene_list], gene_names
 end
+
+# This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
+function select_ids_uniformly(vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int}
+    if n <= 1
+        error("n must be > 1")
+    end
+
+    high_conf_ids = (confidence===nothing) ? (1:size(vals, 1)) : findall(confidence .>= confidence_threshold)
+    if length(high_conf_ids) < n
+        @warn "n=$n, which is > length(high_conf_ids) ($(length(high_conf_ids)))"
+        return high_conf_ids
+    end
+
+    vals = sum(vals, dims=2)[high_conf_ids]
+    return high_conf_ids[sortperm(vals)[unique(round.(Int, range(1, length(high_conf_ids), length=n)))]];
+end
