@@ -10,6 +10,12 @@ import Distributions.pdf
 import Distributions.logpdf
 import Statistics.rand
 
+export
+    BmmData, bmm!,
+    build_molecule_graph, load_df, initial_distribution_arr,
+    boundary_polygons,
+    cluster_molecules_on_mrf
+
 include("utils/utils.jl")
 include("utils/kmeans.jl")
 include("utils/logging.jl")
