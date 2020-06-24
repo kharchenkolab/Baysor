@@ -58,6 +58,14 @@ B = Baysor
             bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=30)[1];
             @test all(bm_data.cluster_per_molecule .== df.cluster)
             @test all(bm_data.segment_per_molecule .== df.prior_segmentation)
+
+            for i in 5:10:55
+                init_params = B.cell_centers_uniformly(df, i; scale=10)
+                @test size(init_params.centers, 1) == i
+                @test size(init_params.centers, 2) == 2
+                @test length(init_params.covs) == i
+                @test maximum(init_params.assignment) == i
+            end
         end
 
         @testset "parse_parameters" begin
