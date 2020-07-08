@@ -5,6 +5,3 @@ julia:
 
 script:
   - julia -e 'using Pkg; Pkg.build(; verbose=true)';
-  - pwd
-  - cd bin
-  - make
