@@ -36,7 +36,7 @@ function grid_borders_per_label(grid_labels::Matrix{<:Integer})
     return borders_per_label
 end
 
-function border_mst(border_points::Array{Vector{<:Real},1}; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
+function border_mst(border_points::Array{<:Vector{<:Real},1}; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
     leafsize = min(size(border_points, 1), 10) # Some performance feature?
     tree = KDTree(Array{Float64, 2}(hcat(border_points...)), leafsize=leafsize);
     src_verts, dst_verts, weights = Int[], Int[], Float64[]

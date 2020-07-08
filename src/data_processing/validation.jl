@@ -177,6 +177,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     end
 
     # xs, xe, ys, ye = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
+    xs, xe, ys, ye = round.(Int, [xs, xe, ys, ye]);
 
     xticks_vals = range(0, xe-xs, length=5)
     yticks_vals = range(0, ye-ys, length=5)
