@@ -44,7 +44,7 @@ mutable struct BmmData
     misc::Dict{Symbol, Any};
 
     # Parameters
-    update_priors::Symbol; # DEPRECATED?
+    update_priors::Symbol; # It's always :no for now, but it can be changed in the future
     prior_seg_confidence::Float64;
     cluster_penalty_mult::Float64;
     use_gene_smoothing::Bool;
@@ -72,6 +72,10 @@ mutable struct BmmData
 
         if !all(s in propertynames(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
+        end
+
+        if update_priors != :no
+            @warn "update_priors != :no is a testing functionality and it probably doesn't work properly"
         end
 
         if isa(cluster_per_molecule, Symbol)

@@ -179,6 +179,7 @@ end
 end
 
 function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
+    # data.update_priors is always :no in the normal workflow
     if data.update_priors == :no
         return
     end
@@ -198,7 +199,7 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
     end
 end
 
-function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=true)
+function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=data.update_priors)
     ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
@@ -206,7 +207,7 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
         maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], data)
     end
 
-    if do_maximize_prior
+    if do_maximize_prior # Doesn't happen in the normal workflow
         maximize_prior!(data, min_molecules_per_cell)
     end
 
