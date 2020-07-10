@@ -26,10 +26,9 @@ function wmean!(μ::MeanVec, values::T where T <: AbstractMatrix{<:Real}, weight
         end
     end
 
-    return μ ./ sum(weights)
+    μ ./= sum(weights)
+    return μ
 end
-
-wmean!(μ::MeanVec, values::T where T <: AbstractMatrix{<:Real}) = mean!(μ, values)
 
 @inline @inbounds function log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64
     std_x = sqrt(d.Σ[1])
@@ -78,31 +77,17 @@ function estimate_sample_cov!(Σ::CovMat, x::T where T <: AbstractMatrix{Float64
     return Σ
 end
 
-function estimate_sample_cov!(Σ::CovMat, x::T where T <: AbstractMatrix{Float64}; μ::MeanVec)
-    # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
-    Σ .= 0.0
-    for i in 1:size(x, 2)
-        for c in 1:size(Σ, 1)
-            for r in 1:size(Σ, 1)
-                Σ[r, c] += (x[c, i] - μ[c]) * (x[r, i] - μ[r]) / size(x, 2)
-            end
-        end
-    end
-
-    return Σ
-end
-
-function maximize!(dist::MvNormalF, x::T, args...)::MvNormalF where T <: AbstractMatrix{Float64}
+function maximize!(dist::MvNormalF, x::T, confidences::T2 where T2 <: AbstractVector{<:Real})::MvNormalF where T <: AbstractMatrix{Float64}
     if size(x, 2) == 0
         return dist
     end
 
-    wmean!(dist.μ, x)
+    wmean!(dist.μ, x, confidences)
     if size(x, 2) <= 2
         return dist
     end
 
-    estimate_sample_cov!(dist.Σ, x, args...; μ=dist.μ)
+    estimate_sample_cov!(dist.Σ, x, confidences; μ=dist.μ)
     return dist
 end
 

@@ -82,14 +82,11 @@ mutable struct Component
             Dict{Int, Int}(), guid)
 end
 
-maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64}) =
-    maximize!(c, pos_data, comp_data, conf_data; n_samples=sum(conf_data))
+function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64})
+    maximize!(c.composition_params, comp_data, conf_data);
+    maximize!(c.position_params, pos_data, conf_data);
 
-function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, args...; n_samples::TR where TR <: Real =size(pos_data, 2))
-    maximize!(c.composition_params, comp_data, args...);
-
-    maximize!(c.position_params, pos_data, args...);
-
+    n_samples = sum(conf_data)
     if c.center_prior !== nothing
         normal_posterior!(c.position_params.μ, c.position_params.Σ, c.center_prior.μ, c.center_prior.Σ,
             n=n_samples, n_prior=c.center_prior.n_degrees_of_freedom)

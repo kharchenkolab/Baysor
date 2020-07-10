@@ -50,12 +50,6 @@ function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum:
     return cnt_adj / cnt_adj_sum
 end
 
-function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1})
-    count_array!(dist.counts, x)
-    dist.n_samples = length(x)
-    return dist
-end
-
 function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
     count_array!(dist.counts, x, confidences)
     dist.n_samples = sum(confidences)
