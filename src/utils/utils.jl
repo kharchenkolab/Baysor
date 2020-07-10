@@ -18,8 +18,8 @@ function val_range(arr::AT where AT <: AbstractVector{<:Real})
     return min_val, max_val
 end
 
-count_array(values::VT where VT<: AbstractVector{<:Integer}; max_value::Union{<:Integer, Nothing}=nothing, kwargs...) =
-    count_array!(zeros(Int, something(max_value, maximum(values))), values; erase_counts=false, kwargs...)
+count_array(values::VT where VT<: AbstractVector{<:Integer}, args...; max_value::Union{<:Integer, Nothing}=nothing, kwargs...) =
+    count_array!(zeros(Int, something(max_value, maximum(values))), values, args...; erase_counts=false, kwargs...)
 
 # TODO: check all usages and remove outer processing of 0 values
 function count_array!(counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer}; drop_zero::Bool=false, erase_counts::Bool=true)
@@ -35,6 +35,30 @@ function count_array!(counts::VT1 where VT1 <: AbstractVector{<:Integer}, values
         end
 
         counts[v] += 1
+    end
+
+    if !drop_zero && has_zero
+        @warn "Array has zero values. It was ignored."
+    end
+
+    return counts
+end
+
+function count_array!(counts::VT1 where VT1 <: AbstractVector{RT}, values::VT2 where VT2 <: AbstractVector{<:Integer}, weights::VT3 where VT3 <: AbstractVector{RT};
+        drop_zero::Bool=false, erase_counts::Bool=true) where RT<:Real
+    if erase_counts
+        counts .= 0
+    end
+
+    has_zero = false
+    for i in 1:length(values)
+        v = values[i]
+        if v == 0
+            has_zero = true
+            continue
+        end
+
+        counts[v] += weights[i]
     end
 
     if !drop_zero && has_zero

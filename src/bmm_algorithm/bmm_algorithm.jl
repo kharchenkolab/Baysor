@@ -168,14 +168,14 @@ function update_prior_probabilities!(components::Array{Component, 1})
     end
 end
 
-@inline function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64, 2}, comp_data::T2 where T2 <: AbstractArray{Int, 1}, data::BmmData)
+@inline function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64}, data::BmmData)
     c.n_samples = size(pos_data, 2)
 
     if size(pos_data, 2) == 0
         return maximize_from_prior!(c, data)
     end
 
-    return maximize!(c, pos_data, comp_data)
+    return maximize!(c, pos_data, comp_data, conf_data)
 end
 
 function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
@@ -199,12 +199,12 @@ function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
     end
 end
 
-function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=data.update_priors)
+function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=(data.update_priors != :no))
     ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
         p_ids = (i > length(ids_by_assignment)) ? Int[] : ids_by_assignment[i]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], data)
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids], data)
     end
 
     if do_maximize_prior # Doesn't happen in the normal workflow

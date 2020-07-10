@@ -214,12 +214,12 @@ end
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
-    gene_distributions = [CategoricalSmoothed(ones(Int, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
+    gene_distributions = [CategoricalSmoothed(ones(Float64, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
-    gene_sampler = CategoricalSmoothed(ones(Int, gene_num))
+    gene_sampler = CategoricalSmoothed(ones(Float64, gene_num))
     sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment

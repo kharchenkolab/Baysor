@@ -23,11 +23,11 @@ end
 distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
 rand(prior::ShapePrior) = rand.(distributions(prior))
 
-var_posterior(prior::ShapePrior, eigen_values::T where T <: Union{MeanVec, StaticArray{Tuple{2},Float64,1}}; n_samples::Int) =
+var_posterior(prior::ShapePrior, eigen_values::T where T <: Union{MeanVec, StaticArray{Tuple{2},Float64,1}}; n_samples::TR where TR <: Real) =
     var_posterior.(prior.std_values, prior.std_value_stds, eigen_values; n_samples=n_samples, prior_n_samples=prior.n_samples)
 
 # f(dx) = sign(dx) * sqrt(|dx/std|) * std
-function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::Float64; n_samples::Int, prior_n_samples::Int)
+function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::Float64; n_samples::TR1 where TR1 <: Real, prior_n_samples::TR2 where TR2 <: Real)
     d_std = (sqrt(eigen_value) - prior_std)
     std_adj = (prior_std + sign(d_std) * (sqrt(abs(d_std) / prior_std_std + 1) - 1) * prior_std_std)
 
@@ -82,26 +82,22 @@ mutable struct Component
             Dict{Int, Int}(), guid)
 end
 
-function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64,2}, comp_data::T2 where T2 <: AbstractArray{Int, 1})
-    maximize!(c.composition_params, comp_data);
+maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64}) =
+    maximize!(c, pos_data, comp_data, conf_data; n_samples=sum(conf_data))
 
-    maximize!(c.position_params, pos_data);
+function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, args...; n_samples::TR where TR <: Real =size(pos_data, 2))
+    maximize!(c.composition_params, comp_data, args...);
+
+    maximize!(c.position_params, pos_data, args...);
 
     if c.center_prior !== nothing
         normal_posterior!(c.position_params.μ, c.position_params.Σ, c.center_prior.μ, c.center_prior.Σ,
-            n=size(pos_data, 2), n_prior=c.center_prior.n_degrees_of_freedom)
-        # μ = normal_posterior(μ, c.center_prior.μ, Σ, c.center_prior.Σ, size(pos_data, 2))[1]
+            n=n_samples, n_prior=c.center_prior.n_degrees_of_freedom)
     end
 
     if c.shape_prior !== nothing
-        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=size(pos_data, 2))
+        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=n_samples)
     end
-
-    # try
-    #     c.position_params = MvNormal(μ, Σ)
-    # catch
-    #     error("Can't maximize position params. μ: '$μ', Σ: '$Σ', n_samples: $(size(pos_data ,1)).")
-    # end
 
     return c
 end
@@ -121,7 +117,7 @@ function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothi
     # end
 end
 
-function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
+function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::TR where TR <: Real)
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
         Σ[1, 2] = Σ[2, 1] = 0.0
     end
@@ -134,7 +130,7 @@ function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::Int)
     return adjust_cov_matrix!(Σ)
 end
 
-function normal_posterior!(μ::MeanVec, Σ::CovMat, μ_prior::MeanVec, Σ_prior::CovMat; n::Int, n_prior::Int)
+function normal_posterior!(μ::MeanVec, Σ::CovMat, μ_prior::MeanVec, Σ_prior::CovMat; n::TR1 where TR1 <: Real, n_prior::TR2 where TR2 <: Real)
     Σ = (n .* Σ .+ n_prior .* Σ_prior .+ (n * n_prior / (n + n_prior)) .* ((μ .- μ_prior) * (μ .- μ_prior)')) ./ (n + n_prior)
     μ .= (n .* μ .+ n_prior .* μ_prior) ./ (n + n_prior)
     adjust_cov_matrix!(Σ)

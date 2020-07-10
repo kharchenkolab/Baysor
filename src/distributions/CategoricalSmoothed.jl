@@ -2,30 +2,18 @@ using Distributions
 using LinearAlgebra
 using StatsBase
 
-mutable struct CategoricalSmoothed <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
-    counts::Array{Int, 1};
+mutable struct CategoricalSmoothed{CT <: Real} <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
+    counts::Vector{CT};
     smooth::Float64;
-    n_samples::Int;
+    n_samples::CT;
 
-    CategoricalSmoothed(counts::Array{Int, 1}; smooth::Number=1.0, n_samples::Int=sum(counts)) = new(counts, smooth, n_samples)
+    CategoricalSmoothed(counts::Vector{IT}; smooth::Real=1.0, n_samples::IT=sum(counts)) where IT <: Real = new{IT}(counts, Float64(smooth), n_samples)
 end
-
-# function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64
-#     cnt, cnt_sum = counts(dist)[x], dist.n_samples
-
-#     if !use_smoothing || (cnt >= dist.smooth)
-#         return cnt / cnt_sum
-#     end
-
-#     # Can't simply add smoothing to each vector component because of sparsity
-#     cnt_sum += (dist.smooth - cnt)
-#     return dist.smooth / cnt_sum
-# end
 
 pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
     pdf(counts(dist), dist.n_samples, x, dist.smooth; use_smoothing=use_smoothing)
 
-function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64
+function pdf(cnt::Vector{CT}, cnt_sum::CT, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64 where CT <: Real
     cnt = cnt[x]
     if !use_smoothing
         return cnt / cnt_sum
@@ -62,12 +50,15 @@ function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum:
     return cnt_adj / cnt_adj_sum
 end
 
-# maximize(dist::CategoricalSmoothed, x::Array{Int, 1}) =
-#     CategoricalSmoothed(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
-
 function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1})
     count_array!(dist.counts, x)
     dist.n_samples = length(x)
+    return dist
+end
+
+function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
+    count_array!(dist.counts, x, confidences)
+    dist.n_samples = sum(confidences)
     return dist
 end
 
