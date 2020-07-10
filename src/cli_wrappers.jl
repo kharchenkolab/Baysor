@@ -362,7 +362,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     # Save results
 
     segmentated_df = get_segmentation_df(bm_data, gene_names)
-    cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true, min_molecules_per_cell=args["min-molecules-per-cell"])
+    cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
     @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);

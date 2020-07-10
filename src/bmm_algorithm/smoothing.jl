@@ -290,6 +290,17 @@ function refine_knn_by_expression(neighborhood_matrix::Matrix{Float64}, neighb_i
     return adj_cells
 end
 
+function estimate_expression_clusters(feature_mtx::Matrix{Float64}, n_clusters::Int, real_cell_inds::T where T<: AbstractArray{Int, 1} = 1:size(feature_mtx, 2); n_pcs::Int=0, kwargs...)
+    if n_pcs > 0
+        pca = MultivariateStats.fit(MultivariateStats.PCA, feature_mtx[:, real_cell_inds]; maxoutdim=n_pcs);
+        feature_mtx = MultivariateStats.transform(pca, feature_mtx);
+    end
+
+    k_centers = kmeans_stable(feature_mtx[:, real_cell_inds], n_clusters; kwargs...)[1];
+
+    return feature_mtx, k_centers
+end
+
 """
     k-means based
     kwargs are passed to estimate_expression_clusters. Important parameters: min_cluster_size, n_pcs

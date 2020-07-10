@@ -332,9 +332,7 @@ track_progress!(progress::RemoteChannel) = put!(progress, true)
 track_progress!(progress::Progress) = next!(progress)
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
-              split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
-              clustering_distance::D=Distances.CosineDist(), # TODO: Remove this
-              prior_update_step::Int=split_period, assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
+              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
               component_split_step::Int=3) where D <: Distances.SemiMetric
     time_start = now()
 
@@ -357,16 +355,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
 
     for i in 1:n_iters
-        if (split_period > 0) && (i > 0) && (i % split_period == 0) && ((n_iters - i) >= split_period)
-            split_components_by_expression!(data, n_splitting_clusters; n_expression_clusters=n_expression_clusters, distance=clustering_distance,
-                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs);
-        end
-
-        # if (prior_update_step > 0) && (i > 0) && (i % prior_update_step == 0)
-        #     update_gene_count_priors!(data.components; n_clusters=n_expression_clusters, distance=clustering_distance,
-        #         min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
-        # end
-
         append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components)
         update_n_mols_per_segment!(data)

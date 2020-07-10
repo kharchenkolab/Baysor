@@ -290,7 +290,7 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
     return df
 end
 
-function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, do_score_doublets::Bool=true, min_molecules_per_cell::Int=3, sigdigits::Int=4)
+function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, sigdigits::Int=4)
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
@@ -315,15 +315,6 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         end
 
         df = hcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
-
-        if do_score_doublets & !isempty(data.cluster_per_molecule)
-            cluster_centers = convert_segmentation_to_counts(composition_data(data), data.cluster_per_molecule);
-            cluster_centers = cluster_centers' ./ sum(cluster_centers', dims=2);
-
-            cm = convert_segmentation_to_counts(composition_data(data), data.assignment);
-            doublet_fractions = score_doublets(cm, cluster_centers; min_molecules_per_cell=min_molecules_per_cell)[2];
-            df[!, :doublet_score] = round.(min.(doublet_fractions, 0.5) .* 2, sigdigits=sigdigits)
-        end
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
