@@ -40,7 +40,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
             error("Either `$param` or `n_genes` must be provided")
         end
 
-        return min(max(div(n_genes, 3), 10), 100)
+        return min(max(div(n_genes, 3), 30), 100, n_genes)
     end
 
     if param == :n_cells_init
@@ -113,10 +113,9 @@ end
 
 function estimate_local_composition_similarities(df_spatial::DataFrame, edge_list::Matrix{Int}; composition_neighborhood::Int, n_gene_pcs::Int, min_similarity::Float64=0.01)
     neighb_cm = neighborhood_count_matrix(df_spatial, composition_neighborhood);
-    # TODO: why is it projection, but not transform???
-    neighb_cm = MultivariateStats.projection(MultivariateStats.fit(MultivariateStats.PCA, neighb_cm', maxoutdim=n_gene_pcs));
+    neighb_cm = MultivariateStats.transform(MultivariateStats.fit(MultivariateStats.PCA, neighb_cm, maxoutdim=n_gene_pcs), neighb_cm);
 
-    return max.(map(x -> cor(x...), zip(eachrow.([neighb_cm[edge_list[1,:], :], neighb_cm[edge_list[2,:], :]])...)), min_similarity);
+    return max.(map(i -> cor(neighb_cm[:, edge_list[1,i]], neighb_cm[:, edge_list[2,i]]), 1:size(edge_list, 2)), min_similarity);
 end
 
 function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3, use_local_gene_similarities::Bool=false, n_gene_pcs::Int=0, composition_neighborhood::Int=0, kwargs...)
