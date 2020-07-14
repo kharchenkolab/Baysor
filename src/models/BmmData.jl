@@ -43,7 +43,6 @@ mutable struct BmmData
     misc::Dict{Symbol, Any};
 
     # Parameters
-    update_priors::Symbol; # It's always :no for now, but it can be changed in the future
     prior_seg_confidence::Float64;
     cluster_penalty_mult::Float64;
     use_gene_smoothing::Bool;
@@ -58,12 +57,10 @@ mutable struct BmmData
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
     - `distribution_sampler::Component`:
     - `assignment::Array{Int, 1}`:
-    - `k_neighbors::Int=20`:
-    - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
     """
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
-                     k_neighbors::Int=20, update_priors::Symbol=:no, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
+                     k_neighbors::Int=20, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
                      cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
@@ -71,10 +68,6 @@ mutable struct BmmData
 
         if !all(s in propertynames(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
-        end
-
-        if update_priors != :no
-            @warn "update_priors != :no is a testing functionality and it probably doesn't work properly"
         end
 
         if isa(cluster_per_molecule, Symbol)
@@ -93,10 +86,6 @@ mutable struct BmmData
 
         n_genes = maximum(composition_data(x))
 
-        if update_priors == :centers && all(c.can_be_dropped for c in components)
-            update_priors = :no
-        end
-
         x = deepcopy(x)
         if !(:confidence in names(x))
             x[!, :confidence] .= 0.95
@@ -106,7 +95,7 @@ mutable struct BmmData
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
                    0.0, cluster_per_molecule, deepcopy(cluster_per_cell), Int[],
                    Int[], Int[], Int[], # prior segmentation info
-                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
+                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
 
         for c in self.components
             c.n_samples = 0
@@ -233,9 +222,8 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
 
     res = BmmData(components, x, adjacent_points, adjacent_weights, bmm_data_arr[1].real_edge_weight,
         deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
-        update_priors=bmm_data_arr[1].update_priors, cluster_per_molecule=cluster_per_molecule,
-        cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult, cluster_per_cell=cluster_per_cell,
-        use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
+        cluster_per_molecule=cluster_per_molecule, cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult,
+        cluster_per_cell=cluster_per_cell, use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
 
     res.tracer = merge_tracers(tracers)
 

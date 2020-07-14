@@ -83,64 +83,6 @@ function update_gene_count_priors!(components::Array{Component, 1}, neighb_inds:
     end
 end
 
-function smooth_size_prior_knn!(components::Array{Component, 1}, neighb_inds::Array{Array{Int, 1}, 1})
-    sizes_per_cell = [hcat(eigen_values.(components[inds])...) for inds in neighb_inds];
-    mean_sizes_per_cell = [vec(mapslices(trim_mean, sizes, dims=2)) for sizes in sizes_per_cell];
-
-    for (prior_means, c) in zip(mean_sizes_per_cell, components)
-        set_shape_prior!(c, prior_means)
-    end
-end
-
-function smooth_size_prior_global!(bm_data_arr::Array{BmmData, 1}; set_individual_priors::Bool=false)
-    sizes_per_cell = hcat(vcat([eigen_values(bm_data.components) for bm_data in bm_data_arr]...)...)
-    n_mols_per_cell = vcat(num_of_molecules_per_cell.(bm_data_arr)...)
-
-    n_min, n_max = minimum(n_mols_per_cell), maximum(n_mols_per_cell)
-    threshold = 0.01 * (n_max - n_min)
-    mean_prior = vec(median(sizes_per_cell[:, (n_mols_per_cell .>= (threshold + n_min)) .& (n_mols_per_cell .<= (threshold + n_max))], dims=2))
-
-    for bm_data in bm_data_arr
-        set_shape_prior!(bm_data.distribution_sampler, mean_prior)
-
-        for c in vcat([bmd.components for bmd in bm_data_arr]...)
-            if set_individual_priors || c.n_samples == 0
-                set_shape_prior!(c, mean_prior)
-            end
-        end
-    end
-
-    return bm_data_arr
-end
-
-function update_priors!(bmm_data_arr::Array{BmmData,1}; use_cell_type_size_prior::Bool, use_global_size_prior::Bool, smooth_expression::Bool,
-                        min_molecules_per_cell::Int, n_prin_comps::Int)
-    n_molecules_per_cell = vcat(num_of_molecules_per_cell.(bmm_data_arr)...);
-    components = vcat([bm.components for bm in bmm_data_arr]...);
-
-    components = components[n_molecules_per_cell .> 0]
-    n_molecules_per_cell = n_molecules_per_cell[n_molecules_per_cell .> 0]
-
-    count_matrix = extract_gene_matrix_from_distributions(components, maximum([maximum(ed.x[:gene]) for ed in bmm_data_arr]));
-
-    if use_cell_type_size_prior || smooth_expression
-        neighb_inds = knn_by_expression(count_matrix, n_molecules_per_cell, min_molecules_per_cell=min_molecules_per_cell, n_prin_comps=n_prin_comps)
-
-        if use_cell_type_size_prior
-            smooth_size_prior_knn!(components, neighb_inds);
-        end
-
-        if smooth_expression
-            update_gene_count_priors!(components, neighb_inds);
-        end
-    end
-
-    smooth_size_prior_global!(bmm_data_arr, set_individual_priors=(!use_cell_type_size_prior && use_global_size_prior))
-    update_gene_prior!(bmm_data_arr, count_matrix, n_molecules_per_cell)
-
-    return bmm_data_arr
-end
-
 ## NEW
 
 function extract_gene_matrix_from_distributions2(components::Array{Component, 1}, n_genes::Int=length(components[1].composition_params.counts))::Array{Float64, 2}

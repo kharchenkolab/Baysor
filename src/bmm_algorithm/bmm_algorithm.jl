@@ -178,37 +178,12 @@ end
     return maximize!(c, pos_data, comp_data, conf_data)
 end
 
-function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
-    # data.update_priors is always :no in the normal workflow
-    if data.update_priors == :no
-        return
-    end
-
-    components = (data.update_priors == :all) ? data.components : filter(c -> !c.can_be_dropped, data.components)
-    components = filter(c -> c.n_samples >= min_molecules_per_cell, components)
-
-    if length(components) < 2
-        return
-    end
-
-    mean_shape = vec(median(hcat(eigen_values.(components)...), dims=2))
-    set_shape_prior!(data.distribution_sampler, mean_shape)
-
-    for c in data.components
-        set_shape_prior!(c, mean_shape)
-    end
-end
-
-function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=(data.update_priors != :no))
+function maximize!(data::BmmData, min_molecules_per_cell::Int)
     ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
         p_ids = (i > length(ids_by_assignment)) ? Int[] : ids_by_assignment[i]
         maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids], data)
-    end
-
-    if do_maximize_prior # Doesn't happen in the normal workflow
-        maximize_prior!(data, min_molecules_per_cell)
     end
 
     data.noise_density = estimate_noise_density_level(data)
@@ -355,7 +330,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     trace_prior_shape!(data);
     trace_n_components!(data, min_molecules_per_cell);
 
-    maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
+    maximize!(data, min_molecules_per_cell)
 
     for i in 1:n_iters
         append_empty_components!(data, new_component_frac)

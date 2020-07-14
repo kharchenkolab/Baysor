@@ -204,14 +204,14 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
     return bm_datas_res;
 end
 
-function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0, update_priors::Symbol=:no,
+function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0,
         use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
     adjacent_points, adjacent_weights, adjacent_dists = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
         n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)
 
     components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
 
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, update_priors=update_priors, prior_seg_confidence=prior_seg_confidence)
+    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, prior_seg_confidence=prior_seg_confidence)
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
