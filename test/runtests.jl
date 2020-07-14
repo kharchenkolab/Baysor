@@ -96,5 +96,16 @@ B = Baysor
                 @test abs(dens_exp - dens_obs) < 1e-10
             end
         end
+
+        @testset "distribution_sampling" begin
+            n_mols = 1000
+            df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
+            bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=10)[1];
+            B.maximize!(bm_data)
+
+            @test_nowarn for i in 1:1000
+                B.sample_distribution!(bm_data)
+            end
+        end
     end
 end
