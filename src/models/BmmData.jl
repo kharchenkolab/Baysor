@@ -104,7 +104,7 @@ mutable struct BmmData
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), ones(n_genes, n_genes) ./ n_genes, Int[],
+                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), Int[],
                    Int[], Int[], Int[], # prior segmentation info
                    Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
 
