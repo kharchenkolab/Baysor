@@ -219,7 +219,7 @@ function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior
 end
 
 function noise_composition_density(data::BmmData)::Float64
-#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components]);
+#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
     acc = 0.0 # Equivalent to the above commented expression if n_samples == sum(counts)
     for c in data.components
         inn_acc = 0
@@ -240,10 +240,15 @@ function estimate_noise_density_level(data::BmmData)::Float64
     return position_density * composition_density
 end
 
+function append_empty_component!(data::BmmData)
+    data.max_component_guid += 1
+    push!(data.components, sample_distribution(data; guid=data.max_component_guid))
+    return data.components[end]
+end
+
 function append_empty_components!(data::BmmData, new_component_frac::Float64)
     for i in 1:round(Int, new_component_frac * length(data.components))
-        data.max_component_guid += 1
-        push!(data.components, sample_distribution(data; guid=data.max_component_guid))
+        append_empty_component!(data)
     end
 end
 
@@ -312,10 +317,7 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
             if add_new_components
-                data.max_component_guid += 1
-                new_comp = sample_distribution(data; guid=data.max_component_guid)
-                new_comp.n_samples = length(mol_ids)
-                push!(data.components, new_comp)
+                append_empty_component!(data)
                 data.assignment[mol_ids] .= length(data.components)
             else
                 data.assignment[mol_ids] .= 0
