@@ -18,7 +18,7 @@ end
 function sample_composition_params(data::BmmData)
     # TODO: this doesn't work well on small samples.
     # A simple workaround could be to further sample from the smoothed probabilities after sampling an existing distribution.
-    gene_counts = sample(data.components).composition_params.counts
+    gene_counts = deepcopy(sample(data.components).composition_params.counts)
     return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, sum_counts=sum(gene_counts));
 end
 

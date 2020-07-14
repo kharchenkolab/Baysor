@@ -17,7 +17,7 @@ function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float
     end
 
     # Can't simply add smoothing to each vector component because of sparsity
-    return fmax(Float64(cnt), smooth) / (dist.sum_counts + smooth)
+    return fmax(Float64(cnt), dist.smooth) / (dist.sum_counts + dist.smooth)
 end
 
 function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})

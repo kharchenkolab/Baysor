@@ -21,8 +21,6 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     if !isempty(data.cluster_per_cell)
         data.cluster_per_cell = data.cluster_per_cell[existed_ids]
     end
-
-    # @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
 end
 
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
@@ -62,14 +60,15 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     return zero_comp_weight
 end
 
-function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Vector{Int}}=Dict{Int, Vector{Int}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     component_weights = Dict{Int, Float64}();
     adj_classes = Int[]
     adj_weights = Float64[]
     denses = Float64[]
 
     has_seg_prior = !isempty(data.segment_per_molecule)
-    seg_prior_pow::Float64 = has_seg_prior ? data.prior_seg_confidence * exp(3*data.prior_seg_confidence) : 0.0
+    seg_prior_pow::Float64 = has_seg_prior ? (data.prior_seg_confidence * exp(3*data.prior_seg_confidence)) : 0.0
+    adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
@@ -80,7 +79,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         segment_id = has_seg_prior ? data.segment_per_molecule[i] : 0
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
+        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment,
+            data.adjacent_points[i], data.adjacent_weights[i])
 
         if i in keys(adj_classes_global)
             n1 = length(adj_classes)
@@ -169,10 +169,10 @@ function update_prior_probabilities!(components::Array{Component, 1}, new_compon
 end
 
 function maximize!(data::BmmData)
-    ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
+    ids_by_assignment = split_ids(data.assignment .+ 1, max_factor=length(data.components)+1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
-        p_ids = (i > length(ids_by_assignment)) ? Int[] : ids_by_assignment[i]
+        p_ids = ids_by_assignment[i]
         maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids])
     end
 
@@ -186,14 +186,22 @@ end
 function noise_composition_density(data::BmmData)::Float64
 #     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
     acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
-    for c in data.components
+    n_comps = 0.0
+    for (ci, c) in enumerate(data.components)
+        if c.n_samples == 0
+            continue
+        end
+
         inn_acc = 0
         for v in c.composition_params.counts
             inn_acc += (v > 0)
         end
+
         acc += 1.0 / inn_acc
+        n_comps += 1.0
     end
-    return acc / length(data.components)
+
+    return acc / n_comps
 end
 
 function estimate_noise_density_level(data::BmmData)::Float64
@@ -215,12 +223,14 @@ function append_empty_components!(data::BmmData, new_component_frac::Float64)
 end
 
 function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
+    # TODO: test if it takes too many allocations
     adj_classes_global = Dict{Int, Array{Int, 1}}()
     for (cur_id, comp) in enumerate(data.components)
         if comp.n_samples > 0
             continue
         end
 
+        # TODO: the colsest molecule must also be included
         for t_id in data.adjacent_points[knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]]
             if t_id in keys(adj_classes_global)
                 push!(adj_classes_global[t_id], cur_id)
@@ -317,22 +327,21 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     it_num = 0
     trace_n_components!(data, min_molecules_per_cell);
 
-    drop_unused_components!(data)
-    maximize!(data, min_molecules_per_cell)
+    maximize!(data)
 
     for i in 1:n_iters
         append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components, new_component_weight)
         update_n_mols_per_segment!(data)
 
-        expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
+        expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
+        maximize!(data)
         drop_unused_components!(data)
-        maximize!(data, min_molecules_per_cell)
 
         it_num = i
         if verbose && i % log_step == 0
