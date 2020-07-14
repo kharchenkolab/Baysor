@@ -230,13 +230,19 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
             continue
         end
 
-        # TODO: the colsest molecule must also be included
-        for t_id in data.adjacent_points[knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]]
+        nearest_id = knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]
+        for t_id in data.adjacent_points[nearest_id]
             if t_id in keys(adj_classes_global)
                 push!(adj_classes_global[t_id], cur_id)
             else
                 adj_classes_global[t_id] = [cur_id]
             end
+        end
+
+        if nearest_id in keys(adj_classes_global)
+            push!(adj_classes_global[nearest_id], cur_id)
+        else
+            adj_classes_global[nearest_id] = [cur_id]
         end
     end
 
