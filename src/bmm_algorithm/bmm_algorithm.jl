@@ -371,70 +371,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return data
 end
 
-fetch_bm_func(bd::BmmData) = [bd]
-
-function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args...; kwargs...)
-    p = Progress(n_steps)
-    channel = RemoteChannel(()->Channel{Bool}(n_steps), 1)
-
-    exception = nothing
-    @sync begin # Parallel progress tracing
-        @async while take!(channel)
-            next!(p)
-        end
-
-        @async begin
-            try
-                futures = [remotecall(func, procs()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
-                arr = fetch.(wait.(futures))
-            catch ex
-                exception = ex
-            finally
-                put!(channel, false)
-            end
-        end
-    end
-
-    if exception !== nothing
-        throw(exception)
-    end
-
-    return arr
-end
-
-function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays.DArray
-    if length(bm_data_arr) > nprocs()
-        n_new_workers = length(bm_data_arr) - nprocs()
-        @info "Creating $n_new_workers new workers. Total $(nprocs() + n_new_workers) workers."
-        addprocs(n_new_workers)
-        eval(:(@everywhere using Baysor))
-    end
-
-    futures = [remotecall(fetch_bm_func, procs()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
-
-    try
-        return DistributedArrays.DArray(futures);
-    catch ex
-        bds = fetch.(wait.(futures))
-        err_idx = findfirst(typeof.(bm_data_arr) .!== BmmData)
-        if err_idx === nothing
-            throw(ex)
-        end
-
-        error(bds[err_idx])
-    end
-end
-
 run_bmm_parallel(bm_data_arr, args...; kwargs...) =
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
 function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
-    # @info "Pushing data to workers"
-    # da = push_data_to_workers(bm_data_arr)
-
     @info "Algorithm start"
-    # bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
-
     p = Progress(n_iters * length(bm_data_arr))
     @threads for i in 1:length(bm_data_arr)
         bmm!(bm_data_arr[i]; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
