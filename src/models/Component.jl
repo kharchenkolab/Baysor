@@ -4,16 +4,6 @@ using NearestNeighbors
 using StaticArrays
 using StatsBase
 
-struct CellCenter
-    μ::MeanVec;
-    Σ::CovMat;
-    n_degrees_of_freedom::Int;
-    # confidence::Float64; # TODO: uncomment and account for these parameters
-    # distance_to_others::Array{Float64, 1}; # Probability of the center to coexist with the other center
-
-    # CellCenter(μ::Array{Float64, 1}, Σ::Array{Float64, 2}, n_degrees_of_freedom::Int) = new(μ, Σ, n_degrees_of_freedom, 1.0, Float64[])
-end
-
 struct ShapePrior
     std_values::MeanVec;
     std_value_stds::MeanVec;
@@ -45,18 +35,6 @@ function sample_var(d::Normal)
 end
 sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
 
-# pdf(prior::ShapePrior, Σ::Array{Float64, 2}) = pdf.(distributions(prior), eigen(Σ).values)
-# logpdf(prior::ShapePrior, Σ::Array{Float64, 2}) = logpdf.(distributions(prior), eigen(Σ).values)
-
-# struct GeneCountPrior
-#     vectors_per_gene_type::Array{Array{Int, 2}, 1};
-#     expected_prob_per_gene_type::Array{Float64, 1};
-
-#     function GeneCountPrior(vectors_per_gene_type::Array{Array{Int, 2}, 1})
-#         gp = new()
-#     end
-# end
-
 mutable struct Component
     position_params::MvNormalF;
     composition_params::CategoricalSmoothed;
@@ -65,7 +43,6 @@ mutable struct Component
     prior_probability::Float64;
     can_be_dropped::Bool;
 
-    center_prior::Union{Nothing, CellCenter};
     shape_prior::Union{Nothing, ShapePrior};
 
     gene_count_prior::Array{Int, 1};
@@ -76,9 +53,9 @@ mutable struct Component
     guid::Int;
 
     Component(position_params::MvNormalF, composition_params::CategoricalSmoothed; prior_weight::Float64, can_be_dropped::Bool,
-              n_samples::Int=0, center_prior::Union{Nothing, CellCenter}=nothing, shape_prior::Union{Nothing, ShapePrior}=nothing,
+              n_samples::Int=0, shape_prior::Union{Nothing, ShapePrior}=nothing,
               gene_count_prior::Vector{Int}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
-        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, center_prior, shape_prior, gene_count_prior, sum(gene_count_prior),
+        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, shape_prior, gene_count_prior, sum(gene_count_prior),
             Dict{Int, Int}(), guid)
 end
 
@@ -86,14 +63,8 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64
     maximize!(c.composition_params, comp_data, conf_data);
     maximize!(c.position_params, pos_data, conf_data);
 
-    n_samples = sum(conf_data)
-    if c.center_prior !== nothing
-        normal_posterior!(c.position_params.μ, c.position_params.Σ, c.center_prior.μ, c.center_prior.Σ,
-            n=n_samples, n_prior=c.center_prior.n_degrees_of_freedom)
-    end
-
     if c.shape_prior !== nothing
-        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=n_samples)
+        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=sum(conf_data))
     end
 
     return c

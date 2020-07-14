@@ -290,12 +290,6 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         df[!,s] = mean.(split(data.x[!,s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
     end
 
-    df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
-
-    if any([c.center_prior !== nothing for c in data.components])
-        df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
-    end
-
     if !isempty(data.cluster_per_cell)
         df[!, :cluster] = data.cluster_per_cell
     end
