@@ -217,7 +217,7 @@ end
 
 function append_empty_component!(data::BmmData)
     data.max_component_guid += 1
-    push!(data.components, sample_distribution(data; guid=data.max_component_guid))
+    push!(data.components, sample_distribution!(data; guid=data.max_component_guid))
     return data.components[end]
 end
 
