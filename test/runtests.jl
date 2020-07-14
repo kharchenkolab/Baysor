@@ -5,6 +5,26 @@ import Random: seed!
 
 B = Baysor
 
+module DataWrappers
+
+using DataFrames
+import Baysor
+B = Baysor
+
+function get_bmm_data(; n_mols::Int=5000, n_frames::Int=1, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
+    df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confidence ? ones(n_mols) : rand(n_mols))
+    bm_data_arr = B.initial_distribution_arr(df, n_frames=n_frames, scale=scale, min_molecules_per_cell=min_molecules_per_cell, confidence_nn_id=0, kwargs...);
+    if do_maximize
+        for bmd in bm_data_arr
+            B.maximize!(bmd)
+        end
+    end
+
+    return bm_data_arr
+end
+
+end
+
 @testset "Baysor" begin
     @testset "utils" begin
         @testset "convex_hull" begin
@@ -60,6 +80,9 @@ B = Baysor
             @test all(bm_data.cluster_per_molecule .== df.cluster)
             @test all(bm_data.segment_per_molecule .== df.prior_segmentation)
 
+            @test all(length(bm_data.adjacent_points[i]) == length(bm_data.adjacent_weights[i]) for i in 1:length(bm_data.adjacent_points))
+            @test !any(i in bm_data.adjacent_points[i] for i in 1:length(bm_data.adjacent_points))
+
             for i in 5:10:55
                 init_params = B.cell_centers_uniformly(df, i; scale=10)
                 @test size(init_params.centers, 1) == i
@@ -86,11 +109,8 @@ B = Baysor
 
     @testset "bmm_algorithm" begin
         @testset "noise_composition_density" begin
-            n_mols = 5000
-            for confs in [ones(n_mols), rand(n_mols)]
-                df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confs)
-                bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=10, confidence_nn_id=0)[1];
-                B.maximize!(bm_data)
+            for conf in [false, true]
+                bm_data = DataWrappers.get_bmm_data(confidence=conf, do_maximize=true)[1];
                 dens_exp = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in bm_data.components]);
                 dens_obs = B.noise_composition_density(bm_data)
                 @test abs(dens_exp - dens_obs) < 1e-10
@@ -98,14 +118,19 @@ B = Baysor
         end
 
         @testset "distribution_sampling" begin
-            n_mols = 1000
-            df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
-            bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=10)[1];
-            B.maximize!(bm_data)
-
+            bm_data = DataWrappers.get_bmm_data(confidence=true, do_maximize=true)[1];
             @test_nowarn for i in 1:1000
                 B.sample_distribution!(bm_data)
             end
+        end
+
+        @testset "drop_unused_components" begin
+            bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true)[1];
+            bm_data.assignment[rand(1:length(bm_data.assignment), 100)] .= 0
+            B.maximize!(bm_data)
+            B.drop_unused_components!(bm_data)
+
+            @test all(B.num_of_molecules_per_cell(bm_data) .== [c.n_samples for c in bm_data.components])
         end
     end
 end
