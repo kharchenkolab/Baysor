@@ -33,7 +33,7 @@ To install Baysor as a Julia package run the following code:
 
 ```julia
 using Pkg
-Pkg.add([PackageSpec(name="UMAP", rev="master"), PackageSpec(url="https://github.com/hms-dbmi/Baysor.git")])
+Pkg.add([PackageSpec(name="UMAP", rev="master"), PackageSpec(url="https://github.com/kharchenkolab/Baysor.git")])
 import Baysor
 ```
 
@@ -48,7 +48,7 @@ echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chm
 On linux, you can build the command-line tool from source. To do that you need to clone this package and run the Makefile:
 
 ```bash
-git clone https://github.com/hms-dbmi/Baysor.git
+git clone https://github.com/kharchenkolab/Baysor.git
 cd Baysor/bin
 make
 ```
@@ -117,9 +117,9 @@ To see full list of command-line options run
 baysor run --help
 ```
 
-For more info see [examples](https://github.com/hms-dbmi/Baysor/tree/master/examples) (though probably are out-of-date). <!-- TODO: fix it -->
+For more info see [examples](https://github.com/kharchenkolab/Baysor/tree/master/examples) (though probably are out-of-date). <!-- TODO: fix it -->
 
-For the description of all config parameters, see [example_config.toml](https://github.com/hms-dbmi/Baysor/blob/master/configs/example_config.toml). <!-- TODO: check that it's up to date -->
+For the description of all config parameters, see [example_config.toml](https://github.com/kharchenkolab/Baysor/blob/master/configs/example_config.toml). <!-- TODO: check that it's up to date -->
 
 #### Using a prior segmentation
 
