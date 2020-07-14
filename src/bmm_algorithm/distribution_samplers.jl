@@ -15,28 +15,7 @@ function sample_center!(data::BmmData; cache_size::Int=10000)
     return μ
 end
 
-# DEPRECATED?
-function sample_n_samples(data::BmmData; n_trials_max::Int=5)
-    for i in 1:n_trials_max # Try sample first from all components, as filtration takes too long
-        n_samples = sample(data.components).n_samples;
-        if n_samples != 0
-            return n_samples
-        end
-    end
-
-    non_zero_comps = filter(c -> c.n_samples > 0, data.components)
-    if length(non_zero_comps) == 0
-        error("All components have n_samples == 0")
-    end
-
-    return sample(non_zero_comps).n_samples;
-end
-
 function sample_composition_params(data::BmmData)
-    # n_samples = sample_n_samples(data)
-    # gene_probs = data.gene_probs_given_single_transcript[:,sample(1:size(data.gene_probs_given_single_transcript, 2))];
-    # gene_counts = rand(Multinomial(n_samples, gene_probs));
-
     # TODO: fix this
     samp_comp = sample(data.components);
     gene_counts = samp_comp.composition_params.counts .+ samp_comp.gene_count_prior

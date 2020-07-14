@@ -29,7 +29,6 @@ mutable struct BmmData
 
     cluster_per_molecule::Vector{Int};
     cluster_per_cell::Vector{Int};
-    gene_probs_given_single_transcript::Matrix{Float64}; # DEPRECATED?
 
     center_sample_cache::Vector{Int}
 

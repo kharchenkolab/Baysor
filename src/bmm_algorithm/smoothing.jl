@@ -113,15 +113,6 @@ function smooth_size_prior_global!(bm_data_arr::Array{BmmData, 1}; set_individua
     return bm_data_arr
 end
 
-function update_gene_prior!(bmm_data_arr::Array{BmmData,1}, count_matrix::Array{Float64, 2}, n_molecules_per_cell::Array{Int, 1})
-    probs = estimate_gene_probs_given_single_transcript(count_matrix, n_molecules_per_cell)
-    for bm_data in bmm_data_arr
-        bm_data.gene_probs_given_single_transcript = probs
-    end
-
-    return bmm_data_arr
-end
-
 function update_priors!(bmm_data_arr::Array{BmmData,1}; use_cell_type_size_prior::Bool, use_global_size_prior::Bool, smooth_expression::Bool,
                         min_molecules_per_cell::Int, n_prin_comps::Int)
     n_molecules_per_cell = vcat(num_of_molecules_per_cell.(bmm_data_arr)...);
