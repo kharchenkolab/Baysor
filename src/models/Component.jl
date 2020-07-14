@@ -40,16 +40,15 @@ mutable struct Component
     composition_params::CategoricalSmoothed;
     n_samples::Int;
     prior_probability::Float64;
-    can_be_dropped::Bool;
 
     shape_prior::Union{Nothing, ShapePrior};
     n_molecules_per_segment::Dict{Int, Int};
 
     guid::Int;
 
-    Component(position_params::MvNormalF, composition_params::CategoricalSmoothed; can_be_dropped::Bool,
+    Component(position_params::MvNormalF, composition_params::CategoricalSmoothed;
               n_samples::Int=0, shape_prior::Union{Nothing, ShapePrior}=nothing, guid::Int=-1) =
-        new(position_params, composition_params, n_samples, 1.0, can_be_dropped, shape_prior, Dict{Int, Int}(), guid)
+        new(position_params, composition_params, n_samples, 1.0, shape_prior, Dict{Int, Int}(), guid)
 end
 
 function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64})

@@ -9,9 +9,9 @@ using Dates: now, DateTime
 import DistributedArrays
 import LightGraphs
 
-function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
+function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     non_noise_ids = findall(data.assignment .> 0)
-    existed_ids = findall([(c.n_samples >= min_n_samples) || (!c.can_be_dropped && !force) for c in data.components])
+    existed_ids = findall([c.n_samples >= min_n_samples for c in data.components])
     id_map = zeros(Int, length(data.components))
     id_map[existed_ids] .= 1:length(existed_ids)
 
@@ -447,7 +447,7 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
         maximize!(bm_data_merged, min_molecules_per_cell)
     end
 
-    drop_unused_components!(bm_data_merged; min_n_samples=1, force=true)
+    drop_unused_components!(bm_data_merged; min_n_samples=1)
 
     @info "Done!"
 
