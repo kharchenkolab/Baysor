@@ -328,7 +328,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     it_num = 0
-    trace_prior_shape!(data);
     trace_n_components!(data, min_molecules_per_cell);
 
     maximize!(data, min_molecules_per_cell)
@@ -346,7 +345,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
         maximize!(data, min_molecules_per_cell)
 
-        trace_prior_shape!(data);
         trace_n_components!(data, min_molecules_per_cell);
 
         drop_unused_components!(data)
