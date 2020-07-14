@@ -46,15 +46,16 @@ B = Baysor
 
     @testset "data_processing" begin
         @testset "initialization" begin
-            df = DataFrame(:x => rand(1000), :y => rand(1000), :gene => rand(1:10, 1000))
+            n_mols = 1000
+            df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
 
             for i in 1:10
                 bm_data_arr = B.initial_distribution_arr(df, n_frames=i, scale=6.0, min_molecules_per_cell=30);
                 @test length(bm_data_arr) <= i
             end
 
-            df[!, :cluster] = rand(1:5, 1000)
-            df[!, :prior_segmentation] = rand(1:100, 1000)
+            df[!, :cluster] = rand(1:5, n_mols)
+            df[!, :prior_segmentation] = rand(1:100, n_mols)
             bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=30)[1];
             @test all(bm_data.cluster_per_molecule .== df.cluster)
             @test all(bm_data.segment_per_molecule .== df.prior_segmentation)
@@ -79,6 +80,20 @@ B = Baysor
                 adj_points, adj_weights = B.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30)[1:2];
                 @test all(length.(adj_points) .== length.(adj_weights))
                 @test all(length.(adj_points) .== length.(unique.(adj_points)))
+            end
+        end
+    end
+
+    @testset "bmm_algorithm" begin
+        @testset "noise_composition_density" begin
+            n_mols = 5000
+            for confs in [ones(n_mols), rand(n_mols)]
+                df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confs)
+                bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=10, confidence_nn_id=0)[1];
+                B.maximize!(bm_data)
+                dens_exp = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in bm_data.components]);
+                dens_obs = B.noise_composition_density(bm_data)
+                @test abs(dens_exp - dens_obs) < 1e-10
             end
         end
     end
