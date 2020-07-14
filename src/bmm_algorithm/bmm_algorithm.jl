@@ -168,22 +168,12 @@ function update_prior_probabilities!(components::Array{Component, 1}, new_compon
     end
 end
 
-@inline function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64}, data::BmmData)
-    c.n_samples = size(pos_data, 2)
-
-    if size(pos_data, 2) == 0
-        return maximize_from_prior!(c, data)
-    end
-
-    return maximize!(c, pos_data, comp_data, conf_data)
-end
-
-function maximize!(data::BmmData, min_molecules_per_cell::Int)
+function maximize!(data::BmmData)
     ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
         p_ids = (i > length(ids_by_assignment)) ? Int[] : ids_by_assignment[i]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids], data)
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids])
     end
 
     data.noise_density = estimate_noise_density_level(data)
@@ -330,6 +320,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     it_num = 0
     trace_n_components!(data, min_molecules_per_cell);
 
+    drop_unused_components!(data)
     maximize!(data, min_molecules_per_cell)
 
     for i in 1:n_iters
@@ -343,8 +334,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
-        maximize!(data, min_molecules_per_cell)
         drop_unused_components!(data)
+        maximize!(data, min_molecules_per_cell)
 
         it_num = i
         if verbose && i % log_step == 0

@@ -21,14 +21,6 @@ function sample_composition_params(data::BmmData)
     return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, sum_counts=sum(gene_counts));
 end
 
-function maximize_from_prior!(comp::Component, data::BmmData)
-    shape_prior = something(comp.shape_prior, data.distribution_sampler.shape_prior)
-    comp.position_params = sample_distribution!(data, shape_prior);
-    comp.composition_params = sample_composition_params(data);
-
-    return comp;
-end
-
 function sample_distribution!(data::BmmData; guid::Int)
     sampler = data.distribution_sampler
     position_params = sample_distribution!(data, sampler.shape_prior);

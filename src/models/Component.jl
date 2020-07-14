@@ -52,6 +52,7 @@ mutable struct Component
 end
 
 function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64})
+    c.n_samples = size(pos_data, 2)
     maximize!(c.composition_params, comp_data, conf_data);
     maximize!(c.position_params, pos_data, conf_data);
 
