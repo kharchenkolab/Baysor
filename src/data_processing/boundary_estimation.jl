@@ -240,8 +240,13 @@ boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
 function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
                            grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
                            bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
-    min_x = something(min_x, vec(mapslices(minimum, pos_data, dims=2)))
-    max_x = something(max_x, vec(mapslices(maximum, pos_data, dims=2)))
+    if min_x === nothing
+        min_x = vec(mapslices(minimum, pos_data, dims=2))
+    end
+
+    if max_x === nothing
+        max_x = vec(mapslices(maximum, pos_data, dims=2))
+    end
 
     grid_labels_plane = find_grid_point_labels_kde(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
 

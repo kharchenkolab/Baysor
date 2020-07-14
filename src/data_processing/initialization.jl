@@ -52,6 +52,9 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
     end
 end
 
+default_if_not_provided(value::Union{<:Real, Nothing}, param_name::Symbol, args...; kwargs...) =
+    (value === nothing) ? default_param_value(param_name, args...; kwargs...) : value
+
 parse_scale_std(scale_std::Float64, ::Real) = scale_std
 parse_scale_std(scale_std::Nothing, scale::Real) = 0.25 * scale
 function parse_scale_std(scale_std::String, scale::Real)
@@ -162,12 +165,12 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
     df_spatial = deepcopy(df_spatial)
 
     ## Parse parameters
-    confidence_nn_id = something(confidence_nn_id, default_param_value(:confidence_nn_id, min_molecules_per_cell))
-    n_cells_init = something(n_cells_init, default_param_value(:n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1)))
+    confidence_nn_id = default_if_not_provided(confidence_nn_id, :confidence_nn_id, min_molecules_per_cell)
+    n_cells_init = default_if_not_provided(n_cells_init, :n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
     n_cells_init = max(div(n_cells_init, n_frames), 1)
 
-    composition_neighborhood = something(composition_neighborhood, default_param_value(:composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
-    n_gene_pcs = something(n_gene_pcs, default_param_value(:n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene)))
+    composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
+    n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
 
     scale_std = parse_scale_std(scale_std, scale)
 
