@@ -197,13 +197,6 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
     return p
 end
 
-# DEPRECATED?
-function plot_prior_shape_per_iteration(tracer::Dict{Symbol, Any})
-    Plots.plot(get.(tracer[:prior_shape], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
-        xlabel="Iteration", ylabel="Eigenvalue", title="Shape prior")
-    Plots.plot!(get.(tracer[:prior_shape], 2, 0) .^ 0.5, label="(eigenvalue 2)^0.5")
-end
-
 ### Colormaps
 
 function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette=Colors.sequential_palette(0, 11))
