@@ -34,6 +34,5 @@ function sample_distribution!(data::BmmData; guid::Int)
     position_params = sample_distribution!(data, sampler.shape_prior);
     composition_params = sample_composition_params(data);
 
-    return Component(position_params, composition_params; prior_weight=sampler.prior_weight, can_be_dropped=true,
-                     shape_prior=deepcopy(sampler.shape_prior), guid=guid);
+    return Component(position_params, composition_params; can_be_dropped=true, shape_prior=deepcopy(sampler.shape_prior), guid=guid);
 end

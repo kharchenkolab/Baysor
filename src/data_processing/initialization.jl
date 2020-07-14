@@ -161,7 +161,7 @@ end
 function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
                                   scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
                                   confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{<:Integer, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-                                  new_component_weight::T2 where T2 <: Real=0.2, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
+                                  n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
     df_spatial = deepcopy(df_spatial)
 
     ## Parse parameters
@@ -197,7 +197,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
     bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
     for i in 1:length(dfs_spatial)
         init_params = cell_centers_uniformly(dfs_spatial[i], n_cells_init; scale=scale)
-        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior, new_component_weight=new_component_weight,
+        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior,
             composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
     end
 
@@ -214,16 +214,16 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighbo
     return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, prior_seg_confidence=prior_seg_confidence)
 end
 
-function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior, new_component_weight::Float64,
+function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior,
                                gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
     gene_distributions = [CategoricalSmoothed(ones(Float64, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 
-    components = [Component(pd, gd, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=true)
+    components = [Component(pd, gd, shape_prior=deepcopy(size_prior), can_be_dropped=true)
                     for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
     gene_sampler = CategoricalSmoothed(ones(Float64, gene_num))
-    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), prior_weight=new_component_weight, can_be_dropped=false) # position_params are never used
+    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior), can_be_dropped=false) # position_params are never used
 
     return components, sampler, initial_params.assignment
 end

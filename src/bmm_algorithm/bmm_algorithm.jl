@@ -155,8 +155,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     end
 end
 
-function update_prior_probabilities!(components::Array{Component, 1})
-    c_weights = [max(c.n_samples, c.prior_weight) for c in components]
+function update_prior_probabilities!(components::Array{Component, 1}, new_component_weight::Float64)
+    c_weights = [max(c.n_samples, new_component_weight) for c in components]
     prior_probs = rand(Distributions.Dirichlet(c_weights))
     # t_mmc = 150.0;
     # t_dist = Normal(t_mmc, t_mmc * 3)
@@ -309,7 +309,8 @@ track_progress!(progress::Nothing) = nothing
 track_progress!(progress::RemoteChannel) = put!(progress, true)
 track_progress!(progress::Progress) = next!(progress)
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
+function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true,
+              new_component_frac::Float64=0.05, new_component_weight::Float64=0.3,
               assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
               component_split_step::Int=3) where D <: Distances.SemiMetric
     time_start = now()
@@ -334,7 +335,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
 
     for i in 1:n_iters
         append_empty_components!(data, new_component_frac)
-        update_prior_probabilities!(data.components)
+        update_prior_probabilities!(data.components, new_component_weight)
         update_n_mols_per_segment!(data)
 
         expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))

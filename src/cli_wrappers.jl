@@ -350,11 +350,11 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
-            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], prior_seg_confidence=args["prior-segmentation-confidence"],
+            n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
 
     history_depth = round(Int, args["iters"] * 0.1)
-    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
+    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
                                 min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
     @info "Processing complete."
