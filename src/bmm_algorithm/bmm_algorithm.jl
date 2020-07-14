@@ -34,21 +34,21 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
 @inline function adjacent_component_weights!(comp_weights::Vector{Float64}, comp_ids::Vector{Int}, component_weights::Dict{Int, Float64},
-        assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
+        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64}, confidences::Vector{Float64})
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
     zero_comp_weight = 0.0
 
-    @inbounds adj_cell_ids = view(assignment, adjacent_points)
-
     @inbounds @simd for i in 1:length(adjacent_weights)
-        c_id = adj_cell_ids[i]
+        c_point = adjacent_points[i]
+        c_id = assignment[c_point]
+        c_conf = confidences[c_point]
         cw = adjacent_weights[i]
         if c_id == 0
-            zero_comp_weight += cw
+            zero_comp_weight += cw * (1 - c_conf)
         else
-            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
+            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw * c_conf
         end
     end
 
@@ -80,7 +80,7 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_d
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
         zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment,
-            data.adjacent_points[i], data.adjacent_weights[i])
+            data.adjacent_points[i], data.adjacent_weights[i], data.confidence)
 
         if i in keys(adj_classes_global)
             n1 = length(adj_classes)
@@ -223,7 +223,6 @@ function append_empty_components!(data::BmmData, new_component_frac::Float64)
 end
 
 function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
-    # TODO: test if it takes too many allocations
     adj_classes_global = Dict{Int, Array{Int, 1}}()
     for (cur_id, comp) in enumerate(data.components)
         if comp.n_samples > 0
