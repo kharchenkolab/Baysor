@@ -205,11 +205,8 @@ function estimate_noise_density_level(data::BmmData)::Float64
     return position_density * composition_density
 end
 
-function append_empty_component!(data::BmmData)
-    data.max_component_guid += 1
-    push!(data.components, sample_distribution!(data; guid=data.max_component_guid))
-    return data.components[end]
-end
+append_empty_component!(data::BmmData) =
+    push!(data.components, sample_distribution!(data))[end]
 
 function append_empty_components!(data::BmmData, new_component_frac::Float64)
     for i in 1:round(Int, new_component_frac * length(data.components))

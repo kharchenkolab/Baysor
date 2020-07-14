@@ -22,10 +22,11 @@ function sample_composition_params(data::BmmData)
     return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, sum_counts=sum(gene_counts));
 end
 
-function sample_distribution!(data::BmmData; guid::Int)
-    sampler = data.distribution_sampler
-    position_params = sample_position_params!(data, sampler.shape_prior);
+function sample_distribution!(data::BmmData)
+    data.max_component_guid += 1
+    shape_prior = data.distribution_sampler.shape_prior
+    position_params = sample_position_params!(data, shape_prior);
     composition_params = sample_composition_params(data);
 
-    return Component(position_params, composition_params; shape_prior=deepcopy(sampler.shape_prior), guid=guid);
+    return Component(position_params, composition_params; shape_prior=deepcopy(shape_prior), guid=data.max_component_guid);
 end
