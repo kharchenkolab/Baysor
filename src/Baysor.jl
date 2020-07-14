@@ -48,7 +48,6 @@ include("bmm_algorithm/tracing.jl")
 include("bmm_algorithm/distribution_samplers.jl")
 include("bmm_algorithm/history_analysis.jl")
 include("bmm_algorithm/bmm_algorithm.jl")
-include("bmm_algorithm/smoothing.jl")
 
 include("data_processing/validation.jl")
 

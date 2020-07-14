@@ -44,19 +44,13 @@ mutable struct Component
     can_be_dropped::Bool;
 
     shape_prior::Union{Nothing, ShapePrior};
-
-    gene_count_prior::Array{Int, 1};
-    gene_count_prior_sum::Int;
-
     n_molecules_per_segment::Dict{Int, Int};
 
     guid::Int;
 
     Component(position_params::MvNormalF, composition_params::CategoricalSmoothed; prior_weight::Float64, can_be_dropped::Bool,
-              n_samples::Int=0, shape_prior::Union{Nothing, ShapePrior}=nothing,
-              gene_count_prior::Vector{Int}=zeros(Int, length(counts(composition_params))), guid::Int=-1) =
-        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, shape_prior, gene_count_prior, sum(gene_count_prior),
-            Dict{Int, Int}(), guid)
+              n_samples::Int=0, shape_prior::Union{Nothing, ShapePrior}=nothing, guid::Int=-1) =
+        new(position_params, composition_params, n_samples, prior_weight, 1.0, can_be_dropped, shape_prior, Dict{Int, Int}(), guid)
 end
 
 function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64})
@@ -70,20 +64,8 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64
     return c
 end
 
-# pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
-#     pdf(params.position_params, x, y) *
-#     pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
-
-function pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64
-    pos_pdf = pdf(params.position_params, x, y)
-
-    return pos_pdf * pdf(params.composition_params, gene, params.gene_count_prior, params.gene_count_prior_sum; use_smoothing=use_smoothing)
-    # if params.gene_count_prior_sum == 0
-    #     return pos_pdf * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
-    # else
-    #     return pos_pdf * pdf(params.gene_count_prior, params.gene_count_prior_sum, gene, params.composition_params.smooth; use_smoothing=use_smoothing)
-    # end
-end
+pdf(params::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
+    pdf(params.position_params, x, y) * pdf(params.composition_params, gene; use_smoothing=use_smoothing)
 
 function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::TR where TR <: Real)
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged

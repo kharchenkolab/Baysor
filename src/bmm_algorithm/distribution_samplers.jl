@@ -17,8 +17,7 @@ end
 
 function sample_composition_params(data::BmmData)
     # TODO: fix this
-    samp_comp = sample(data.components);
-    gene_counts = samp_comp.composition_params.counts .+ samp_comp.gene_count_prior
+    gene_counts = sample(data.components).composition_params.counts
     return CategoricalSmoothed(gene_counts, smooth=data.distribution_sampler.composition_params.smooth, sum_counts=sum(gene_counts));
 end
 

@@ -10,44 +10,14 @@ mutable struct CategoricalSmoothed{CT <: Real} <: Distributions.Distribution{Dis
     CategoricalSmoothed(counts::Vector{IT}; smooth::Real=1.0, sum_counts::IT=sum(counts)) where IT <: Real = new{IT}(counts, Float64(smooth), sum_counts)
 end
 
-pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
-    pdf(counts(dist), dist.sum_counts, x, dist.smooth; use_smoothing=use_smoothing)
-
-function pdf(cnt::Vector{CT}, cnt_sum::CT, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64 where CT <: Real
-    cnt = cnt[x]
+function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64
+    cnt = dist.counts[x]
     if !use_smoothing
-        return cnt / cnt_sum
+        return cnt / dist.sum_counts
     end
 
     # Can't simply add smoothing to each vector component because of sparsity
-    return fmax(Float64(cnt), smooth) / (cnt_sum + smooth)
-end
-
-function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
-    if prior_sum == 0 # For speed
-        return pdf(dist, x; use_smoothing=use_smoothing)
-    end
-
-    cnt, cnt_sum = counts(dist)[x], dist.sum_counts
-    cnt_adj = cnt + prior[x]
-    cnt_adj_sum = cnt_sum + prior_sum
-
-    if !use_smoothing
-        return cnt_adj / cnt_adj_sum
-    end
-
-    if cnt_adj < dist.smooth
-        cnt_adj_sum += (dist.smooth - cnt_adj)
-        cnt_adj = dist.smooth
-    end
-
-    # In case we have very few molecules per cell, prior is incorrect, but it suppresses smoothing
-    if cnt < dist.smooth
-        cnt_sum += (dist.smooth - cnt)
-        return max(dist.smooth / cnt_sum, cnt_adj / cnt_adj_sum) # If cnt_sum is large enough, dist.smooth / cnt_sum is negligible
-    end
-
-    return cnt_adj / cnt_adj_sum
+    return fmax(Float64(cnt), smooth) / (dist.sum_counts + smooth)
 end
 
 function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
@@ -55,5 +25,3 @@ function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int,
     dist.sum_counts = sum(confidences)
     return dist
 end
-
-counts(d::CategoricalSmoothed) = d.counts
