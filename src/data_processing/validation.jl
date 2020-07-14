@@ -132,7 +132,7 @@ function assignment_summary_df(assignments::Pair{Symbol, Vector{Int}}...; min_mo
     return DataFrame(Dict(
         "name" => collect(keys(assignments)),
         "noise_frac" => [round(mean(x .== 0), sigdigits=3) for x in values(assignments)],
-        "n_cells" => [sum(count_array(x .+ 1)[2:end] .>= min_molecules_per_cell) for x in values(assignments)]
+        "n_cells" => [sum(count_array(x, drop_zero=true) .>= min_molecules_per_cell) for x in values(assignments)]
     ))[:, [:name, :n_cells, :noise_frac]]
 end
 
@@ -471,7 +471,7 @@ function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
 end
 
 plot_expression_vec_comparison(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}, gene_names; labels=["Baysor", "DAPI"], kwargs...) =
-    plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs] .+ 1)[2:end][qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
+    plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs], drop_zero=true)[qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
 
 function estimate_non_matching_part_correlation(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}},
         match_res::NamedTuple; cell_cols::Vector{Symbol}=[:cell, :cell_dapi], rev::Bool=false, max_overlap_borders::Tuple{Float64, Float64}=(0.25, 0.75))

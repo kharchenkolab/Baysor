@@ -138,7 +138,7 @@ composition_data(data::BmmData)::Vector{Int} = data.composition_data
 confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
 confidence(data::BmmData)::Vector{Float64} = data.confidence
 
-num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
+num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment, max_value=length(data.components), drop_zero=true)
 
 function assign!(data::BmmData, point_ind::Int, component_id::Int)
     old_id = data.assignment[point_ind]
