@@ -5,13 +5,13 @@ using StatsBase
 mutable struct CategoricalSmoothed{CT <: Real} <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
     counts::Vector{CT};
     smooth::Float64;
-    n_samples::CT;
+    sum_counts::CT;
 
-    CategoricalSmoothed(counts::Vector{IT}; smooth::Real=1.0, n_samples::IT=sum(counts)) where IT <: Real = new{IT}(counts, Float64(smooth), n_samples)
+    CategoricalSmoothed(counts::Vector{IT}; smooth::Real=1.0, sum_counts::IT=sum(counts)) where IT <: Real = new{IT}(counts, Float64(smooth), sum_counts)
 end
 
 pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
-    pdf(counts(dist), dist.n_samples, x, dist.smooth; use_smoothing=use_smoothing)
+    pdf(counts(dist), dist.sum_counts, x, dist.smooth; use_smoothing=use_smoothing)
 
 function pdf(cnt::Vector{CT}, cnt_sum::CT, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64 where CT <: Real
     cnt = cnt[x]
@@ -28,7 +28,7 @@ function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum:
         return pdf(dist, x; use_smoothing=use_smoothing)
     end
 
-    cnt, cnt_sum = counts(dist)[x], dist.n_samples
+    cnt, cnt_sum = counts(dist)[x], dist.sum_counts
     cnt_adj = cnt + prior[x]
     cnt_adj_sum = cnt_sum + prior_sum
 
@@ -52,7 +52,7 @@ end
 
 function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
     count_array!(dist.counts, x, confidences)
-    dist.n_samples = sum(confidences)
+    dist.sum_counts = sum(confidences)
     return dist
 end
 
