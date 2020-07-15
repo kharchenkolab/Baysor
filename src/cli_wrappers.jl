@@ -340,7 +340,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         end
 
         mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
-            n_clusters=args["n-clusters"], weights_pre_adjusted=true, min_mols_per_cell=0)
+            n_clusters=args["n-clusters"], weights_pre_adjusted=true)
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
         max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
