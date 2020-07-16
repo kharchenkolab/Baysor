@@ -11,16 +11,13 @@ import LightGraphs
 
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     non_noise_ids = findall(data.assignment .> 0)
-    existed_ids = findall([c.n_samples >= min_n_samples for c in data.components])
+    n_mols_per_cell = num_of_molecules_per_cell(data) # Can't use comp.n_samples because it's updated only on the maximization step
+    existed_ids = findall(n_mols_per_cell .>= min_n_samples)
     id_map = zeros(Int, length(data.components))
     id_map[existed_ids] .= 1:length(existed_ids)
 
     data.assignment[non_noise_ids] .= id_map[data.assignment[non_noise_ids]]
     data.components = data.components[existed_ids]
-
-    if !isempty(data.cluster_per_cell)
-        data.cluster_per_cell = data.cluster_per_cell[existed_ids]
-    end
 end
 
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
@@ -60,6 +57,29 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     return zero_comp_weight
 end
 
+function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segment_id::Int, largest_cell_id::Int,
+        data::BmmData, adj_classes::Vector{Int}, adj_weights::Vector{Float64})
+    seg_prior_pow = data.prior_seg_confidence * exp(3*data.prior_seg_confidence)
+    seg_size = data.n_molecules_per_segment[segment_id]
+    largest_cell_size = min(get(data.components[largest_cell_id].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
+
+    for j in eachindex(adj_weights)
+        c_adj = adj_classes[j]
+        if c_adj == largest_cell_id
+            continue
+        end
+
+        main_seg = data.main_segment_per_cell[c_adj]
+        n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
+
+        if (segment_id == main_seg) || (main_seg == 0) # Part against over-segmentation
+            denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (n_cell_mols_per_seg / largest_cell_size)^data.prior_seg_confidence
+        else # Part against under-segmentation and overlap
+            denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
+        end
+    end
+end
+
 function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     component_weights = Dict{Int, Float64}();
     adj_classes = Int[]
@@ -67,7 +87,6 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_d
     denses = Float64[]
 
     has_seg_prior = !isempty(data.segment_per_molecule)
-    seg_prior_pow::Float64 = has_seg_prior ? (data.prior_seg_confidence * exp(3*data.prior_seg_confidence)) : 0.0
     adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
@@ -99,41 +118,20 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_d
                 c_dens *= data.cluster_penalty_mult
             end
 
-            if segment_id > 0
-                main_seg = data.main_segment_per_cell[c_adj]
-                if (segment_id == main_seg) || (main_seg == 0)
-                    cur_size = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
-                    if (cur_size > largest_cell_size) || ((cur_size == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
-                        largest_cell_size = cur_size
-                        largest_cell_id = c_adj
-                    end
+            if (segment_id > 0) && (data.main_segment_per_cell[c_adj] in (segment_id, 0))
+                # Find an adjacent cell with the largest number of molecules per cell after assigning the current point to it
+                cur_mols_per_seg = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
+                if (cur_mols_per_seg > largest_cell_size) || ((cur_mols_per_seg == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
+                    largest_cell_size = cur_mols_per_seg
+                    largest_cell_id = c_adj
                 end
             end
 
             push!(denses, c_dens)
         end
 
-        if segment_id > 0
-            for j in eachindex(adj_weights)
-                c_adj = adj_classes[j]
-
-                seg_size = data.n_molecules_per_segment[segment_id]
-                main_seg = data.main_segment_per_cell[c_adj]
-                n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
-
-                # Possible competitions:
-                # - two cells within one segment: largest has advantage if it's not overlap or doublet
-                # - one cell outside of segment, and one correct cell inside: outside has possibility to take part if gene composition is in favour of it
-                # - one cell outside of segment, and doublet or overlap inside: outside cell has advantage
-
-                if (segment_id == main_seg) || (main_seg == 0)
-                    if c_adj != largest_cell_id
-                        denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (n_cell_mols_per_seg / largest_cell_size)^data.prior_seg_confidence
-                    end
-                else
-                    denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
-                end
-            end
+        if (segment_id > 0) & (largest_cell_id > 0)
+            adjust_densities_by_prior_segmentation!(denses, segment_id, largest_cell_id, data, adj_classes, adj_weights)
         end
 
         if sum(denses) < noise_density_threshold
@@ -345,8 +343,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
-        maximize!(data)
         drop_unused_components!(data)
+        maximize!(data)
 
         it_num = i
         if verbose && i % log_step == 0

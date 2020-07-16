@@ -32,7 +32,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
             return max(min_molecules_per_cell, 3)
         end
 
-        return (min_molecules_per_cell > 10) ? max(div(n_genes, 10), min_molecules_per_cell) : max(min_molecules_per_cell, 3)
+        return max(div(n_genes, 10), min_molecules_per_cell, 3)
     end
 
     if param == :n_gene_pcs

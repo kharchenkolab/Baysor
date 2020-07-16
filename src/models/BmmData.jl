@@ -345,6 +345,7 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         return
     end
 
+    # Estimate number of molecules per segment per component
     for comp in bm_data.components
         empty!(comp.n_molecules_per_segment)
     end
@@ -359,6 +360,7 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         bm_data.components[c_cell].n_molecules_per_segment[c_seg] = get(bm_data.components[c_cell].n_molecules_per_segment, c_seg, 0) + 1
     end
 
+    # Estimate the main segment per cell
     resize!(bm_data.main_segment_per_cell, length(bm_data.components))
     bm_data.main_segment_per_cell .= 0
 
