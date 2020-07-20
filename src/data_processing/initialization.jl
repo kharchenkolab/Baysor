@@ -86,12 +86,14 @@ function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assi
 end
 
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
-    cell_centers_uniformly(position_data(spatial_df), args...; kwargs...)
+    cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in names(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
 
-function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int; scale::Union{<:Real, Nothing})
-    n_clusters = min(n_clusters, size(pos_data, 2))
+function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int,
+        confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{<:Real, Nothing})
+    n_samples = (confidences === nothing) ? size(pos_data, 2) : ceil(Int, sum(confidences))
+    n_clusters = min(n_clusters, n_samples)
 
-    cluster_centers = pos_data[:, select_ids_uniformly(pos_data'; n=n_clusters)]
+    cluster_centers = pos_data[:, select_ids_uniformly(pos_data', confidences; n=n_clusters, confidence_threshold=0.25)]
     cluster_labels = vcat(knn(KDTree(cluster_centers), pos_data, 1)[1]...)
 
     covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
