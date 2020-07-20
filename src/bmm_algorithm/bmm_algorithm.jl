@@ -175,6 +175,9 @@ function maximize!(data::BmmData)
     end
 
     data.noise_density = estimate_noise_density_level(data)
+    if isinf(data.noise_density)
+        error("Infinity noise density")
+    end
 
     if length(data.cluster_per_molecule) > 0
         data.cluster_per_cell = [isempty(ids) ? 0 : mode(data.cluster_per_molecule[ids]) for ids in ids_by_assignment]
@@ -186,7 +189,7 @@ function noise_composition_density(data::BmmData)::Float64
     acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
     n_comps = 0.0
     for (ci, c) in enumerate(data.components)
-        if c.n_samples == 0
+        if c.composition_params.sum_counts < 1e-3
             continue
         end
 
@@ -199,7 +202,7 @@ function noise_composition_density(data::BmmData)::Float64
         n_comps += 1.0
     end
 
-    return acc / n_comps
+    return acc / fmax(n_comps, 1.0)
 end
 
 function estimate_noise_density_level(data::BmmData)::Float64
