@@ -177,7 +177,7 @@ function maximize!(data::BmmData)
     data.noise_density = estimate_noise_density_level(data)
 
     if length(data.cluster_per_molecule) > 0
-        data.cluster_per_cell = [isempty(x) ? 0 : mode(x) for x in split(data.cluster_per_molecule, data.assignment .+ 1, max_factor=(length(data.components) + 1))[2:end]]
+        data.cluster_per_cell = [isempty(ids) ? 0 : mode(data.cluster_per_molecule[ids]) for ids in ids_by_assignment]
     end
 end
 
