@@ -388,6 +388,7 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
     end
 
     drop_unused_components!(bm_data_merged; min_n_samples=1)
+    maximize!(bm_data_merged)
 
     @info "Done!"
 

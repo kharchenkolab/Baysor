@@ -137,13 +137,13 @@ end
 
         @testset "synthetic_run" begin
             seed!(42)
-            for i in 1:5
+            for i in 1:6
                 n_components = 10;
                 n_genes = 20
                 scale = 0.2;
                 frame_size = (100, 200)
                 centers = hcat(rand(n_components) * frame_size[1], rand(n_components) * frame_size[2]);
-                sizes = rand(Poisson(30), n_components);
+                sizes = rand(Poisson(50), n_components);
                 expressions = rand(Dirichlet(n_genes, 0.1), n_components);
 
                 df_spatial = vcat([DataFrame(
@@ -157,11 +157,23 @@ end
                 df_spatial = vcat(df_spatial, DataFrame(:x => rand(noise_size) * frame_size[1], :y => rand(noise_size) * frame_size[2],
                     :gene => rand(1:n_genes, noise_size), :cell => 0));
 
-                bm_data = B.initial_distribution_arr(df_spatial; n_frames=1, scale=scale, scale_std="25%", min_molecules_per_cell=10)[1];
-                B.bmm!(bm_data, n_iters=300, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=50, verbose=false);
+                if i > 4
+                    df_spatial[!, :cluster] = df_spatial.cell .+ 1
+                end
+                bm_data_arr = B.initial_distribution_arr(df_spatial; n_frames=1, scale=scale, scale_std="5%", min_molecules_per_cell=10);
+                bm_data = B.run_bmm_parallel!(bm_data_arr, 300, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=50, verbose=false);
 
                 conj_table = counts(B.estimate_assignment_by_history(bm_data)[1], df_spatial.cell)[2:end, 2:end];
-                @test all([all(vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.95) for d in 1:2])
+                @test all([all(vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.5) for d in 1:2])
+
+                # Test that it works
+                seg_df = B.get_segmentation_df(bm_data)
+                gene_names = ["g$i" for i in 1:maximum(df_spatial.gene)]
+                seg_df = B.get_segmentation_df(bm_data, gene_names)
+                df_res = B.get_cell_stat_df(bm_data, seg_df)
+                cm1 = B.convert_segmentation_to_counts(B.composition_data(bm_data), bm_data.assignment)
+                cm2 = B.convert_segmentation_to_counts(B.composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
+                @test all((size(cm2[:, 2:end]) .== size(cm1)))
             end
         end
     end
