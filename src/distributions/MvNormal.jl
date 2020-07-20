@@ -20,13 +20,16 @@ end
 function wmean!(μ::MeanVec, values::T where T <: AbstractMatrix{<:Real}, weights::T1 where T1 <: AbstractVector{<:Real})
     @assert length(μ) == size(values, 1)
     μ .= 0.0
+    sum_w = 0.0
     for ci in 1:size(values, 2)
+        w = fmax(weights[ci], 0.01)
         for ri in 1:length(μ)
-            μ[ri] += values[ri, ci] * weights[ci]
+            μ[ri] += values[ri, ci] * w
         end
+        sum_w += w
     end
 
-    μ ./= sum(weights)
+    μ ./= sum_w
     return μ
 end
 
@@ -64,16 +67,18 @@ estimate_sample_cov(args...; kwargs...) =
 function estimate_sample_cov!(Σ::CovMat, x::T where T <: AbstractMatrix{Float64}, weights::T2 where T2 <: AbstractVector{<:Real}; μ::MeanVec)
     # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
     Σ .= 0.0
-    sum_w = sum(weights)
+    sum_w = 0.0
     for i in 1:size(x, 2)
-        w = weights[i]
+        w = fmax(weights[i], 0.01)
         for c in 1:size(Σ, 1)
             for r in 1:size(Σ, 1)
-                Σ[r, c] += w * (x[c, i] - μ[c]) * (x[r, i] - μ[r]) / sum_w
+                Σ[r, c] += w * (x[c, i] - μ[c]) * (x[r, i] - μ[r])
             end
         end
+        sum_w += w
     end
 
+    Σ ./= sum_w
     return Σ
 end
 
