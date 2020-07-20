@@ -1,6 +1,8 @@
 using Baysor, Test
 using DataFrames
+using Distributions
 using Statistics
+using StatsBase
 import Random: seed!
 
 B = Baysor
@@ -131,6 +133,36 @@ end
             B.drop_unused_components!(bm_data)
 
             @test all(B.num_of_molecules_per_cell(bm_data) .== [c.n_samples for c in bm_data.components])
+        end
+
+        @testset "synthetic_run" begin
+            seed!(42)
+            for i in 1:5
+                n_components = 10;
+                n_genes = 20
+                scale = 0.2;
+                frame_size = (100, 200)
+                centers = hcat(rand(n_components) * frame_size[1], rand(n_components) * frame_size[2]);
+                sizes = rand(Poisson(30), n_components);
+                expressions = rand(Dirichlet(n_genes, 0.1), n_components);
+
+                df_spatial = vcat([DataFrame(
+                    :x => rand(Normal(centers[i,1], scale), sizes[i]),
+                    :y => rand(Normal(centers[i,2], scale), sizes[i]),
+                    :gene => rand(Categorical(expressions[:,i]), sizes[i]),
+                    :cell => i
+                ) for i in 1:n_components]...)
+
+                noise_size = 100
+                df_spatial = vcat(df_spatial, DataFrame(:x => rand(noise_size) * frame_size[1], :y => rand(noise_size) * frame_size[2],
+                    :gene => rand(1:n_genes, noise_size), :cell => 0));
+
+                bm_data = B.initial_distribution_arr(df_spatial; n_frames=1, scale=scale, scale_std="25%", min_molecules_per_cell=10)[1];
+                B.bmm!(bm_data, n_iters=300, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=50, verbose=false);
+
+                conj_table = counts(B.estimate_assignment_by_history(bm_data)[1], df_spatial.cell)[2:end, 2:end];
+                @test all([all(vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.95) for d in 1:2])
+            end
         end
     end
 end
