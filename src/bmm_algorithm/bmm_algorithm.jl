@@ -384,7 +384,7 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
 
     if :assignment_history in keys(bm_data_merged.tracer)
         bm_data_merged.assignment = estimate_assignment_by_history(bm_data_merged)[1];
-        maximize!(bm_data_merged, min_molecules_per_cell)
+        maximize!(bm_data_merged)
     end
 
     drop_unused_components!(bm_data_merged; min_n_samples=1)

@@ -90,8 +90,7 @@ cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
 
 function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int,
         confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{<:Real, Nothing})
-    n_samples = (confidences === nothing) ? size(pos_data, 2) : ceil(Int, sum(confidences))
-    n_clusters = min(n_clusters, n_samples)
+    n_clusters = min(n_clusters, size(pos_data, 2))
 
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data', confidences; n=n_clusters, confidence_threshold=0.25)]
     cluster_labels = vcat(knn(KDTree(cluster_centers), pos_data, 1)[1]...)
