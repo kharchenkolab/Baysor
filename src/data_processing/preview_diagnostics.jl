@@ -3,14 +3,14 @@ import UMAP
 function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
         confidence_nn_id::Union{Int, String}="k", linewidth::Float64=2.0, bins::Int=200, kwargs...) where T <: Distributions.UnivariateDistribution
     x_max = quantile(edge_length, 0.99)
-    Plots.histogram(edge_length[edge_length .< x_max]; bins=bins, normalize=true, label="Observed distribution",
+    Plots.histogram(edge_length[edge_length .< x_max]; bins=bins, normalize=true, label="Observed",
         xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title=title,
-        linewidth=linewidth, kwargs...)
+        linewidth=linewidth, legendtitle="Distribution", kwargs...)
     x_vals = range(0, x_max, length=1000)
     n1 = sum(confidences)
     n2 = length(confidences) - n1
-    Plots.plot!(x_vals, n1 / (n1 + n2) .* pdf.(d1, x_vals), label="'Real' distributon", linewidth=linewidth)
-    Plots.plot!(x_vals, n2 / (n1 + n2) .* pdf.(d2, x_vals), label="Noise distribution", linewidth=linewidth)
+    Plots.plot!(x_vals, n1 / (n1 + n2) .* pdf.(d1, x_vals), label="Intracellular", linewidth=linewidth)
+    Plots.plot!(x_vals, n2 / (n1 + n2) .* pdf.(d2, x_vals), label="Background", linewidth=linewidth)
 end
 
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; size=(800, 300), kwargs...)
