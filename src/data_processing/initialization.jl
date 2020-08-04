@@ -86,7 +86,7 @@ function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assi
 end
 
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
-    cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in names(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
+    cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in propertynames(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
 
 function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int,
         confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{<:Real, Nothing})
@@ -178,7 +178,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
     ## Estimate confidence
     if confidence_nn_id > 0
         @info "Estimate confidence per molecule"
-        prior_segmentation = (:prior_segmentation in names(df_spatial)) ? df_spatial.prior_segmentation : nothing
+        prior_segmentation = (:prior_segmentation in propertynames(df_spatial)) ? df_spatial.prior_segmentation : nothing
         append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
         @info "Done"
     end

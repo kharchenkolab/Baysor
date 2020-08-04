@@ -71,7 +71,7 @@ mutable struct BmmData
         end
 
         if isa(cluster_per_molecule, Symbol)
-            if cluster_per_molecule in names(x)
+            if cluster_per_molecule in propertynames(x)
                 cluster_per_molecule = x[:, cluster_per_molecule]
             else
                 cluster_per_molecule = Vector{Int}()
@@ -87,7 +87,7 @@ mutable struct BmmData
         n_genes = maximum(composition_data(x))
 
         x = deepcopy(x)
-        if !(:confidence in names(x))
+        if !(:confidence in propertynames(x))
             x[!, :confidence] .= 0.95
         end
 
@@ -121,7 +121,7 @@ mutable struct BmmData
             self.max_component_guid = maximum(guids)
         end
 
-        if :prior_segmentation in names(x)
+        if :prior_segmentation in propertynames(x)
             self.segment_per_molecule = deepcopy(x.prior_segmentation);
             self.n_molecules_per_segment = count_array(self.segment_per_molecule, drop_zero=true);
             update_n_mols_per_segment!(self);
@@ -269,7 +269,7 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
     df.area[large_cell_mask] = round.(area.(convex_hull.(pos_data_per_cell[large_cell_mask])), sigdigits=sigdigits);
     df.density[large_cell_mask] = round.(df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask], sigdigits=sigdigits);
     df.elongation[large_cell_mask] = [round(x[2] / x[1], sigdigits=sigdigits) for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
-    if :confidence in names(segmented_df)
+    if :confidence in propertynames(segmented_df)
         df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
     end
 
@@ -314,7 +314,7 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
         df.assignment_confidence .= round.(df.assignment_confidence, digits=5)
     end
 
-    if :confidence in names(df)
+    if :confidence in propertynames(df)
         df.confidence = round.(df.confidence, digits=5)
     end
 

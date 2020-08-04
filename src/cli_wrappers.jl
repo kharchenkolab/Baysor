@@ -189,7 +189,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         println(io, "<br><br>")
 
         # Confidence per molecule
-        if :confidence in names(df_res)
+        if :confidence in propertynames(df_res)
             bins = 0.0:0.025:1.0
             p_conf = Plots.histogram(df_res.confidence[assignment .!= 0], bins=bins, label="Assigned molecules",
                 xlabel="Confidence", ylabel="#Molecules", title="Confidence per molecule", margin=margin)
@@ -198,7 +198,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         end
 
         # Assignment confidence
-        if :assignment_confidence in names(df_res)
+        if :assignment_confidence in propertynames(df_res)
             p_conf = Plots.histogram(df_res.assignment_confidence[assignment .> 0], bins=50, legend=false)
             p_conf = Plots.vline!([0.95], xlabel="Assignment confidence", ylabel="#Molecules", xlims=(-0.01, 1.03),
                 title="Assignment confidence per real molecules")
