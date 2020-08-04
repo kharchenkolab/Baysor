@@ -163,14 +163,15 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
 end
 
 function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
-        grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
+        grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
-        grid::Bool=true, kwargs...)
+        grid::Bool=true, swap_plots::Bool=false, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
         if polygons
-            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell, bandwidth=bandwidth, dens_threshold=dens_threshold)
+            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell,
+                bandwidth=bandwidth, min_border_length=min_border_length, dens_threshold=dens_threshold)
         else
             polygons = Matrix{Float64}[]
         end
@@ -194,7 +195,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
 
     if dapi_arr === nothing
         return plot_cell_borders_polygons(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys), size=plot_size,
-            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
     end
 
     dapi_subs = dapi_arr[ys:ye, xs:xe]
@@ -202,7 +203,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
                 alpha=dapi_alpha, format=:png, legend=:none, xticks=xticks, yticks=yticks)
 
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
-        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
 
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
@@ -222,6 +223,10 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
         Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+    end
+
+    if swap_plots
+        plt1, plt2 = plt2, plt1
     end
 
     if !build_panel
@@ -331,7 +336,7 @@ function plot_qc_comparison(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
     plot_titles = ["Num. of transcripts", "Density", "Elongation", "sqrt(Area)", "Mean DAPI brightness"]
     plots = Plots.Plot[]
     for (cs, xlab, mq, nb) in zip(m_names, plot_titles, max_quants, n_bins)
-        if any(!(cs in names(qdf)) for qdf in qc_per_cell_dfs)
+        if any(!(cs in propertynames(qdf)) for qdf in qc_per_cell_dfs)
             continue
         end
         t_bins = hist_bins([qdf[!, cs] for qdf in qc_per_cell_dfs]..., m_quantile=mq, n_bins=nb)
@@ -471,7 +476,7 @@ function plot_qc_embeddings(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
 end
 
 plot_expression_vec_comparison(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}}, cell_cols::Vector{Symbol}, gene_names; labels=["Baysor", "DAPI"], kwargs...) =
-    plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs], drop_zero=true)[qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
+    plot_expression_vectors([count_array(vcat(split(df_spatial.gene, df_spatial[!, cs] .+ 1)[2:end][qdf.cell_id]...)) for (cs, qdf) in zip(cell_cols, qc_per_cell_dfs)]...; gene_names=gene_names, labels=labels, kwargs...)
 
 function estimate_non_matching_part_correlation(df_spatial::DataFrame, qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{DataFrame, DataFrame}},
         match_res::NamedTuple; cell_cols::Vector{Symbol}=[:cell, :cell_dapi], rev::Bool=false, max_overlap_borders::Tuple{Float64, Float64}=(0.25, 0.75))
