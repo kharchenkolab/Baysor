@@ -76,7 +76,7 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 
 ## Run
 
-**NOTE: The algorithm is still in the alpha-version, so it can be unstable now and is continuously improved. Please, report any problems and suggestions to Issues.**
+**NOTE:** The tool is in the beta-version now, so some parameters and functionality can be changed in the future. Please, report any problems and suggestions to Issues.
 
 ### Dataset preview
 
