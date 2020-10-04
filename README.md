@@ -144,7 +144,12 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
 #### Outputs
 
 - *segmentation_borders.html*: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part)
-- *segmentation_cell_stats.csv*: diagnostic info about cells. Parameters "n_transcripts", "density", "elongation", "area" and "avg_confidence" can be used to filter low-quality cells.
+- *segmentation_cell_stats.csv*: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
+  - `area`: area of the convex hull around the cell molecules
+  - `avg_confidence`: average confidence of the cell molecules
+  - `density`: cell area divided by the number of molecules in cell
+  - `elongation`: ration of the two eigenvalues of the cell covariance matrix
+  - `n_transcripts`: number of transcripts per cell
 - *segmentation_config.toml*: copy of the config to improve reproducibility
 - *segmentation_params.dump*: aggregated parameters from the config and CLI
 - *segmentation.csv*: segmentation info per molecule:
