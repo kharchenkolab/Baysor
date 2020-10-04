@@ -57,7 +57,14 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64
     maximize!(c.position_params, pos_data, conf_data);
 
     if c.shape_prior !== nothing
-        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=sum(conf_data))
+        try
+            adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=sum(conf_data))
+        catch
+            @show c.position_params.Σ
+            @show c.shape_prior
+            @show sum(conf_data)
+            rethrow()
+        end
     end
 
     return c
