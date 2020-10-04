@@ -4,7 +4,7 @@ using KernelDensity
 estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::T where T <: Real)::Vector{Float64} =
     InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
-function val_range(arr::AT where AT <: AbstractVector{<:Real})
+function val_range(arr::AT where AT <: AbstractArray{<:Real})
     if length(arr) == 0
         return (nothing, nothing)
     end

@@ -165,7 +165,7 @@ end
 function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
-        grid::Bool=true, swap_plots::Bool=false, kwargs...)
+        grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
@@ -214,8 +214,12 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
         return plt1
     end
 
-    # Possible colorschemes: tarn, diff, lime_grad, thermal
-    plt2 = Plots.heatmap(dapi_subs, color=:delta, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size)
+    if clims === nothing
+        clims = val_range(dapi_arr)
+    end
+
+    # Possible colorschemes: :twilight, :PuBuGn_9, :PuBu_9, :dense, :tofino, :berlin, :delta
+    plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size, clims=clims)
 
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
         fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
