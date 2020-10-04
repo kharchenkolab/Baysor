@@ -1,6 +1,7 @@
 using Baysor, Test
 using DataFrames
 using Distributions
+using LinearAlgebra
 using Statistics
 using StatsBase
 import Random: seed!
@@ -133,6 +134,17 @@ end
             B.drop_unused_components!(bm_data)
 
             @test all(B.num_of_molecules_per_cell(bm_data) .== [c.n_samples for c in bm_data.components])
+        end
+
+        @testset "maximize_mvnormal" begin
+            is_not_nan = map(1:10000) do i
+                n_samps = rand(0:100)
+                d = B.MvNormalF([0., 0.], diagm(0 => ones(2)));
+                B.maximize!(d, rand(2, n_samps), rand(n_samps) .* rand(Binomial(1, 0.5), n_samps))
+                !isnan(d.Σ[1])
+            end
+
+            @test all(is_not_nan)
         end
 
         @testset "synthetic_run" begin
