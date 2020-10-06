@@ -23,7 +23,7 @@ Spatial transcriptomics is an emerging stack of technologies, which adds spatial
 
 ### Method description
 
-See our [pre-print](https://doi.org/10.1101/2020.10.05.326777) for details on the method.
+See our [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1) for details on the method.
 
 ## Installation
 
