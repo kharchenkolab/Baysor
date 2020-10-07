@@ -132,7 +132,7 @@ function assignment_summary_df(assignments::Pair{Symbol, Vector{Int}}...; min_mo
     return DataFrame(Dict(
         "name" => collect(keys(assignments)),
         "noise_frac" => [round(mean(x .== 0), sigdigits=3) for x in values(assignments)],
-        "n_cells" => [sum(count_array(x .+ 1)[2:end] .>= min_molecules_per_cell) for x in values(assignments)]
+        "n_cells" => [sum(count_array(x, drop_zero=true) .>= min_molecules_per_cell) for x in values(assignments)]
     ))[:, [:name, :n_cells, :noise_frac]]
 end
 
@@ -163,20 +163,22 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
 end
 
 function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
-        grid_step::Float64=5.0, bandwidth::Float64=grid_step, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
+        grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
-        grid::Bool=true, kwargs...)
+        grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
         if polygons
-            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell, bandwidth=bandwidth, dens_threshold=dens_threshold)
+            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell,
+                bandwidth=bandwidth, min_border_length=min_border_length, dens_threshold=dens_threshold)
         else
             polygons = Matrix{Float64}[]
         end
     end
 
     # xs, xe, ys, ye = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
+    xs, xe, ys, ye = round.(Int, [xs, xe, ys, ye]);
 
     xticks_vals = range(0, xe-xs, length=5)
     yticks_vals = range(0, ye-ys, length=5)
@@ -193,7 +195,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
 
     if dapi_arr === nothing
         return plot_cell_borders_polygons(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys), size=plot_size,
-            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
     end
 
     dapi_subs = dapi_arr[ys:ye, xs:xe]
@@ -201,7 +203,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
                 alpha=dapi_alpha, format=:png, legend=:none, xticks=xticks, yticks=yticks)
 
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
-        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => 1.0), annotation=annotation, kwargs...)
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
 
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
@@ -212,8 +214,12 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
         return plt1
     end
 
-    # Possible colorschemes: tarn, diff, lime_grad, thermal
-    plt2 = Plots.heatmap(dapi_subs, color=:delta, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size)
+    if clims === nothing
+        clims = val_range(dapi_arr)
+    end
+
+    # Possible colorschemes: :twilight, :PuBuGn_9, :PuBu_9, :dense, :tofino, :berlin, :delta
+    plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size, clims=clims)
 
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
         fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
@@ -221,6 +227,10 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
         Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+    end
+
+    if swap_plots
+        plt1, plt2 = plt2, plt1
     end
 
     if !build_panel
@@ -330,7 +340,7 @@ function plot_qc_comparison(qc_per_cell_dfs::Union{Array{DataFrame, 1}, Tuple{Da
     plot_titles = ["Num. of transcripts", "Density", "Elongation", "sqrt(Area)", "Mean DAPI brightness"]
     plots = Plots.Plot[]
     for (cs, xlab, mq, nb) in zip(m_names, plot_titles, max_quants, n_bins)
-        if any(!(cs in names(qdf)) for qdf in qc_per_cell_dfs)
+        if any(!(cs in propertynames(qdf)) for qdf in qc_per_cell_dfs)
             continue
         end
         t_bins = hist_bins([qdf[!, cs] for qdf in qc_per_cell_dfs]..., m_quantile=mq, n_bins=nb)

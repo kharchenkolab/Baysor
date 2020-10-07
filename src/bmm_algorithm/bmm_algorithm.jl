@@ -9,20 +9,15 @@ using Dates: now, DateTime
 import DistributedArrays
 import LightGraphs
 
-function drop_unused_components!(data::BmmData; min_n_samples::Int=2, force::Bool=false)
+function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     non_noise_ids = findall(data.assignment .> 0)
-    existed_ids = findall([(c.n_samples >= min_n_samples) || (!c.can_be_dropped && !force) for c in data.components])
+    n_mols_per_cell = num_of_molecules_per_cell(data) # Can't use comp.n_samples because it's updated only on the maximization step
+    existed_ids = findall(n_mols_per_cell .>= min_n_samples)
     id_map = zeros(Int, length(data.components))
     id_map[existed_ids] .= 1:length(existed_ids)
 
     data.assignment[non_noise_ids] .= id_map[data.assignment[non_noise_ids]]
     data.components = data.components[existed_ids]
-
-    if !isempty(data.cluster_per_cell)
-        data.cluster_per_cell = data.cluster_per_cell[existed_ids]
-    end
-
-    # @assert all(num_of_molecules_per_cell(data) .== [c.n_samples for c in data.components])
 end
 
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
@@ -36,21 +31,21 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
 @inline function adjacent_component_weights!(comp_weights::Vector{Float64}, comp_ids::Vector{Int}, component_weights::Dict{Int, Float64},
-        assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}, adjacent_weights::Array{Float64, 1})
+        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64}, confidences::Vector{Float64})
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
     zero_comp_weight = 0.0
 
-    @inbounds adj_cell_ids = view(assignment, adjacent_points)
-
     @inbounds @simd for i in 1:length(adjacent_weights)
-        c_id = adj_cell_ids[i]
+        c_point = adjacent_points[i]
+        c_id = assignment[c_point]
+        c_conf = confidences[c_point]
         cw = adjacent_weights[i]
         if c_id == 0
-            zero_comp_weight += cw
+            zero_comp_weight += cw * (1 - c_conf)
         else
-            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
+            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw * c_conf
         end
     end
 
@@ -62,14 +57,37 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     return zero_comp_weight
 end
 
-function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, Vector{Int}}=Dict{Int, Vector{Int}}(); stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segment_id::Int, largest_cell_id::Int,
+        data::BmmData, adj_classes::Vector{Int}, adj_weights::Vector{Float64})
+    seg_prior_pow = data.prior_seg_confidence * exp(3*data.prior_seg_confidence)
+    seg_size = data.n_molecules_per_segment[segment_id]
+    largest_cell_size = min(get(data.components[largest_cell_id].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
+
+    for j in eachindex(adj_weights)
+        c_adj = adj_classes[j]
+        if c_adj == largest_cell_id
+            continue
+        end
+
+        main_seg = data.main_segment_per_cell[c_adj]
+        n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
+
+        if (segment_id == main_seg) || (main_seg == 0) # Part against over-segmentation
+            denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (n_cell_mols_per_seg / largest_cell_size)^data.prior_seg_confidence
+        else # Part against under-segmentation and overlap
+            denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
+        end
+    end
+end
+
+function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
     component_weights = Dict{Int, Float64}();
     adj_classes = Int[]
     adj_weights = Float64[]
     denses = Float64[]
 
     has_seg_prior = !isempty(data.segment_per_molecule)
-    seg_prior_pow::Float64 = has_seg_prior ? data.prior_seg_confidence * exp(3*data.prior_seg_confidence) : 0.0
+    adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
@@ -80,7 +98,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
         segment_id = has_seg_prior ? data.segment_per_molecule[i] : 0
 
         # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment, data.adjacent_points[i], data.adjacent_weights[i])
+        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment,
+            data.adjacent_points[i], data.adjacent_weights[i], data.confidence)
 
         if i in keys(adj_classes_global)
             n1 = length(adj_classes)
@@ -99,41 +118,20 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
                 c_dens *= data.cluster_penalty_mult
             end
 
-            if segment_id > 0
-                main_seg = data.main_segment_per_cell[c_adj]
-                if (segment_id == main_seg) || (main_seg == 0)
-                    cur_size = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
-                    if (cur_size > largest_cell_size) || ((cur_size == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
-                        largest_cell_size = cur_size
-                        largest_cell_id = c_adj
-                    end
+            if (segment_id > 0) && (data.main_segment_per_cell[c_adj] in (segment_id, 0))
+                # Find an adjacent cell with the largest number of molecules per cell after assigning the current point to it
+                cur_mols_per_seg = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
+                if (cur_mols_per_seg > largest_cell_size) || ((cur_mols_per_seg == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
+                    largest_cell_size = cur_mols_per_seg
+                    largest_cell_id = c_adj
                 end
             end
 
             push!(denses, c_dens)
         end
 
-        if segment_id > 0
-            for j in eachindex(adj_weights)
-                c_adj = adj_classes[j]
-
-                seg_size = data.n_molecules_per_segment[segment_id]
-                main_seg = data.main_segment_per_cell[c_adj]
-                n_cell_mols_per_seg = min(get(data.components[c_adj].n_molecules_per_segment, segment_id, 0) + 1, seg_size)
-
-                # Possible competitions:
-                # - two cells within one segment: largest has advantage if it's not overlap or doublet
-                # - one cell outside of segment, and one correct cell inside: outside has possibility to take part if gene composition is in favour of it
-                # - one cell outside of segment, and doublet or overlap inside: outside cell has advantage
-
-                if (segment_id == main_seg) || (main_seg == 0)
-                    if c_adj != largest_cell_id
-                        denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (n_cell_mols_per_seg / largest_cell_size)^data.prior_seg_confidence
-                    end
-                else
-                    denses[j] *= (1. - data.prior_seg_confidence)^0.5 * (1. - n_cell_mols_per_seg / seg_size)^seg_prior_pow
-                end
-            end
+        if (segment_id > 0) & (largest_cell_id > 0)
+            adjust_densities_by_prior_segmentation!(denses, segment_id, largest_cell_id, data, adj_classes, adj_weights)
         end
 
         if sum(denses) < noise_density_threshold
@@ -155,8 +153,8 @@ function expect_dirichlet_spatial!(data::BmmData, adj_classes_global::Dict{Int, 
     end
 end
 
-function update_prior_probabilities!(components::Array{Component, 1})
-    c_weights = [max(c.n_samples, c.prior_weight) for c in components]
+function update_prior_probabilities!(components::Array{Component, 1}, new_component_weight::Float64)
+    c_weights = [max(c.n_samples, new_component_weight) for c in components]
     prior_probs = rand(Distributions.Dirichlet(c_weights))
     # t_mmc = 150.0;
     # t_dist = Normal(t_mmc, t_mmc * 3)
@@ -168,66 +166,43 @@ function update_prior_probabilities!(components::Array{Component, 1})
     end
 end
 
-@inline function maximize!(c::Component, pos_data::T1 where T1 <: AbstractArray{Float64, 2}, comp_data::T2 where T2 <: AbstractArray{Int, 1}, data::BmmData)
-    c.n_samples = size(pos_data, 2)
-
-    if size(pos_data, 2) == 0
-        return maximize_from_prior!(c, data)
-    end
-
-    return maximize!(c, pos_data, comp_data)
-end
-
-function maximize_prior!(data::BmmData, min_molecules_per_cell::Int)
-    if data.update_priors == :no
-        return
-    end
-
-    components = (data.update_priors == :all) ? data.components : filter(c -> !c.can_be_dropped, data.components)
-    components = filter(c -> c.n_samples >= min_molecules_per_cell, components)
-
-    if length(components) < 2
-        return
-    end
-
-    mean_shape = vec(median(hcat(eigen_values.(components)...), dims=2))
-    set_shape_prior!(data.distribution_sampler, mean_shape)
-
-    for c in data.components
-        set_shape_prior!(c, mean_shape)
-    end
-end
-
-function maximize!(data::BmmData, min_molecules_per_cell::Int; do_maximize_prior::Bool=true)
-    ids_by_assignment = split_ids(data.assignment .+ 1)[2:end]
+function maximize!(data::BmmData)
+    ids_by_assignment = split_ids(data.assignment .+ 1, max_factor=length(data.components)+1)[2:end]
 
     @inbounds @views for i in 1:length(data.components)
-        p_ids = (i > length(ids_by_assignment)) ? Int[] : ids_by_assignment[i]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], data)
-    end
-
-    if do_maximize_prior
-        maximize_prior!(data, min_molecules_per_cell)
+        p_ids = ids_by_assignment[i]
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids])
     end
 
     data.noise_density = estimate_noise_density_level(data)
+    if isinf(data.noise_density)
+        error("Infinity noise density")
+    end
 
     if length(data.cluster_per_molecule) > 0
-        data.cluster_per_cell = [isempty(x) ? 0 : mode(x) for x in split(data.cluster_per_molecule, data.assignment .+ 1, max_factor=(length(data.components) + 1))[2:end]]
+        data.cluster_per_cell = [isempty(ids) ? 0 : mode(data.cluster_per_molecule[ids]) for ids in ids_by_assignment]
     end
 end
 
 function noise_composition_density(data::BmmData)::Float64
-#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.n_samples) for c in data.components]);
-    acc = 0.0 # Equivalent to the above commented expression if n_samples == sum(counts)
-    for c in data.components
+#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
+    acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
+    n_comps = 0.0
+    for (ci, c) in enumerate(data.components)
+        if c.composition_params.sum_counts < 1e-3
+            continue
+        end
+
         inn_acc = 0
         for v in c.composition_params.counts
             inn_acc += (v > 0)
         end
+
         acc += 1.0 / inn_acc
+        n_comps += 1.0
     end
-    return acc / length(data.components)
+
+    return acc / fmax(n_comps, 1.0)
 end
 
 function estimate_noise_density_level(data::BmmData)::Float64
@@ -239,10 +214,12 @@ function estimate_noise_density_level(data::BmmData)::Float64
     return position_density * composition_density
 end
 
+append_empty_component!(data::BmmData) =
+    push!(data.components, sample_distribution!(data))[end]
+
 function append_empty_components!(data::BmmData, new_component_frac::Float64)
     for i in 1:round(Int, new_component_frac * length(data.components))
-        data.max_component_guid += 1
-        push!(data.components, sample_distribution(data; guid=data.max_component_guid))
+        append_empty_component!(data)
     end
 end
 
@@ -253,12 +230,19 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
             continue
         end
 
-        for t_id in data.adjacent_points[knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]]
+        nearest_id = knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]
+        for t_id in data.adjacent_points[nearest_id]
             if t_id in keys(adj_classes_global)
                 push!(adj_classes_global[t_id], cur_id)
             else
                 adj_classes_global[t_id] = [cur_id]
             end
+        end
+
+        if nearest_id in keys(adj_classes_global)
+            push!(adj_classes_global[nearest_id], cur_id)
+        else
+            adj_classes_global[nearest_id] = [cur_id]
         end
     end
 
@@ -311,10 +295,7 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
             if add_new_components
-                data.max_component_guid += 1
-                new_comp = sample_distribution(data; guid=data.max_component_guid)
-                new_comp.n_samples = length(mol_ids)
-                push!(data.components, new_comp)
+                append_empty_component!(data)
                 data.assignment[mol_ids] .= length(data.components)
             else
                 data.assignment[mol_ids] .= 0
@@ -331,11 +312,10 @@ track_progress!(progress::Nothing) = nothing
 track_progress!(progress::RemoteChannel) = put!(progress, true)
 track_progress!(progress::Progress) = next!(progress)
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true, new_component_frac::Float64=0.05,
-              split_period::Int=0, n_expression_clusters::Int=10, min_cluster_size::Int=10, n_clustering_pcs::Int=30, n_splitting_clusters::Int=5,
-              clustering_distance::D=Distances.CosineDist(), # TODO: Remove this
-              prior_update_step::Int=split_period, assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
-              component_split_step::Int=3) where D <: Distances.SemiMetric
+function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true,
+              new_component_frac::Float64=0.05, new_component_weight::Float64=0.3,
+              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
+              component_split_step::Int=3)
     time_start = now()
 
     if verbose
@@ -351,44 +331,30 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     end
 
     it_num = 0
-    trace_prior_shape!(data);
     trace_n_components!(data, min_molecules_per_cell);
 
-    maximize!(data, min_molecules_per_cell; do_maximize_prior=false)
+    maximize!(data)
 
     for i in 1:n_iters
-        if (split_period > 0) && (i > 0) && (i % split_period == 0) && ((n_iters - i) >= split_period)
-            split_components_by_expression!(data, n_splitting_clusters; n_expression_clusters=n_expression_clusters, distance=clustering_distance,
-                min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs);
-        end
-
-        # if (prior_update_step > 0) && (i > 0) && (i % prior_update_step == 0)
-        #     update_gene_count_priors!(data.components; n_clusters=n_expression_clusters, distance=clustering_distance,
-        #         min_molecules_per_cell=min_molecules_per_cell, min_cluster_size=min_cluster_size, n_pcs=n_clustering_pcs)
-        # end
-
         append_empty_components!(data, new_component_frac)
-        update_prior_probabilities!(data.components)
+        update_prior_probabilities!(data.components, new_component_weight)
         update_n_mols_per_segment!(data)
 
-        expect_dirichlet_spatial!(data, get_global_adjacent_classes(data))
+        expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 
-        maximize!(data, min_molecules_per_cell)
-
-        trace_prior_shape!(data);
-        trace_n_components!(data, min_molecules_per_cell);
-
         drop_unused_components!(data)
+        maximize!(data)
 
         it_num = i
         if verbose && i % log_step == 0
             log_em_state(data, it_num, time_start)
         end
 
+        trace_n_components!(data, min_molecules_per_cell);
         trace_assignment_history!(data, assignment_history_depth; use_guids=!trace_components)
         if trace_components
             trace_component_history!(data)
@@ -404,70 +370,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log
     return data
 end
 
-fetch_bm_func(bd::BmmData) = [bd]
-
-function pmap_progress(func, arr::DistributedArrays.DArray, n_steps::Int, args...; kwargs...)
-    p = Progress(n_steps)
-    channel = RemoteChannel(()->Channel{Bool}(n_steps), 1)
-
-    exception = nothing
-    @sync begin # Parallel progress tracing
-        @async while take!(channel)
-            next!(p)
-        end
-
-        @async begin
-            try
-                futures = [remotecall(func, procs()[i], arr[i], args...; channel=channel, kwargs...) for i in 1:length(arr)];
-                arr = fetch.(wait.(futures))
-            catch ex
-                exception = ex
-            finally
-                put!(channel, false)
-            end
-        end
-    end
-
-    if exception !== nothing
-        throw(exception)
-    end
-
-    return arr
-end
-
-function push_data_to_workers(bm_data_arr::Array{BmmData, 1})::DistributedArrays.DArray
-    if length(bm_data_arr) > nprocs()
-        n_new_workers = length(bm_data_arr) - nprocs()
-        @info "Creating $n_new_workers new workers. Total $(nprocs() + n_new_workers) workers."
-        addprocs(n_new_workers)
-        eval(:(@everywhere using Baysor))
-    end
-
-    futures = [remotecall(fetch_bm_func, procs()[i], bm_data_arr[i]) for i in 1:length(bm_data_arr)]
-
-    try
-        return DistributedArrays.DArray(futures);
-    catch ex
-        bds = fetch.(wait.(futures))
-        err_idx = findfirst(typeof.(bm_data_arr) .!== BmmData)
-        if err_idx === nothing
-            throw(ex)
-        end
-
-        error(bds[err_idx])
-    end
-end
-
 run_bmm_parallel(bm_data_arr, args...; kwargs...) =
     run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
 
 function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
-    # @info "Pushing data to workers"
-    # da = push_data_to_workers(bm_data_arr)
-
     @info "Algorithm start"
-    # bm_data_arr = pmap_progress(bmm!, da, n_iters * length(da); n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, kwargs...)
-
     p = Progress(n_iters * length(bm_data_arr))
     @threads for i in 1:length(bm_data_arr)
         bmm!(bm_data_arr[i]; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
@@ -477,10 +384,11 @@ function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_mol
 
     if :assignment_history in keys(bm_data_merged.tracer)
         bm_data_merged.assignment = estimate_assignment_by_history(bm_data_merged)[1];
-        maximize!(bm_data_merged, min_molecules_per_cell)
+        maximize!(bm_data_merged)
     end
 
-    drop_unused_components!(bm_data_merged; min_n_samples=1, force=true)
+    drop_unused_components!(bm_data_merged; min_n_samples=1)
+    maximize!(bm_data_merged)
 
     @info "Done!"
 

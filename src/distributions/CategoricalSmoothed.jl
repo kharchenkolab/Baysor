@@ -2,73 +2,26 @@ using Distributions
 using LinearAlgebra
 using StatsBase
 
-mutable struct CategoricalSmoothed <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
-    counts::Array{Int, 1};
+mutable struct CategoricalSmoothed{CT <: Real} <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
+    counts::Vector{CT};
     smooth::Float64;
-    n_samples::Int;
+    sum_counts::CT;
 
-    CategoricalSmoothed(counts::Array{Int, 1}; smooth::Number=1.0, n_samples::Int=sum(counts)) = new(counts, smooth, n_samples)
+    CategoricalSmoothed(counts::Vector{IT}; smooth::Real=1.0, sum_counts::IT=sum(counts)) where IT <: Real = new{IT}(counts, Float64(smooth), sum_counts)
 end
 
-# function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64
-#     cnt, cnt_sum = counts(dist)[x], dist.n_samples
-
-#     if !use_smoothing || (cnt >= dist.smooth)
-#         return cnt / cnt_sum
-#     end
-
-#     # Can't simply add smoothing to each vector component because of sparsity
-#     cnt_sum += (dist.smooth - cnt)
-#     return dist.smooth / cnt_sum
-# end
-
-pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64 =
-    pdf(counts(dist), dist.n_samples, x, dist.smooth; use_smoothing=use_smoothing)
-
-function pdf(cnt::Vector{Int}, cnt_sum::Int, x::Int, smooth::Float64; use_smoothing::Bool=true)::Float64
-    cnt = cnt[x]
+function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float64
+    cnt = dist.counts[x]
     if !use_smoothing
-        return cnt / cnt_sum
+        return cnt / dist.sum_counts
     end
 
     # Can't simply add smoothing to each vector component because of sparsity
-    return fmax(Float64(cnt), smooth) / (cnt_sum + smooth)
+    return fmax(Float64(cnt), dist.smooth) / (dist.sum_counts + dist.smooth)
 end
 
-function pdf(dist::CategoricalSmoothed, x::Int, prior::Array{Int, 1}, prior_sum::Int; use_smoothing::Bool=true)::Float64
-    if prior_sum == 0 # For speed
-        return pdf(dist, x; use_smoothing=use_smoothing)
-    end
-
-    cnt, cnt_sum = counts(dist)[x], dist.n_samples
-    cnt_adj = cnt + prior[x]
-    cnt_adj_sum = cnt_sum + prior_sum
-
-    if !use_smoothing
-        return cnt_adj / cnt_adj_sum
-    end
-
-    if cnt_adj < dist.smooth
-        cnt_adj_sum += (dist.smooth - cnt_adj)
-        cnt_adj = dist.smooth
-    end
-
-    # In case we have very few molecules per cell, prior is incorrect, but it suppresses smoothing
-    if cnt < dist.smooth
-        cnt_sum += (dist.smooth - cnt)
-        return max(dist.smooth / cnt_sum, cnt_adj / cnt_adj_sum) # If cnt_sum is large enough, dist.smooth / cnt_sum is negligible
-    end
-
-    return cnt_adj / cnt_adj_sum
-end
-
-# maximize(dist::CategoricalSmoothed, x::Array{Int, 1}) =
-#     CategoricalSmoothed(count_array(x, max_value=length(dist.counts)), smooth=dist.smooth, n_samples=length(x))
-
-function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1})
-    count_array!(dist.counts, x)
-    dist.n_samples = length(x)
+function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
+    count_array!(dist.counts, x, confidences)
+    dist.sum_counts = sum(confidences)
     return dist
 end
-
-counts(d::CategoricalSmoothed) = d.counts

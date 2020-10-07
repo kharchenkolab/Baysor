@@ -1,21 +1,5 @@
 using Base.Threads
 
-# This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
-function select_ids_uniformly(vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int}
-    if n <= 1
-        error("n must be > 1")
-    end
-
-    high_conf_ids = (confidence===nothing) ? (1:size(vals, 1)) : findall(confidence .>= confidence_threshold)
-    if length(high_conf_ids) < n
-        @warn "n=$n, which is > length(high_conf_ids) ($(length(high_conf_ids)))"
-        return high_conf_ids
-    end
-
-    vals = sum(vals, dims=2)[high_conf_ids]
-    return high_conf_ids[sortperm(vals)[unique(round.(Int, range(1, length(high_conf_ids), length=n)))]];
-end
-
 neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
@@ -128,6 +112,7 @@ end
 function extract_filtered_local_vectors(df_spatial::DataFrame, adjacent_points::Array{Vector{Int}, 1}, k::Int;
         confidence::Union{Vector{Float64}, Nothing}=df_spatial.confidence, clust_per_mol::Union{Vector{Int}, Nothing}=nothing,
         n_vectors::Int=0, confidence_threshold::Float64=0.95, kwargs...)
+    # TODO: use this function or remove it
     if clust_per_mol === nothing
         clust_per_mol = ones(Int, size(df_spatial, 1))
     end

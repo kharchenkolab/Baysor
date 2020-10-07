@@ -9,12 +9,6 @@ using Statistics
 import MultivariateStats
 import Plots
 
-plot_cell_borders_density(data::BmmData; kwargs...) = plot_cell_borders_density(data.x, data.assignment; kwargs...)
-function plot_cell_borders_density(df_spatial::DataFrame, cell_labels::Array{Int, 1}; min_n_molecules::Int=3, kwargs...)
-    polygons = boundary_polygons(df_spatial, cell_labels, min_molecules_per_cell=min_n_molecules);
-    return plot_cell_borders_polygons(df_spatial, polygons; kwargs...)
-end
-
 plot_cell_borders_polygons!(args...; kwargs...) =
     plot_cell_borders_polygons(args...; append=true, kwargs...)
 
@@ -145,19 +139,27 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     return p
 end
 
-function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Nothing}=nothing,
-        cell_ord::Union{<:AbstractVector{<:Integer},Nothing}=nothing, diag_genes::Bool=false, kwargs...)
-    if cell_ord === nothing
-        cell_dists = 1 .- cor(mtx);
-        cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+function clustermap(mtx::T where T <: AbstractMatrix{Float64}, gene_names::Vector{String}; gene_ord::Union{<:AbstractVector{<:Integer}, Bool}=true,
+        cell_ord::Union{<:AbstractVector{<:Integer},Bool}=true, diag_genes::Bool=false, kwargs...)
+    if typeof(cell_ord) === Bool
+        if cell_ord
+            cell_dists = 1 .- cor(mtx);
+            cell_ord = Clustering.hclust(cell_dists, linkage=:ward).order;
+        else
+            cell_ord = 1:size(mtx, 2)
+        end
     end
 
-    if gene_ord === nothing
-        if diag_genes
-            gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx[:, cell_ord], dims=2)), rev=true);
+    if typeof(gene_ord) === Bool
+        if gene_ord
+            if diag_genes
+                gene_ord = sortperm(vec(mapslices(x -> findmax(x)[2], mtx[:, cell_ord], dims=2)), rev=true);
+            else
+                gene_dists = 1 .- cor(mtx');
+                gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+            end
         else
-            gene_dists = 1 .- cor(mtx');
-            gene_ord = Clustering.hclust(gene_dists, linkage=:ward).order;
+            gene_ord = 1:size(mtx, 1)
         end
     end
 
@@ -193,70 +195,6 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
     end
 
     return p
-end
-
-function plot_prior_shape_per_iteration(tracer::Dict{Symbol, Any})
-    Plots.plot(get.(tracer[:prior_shape], 1, 0) .^ 0.5, label="(eigenvalue 1)^0.5",
-        xlabel="Iteration", ylabel="Eigenvalue", title="Shape prior")
-    Plots.plot!(get.(tracer[:prior_shape], 2, 0) .^ 0.5, label="(eigenvalue 2)^0.5")
-end
-
-
-### Summary plots
-
-subset_df(df_spatial::DataFrame, x_start::Real, y_start::Real, frame_size::Real) =
-    @where(df_spatial, :x .>= x_start, :y .>= y_start, :x .< (x_start + frame_size), :y .< (y_start + frame_size));
-
-# DEPRECATED?
-function plot_cell_boundary_polygons_all(df_res::DataFrame, assignment::Array{Int, 1}, df_centers::Union{DataFrame, Nothing};
-                                         gene_composition_neigborhood::Int, frame_size::Int, grid_size::Int=500, return_raw::Bool=false,
-                                         min_molecules_per_cell::Int, plot_width::Int=800, margin=5*Plots.mm)
-    df_res = @transform(df_res, cell=assignment)
-
-    frame_size = min(frame_size, max(maximum(df_res.x) - minimum(df_res.x), maximum(df_res.y) - minimum(df_res.y)))
-    neighb_cm = neighborhood_count_matrix(df_res, gene_composition_neigborhood);
-    transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
-
-    borders = [(minimum(df_res[!, s]), maximum(df_res[!, s])) for s in [:x, :y]];
-    borders = [collect(range(b[1], b[1] + floor((b[2] - b[1]) / frame_size) * frame_size, step=frame_size)) for b in borders]
-    borders = hcat(collect.(Iterators.product(borders...))...);
-
-    df_subsets = subset_df.(Ref(df_res), borders[1,:], borders[2,:], frame_size);
-    filt_mask = size.(df_subsets, 1) .> max(gene_composition_neigborhood, min_molecules_per_cell)
-
-    borders = borders[:, filt_mask]
-    df_subsets = df_subsets[filt_mask];
-
-    assignments = [df_spatial.cell for df_spatial in df_subsets];
-    genes_per_frame = [df_spatial.gene for df_spatial in df_subsets];
-    grid_step = frame_size / grid_size
-
-    plot_info = @showprogress "Extracting plot info..." pmap(zip(df_subsets, genes_per_frame, assignments)) do (cdf, g, a)
-        pd = position_data(cdf)
-        pol = boundary_polygons(pd, a; grid_step=grid_step, bandwidth=grid_step)
-        col = gene_composition_colors(neighborhood_count_matrix(pd, g, gene_composition_neigborhood; n_genes=maximum(df_res.gene)), transformation)
-        pol, col
-    end;
-
-    df_centers = (df_centers === nothing) ? fill(nothing, length(df_subsets)) : subset_by_coords.(Ref(df_centers), df_subsets);
-
-    if return_raw
-        return df_subsets, plot_info, df_centers, borders
-    end
-
-    @info "Plotting..."
-
-    plots_col = [plot_cell_borders_polygons(dfs, p, dfc; color=col, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
-        for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
-
-    if !in(:cluster, names(df_res))
-        return plots_col, nothing
-    end
-
-    plots_clust = [plot_cell_borders_polygons(dfs, p, dfc; annotation=dfs.cluster, xlims=(xs, xs + frame_size), ylims=(ys, ys + frame_size), size=(plot_width, plot_width), margin=margin)
-        for (dfs, p, dfc, col, xs, ys) in zip(df_subsets, getindex.(plot_info, 1), df_centers, getindex.(plot_info, 2), borders[1,:], borders[2,:])]
-
-    return plots_col, plots_clust
 end
 
 ### Colormaps

@@ -29,7 +29,6 @@ mutable struct BmmData
 
     cluster_per_molecule::Vector{Int};
     cluster_per_cell::Vector{Int};
-    gene_probs_given_single_transcript::Matrix{Float64}; # DEPRECATED?
 
     center_sample_cache::Vector{Int}
 
@@ -44,7 +43,6 @@ mutable struct BmmData
     misc::Dict{Symbol, Any};
 
     # Parameters
-    update_priors::Symbol; # DEPRECATED?
     prior_seg_confidence::Float64;
     cluster_penalty_mult::Float64;
     use_gene_smoothing::Bool;
@@ -59,12 +57,10 @@ mutable struct BmmData
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
     - `distribution_sampler::Component`:
     - `assignment::Array{Int, 1}`:
-    - `k_neighbors::Int=20`:
-    - `update_priors::Symbol=:no`: method of prior updates. Possible values: `:no` (no update), `:all` (use all distribitions) and `:centers` (only use distributions, based on prior centers)
     """
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
-                     k_neighbors::Int=20, update_priors::Symbol=:no, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
+                     k_neighbors::Int=20, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
                      cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
@@ -75,7 +71,7 @@ mutable struct BmmData
         end
 
         if isa(cluster_per_molecule, Symbol)
-            if cluster_per_molecule in names(x)
+            if cluster_per_molecule in propertynames(x)
                 cluster_per_molecule = x[:, cluster_per_molecule]
             else
                 cluster_per_molecule = Vector{Int}()
@@ -90,20 +86,16 @@ mutable struct BmmData
 
         n_genes = maximum(composition_data(x))
 
-        if update_priors == :centers && all(c.can_be_dropped for c in components)
-            update_priors = :no
-        end
-
         x = deepcopy(x)
-        if !(:confidence in names(x))
+        if !(:confidence in propertynames(x))
             x[!, :confidence] .= 0.95
         end
 
         self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
                    position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), ones(n_genes, n_genes) ./ n_genes, Int[],
+                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), Int[],
                    Int[], Int[], Int[], # prior segmentation info
-                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), update_priors, prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
+                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
 
         for c in self.components
             c.n_samples = 0
@@ -129,7 +121,7 @@ mutable struct BmmData
             self.max_component_guid = maximum(guids)
         end
 
-        if :prior_segmentation in names(x)
+        if :prior_segmentation in propertynames(x)
             self.segment_per_molecule = deepcopy(x.prior_segmentation);
             self.n_molecules_per_segment = count_array(self.segment_per_molecule, drop_zero=true);
             update_n_mols_per_segment!(self);
@@ -146,7 +138,7 @@ composition_data(data::BmmData)::Vector{Int} = data.composition_data
 confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
 confidence(data::BmmData)::Vector{Float64} = data.confidence
 
-num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment .+ 1, max_value=length(data.components) + 1)[2:end]
+num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment, max_value=length(data.components), drop_zero=true)
 
 function assign!(data::BmmData, point_ind::Int, component_id::Int)
     old_id = data.assignment[point_ind]
@@ -230,9 +222,8 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
 
     res = BmmData(components, x, adjacent_points, adjacent_weights, bmm_data_arr[1].real_edge_weight,
         deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
-        update_priors=bmm_data_arr[1].update_priors, cluster_per_molecule=cluster_per_molecule,
-        cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult, cluster_per_cell=cluster_per_cell,
-        use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
+        cluster_per_molecule=cluster_per_molecule, cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult,
+        cluster_per_cell=cluster_per_cell, use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
 
     res.tracer = merge_tracers(tracers)
 
@@ -278,7 +269,7 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
     df.area[large_cell_mask] = round.(area.(convex_hull.(pos_data_per_cell[large_cell_mask])), sigdigits=sigdigits);
     df.density[large_cell_mask] = round.(df.n_transcripts[large_cell_mask] ./ df.area[large_cell_mask], sigdigits=sigdigits);
     df.elongation[large_cell_mask] = [round(x[2] / x[1], sigdigits=sigdigits) for x in eigvals.(cov.(transpose.(pos_data_per_cell[large_cell_mask])))];
-    if :confidence in names(segmented_df)
+    if :confidence in propertynames(segmented_df)
         df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
     end
 
@@ -290,19 +281,13 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
     return df
 end
 
-function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, do_score_doublets::Bool=true, min_molecules_per_cell::Int=3, sigdigits::Int=4)
+function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, sigdigits::Int=4)
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
 
     for s in [:x, :y]
         df[!,s] = mean.(split(data.x[!,s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
-    end
-
-    df[!,:has_center] = [c.center_prior !== nothing for c in data.components]
-
-    if any([c.center_prior !== nothing for c in data.components])
-        df[!,:x_prior], df[!,:y_prior] = [[(c.center_prior === nothing) ? NaN : c.center_prior.μ[i] for c in data.components] for i in 1:2]
     end
 
     if !isempty(data.cluster_per_cell)
@@ -315,15 +300,6 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
         end
 
         df = hcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
-
-        if do_score_doublets & !isempty(data.cluster_per_molecule)
-            cluster_centers = convert_segmentation_to_counts(composition_data(data), data.cluster_per_molecule);
-            cluster_centers = cluster_centers' ./ sum(cluster_centers', dims=2);
-
-            cm = convert_segmentation_to_counts(composition_data(data), data.assignment);
-            doublet_fractions = score_doublets(cm, cluster_centers; min_molecules_per_cell=min_molecules_per_cell)[2];
-            df[!, :doublet_score] = round.(min.(doublet_fractions, 0.5) .* 2, sigdigits=sigdigits)
-        end
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
@@ -338,7 +314,7 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
         df.assignment_confidence .= round.(df.assignment_confidence, digits=5)
     end
 
-    if :confidence in names(df)
+    if :confidence in propertynames(df)
         df.confidence = round.(df.confidence, digits=5)
     end
 
@@ -369,6 +345,7 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         return
     end
 
+    # Estimate number of molecules per segment per component
     for comp in bm_data.components
         empty!(comp.n_molecules_per_segment)
     end
@@ -383,6 +360,7 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         bm_data.components[c_cell].n_molecules_per_segment[c_seg] = get(bm_data.components[c_cell].n_molecules_per_segment, c_seg, 0) + 1
     end
 
+    # Estimate the main segment per cell
     resize!(bm_data.main_segment_per_cell, length(bm_data.components))
     bm_data.main_segment_per_cell .= 0
 

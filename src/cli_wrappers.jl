@@ -112,9 +112,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
-        "--staining" # TODO: use it only for diagnostics plots
-            help = "Image with DAPI or poly-T staining with brighter colors corresponing to nucleis / cell bodies"
-            arg_type = String
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
@@ -192,7 +189,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         println(io, "<br><br>")
 
         # Confidence per molecule
-        if :confidence in names(df_res)
+        if :confidence in propertynames(df_res)
             bins = 0.0:0.025:1.0
             p_conf = Plots.histogram(df_res.confidence[assignment .!= 0], bins=bins, label="Assigned molecules",
                 xlabel="Confidence", ylabel="#Molecules", title="Confidence per molecule", margin=margin)
@@ -201,7 +198,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         end
 
         # Assignment confidence
-        if :assignment_confidence in names(df_res)
+        if :assignment_confidence in propertynames(df_res)
             p_conf = Plots.histogram(df_res.assignment_confidence[assignment .> 0], bins=50, legend=false)
             p_conf = Plots.vline!([0.95], xlabel="Assignment confidence", ylabel="#Molecules", xlims=(-0.01, 1.03),
                 title="Assignment confidence per real molecules")
@@ -211,7 +208,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         println(io, "<br><br>")
 
         # Num. of molecules per cell
-        n_mols_per_cell = count_array(assignment .+ 1)[2:end]
+        n_mols_per_cell = count_array(assignment, drop_zero=true)
         p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
             title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells", label=:none)
         show(io, MIME("text/html"), p_n_mols)
@@ -303,7 +300,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         else
             @info "Loading segmentation mask..."
 
-            # TODO: use min-transcripts-per-center parameter here to filter small segments
+            # TODO: use min-transcripts-per-center parameter and filter_segmentation_labels here to filter small segments
             prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
             GC.gc()
             df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
@@ -343,7 +340,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         end
 
         mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
-            n_clusters=args["n-clusters"], weights_pre_adjusted=true, min_mols_per_cell=0)
+            n_clusters=args["n-clusters"], weights_pre_adjusted=true)
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
         max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
@@ -353,19 +350,11 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
-            n_cells_init=args["num-cells-init"], new_component_weight=args["new-component-weight"], prior_seg_confidence=args["prior-segmentation-confidence"],
+            n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
 
-    if args["staining"] !== nothing
-        @info "Adjusting random field based on the staining..."
-        @warn "Staining option is experimental. Results can easily be worse than without it."
-        dapi = Float64.(Images.load(expanduser(args["staining"])))
-        adjust_field_weights_by_dapi!.(bm_data_arr, Ref(dapi))
-        @info "Done."
-    end
-
     history_depth = round(Int, args["iters"] * 0.1)
-    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"],
+    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
                                 min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
     @info "Processing complete."
@@ -373,7 +362,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     # Save results
 
     segmentated_df = get_segmentation_df(bm_data, gene_names)
-    cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true, min_molecules_per_cell=args["min-molecules-per-cell"])
+    cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
     @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);

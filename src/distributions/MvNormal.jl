@@ -17,6 +17,22 @@ struct MvNormalF
         MvNormalF(MeanVec(μ), CovMat(Σ))
 end
 
+function wmean!(μ::MeanVec, values::T where T <: AbstractMatrix{<:Real}, weights::T1 where T1 <: AbstractVector{<:Real})
+    @assert length(μ) == size(values, 1)
+    μ .= 0.0
+    sum_w = 0.0
+    for ci in 1:size(values, 2)
+        w = fmax(weights[ci], 0.01)
+        for ri in 1:length(μ)
+            μ[ri] += values[ri, ci] * w
+        end
+        sum_w += w
+    end
+
+    μ ./= sum_w
+    return μ
+end
+
 @inline @inbounds function log_pdf(d::MvNormalF, x::Float64, y::Float64)::Float64
     std_x = sqrt(d.Σ[1])
     std_y = sqrt(d.Σ[4])
@@ -45,51 +61,44 @@ function robust_cov(x::Array{Float64, 2}; prop::Float64=0.1)
     return [v1 covar; covar v2]
 end
 
-sample_cov(args...; kwargs...) =
-    sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
+estimate_sample_cov(args...; kwargs...) =
+    estimate_sample_cov!(CovMat(zeros(2, 2)), args...; kwargs...)
 
-function sample_cov!(Σ::CovMat, x::T; μ::Union{MeanVec, Nothing}=nothing) where T <: AbstractArray{Float64,2}
-    if μ === nothing
-        μ = MeanVec(vec(mean(x, dims=2)))
-    end
-
+function estimate_sample_cov!(Σ::CovMat, x::T where T <: AbstractMatrix{Float64}, weights::T2 where T2 <: AbstractVector{<:Real}; μ::MeanVec)
     # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
     Σ .= 0.0
+    sum_w = 0.0
     for i in 1:size(x, 2)
+        w = fmax(weights[i], 0.01)
         for c in 1:size(Σ, 1)
             for r in 1:size(Σ, 1)
-                Σ[r, c] += (x[c, i] - μ[c]) * (x[r, i] - μ[r]) / size(x, 2)
+                Σ[r, c] += w * (x[c, i] - μ[c]) * (x[r, i] - μ[r])
             end
         end
+        sum_w += w
     end
 
+    Σ ./= sum_w
     return Σ
 end
 
-function maximize!(dist::MvNormalF, x::T)::MvNormalF where T <: AbstractArray{Float64,2}
+function maximize!(dist::MvNormalF, x::T, confidences::T2 where T2 <: AbstractVector{<:Real})::MvNormalF where T <: AbstractMatrix{Float64}
     if size(x, 2) == 0
         return dist
     end
 
-    # μ = [trim_mean(x[:,1], prop=0.2), trim_mean(x[:,2], prop=0.2)]
-    mean!(dist.μ, x)
+    wmean!(dist.μ, x, confidences)
     if size(x, 2) <= 2
         return dist
     end
 
-    # Σ = adjust_cov_matrix!(robust_cov(x; prop=0.1))
-    sample_cov!(dist.Σ, x; μ=dist.μ)
-
-    # if det(dist.Σ) ≈ 0
-    #     error("Singular covariance matrix")
-    # end
-
+    estimate_sample_cov!(dist.Σ, x, confidences; μ=dist.μ)
     return dist
 end
 
 isposdef(A::StaticMatrix) = LinearAlgebra.isposdef(cholesky(A))
 
-function adjust_cov_matrix!(Σ::T; max_iter::Int=100, cov_modifier::Float64=1e-4, tol=1e-10)::T where T <: Union{CovMat, Array{Float64, 2}}
+function adjust_cov_matrix!(Σ::T; max_iter::Int=100, cov_modifier::Float64=1e-4, tol=1e-10)::T where T <: Union{CovMat, Matrix{Float64}}
     if !issymmetric(Σ)
         error("Non-symmetric matrix: $Σ")
     end
