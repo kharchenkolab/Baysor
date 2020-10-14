@@ -1,8 +1,13 @@
+codecov: true
+coveralls: true
 language: julia
 julia:
   - 1.3.1
-  - 1.4.2
   - 1.5.2
+  - nightly
 
 script:
-  - julia -e 'using Pkg; Pkg.build(; verbose=true)';
+  - julia -e 'using Pkg; Pkg.build(; verbose=true); Pkg.test(coverage=true)';
+
+after_success:
+  - julia -e 'using Pkg; Pkg.add("Coverage"); using Coverage; Coveralls.submit(Coveralls.process_folder())'
