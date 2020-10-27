@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/kharchenkolab/Baysor.svg?branch=master)](https://travis-ci.com/github/kharchenkolab/Baysor)
+
 # Baysor
 
 **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
