@@ -3,9 +3,18 @@ language: julia
 julia:
   - 1.5.2
   - nightly
-
 script:
   - julia -e 'using Pkg; Pkg.build(; verbose=true); Pkg.test(coverage=true)';
-
 after_success:
   - julia -e 'using Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
+services:
+  - docker
+before_install:
+  - docker build -t vpetukhov/baysor ./docker
+deploy:
+  provider: script
+  script: bash .docker_push
+env:
+  global:
+  - secure: isUn7tYkjy54f8qrKQmmDxZ99vCkT0PNBgfGuN5CAH1AlpX2huhKFf7/RoWrRfWYBHMQAaBsFXPYz0FVJDyKPYrVm5NG/J0RhD6XGMUVKDGMLwGiai488RFYL+CwNT/3HsgHhks5rhBDOA78+Au8BGGNMEsorZcHaMaxbLlhr7kDkmiEpeqWu6Cfp48IGIbZ/QO4fnwUUxsx29PzkhI7czj85IlBXCGlNyPvBjdIbEfu3MT8FhTIJH2u70V8pCWCK6Z5nA6vI5c1nuqFN4eVuPWHzRWEXLJ4rTGzDTOkDfF8neqfY9DTdCEiOL95Ho6Hwn9WWmc46KyrCSzLnzlWqJBPgFIPBVttpqbo+U+BK+uYduNIApJDzsUq1wOYIVcSdTQB7+xhbRZ7MAir4gMgeJfhowsr+I+uQB3r2G+t3uZxw24IWC751/T8OdjaVB/ZN2BNYZwZNlEupKGQiiWfZkDrZzSdzzfvKWIhjzJz5bqyd7Hku4GQCoIFu8u90AwId538EU80qlfjuxzYEOW7HqjNyFToWRdv66YWaLO/mGmgVKFYG4pNHyf1fIRg0K5chkbc7F/6nCAzUUd2WI9yYNXhxE9LlgPYjHhoSdg5JIWn3jJyjTUrWNsj3gZF764iJMRq++az9Ozun93kJSkOhEYV1rsI4s+hzY8Og9jbDs4=
+  - secure: ThWfPWq5UmnSj0I4fRTH9F8ahwPoYclYqOYE32D0MGqzXTJPFmXyy80PaHnqo1TEaoUpq7+nDuQ8+0G0CnBLYeW/etPALS1htA4BeC8n1MhyHfLb1TRFDeAV15qP0IFLU2Czx9vR/H7BjY98s0oAn4n0ZCabDWTNs3H1p7i++5yYHXnDfJeBtAHu+4qffw7AuSzjAimNweUSjyACpWncGR4nxgVdIYEZfVSvLrl3EVd9ZgUkoQa/Y48yfYwwdOHdzo6IUbyLrXSL9fh2/FhzUCScOlHn28YOa5bwDuo7ARe3w0PJpoPITBblm5a0kFxfHqJpRg8wVw/ajklBcBX3YL3yGtbRqHmdcCic75uLS7RqdwW7m3a/kyAoqfMp7/nwtfUonw5R3DcMuelemIy84m1y/sr7JqosBmnhZpW9Bh8QC4TkFwwqDsFAo+3mA/pyIQU+fWKs3sLjwDUke/Z8WgWV9PwR78QHtdkhB8l+luVKwDq7spqg7sv1BvLOYAjoiwbxu7o2BP366nnHaXbBVNiChWBRFEqKJ62Fp0iSzj/T9/LTks3ZyRjedeUX9BDiaAaWsP/Wi8nNczsyu3NgJIpakANSy+/AfUS11iiWCy0y61PXArRffoCL/tr0jDh68K9ynoXroVL40Xg57/q0XmdiqamptsIuyjeYoOgV9Nc=
