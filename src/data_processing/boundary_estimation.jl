@@ -154,7 +154,9 @@ end
 function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Vector{T}, max_x::Vector{T};
         grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
-    coords_per_label = coords_per_label[size.(coords_per_label, 2) .>= min_molecules_per_cell];
+    filt_mask = (size.(coords_per_label, 2) .>= min_molecules_per_cell)
+    coords_per_label = coords_per_label[filt_mask];
+    cell_labels = (0:maximum(cell_labels))[filt_mask]
 
     if length(coords_per_label) == 0
         return Matrix{Int}(undef,0,0)
@@ -167,7 +169,7 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
     dens_mat = zeros(xw, yw);
 
     p = verbose ? Progress(length(coords_per_label)) : nothing
-    for ci in 1:length(coords_per_label)
+    for (ci, lab) in zip(1:length(coords_per_label), cell_labels)
         c_bandwidth = (ci == 1) ? bandwidth / 1.5 : bandwidth
         coords = coords_per_label[ci]
         sxi = max(floor(Int, (minimum(coords[1,:]) - min_x[1] - 3 * c_bandwidth) / grid_step), 1);
@@ -195,7 +197,7 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
                 d = dens[dxi, dyi] * size(coords, 2)
                 if (d > dens_threshold) && (d > dens_mat[xi, yi])
                     dens_mat[xi, yi] = d
-                    label_mat[xi, yi] = ci - 1
+                    label_mat[xi, yi] = lab
                 end
             end
         end
