@@ -114,7 +114,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             action = :store_true
 
         "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
+            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
             arg_type = Float64
         "--prior-segmentation-confidence"
             help = "Confidence of the `prior_segmentation` results. Value in [0; 1]. If you want the final segmentation not contradicting to prior_segmentation, set it to 1. Otherwise, if you assume errors in prior_segmentation, values in [0.2-0.7] allow flexibility for the algorithm."
