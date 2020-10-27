@@ -13,3 +13,4 @@
 
 - Updated dependencies
 - `find_grid_point_labels_kde` now preserves label ids
+- Fixed docker build
