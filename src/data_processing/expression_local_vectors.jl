@@ -3,7 +3,7 @@ using Base.Threads
 neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
-function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::Vector{Int}, k::Int;
+function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int}, k::Int;
     n_genes::Int=maximum(genes), normalize_by_dist::Bool=true, normalize::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
@@ -32,7 +32,7 @@ function neighborhood_count_matrix(pos_data::Matrix{T} where T <: Real, genes::V
         return n_cm
     end
 
-    # normalize_by_dist doesn't affect result much, but neither it slow the work down. In theory, should work better for border cases.
+    # normalize_by_dist doesn't affect result much, but neither it slows the work down. In theory, should work better for border cases.
     med_closest_dist = median([d[d .> 1e-15][1] for d in dists if any(d .> 1e-15)]) # account for problems with points with duplicating coordinates
     @threads for (i,(ids, dists)) in collect(enumerate(zip(neighbors, dists)))
         c_probs = view(n_cm, :, i)
@@ -47,7 +47,7 @@ end
 truncate_pca(pca::MultivariateStats.PCA, outdim::Int) =
     MultivariateStats.PCA(pca.mean, pca.proj[:, 1:outdim], pca.prinvars[1:outdim], pca.tvar)
 
-function gene_composition_transformation(count_matrix::Array{Float64, 2}, confidence::Vector{Float64}=ones(size(count_matrix, 2));
+function gene_composition_transformation(count_matrix::Matrix{Float64}, confidence::Vector{Float64}=ones(size(count_matrix, 2));
         sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, return_all::Bool=false, n_pcs::Int=15, kwargs...)
     sample_size = min(sample_size, size(count_matrix, 2))
     Random.seed!(seed)
@@ -107,4 +107,11 @@ function gene_composition_colors!(embedding::Matrix{Float64}; lrange::Tuple{<:Re
     embedding[2:3,:] .*= 200
 
     return vec(mapslices(col -> Colors.Lab(col...), embedding, dims=1))
+end
+
+function gene_composition_colors(df_spatial::T where T <: AbstractDataFrame, k::Int; kwargs...)
+    neighb_cm = neighborhood_count_matrix(df_spatial, k);
+    confidence = (:confidence in propertynames(df_spatial)) ? df_spatial.confidence : ones(size(df_spatial, 1))
+    transformation = gene_composition_transformation(neighb_cm, confidence)
+    return gene_composition_colors(neighb_cm, transformation; kwargs...)
 end

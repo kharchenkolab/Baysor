@@ -217,9 +217,7 @@ end
 
 function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, args::Dict; clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1})
     @info "Estimating local colors"
-    neighb_cm = neighborhood_count_matrix(df_res, args["gene-composition-neigborhood"]);
-    transformation = gene_composition_transformation(neighb_cm, df_res.confidence)
-    gene_colors = gene_composition_colors(neighb_cm, transformation)
+    gene_colors = gene_composition_colors(df_res, args["gene-composition-neigborhood"])
 
     @info "Plot transcript assignment"
     grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
@@ -241,6 +239,42 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{I
             show(io, MIME("text/html"), clust_plot)
         end
     end
+end
+
+function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
+    if args["prior_segmentation"][1] == ':'
+        # TODO: use min-transcripts-per-center parameter here to filter small segments
+        prior_segmentation = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
+        if args["scale"] === nothing
+            println("`scale` must be provided if you use prior segmentation as a CSV column")
+            exit(1)
+        end
+        # TODO: estimate scale
+
+        return prior_segmentation, Matrix{Float64}[], args["scale"], args["scale-std"]
+    end
+
+    @info "Loading segmentation mask..."
+
+    # TODO: use min-transcripts-per-center parameter and filter_segmentation_labels here to filter small segments
+    prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
+    GC.gc()
+    prior_segmentation = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
+
+    scale, scale_std = args["scale"], args["scale-std"]
+    if args["estimate-scale-from-centers"]
+        # TODO: use min-transcripts-per-center parameter here
+        min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
+        filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
+        scale, scale_std = estimate_scale_from_centers(prior_seg_labels)
+    end
+    @info "Done"
+
+    @info "Estimating prior segmentation polygons..."
+    prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
+    @info "Done"
+
+    return prior_segmentation, prior_polygons, scale, scale_std
 end
 
 function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
@@ -289,34 +323,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
-        if args["prior_segmentation"][1] == ':'
-            # TODO: use min-transcripts-per-center parameter here to filter small segments
-            df_spatial[!, :prior_segmentation] = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
-            if args["scale"] === nothing
-                println("`scale` must be provided if you use prior segmentation as a CSV column")
-                exit(1)
-            end
-            # TODO: estimate scale
-        else
-            @info "Loading segmentation mask..."
-
-            # TODO: use min-transcripts-per-center parameter and filter_segmentation_labels here to filter small segments
-            prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
-            GC.gc()
-            df_spatial[!, :prior_segmentation] = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
-
-            if args["estimate-scale-from-centers"]
-                # TODO: use min-transcripts-per-center parameter here
-                min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
-                filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
-                args["scale"], args["scale-std"] = estimate_scale_from_centers(prior_seg_labels)
-            end
-            @info "Done"
-
-            @info "Estimating prior segmentation polygons..."
-            prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
-            @info "Done"
-        end
+        df_spatial[!, :prior_segmentation], prior_polygons, args["scale"], args["scale-std"] = load_prior_segmentation(df_spatial, args)
     end
     GC.gc()
 
@@ -330,14 +337,8 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     max_diffs, change_fracs = nothing, nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
-        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2]; # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
-        for i in 1:length(adjacent_weights)
-            cur_points = adjacent_points[i]
-            cur_weights = adjacent_weights[i]
-            for j in 1:length(cur_weights)
-                cur_weights[j] *= df_spatial.confidence[cur_points[j]]
-            end
-        end
+        # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
+        adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
 
         mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
             n_clusters=args["n-clusters"], weights_pre_adjusted=true)
@@ -370,7 +371,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     cm = convert_segmentation_to_counts(composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
     count_str = join(names(cm), "\t") * "\n" * join([join(["$v" for v in r], '\t') for r in eachrow(cm)], '\n');
-    open(append_suffix(args["output"], "counts.tsv"), "w") do f print(f, count_str) end
+    open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
@@ -472,11 +473,8 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
 
-    neighb_cm = neighborhood_count_matrix(df_spatial, args["gene-composition-neigborhood"]);
-    color_transformation = gene_composition_transformation(neighb_cm, confidences);
-
     @info "Estimating local colors"
-    gene_colors = gene_composition_colors(neighb_cm, color_transformation)
+    gene_colors = gene_composition_colors(df_spatial, args["gene-composition-neigborhood"])
 
     @info "Building transcript plots"
     gc_plot = plot_dataset_colors(df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],

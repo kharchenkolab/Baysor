@@ -141,6 +141,23 @@ function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3
     return adjacent_points, adjacent_weights, adjacent_dists
 end
 
+function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::Union{Vector{Float64}, Symbol}; kwargs...)
+    if typeof(vertex_weights) <: Symbol
+        vertex_weights = df_spatial[!, vertex_weights]
+    end
+
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; kwargs...)
+    for i in 1:length(adjacent_weights)
+        cur_points = adjacent_points[i]
+        cur_weights = adjacent_weights[i]
+        for j in 1:length(cur_weights)
+            cur_weights[j] *= vertex_weights[cur_points[j]]
+        end
+    end
+
+    return adjacent_points, adjacent_weights
+end
+
 function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
     df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
 
