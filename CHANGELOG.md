@@ -2,7 +2,8 @@
 
 ### Added
 
-- added travis config
+- Added travis config
+- Saving NCV colors to the `ncv_color` field of *segmentation.csv*
 
 ### Removed
 

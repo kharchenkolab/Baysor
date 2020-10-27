@@ -5,6 +5,7 @@ using Distributed
 using ProgressMeter
 using Statistics
 
+import Colors
 import CSV
 import Pkg
 import Pkg.TOML
@@ -215,9 +216,12 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
     end
 end
 
-function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Array{Int, 1}, args::Dict; clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1})
-    @info "Estimating local colors"
-    gene_colors = gene_composition_colors(df_res, args["gene-composition-neigborhood"])
+function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{Int}, args::Dict;
+        clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1}, gene_colors::Union{Vector{<:Colors.ColorTypes.Color}, Nothing}=nothing)
+    if gene_colors === nothing
+        @info "Estimating local colors"
+        gene_colors = gene_composition_colors(df_res, args["gene-composition-neigborhood"])
+    end
 
     @info "Plot transcript assignment"
     grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
@@ -365,6 +369,10 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
+    @info "Estimating local colors"
+    gene_colors = gene_composition_colors(bm_data.x, args["gene-composition-neigborhood"])
+    segmentated_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
+
     @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
@@ -374,8 +382,9 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, bm_data.assignment, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons)
+        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
+        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
+            gene_colors=gene_colors)
     end
 
     @info "All done!"

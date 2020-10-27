@@ -157,10 +157,11 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
 - *segmentation_params.dump*: aggregated parameters from the config and CLI
 - *segmentation.csv*: segmentation info per molecule:
   - `confidence`: probability of a molecule to be real (i.e. not noise)
-  - `cell`: id of the assigned cell. Value "0" correspond to noise.
+  - `cell`: id of the assigned cell. Value "0" corresponds to noise.
   - `cluster`: id of molecule cluster
   - `assignment_confidence`: confidence that the molecule is assigned to a correct cell
   - `is_noise`: shows whether molecule was assigned to noise (it's equal "true" if and only if "cell" == 0)
+  - `ncv_color`: RGB code of the neighborhood composition coloring
 
 #### Choice of parameters
 
