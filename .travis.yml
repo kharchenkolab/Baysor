@@ -10,10 +10,14 @@ after_success:
 services:
   - docker
 before_install:
-  - docker build -t vpetukhov/baysor ./docker
+  - docker build -t "vpetukhov/baysor:$TRAVIS_BRANCH" ./docker
 deploy:
   provider: script
   script: bash .docker_push
+  on:
+    branch:
+      - master
+      - develop
 env:
   global:
   - secure: isUn7tYkjy54f8qrKQmmDxZ99vCkT0PNBgfGuN5CAH1AlpX2huhKFf7/RoWrRfWYBHMQAaBsFXPYz0FVJDyKPYrVm5NG/J0RhD6XGMUVKDGMLwGiai488RFYL+CwNT/3HsgHhks5rhBDOA78+Au8BGGNMEsorZcHaMaxbLlhr7kDkmiEpeqWu6Cfp48IGIbZ/QO4fnwUUxsx29PzkhI7czj85IlBXCGlNyPvBjdIbEfu3MT8FhTIJH2u70V8pCWCK6Z5nA6vI5c1nuqFN4eVuPWHzRWEXLJ4rTGzDTOkDfF8neqfY9DTdCEiOL95Ho6Hwn9WWmc46KyrCSzLnzlWqJBPgFIPBVttpqbo+U+BK+uYduNIApJDzsUq1wOYIVcSdTQB7+xhbRZ7MAir4gMgeJfhowsr+I+uQB3r2G+t3uZxw24IWC751/T8OdjaVB/ZN2BNYZwZNlEupKGQiiWfZkDrZzSdzzfvKWIhjzJz5bqyd7Hku4GQCoIFu8u90AwId538EU80qlfjuxzYEOW7HqjNyFToWRdv66YWaLO/mGmgVKFYG4pNHyf1fIRg0K5chkbc7F/6nCAzUUd2WI9yYNXhxE9LlgPYjHhoSdg5JIWn3jJyjTUrWNsj3gZF764iJMRq++az9Ozun93kJSkOhEYV1rsI4s+hzY8Og9jbDs4=
