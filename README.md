@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.com/kharchenkolab/Baysor.svg?branch=master)](https://travis-ci.com/github/kharchenkolab/Baysor)
+[![codecov](https://codecov.io/gh/kharchenkolab/Baysor/branch/master/graph/badge.svg?token=12AE1N3DY4)](undefined)
 
 # Baysor
 
