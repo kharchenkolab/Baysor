@@ -391,10 +391,10 @@ uuid = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 version = "0.13.6"
 
 [[HDF5_jll]]
-deps = ["Libdl", "Pkg", "Zlib_jll"]
-git-tree-sha1 = "3dbc683172cb53428907485a4bb98a29d3874083"
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "bc9c3d43ffd4d8988bfa372b86d4bdbd26860e95"
 uuid = "0234f1f7-429e-5d53-9886-15a909be8d59"
-version = "1.10.5+6"
+version = "1.10.5+7"
 
 [[HTTP]]
 deps = ["Base64", "Dates", "IniFile", "MbedTLS", "Sockets"]
@@ -437,6 +437,18 @@ deps = ["CatIndices", "ColorVectorSpace", "ComputationalResources", "DataStructu
 git-tree-sha1 = "5cf89e8458e8e7731a3fff4fe356c52279408bd0"
 uuid = "6a3955dd-da59-5b1f-98d4-e7296123deb5"
 version = "0.6.17"
+
+[[ImageMagick]]
+deps = ["FileIO", "ImageCore", "ImageMagick_jll", "InteractiveUtils", "Libdl", "Pkg", "Random"]
+git-tree-sha1 = "02558f83932fde6ebd3ab007dbff6bd8740a8247"
+uuid = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
+version = "1.1.6"
+
+[[ImageMagick_jll]]
+deps = ["JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pkg", "Zlib_jll", "libpng_jll"]
+git-tree-sha1 = "1c0a2295cca535fabaf2029062912591e9b61987"
+uuid = "c73af94c-d91f-53ed-93a7-00f77d67a9d7"
+version = "6.9.10-12+3"
 
 [[ImageMetadata]]
 deps = ["AxisArrays", "ColorVectorSpace", "ImageAxes", "ImageCore", "IndirectArrays"]
@@ -545,6 +557,12 @@ git-tree-sha1 = "81690084b6198a2e1da36fcfda16eeca9f9f24e4"
 uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.1"
 
+[[JpegTurbo_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "9aff0587d9603ea0de2c6f6300d9f9492bbefbd3"
+uuid = "aacddb02-875f-59d6-b918-886e6ef4fbf8"
+version = "2.0.1+3"
+
 [[KernelDensity]]
 deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "StatsBase"]
 git-tree-sha1 = "2fdea3992af1bd7a90535d2937555d7b69d5e5ee"
@@ -580,6 +598,12 @@ version = "1.9.0+1"
 
 [[Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+
+[[Libtiff_jll]]
+deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Pkg", "Zlib_jll", "Zstd_jll"]
+git-tree-sha1 = "291dd857901f94d683973cdf679984cdf73b56d0"
+uuid = "89763e89-9b03-5906-acba-b20f662cd828"
+version = "4.1.0+2"
 
 [[LightGraphs]]
 deps = ["ArnoldiMethod", "DataStructures", "Distributed", "Inflate", "LinearAlgebra", "Random", "SharedArrays", "SimpleTraits", "SparseArrays", "Statistics"]
@@ -1068,6 +1092,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "7a5780a0d9c6864184b3a2eeeb833a0c871f00ab"
 uuid = "f638f0a6-7fb0-5443-88ba-1cc74229b280"
 version = "0.1.6+4"
+
+[[libpng_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "6abbc424248097d69c0c87ba50fcb0753f93e0ee"
+uuid = "b53b4c65-9356-5827-b1ea-8c7a1a84506f"
+version = "1.6.37+6"
 
 [[libvorbis_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Ogg_jll", "Pkg"]
