@@ -269,7 +269,7 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     if args["estimate-scale-from-centers"]
         # TODO: use min-transcripts-per-center parameter here
         min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
-        filter_segmentation_labels!(prior_seg_labels, df_spatial.prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
+        filter_segmentation_labels!(prior_seg_labels, prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
         scale, scale_std = estimate_scale_from_centers(prior_seg_labels)
     end
     @info "Done"
@@ -311,7 +311,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Run algorithm
 
-    @info "Run Baysor v$(Pkg.installed()["Baysor"])"
+    @info "Run Baysor v$(Pkg.dependencies()[Base.UUID("cc9f9468-1fbe-11e9-0acf-e9460511877c")].version)"
     @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=false)
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
