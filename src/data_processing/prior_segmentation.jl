@@ -3,6 +3,7 @@ using NearestNeighbors
 using SparseArrays
 using StatsBase
 
+import ImageMagick
 import Images
 import MAT
 
@@ -20,7 +21,7 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
-    labels = Images.load(path) |> Images.channelview |> Images.rawview |> sparse |> dropzeros!
+    labels = ImageMagick.load(path) |> Images.channelview |> Images.rawview |> sparse |> dropzeros!
     if length(unique(nonzeros(labels))) == 1
         return BitMatrix(labels) |> Images.label_components |> sparse
     end
