@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y build-essential
 
 ## Jupyter
 
-RUN apt-get install -y python3 python3-pip
+RUN apt-get install -y python3 python3-pip vim
 
 RUN pip3 install jupyterlab numpy scipy matplotlib seaborn pandas sklearn scikit-image \
         jupyter_contrib_nbextensions jupyter_nbextensions_configurator jupyterthemes
