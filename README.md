@@ -73,7 +73,7 @@ Alternatively, you can use Docker. It contains executable `baysor` to run Baysor
 The [repo](https://hub.docker.com/r/vpetukhov/baysor) also has images for older versions.
 
 ```bash
-docker run -it --rm vpetukhov/baysor:latest
+docker run -it --rm vpetukhov/baysor:master
 ```
 
 Build by hands:
