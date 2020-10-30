@@ -5,6 +5,7 @@
 
 **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
+- [News ([0.4.1] — 2020-10-30)](#news-041--2020-10-30)
 - [Abstract](#abstract)
   - [Method description](#method-description)
 - [Installation](#installation)
@@ -19,6 +20,14 @@
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
     - [Multi-threading](#multi-threading)
+
+## News ([0.4.1] — 2020-10-30)
+
+- Saving NCV colors to the `ncv_color` field of *segmentation.csv*
+- Dropped support for julia < 1.5
+- Fixed docker build
+
+*See the [changelog](CHANGELOG.md) for more detalis.*
 
 ## Abstract
 

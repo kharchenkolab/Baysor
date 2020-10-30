@@ -1,4 +1,4 @@
-## Upcoming
+## [0.4.1] — 2020-10-30
 
 ### Added
 
@@ -15,4 +15,3 @@
 - `find_grid_point_labels_kde` now preserves label ids
 - Fixed docker build
 - Added ImageMagick dependency to fix problems with DAPI prior
-
