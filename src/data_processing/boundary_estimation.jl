@@ -1,5 +1,6 @@
-import LightGraphs
 import FFTW
+import ImageMorphology
+import LightGraphs
 
 using DataFrames
 using SimpleWeightedGraphs
@@ -151,7 +152,7 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
     return polygon_inds
 end
 
-function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Vector{T}, max_x::Vector{T};
+function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Union{Vector{T}, Tuple{T, T}}, max_x::Union{Vector{T}, Tuple{T, T}};
         grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
     filt_mask = (size.(coords_per_label, 2) .>= min_molecules_per_cell)
@@ -207,7 +208,7 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
         end
     end
 
-    return label_mat
+    return ImageMorphology.closing(label_mat)
 end
 
 function extract_polygons_from_label_grid(grid_labels::Matrix{<:Integer}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
