@@ -162,7 +162,7 @@ function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol
     df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
 
     gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
-    large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .> min_molecules_per_gene]);
+    large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .>= min_molecules_per_gene]);
     df_spatial = df_spatial[in.(df_spatial[!, :gene], Ref(large_genes)),:];
 
     df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
@@ -209,7 +209,7 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
     end
 
     ## Initialize BmmData array
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #clusters: $n_cells_init."
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init."
     size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
 
     bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
