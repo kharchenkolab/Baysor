@@ -27,7 +27,7 @@ function grid_borders_per_label(grid_labels::Matrix{<:Integer})
 
                 if (n_row < 1) || (n_col < 1) || (n_row > size(grid_labels, 1)) || (n_col > size(grid_labels, 2)) ||
                         (grid_labels[n_row, n_col] != cur_label)
-                    push!(borders_per_label[cur_label], [row, col])
+                    push!(borders_per_label[cur_label], [col, row])
                     break
                 end
             end
@@ -166,8 +166,8 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
     FFTW.set_num_threads(1); # see https://github.com/JuliaStats/KernelDensity.jl/issues/80
 
     xw, yw = ceil.(Int, (max_x .- min_x) ./ grid_step)
-    label_mat = zeros(Int, xw, yw);
-    dens_mat = zeros(xw, yw);
+    label_mat = zeros(Int, yw, xw);
+    dens_mat = zeros(yw, xw);
 
     p = verbose ? Progress(length(coords_per_label)) : nothing
     for (ci, lab) in zip(1:length(coords_per_label), cell_labels)
@@ -182,23 +182,23 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
         cxs = (sxi * grid_step + min_x[1]):grid_step:ex;
         cys = (syi * grid_step + min_x[2]):grid_step:ey;
 
-        dens = kde((coords[1,:], coords[2,:]), (cxs, cys), bandwidth=(c_bandwidth, c_bandwidth)).density
+        dens = kde((coords[2,:], coords[1,:]), (cys, cxs), bandwidth=(c_bandwidth, c_bandwidth)).density
 
         for dyi in 1:length(cys)
             yi = dyi + syi
-            if yi > size(dens_mat, 2)
+            if yi > size(dens_mat, 1)
                 break
             end
 
             for dxi in 1:length(cxs)
                 xi = dxi + sxi
-                if xi > size(dens_mat, 1)
+                if xi > size(dens_mat, 2)
                     break
                 end
-                d = dens[dxi, dyi] * size(coords, 2)
-                if (d > dens_threshold) && (d > dens_mat[xi, yi])
-                    dens_mat[xi, yi] = d
-                    label_mat[xi, yi] = lab
+                d = dens[dyi, dxi] * size(coords, 2)
+                if (d > dens_threshold) && (d > dens_mat[yi, xi])
+                    dens_mat[yi, xi] = d
+                    label_mat[yi, xi] = lab
                 end
             end
         end

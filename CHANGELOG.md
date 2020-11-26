@@ -4,6 +4,7 @@
 
 - Small bug fixes
 - `min-molecules-per-segment` parameter is working now
+- Fixed visualization of prior segmentation
 
 ## [0.4.2] — 2020-11-26
 
