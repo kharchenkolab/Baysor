@@ -41,7 +41,9 @@ RUN julia -e 'using Pkg; Pkg.add("IJulia"); Pkg.build(); using IJulia;'
 
 RUN julia -e 'using Pkg; Pkg.add("PackageCompiler")'
 RUN julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git")); Pkg.build(); using Baysor;'
-RUN julia -e 'using PackageCompiler; import Baysor; create_sysimage(:Baysor; precompile_execution_file="$(dirname(pathof(Baysor)))/../bin/build.jl", replace_default=true)'
+
+# See https://discourse.julialang.org/t/sysimage-incompatible-between-intel-and-amd-x86-64/42716/2 for cpu_target flags
+RUN julia -e 'using PackageCompiler; import Baysor; create_sysimage(:Baysor; precompile_execution_file="$(dirname(pathof(Baysor)))/../bin/build.jl", replace_default=true, cpu_target="generic")'
 
 RUN \
     echo "#!/usr/bin/env julia\n\nimport Baysor\nBaysor.run_cli()" >> /bin/baysor && \
