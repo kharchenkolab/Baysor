@@ -31,7 +31,7 @@
 
 ## Abstract
 
-Spatial transcriptomics is an emerging stack of technologies, which adds spatial dimension to conventional single-cell RNA-sequencing. New protocols, based on in situ sequencing or multiplexed RNA fluorescent in situ hybridization register positions of single molecules in fixed tissue slices. Analysis of such data at the level of individual cells, however, requires accurate identification of cell boundaries. While many existing methods are able to approximate cell center positions using nuclei stains, current protocols do not report robust signal on the cell membranes, making accurate cell segmentation a key barrier for downstream analysis and interpretation of the data. To address this challenge, we developed a tool for **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data (Baysor), which optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The Bayesian approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected transcripts alone. We show that Baysor segmentation can in some cases nearly double the number of the identified cells, while reducing contamination. Importantly, we demonstrate that Baysor performs well on data acquired using five different spatially-resolved protocols, making it a useful general tool for analysis of high-resolution spatial data.
+Spatial transcriptomics is an emerging stack of technologies, which adds spatial dimension to conventional single-cell RNA-sequencing. New protocols, based on in situ sequencing or multiplexed RNA fluorescent in situ hybridization register positions of single molecules in fixed tissue slices. Analysis of such data at the level of individual cells, however, requires accurate identification of cell boundaries. While many existing methods are able to approximate cell center positions using nuclei stains, current protocols do not report robust signal on the cell membranes, making accurate cell segmentation a key barrier for downstream analysis and interpretation of the data. To address this challenge, we developed a tool for **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data (Baysor), which optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The Bayesian approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected molecules alone. We show that Baysor segmentation can in some cases nearly double the number of the identified cells, while reducing contamination. Importantly, we demonstrate that Baysor performs well on data acquired using five different spatially-resolved protocols, making it a useful general tool for analysis of high-resolution spatial data.
 
 ### Method description
 
@@ -100,7 +100,7 @@ baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH]
 
 Here:
 
-- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each transcript
+- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each molecule
 - Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
 - OUTPUT_PATH determines path to the output html file with the diagnostic plots
 
@@ -118,7 +118,7 @@ baysor run [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES
 
 Here:
 
-- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each transcript
+- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each molecule
 - PRIOR_SEGMENTATION is optional molecule segmentation obtrained from other method (see [Using prior segmentation](#using-prior-segmentation))
 - Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly.
 - SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x" and "y". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
@@ -141,9 +141,11 @@ In some cases, you may want to use another segmentation as a prior for Baysor. T
 baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
-Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you must use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels.
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`.
 
 To specify expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential usecase is high-quality data with visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
+
+##### Segmenting DAPI with ImageJ
 
 If you have a non-segmented DAPI image, the simplest way to segment it would go through the following steps [ImageJ](https://fiji.sc/):
 1. Open the image (File -> Open)
@@ -161,7 +163,7 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
   - `avg_confidence`: average confidence of the cell molecules
   - `density`: cell area divided by the number of molecules in cell
   - `elongation`: ration of the two eigenvalues of the cell covariance matrix
-  - `n_transcripts`: number of transcripts per cell
+  - `n_transcripts`: number of molecules per cell
 - *segmentation_config.toml*: copy of the config to improve reproducibility
 - *segmentation_params.dump*: aggregated parameters from the config and CLI
 - *segmentation.csv*: segmentation info per molecule:

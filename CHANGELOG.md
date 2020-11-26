@@ -1,3 +1,10 @@
+## Upcoming
+
+### Fixed
+
+- Small bug fixes
+- `min-molecules-per-segment` parameter is working now
+
 ## [0.4.2] — 2020-11-26
 
 ### Changed

@@ -50,6 +50,9 @@ function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
     return estimate_scale_from_centers(sqrt.(filter(x -> x > 0, count_array(nz_vals)) ./ π))
 end
 
+filter_segmentation_labels!(segment_per_transcript::Vector{<:Integer}; kwargs...) =
+    filter_segmentation_labels!(segment_per_transcript, segment_per_transcript; kwargs...)[1]
+
 filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractMatrix{<:Integer}, df_spatial::DataFrame; quiet::Bool=false, kwargs...) =
     filter_segmentation_labels!(segmentation_labels, staining_value_per_transcript(df_spatial, segmentation_labels, quiet=quiet); kwargs...)
 
@@ -59,14 +62,17 @@ function filter_segmentation_labels!(segmentation_labels::SparseMatrixCSC{<:Inte
     return segmentation_labels
 end
 
-function filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractArray{<:Integer}, segment_per_transcript::Vector{<:Integer}; min_transcripts_per_segment::Int)
+function filter_segmentation_labels!(segmentation_labels::MT where MT <: AbstractArray{<:Integer}, segment_per_transcript::Vector{<:Integer}; min_molecules_per_segment::Int)
     n_mols_per_label = count_array(segment_per_transcript, max_value=maximum(segmentation_labels), drop_zero=true)
 
-    for i in 1:length(segmentation_labels)
-        lab = segmentation_labels[i]
-        if (lab > 0) && (n_mols_per_label[lab] < min_transcripts_per_segment)
-            segmentation_labels[i] = 0
+    for labs in (segmentation_labels, segment_per_transcript)
+        for i in 1:length(labs)
+            lab = labs[i]
+            if (lab > 0) && (n_mols_per_label[lab] < min_molecules_per_segment)
+                labs[i] = 0
+            end
         end
     end
-    return segmentation_labels
+
+    return (segmentation_labels, segment_per_transcript)
 end

@@ -19,7 +19,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
 
     min_molecules_per_cell = max(min_molecules_per_cell, 3)
 
-    if param == :min_transcripts_per_segment
+    if param == :min_molecules_per_segment
         return max(round(Int, min_molecules_per_cell / 4), 2)
     end
 

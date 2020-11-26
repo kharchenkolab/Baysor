@@ -27,7 +27,7 @@ function get_default_config()
             "estimate-scale-from-centers" => true,
             "scale" => nothing,
             "scale-std" => "25%",
-            "min-transcripts-per-center" => nothing
+            "min-molecules-per-segment" => nothing
         ),
         "Sampling" => Dict{String, Any}(
             "new-component-weight" => 0.2,
@@ -123,7 +123,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             default = 0.2
 
         "coordinates"
-            help = "CSV file with coordinates of transcripts and gene type"
+            help = "CSV file with coordinates of molecules and gene type"
             required = true
         "prior_segmentation"
             help = "Image or a MAT file with segmentation mask (either boolean or component indexing) or CSV column with integer segmentation labels. If it's the column name, it should be preceded ':' symbol (e.g. :cell)"
@@ -157,8 +157,8 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         exit(1)
     end
 
-    if r["min-transcripts-per-center"] === nothing
-        r["min-transcripts-per-center"] = default_param_value(:min_transcripts_per_center, r["min-molecules-per-cell"])
+    if r["min-molecules-per-segment"] === nothing
+        r["min-molecules-per-segment"] = default_param_value(:min_molecules_per_segment, r["min-molecules-per-cell"])
     end
 
     if isdir(r["output"]) || isdirpath(r["output"])
@@ -247,8 +247,8 @@ end
 
 function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     if args["prior_segmentation"][1] == ':'
-        # TODO: use min-transcripts-per-center parameter here to filter small segments
         prior_segmentation = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
+        filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=args["min-molecules-per-segment"])
         if args["scale"] === nothing
             println("`scale` must be provided if you use prior segmentation as a CSV column")
             exit(1)
@@ -260,16 +260,13 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
 
     @info "Loading segmentation mask..."
 
-    # TODO: use min-transcripts-per-center parameter and filter_segmentation_labels here to filter small segments
     prior_seg_labels = load_segmentation_mask(args["prior_segmentation"])
-    GC.gc()
     prior_segmentation = Int.(staining_value_per_transcript(df_spatial, prior_seg_labels));
+    filter_segmentation_labels!(prior_seg_labels, prior_segmentation; min_molecules_per_segment=args["min-molecules-per-segment"])
+    GC.gc()
 
     scale, scale_std = args["scale"], args["scale-std"]
     if args["estimate-scale-from-centers"]
-        # TODO: use min-transcripts-per-center parameter here
-        min_transcripts_per_segment = default_param_value(:min_transcripts_per_segment, args["min-molecules-per-cell"])
-        filter_segmentation_labels!(prior_seg_labels, prior_segmentation; min_transcripts_per_segment=min_transcripts_per_segment)
         scale, scale_std = estimate_scale_from_centers(prior_seg_labels)
     end
     @info "Done"

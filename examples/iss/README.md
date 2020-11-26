@@ -14,7 +14,7 @@ And either download raw data and pre-process it, or download already pre-process
 
 ### Preprocessing raw data
 
-In this example we used "3-3" section. So, you need to download "pciSeq_3-3_right.mat" file ("pciSeq_3-3_left.mat" works as well, because they have the same set of transcripts) and the corresponding DAPI ("DAPI_3-3.jpg"). To convert .mat file to the compatible csv format, you need to define ISS class (download [the file](https://github.com/kdharris101/iss/blob/a2fab5ec452d447f5b8adfde5a3d85be49aa25be/%40iss/iss.m) and run `run("iss.m")` inside your MATLAB session. After that, run the following code:
+In this example we used "3-3" section. So, you need to download "pciSeq_3-3_right.mat" file ("pciSeq_3-3_left.mat" works as well, because they have the same set of molecules) and the corresponding DAPI ("DAPI_3-3.jpg"). To convert .mat file to the compatible csv format, you need to define ISS class (download [the file](https://github.com/kdharris101/iss/blob/a2fab5ec452d447f5b8adfde5a3d85be49aa25be/%40iss/iss.m) and run `run("iss.m")` inside your MATLAB session. After that, run the following code:
 
 ```matlab
 load("pciSeq_3-3_right.mat")
@@ -30,7 +30,7 @@ T = table(x, y, gene, is_combinatorial, intensity, score);
 writetable(T, "pciSeq_3-3.csv");
 ```
 
-<!-- 
+<!--
 [P,I] = max(o.pSpotCell, [], 2) - put cell assignment to I
 o.CellYX - cell centers
 But these are subset of CA1 section (right and left correspondingly).

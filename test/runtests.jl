@@ -108,6 +108,29 @@ end
                 @test all(length.(adj_points) .== length.(unique.(adj_points)))
             end
         end
+
+        @testset "filter_segmentation" begin
+            labels = [1 2 3; 1 2 4; 5 2 7];
+            position_data = hcat(vec([[id[1], id[2]] for id in CartesianIndices(labels)])...)
+            df_spatial = DataFrame(:x => position_data[1,:], :y => position_data[2,:])
+            assignment = B.staining_value_per_transcript(df_spatial, labels)
+
+            expected_results = [
+                labels,
+                labels,
+                [1 2 0; 1 2 0; 0 2 0],
+                [0 2 0; 0 2 0; 0 2 0],
+                [0 0 0; 0 0 0; 0 0 0]
+            ]
+            for m in 0:4
+                l, ta = B.filter_segmentation_labels!(deepcopy(labels), deepcopy(assignment), min_molecules_per_segment=m)
+                @test all(l .== expected_results[m + 1])
+
+                a = B.filter_segmentation_labels!(deepcopy(assignment), min_molecules_per_segment=m)
+                @test all(a .== B.staining_value_per_transcript(df_spatial, l))
+                @test all(a .== ta)
+            end
+        end
     end
 
     @testset "bmm_algorithm" begin
