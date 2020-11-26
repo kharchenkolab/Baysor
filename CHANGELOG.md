@@ -1,11 +1,3 @@
-## Upcoming
-
-### Fixed
-
-- Small bug fixes
-- `min-molecules-per-segment` parameter is working now
-- Fixed visualization of prior segmentation
-
 ## [0.4.2] — 2020-11-26
 
 ### Changed
@@ -14,6 +6,9 @@
 - Improved polygon visualization
 - Regressed to Plots 1.6.0 because of the performance issues
 - Fixed docker build
+- Small bug fixes
+- `min-molecules-per-segment` parameter is working now
+- Fixed visualization of prior segmentation
 
 ## [0.4.1] — 2020-10-30
 
