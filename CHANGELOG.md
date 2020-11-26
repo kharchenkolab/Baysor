@@ -1,3 +1,12 @@
+## Upcoming
+
+### Changed
+
+- Fixed Makefile julia version
+- Improved polygon visualization
+- Regressed to Plots 1.6.0 because of the performance issues
+- Fixed docker build
+
 ## [0.4.1] — 2020-10-30
 
 ### Added
