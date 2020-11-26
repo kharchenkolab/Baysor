@@ -546,6 +546,8 @@ end
 
 ## All
 
+run_cli(args::String) = run_cli(String.(Base.split(args)))
+
 function run_cli(args::Vector{String}=ARGS)::Cint
     help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
 
