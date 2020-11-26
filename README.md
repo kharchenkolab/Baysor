@@ -5,7 +5,7 @@
 
 **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
-- [News ([0.4.1] — 2020-10-30)](#news-041--2020-10-30)
+- [News ([0.4.2] — 2020-11-26)](#news-042--2020-11-26)
 - [Abstract](#abstract)
   - [Method description](#method-description)
 - [Installation](#installation)
