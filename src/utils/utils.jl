@@ -333,3 +333,22 @@ function wmean_std(values::Vector{T0} where T0 <: Real, weights::T1 where T1 <: 
 
     return m, sqrt(s / ws)
 end
+
+function upscale(image::T where T <: AbstractMatrix{TR}, ratio::Int64) where TR <: Real
+    res_img = zeros(TR, size(image) .* ratio)
+    ct = 1
+    for c in 1:size(image, 2)
+        for m1 in 1:ratio
+            rt = 1
+            for r in 1:size(image, 1)
+                for m2 in 1:ratio
+                    res_img[rt, ct] = image[r, c]
+                    rt += 1
+                end
+            end
+            ct += 1
+        end
+    end
+
+    return res_img
+end

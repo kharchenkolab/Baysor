@@ -165,7 +165,7 @@ end
 function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
-        grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, kwargs...)
+        grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, polygon_line_color="black", plot_bg_dapi::Bool=true, kwargs...)
     df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
     if (typeof(polygons) == Bool)
@@ -195,7 +195,8 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (x
 
     if dapi_arr === nothing
         return plot_cell_borders_polygons(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys), size=plot_size,
-            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
+            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
+            noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
     end
 
     dapi_subs = dapi_arr[ys:ye, xs:xe]
@@ -205,7 +206,8 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (x
         Plots.plot(; plot_args...)
 
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
-        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
+        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
+        noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
 
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
@@ -225,7 +227,7 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (x
         legend=:none, size=plot_size, clims=clims)
 
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
-        fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
+        fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
 
     if grid
         Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
@@ -326,9 +328,13 @@ end
 
 ## Comparison of segmentations
 
-function prepare_qc_df(df_spatial::DataFrame, cell_col::Symbol=:cell; min_area::T where T<:Real, min_molecules_per_cell::T2 where T2 <: Real,
+prepare_qc_df(df_spatial::DataFrame, cell_col::Symbol=:cell; kwargs...) =
+    prepare_qc_df(df_spatial, Int.(df_spatial[!, cell_col]); kwargs...)
+
+
+function prepare_qc_df(df_spatial::DataFrame, assignment::Vector{<:Int}; min_area::T where T<:Real, min_molecules_per_cell::T2 where T2 <: Real,
         max_elongation::T3 where T3 <: Real = 30.0, dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
-    qc_per_cell = get_cell_qc_df(df_spatial, Int.(df_spatial[!, cell_col]), dapi_arr=dapi_arr);
+    qc_per_cell = get_cell_qc_df(df_spatial, assignment, dapi_arr=dapi_arr);
     qc_per_cell[!, :cell_id] = 1:size(qc_per_cell, 1)
     qc_per_cell[!, :sqr_area] = sqrt.(qc_per_cell.area)
     return @where(qc_per_cell, :n_transcripts .>= min_molecules_per_cell, :sqr_area .>= min_area, :elongation .<= max_elongation)
