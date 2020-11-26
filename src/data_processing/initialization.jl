@@ -281,7 +281,7 @@ function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where
         @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
     end
 
-    inds = findall((x_vals .> 0) .& (x_vals .< size(staining, 2)) .& (y_vals .> 0) .& (y_vals .< size(staining, 1)))
+    inds = findall((x_vals .> 0) .& (x_vals .<= size(staining, 2)) .& (y_vals .> 0) .& (y_vals .<= size(staining, 1)))
     staining_vals = zeros(T, length(x_vals))
     for i in inds
         staining_vals[i] = staining[y_vals[i], x_vals[i]];
