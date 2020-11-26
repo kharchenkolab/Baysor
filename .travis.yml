@@ -16,8 +16,9 @@ deploy:
   script:
     - echo "$DOCKER_PASSWORD" | docker login --username "$DOCKER_USERNAME" --password-stdin && docker push vpetukhov/baysor
   on:
-    branch:
-      - master
+    branch: master
+    tags: true
+    julia: 1.5.2
 env:
   global:
     - secure: CVl14xmKuHM4q5pPsl0yYuyyrSnX/JmHQW4lrXptP5KoE/owY15kDs3udDtK6zC3eB/WqEeMzUZ9DrigDtCrKo77nOwC9uM8XZYxkIG83LmSfk3aMpvWfxxYzKo3ZSEyyFekAzma0M4Wxu2tH42FcktOLMlPcJI2uoG7Dsn/iq/FeG2+AGF61Ha8iINaFNYczzCq7252HN+N4LlYVUPUtiI7Ea0iLCzP1EwNTkM7j7R9Q8/8wOjNKZ+1ZFq/twKIXlleaOv3wPzK4FErOECfe8jyeW4tNoA9srsB3bckdRM5Rm/q69Ykot77ZJVdUZBg1Eef6QaEgqdk8r8aBdwGxxgrUUTkYG5QNGdbnMquFidB2VkqTc05Zi8+3wJvcJri3TRpLTF09Rlbzz2GTMfGlmHoC7mb0RaFMgOR6w20Mqqvca86gMt0vWU+dQ4kpBxZLr+rlFtVOT8MI3CHlAEk3w7CtdIArHzhp6OrDxfMni+Zb3xetp+pf1DcszT15IuH+De1LzeFjtPDJ3UkbbkG6dIG8hXvTOPmWcigpfctDT8zdVzGGszxKBItBSCtgaU0ZnBdXhdxMtnucJxD3f4Qg2b+KdF//0j4AT7JoSH+OiLxa/vdd7BwNIFC2Xr4GCpIYqbLFrVG5VhXn0SVFRohtJZ8ZPrJGbqVqP7y8Cs67sM=
