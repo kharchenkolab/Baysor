@@ -57,7 +57,7 @@ end
 plot_dataset_colors(df_spatial::DataFrame, colors::Symbol; kwargs...) =
     plot_dataset_colors(df_spatial, df_spatial[!, colors]; kwargs...)
 
-function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, ms::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.25,
+function plot_dataset_colors(df_spatial::DataFrame, color; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, ms::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.25,
         prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], ticks::Bool=true, kwargs...)
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
     if ms < 0
@@ -66,9 +66,9 @@ function plot_dataset_colors(df_spatial::DataFrame, colors::Vector; min_molecule
 
     plt = Plots.plot(size=plot_size, minorgrid=ticks, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), format=:png, ticks=ticks)
     if length(prior_polygons) > 0
-        prior_polygons = [Plots.Shape(pg[:,2], pg[:,1]) for pg in prior_polygons]
+        prior_polygons = [Plots.Shape(pg[:,1], pg[:,2]) for pg in prior_polygons]
         Plots.plot!(prior_polygons, fill="orange", linecolor="darkred", legend=:none, alpha=0.25)
     end
 
-    return plot_cell_borders_polygons!(df_spatial, polygons; color=colors, ms=ms, alpha=alpha, kwargs...)
+    return plot_cell_borders_polygons!(df_spatial, polygons; color=color, ms=ms, alpha=alpha, kwargs...)
 end
