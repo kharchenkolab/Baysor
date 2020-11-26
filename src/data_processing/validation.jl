@@ -162,7 +162,7 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
     return cm
 end
 
-function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
+function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (xs, xe), (ys, ye); polygons::Union{Bool, Vector{Matrix{Float64}}}=true, ms=2.0, alpha=0.2, min_molecules_per_cell::Int=1,
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
         grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, kwargs...)
@@ -199,8 +199,10 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     end
 
     dapi_subs = dapi_arr[ys:ye, xs:xe]
-    plt1 = Plots.heatmap(dapi_subs, color=:grayC, colorbar=:none, size=plot_size,
-                alpha=dapi_alpha, format=:png, legend=:none, xticks=xticks, yticks=yticks)
+    plot_args = Dict(:format => :png, :size => plot_size, :xticks => xticks, :yticks => yticks)
+    plt1 = plot_bg_dapi ?
+        Plots.heatmap(dapi_subs; color=:grayC, colorbar=:none, alpha=dapi_alpha, legend=:none, plot_args...) :
+        Plots.plot(; plot_args...)
 
     plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
         polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, is_noise=is_noise, noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
@@ -219,7 +221,8 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix{<:Real}, Noth
     end
 
     # Possible colorschemes: :twilight, :PuBuGn_9, :PuBu_9, :dense, :tofino, :berlin, :delta
-    plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks, legend=:none, size=plot_size, clims=clims)
+    plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks,
+        legend=:none, size=plot_size, clims=clims)
 
     Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
         fill=(0, 0.0), linewidth=polygon_line_width, linecolor="black", alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
@@ -372,8 +375,7 @@ function match_assignments(assignment1::Vector{<:Integer}, assignment2::Vector{<
     noise_fracs = Vector.((m_norm2[2:end,1], m_norm1[1,2:end]));
     max_overlaps = Vector.((maximum(m_norm2[2:end,:], dims=2)[:], maximum(m_norm1[:,2:end], dims=1)[:]));
 
-    # @time bin_match = (contingency_table[2:end, 2:end] ./ sum(contingency_table[2:end, 2:end], dims=1) .> bin_match_frac);
-    bin_match = dropzeros!(sparse(ci, ri, m_norm1.nzval .> bin_match_frac))[2:end, 2:end];
+    bin_match = dropzeros!(sparse(ci, ri, m_norm1.nzval .>= bin_match_frac))[2:end, 2:end];
     n_overlaps = (sum(bin_match, dims=2)[:], sum(bin_match, dims=1)[:])
 
     ctn_min = sparse(ci, ri, min.(m_norm1.nzval, m_norm2.nzval))
