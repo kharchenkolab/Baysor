@@ -113,6 +113,11 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
+        "--save-polygons"
+            help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported."
+            arg_type = String
+            range_tester = (x -> in(lowercase(x), ["geojson"]))
+            metavar = "FORMAT"
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
@@ -163,6 +168,10 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if isdir(r["output"]) || isdirpath(r["output"])
         r["output"] = joinpath(r["output"], "segmentation.csv")
+    end
+
+    if (r["save-polygons"] !== nothing) && (!r["plot"])
+        @warn "--plot option is required for saving polygons (--save-polygons). The polygons will not be saved."
     end
 
     return r
@@ -243,6 +252,8 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
             show(io, MIME("text/html"), clust_plot)
         end
     end
+
+    return polygons
 end
 
 function parse_prior_assignment(df_spatial::DataFrame, args::Dict{String, Any})
@@ -396,8 +407,16 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
-        plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
+        polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
             gene_colors=gene_colors)
+
+        if args["save-polygons"]
+            if lowercase(args["save-polygons"]) == "geojson"
+                save_polygons_to_geojson(polygons, append_suffix(args["output"], "polygons.json"))
+            else
+                @warn "Unknown polygon format: $(args["save-polygons"])"
+            end
+        end
     end
 
     @info "All done!"

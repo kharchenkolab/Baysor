@@ -1,4 +1,5 @@
 import FFTW
+import JSON
 import ImageMorphology
 import LightGraphs
 
@@ -260,4 +261,17 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
 
     return extract_polygons_from_label_grid(grid_labels_plane; min_border_length=min_border_length, shape_method=shape_method, max_dev=max_dev,
         exclude_labels=exclude_labels, offset=min_x, grid_step=grid_step)
+end
+
+
+function save_polygons_to_geojson(polygons::Array{Array{T,2},1} where T<:Number, path::Union{String, Nothing}=nothing)
+    geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))]) for p in polygons]
+    geo_json_dict = Dict("type" => "GeometryCollection", "geometries" => geoms);
+    if path == nothing
+        return geo_json_dict
+    end
+
+    open(path, "w") do f
+        print(f, JSON.json(geo_json_dict))
+    end
 end

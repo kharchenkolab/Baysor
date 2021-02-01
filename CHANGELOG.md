@@ -7,6 +7,7 @@
 ### Added
 
 - Estimating scale when prior segmentation is provided as a CSV column
+- Added the option `--save-polygons=GeoJSON` to save cell boundary polygons in the GeoJSON format
 
 ## [0.4.2] — 2020-11-26
 
