@@ -29,8 +29,8 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
     return labels
 end
 
-estimate_scale_from_centers(center_scales::Vector{Float64}) =
-    (median(center_scales), mad(center_scales; normalize=true))
+estimate_scale_from_centers(radius_per_segment::Vector{Float64}) =
+    (median(radius_per_segment), mad(radius_per_segment; normalize=true))
 
 """
 Estimates scale as a 0.5 * median distance between two nearest centers
@@ -48,6 +48,14 @@ function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
         error("No transcripts detected inside the segmented regions. Please, check that transcript coordinates match those in the segmentation mask.")
     end
     return estimate_scale_from_centers(sqrt.(filter(x -> x > 0, count_array(nz_vals)) ./ π))
+end
+
+function estimate_scale_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}; min_mols_per_cell::Int)
+    pd_per_cell = [pos_data[:,ids] for ids in split_ids(assignment, drop_zero=true) if length(ids) >= min_mols_per_cell];
+    if length(pd_per_cell) < 3
+        error("Not enough prior cells pass the min_mols_per_cell=$(min_mols_per_cell) threshold. Please, specify scale manually.")
+    end
+    return estimate_scale_from_centers(hcat(mean.(pd_per_cell, dims=2)...))
 end
 
 filter_segmentation_labels!(segment_per_transcript::Vector{<:Integer}; kwargs...) =

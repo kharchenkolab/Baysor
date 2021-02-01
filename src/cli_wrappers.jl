@@ -245,17 +245,33 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
     end
 end
 
+function parse_prior_assignment(df_spatial::DataFrame, args::Dict{String, Any})
+    prior_col = Symbol(args["prior_segmentation"][2:end])
+    prior_segmentation = df_spatial[!, prior_col]
+    try
+        prior_segmentation = Int.(prior_segmentation);
+    catch
+        error("The prior segmentation column '$prior_col' must be of integer type")
+    end
+    if minimum(prior_segmentation) < 0
+        error("The prior segmentation column '$prior_col' must not contain negative numbers")
+    end
+
+    filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=args["min-molecules-per-segment"])
+    if args["scale"] === nothing
+        pos_data = position_data(df_spatial)
+        scale, scale_std = estimate_scale_from_assignment(pos_data, prior_segmentation; 
+            min_mols_per_cell=args["min-molecules-per-cell"])
+    else
+        scale, scale_std = args["scale"], args["scale-std"]
+    end
+
+    return prior_segmentation, Matrix{Float64}[], scale, scale_std
+end
+
 function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     if args["prior_segmentation"][1] == ':'
-        prior_segmentation = Int.(df_spatial[!, Symbol(args["prior_segmentation"][2:end])]);
-        filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=args["min-molecules-per-segment"])
-        if args["scale"] === nothing
-            println("`scale` must be provided if you use prior segmentation as a CSV column")
-            exit(1)
-        end
-        # TODO: estimate scale
-
-        return prior_segmentation, Matrix{Float64}[], args["scale"], args["scale-std"]
+        return parse_prior_assignment(df_spatial, args)
     end
 
     @info "Loading segmentation mask..."

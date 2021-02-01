@@ -98,7 +98,7 @@ end
 
 trim_mean(x::Array{T, 1} where T <: Real; prop::Float64=0.2) = mean(trim(x; prop=prop))
 
-function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: AbstractVector{<:Integer}; max_factor::Union{Int, Nothing}=nothing)::Array{Vector{TV}, 1} where TV
+function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: AbstractVector{<:Integer}; max_factor::Union{Int, Nothing}=nothing, drop_zero::Bool=false)::Array{Vector{TV}, 1} where TV
     @assert length(array) == length(factor)
     if max_factor === nothing
         max_factor = maximum(factor)
@@ -106,6 +106,10 @@ function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: Ab
 
     splitted = [TV[] for i in 1:max_factor]
     for i in 1:length(array)
+        if drop_zero && factor[i] == 0
+            continue
+        end
+
         push!(splitted[factor[i]], array[i])
     end
 

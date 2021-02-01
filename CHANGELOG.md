@@ -1,3 +1,13 @@
+## Upcoming
+
+### Changed
+
+- Fixed the CLI installation bug
+
+### Added
+
+- Estimating scale when prior segmentation is provided as a CSV column
+
 ## [0.4.2] — 2020-11-26
 
 ### Changed
