@@ -57,7 +57,7 @@ echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chm
 
 ### Build CLI application from source
 
-On linux, you can build the command-line tool from source. To do that you need to clone this package and run the Makefile:
+This method requires a linux installation with `gcc`, `wget` and `make` tools installed. Then, to build the command-line tool without a julia installation, you need to clone this package and run the Makefile:
 
 ```bash
 git clone https://github.com/kharchenkolab/Baysor.git
