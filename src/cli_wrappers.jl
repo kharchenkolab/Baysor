@@ -233,7 +233,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
     end
 
     @info "Plot transcript assignment"
-    grid_step = args["scale"] / args["min-pixels-per-cell"] * 2;
+    grid_step = args["scale"] / args["min-pixels-per-cell"] / 2;
     polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
 
     gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
