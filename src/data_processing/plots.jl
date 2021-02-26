@@ -37,6 +37,13 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
         color = df_spatial[!,color]
     end
 
+    if annotation !== nothing
+        annotation = ["$a" for a in annotation]
+        if noise_ann !== nothing
+            noise_ann = "$noise_ann"
+        end
+    end
+
     xlims = something(xlims, val_range(df_spatial.x))
     ylims = something(xlims, val_range(df_spatial.y))
 
