@@ -410,7 +410,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
             gene_colors=gene_colors)
 
-        if args["save-polygons"]
+        if args["save-polygons"] !== nothing
             if lowercase(args["save-polygons"]) == "geojson"
                 save_polygons_to_geojson(polygons, append_suffix(args["output"], "polygons.json"))
             else
