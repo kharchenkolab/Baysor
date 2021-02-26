@@ -166,83 +166,84 @@ function plot_subset(df_spatial::DataFrame, dapi_arr::Union{Matrix, Nothing}, (x
         grid_step::Float64=5.0, bandwidth::Float64=grid_step, min_border_length=3, cell_col::Symbol=:cell, dapi_alpha=0.9, polygon_line_width::T1 where T1 <: Real=2, polygon_alpha::Float64=0.4, dens_threshold::Float64=1e-5,
         noise::Bool=true, size_mult=1/3, plot_raw_dapi::Bool=true, color_col::Symbol=:color, annotation_col::Union{Symbol, Nothing}=nothing, build_panel::Bool=true, grid_alpha::Float64=0.5, ticks=false,
         grid::Bool=true, swap_plots::Bool=false, dapi_color::Symbol=:delta, clims=nothing, polygon_line_color="black", plot_bg_dapi::Bool=true, kwargs...)
-    df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
+    error("This function must be re-written for Makie first")
+    # df_subs = @where(df_spatial, :x .>= xs, :x .<= xe, :y .>= ys, :y .<= ye);
 
-    if (typeof(polygons) == Bool)
-        if polygons
-            polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell,
-                bandwidth=bandwidth, min_border_length=min_border_length, dens_threshold=dens_threshold)
-        else
-            polygons = Matrix{Float64}[]
-        end
-    end
+    # if (typeof(polygons) == Bool)
+    #     if polygons
+    #         polygons = boundary_polygons(df_subs, df_subs[!, cell_col], grid_step=grid_step, min_molecules_per_cell=min_molecules_per_cell,
+    #             bandwidth=bandwidth, min_border_length=min_border_length, dens_threshold=dens_threshold)
+    #     else
+    #         polygons = Matrix{Float64}[]
+    #     end
+    # end
 
-    # xs, xe, ys, ye = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
-    xs, xe, ys, ye = round.(Int, [xs, xe, ys, ye]);
+    # # xs, xe, ys, ye = round.(Int, [minimum(df_subs.x), maximum(df_subs.x), minimum(df_subs.y), maximum(df_subs.y)]);
+    # xs, xe, ys, ye = round.(Int, [xs, xe, ys, ye]);
 
-    xticks_vals = range(0, xe-xs, length=5)
-    yticks_vals = range(0, ye-ys, length=5)
+    # xticks_vals = range(0, xe-xs, length=5)
+    # yticks_vals = range(0, ye-ys, length=5)
 
-    yticks = xticks = Float64[]
-    if ticks
-        xticks = (xticks_vals, ["$f" for f in round.(Int, range(xs, xe, length=5))])
-        yticks = (yticks_vals, ["$f" for f in round.(Int, range(ys, ye, length=5))])
-    end
+    # yticks = xticks = Float64[]
+    # if ticks
+    #     xticks = (xticks_vals, ["$f" for f in round.(Int, range(xs, xe, length=5))])
+    #     yticks = (yticks_vals, ["$f" for f in round.(Int, range(ys, ye, length=5))])
+    # end
 
-    plot_size = ((xe-xs), ye-ys) .* size_mult
-    is_noise = noise ? (df_subs[!, cell_col] .== 0) : nothing
-    annotation = (annotation_col === nothing) ? nothing : df_subs[!, annotation_col]
+    # plot_size = ((xe-xs), ye-ys) .* size_mult
+    # is_noise = noise ? (df_subs[!, cell_col] .== 0) : nothing
+    # annotation = (annotation_col === nothing) ? nothing : df_subs[!, annotation_col]
 
-    if dapi_arr === nothing
-        return plot_cell_borders_polygons(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys), size=plot_size,
-            polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
-            noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
-    end
+    # if dapi_arr === nothing
+    #     return plot_cell_borders_polygons(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys), size=plot_size,
+    #         polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
+    #         noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
+    # end
 
-    dapi_subs = dapi_arr[ys:ye, xs:xe]
-    plot_args = Dict(:format => :png, :size => plot_size, :xticks => xticks, :yticks => yticks)
-    plt1 = plot_bg_dapi ?
-        Plots.heatmap(dapi_subs; color=:grayC, colorbar=:none, alpha=dapi_alpha, legend=:none, plot_args...) :
-        Plots.plot(; plot_args...)
+    # dapi_subs = dapi_arr[ys:ye, xs:xe]
+    # plot_args = Dict(:format => :png, :size => plot_size, :xticks => xticks, :yticks => yticks)
+    # plt1 = plot_bg_dapi ?
+    #     Plots.heatmap(dapi_subs; color=:grayC, colorbar=:none, alpha=dapi_alpha, legend=:none, plot_args...) :
+    #     Plots.plot(; plot_args...)
 
-    plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
-        polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
-        noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
+    # plot_cell_borders_polygons!(df_subs, polygons; color=df_subs[!, color_col], ms=ms, alpha=alpha, offset=(-xs, -ys),
+    #     polygon_line_width=polygon_line_width, polygon_alpha=polygon_alpha, polygon_line_color=polygon_line_color, is_noise=is_noise,
+    #     noise_kwargs=Dict(:ms => ms), annotation=annotation, kwargs...)
 
-    if grid
-        Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
-        Plots.hline!(yticks_vals, color="black", alpha=grid_alpha, label="")
-    end
+    # if grid
+    #     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha, label="")
+    #     Plots.hline!(yticks_vals, color="black", alpha=grid_alpha, label="")
+    # end
 
-    if !plot_raw_dapi
-        return plt1
-    end
+    # if !plot_raw_dapi
+    #     return plt1
+    # end
 
-    if clims === nothing
-        clims = val_range(dapi_arr)
-    end
+    # if clims === nothing
+    #     clims = val_range(dapi_arr)
+    # end
 
-    # Possible colorschemes: :twilight, :PuBuGn_9, :PuBu_9, :dense, :tofino, :berlin, :delta
-    plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks,
-        legend=:none, size=plot_size, clims=clims)
+    # # Possible colorschemes: :twilight, :PuBuGn_9, :PuBu_9, :dense, :tofino, :berlin, :delta
+    # plt2 = Plots.heatmap(dapi_subs, color=dapi_color, colorbar=:none, alpha=0.9, format=:png, xticks=xticks, yticks=yticks,
+    #     legend=:none, size=plot_size, clims=clims)
 
-    Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
-        fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
+    # Plots.plot!([Plots.Shape(pg[:,1] .- xs, pg[:,2] .- ys) for pg in polygons],
+    #     fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, alpha=polygon_alpha, label="", xlims=(0, (xe-xs)), ylims=(0, (ye-ys)));
 
-    if grid
-        Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
-        Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
-    end
+    # if grid
+    #     Plots.vline!(xticks_vals, color="black", alpha=grid_alpha)
+    #     Plots.hline!(yticks_vals, color="black", alpha=grid_alpha)
+    # end
 
-    if swap_plots
-        plt1, plt2 = plt2, plt1
-    end
+    # if swap_plots
+    #     plt1, plt2 = plt2, plt1
+    # end
 
-    if !build_panel
-        return plt1, plt2
-    end
+    # if !build_panel
+    #     return plt1, plt2
+    # end
 
-    return Plots.plot(plt1, plt2, layout=2, size=(2 * (xe-xs), ye-ys) .* size_mult)
+    # return Plots.plot(plt1, plt2, layout=2, size=(2 * (xe-xs), ye-ys) .* size_mult)
 end
 
 rectangle((xs, xe), (ys, ye)) = Plots.Shape([xs, xe, xe, xs], [ys, ys, ye, ye])

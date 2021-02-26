@@ -8,50 +8,39 @@ using Statistics
 
 import MultivariateStats
 import Plots
+import CairoMakie
+MK = CairoMakie
 
-plot_cell_borders_polygons!(args...; kwargs...) =
-    plot_cell_borders_polygons(args...; append=true, kwargs...)
+plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
-plot_cell_borders_polygons(df_spatial::DataFrame, df_centers::DataFrame; kwargs...) =
-    plot_cell_borders_polygons(df_spatial, Array{Float64, 2}[], df_centers; kwargs...)
+function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; point_size=2,
+        color::Union{Vector, Symbol, String}=:gene, size=(800, 800), xlims=nothing, ylims=nothing, alpha=0.5, offset=(0, 0),
+        is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Nothing} = nothing,
+        ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
+        noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false, 
+        polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
-function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], df_centers=nothing; point_size=2,
-                                    color::Union{Vector, Symbol, String}=:gene, center_size::Real=3.0, polygon_line_width=1, polygon_line_color="black", polygon_alpha::Float64=1.0,
-                                    size=(800, 800), xlims=nothing, ylims=nothing, append::Bool=false, alpha=0.5, offset=(0, 0), subplot::Int=1,
-                                    is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{TA, Nothing} where TA <: AbstractVector = nothing,
-                                    ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), legend_bg_alpha::Float64=0.85, fontsize=8,
-                                    noise_ann = nothing, format::Symbol=:png, noise_kwargs::Union{Dict, Nothing}=nothing, shuffle_colors::Bool=false, kwargs...)
-    noise_args_default = Dict(:markershape => :xcross, :alpha => alpha, :markersize => point_size / 2, :legend => legend, :markerstrokewidth => 0, :color => "black");
-    if noise_kwargs === nothing
-        noise_kwargs = noise_args_default
-    else
-        noise_kwargs = Dict{Symbol, Any}(noise_kwargs)
-        for k in keys(noise_args_default)
-            if !(k in keys(noise_kwargs))
-                noise_kwargs[k] = noise_args_default[k]
-            end
-        end
+    noise_args_default = (marker=:xcross, alpha=alpha, markersize=(0.75 * point_size), strokewidth=0, color="black");
+    axis_args_default = (xticklabelsize=12, yticklabelsize=12);
+    legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
+    polygon_args_default = (strokecolor="black", color="transparent", strokewidth=0.5, label="")
 
-        for k in keys(kwargs)
-            if !(k in keys(noise_kwargs))
-                noise_kwargs[k] = kwargs[k]
-            end
-        end
-    end
+    noise_kwargs = update_args(update_args(noise_args_default, Dict(kwargs...)), noise_kwargs)
+    axis_kwargs = update_args(axis_args_default, axis_kwargs)
+    legend_kwargs = update_args(legend_args_default, legend_kwargs)
+    polygon_kwargs = update_args(polygon_args_default, polygon_kwargs)
 
     if typeof(color) === Symbol
         color = df_spatial[!,color]
     end
 
-    if xlims === nothing
-        xlims = (minimum(df_spatial.x), maximum(df_spatial.x))
-    end
+    xlims = something(xlims, val_range(df_spatial.x))
+    ylims = something(xlims, val_range(df_spatial.y))
 
-    if ylims === nothing
-        ylims = (minimum(df_spatial.y), maximum(df_spatial.y))
+    if !append
+        fig = MK.Figure(resolution=size)
+        fig[1, 1] = MK.Axis(fig; axis_kwargs...);
     end
-
-    fig = append ? Plots.plot!(format=format) : Plots.plot(format=format, size=size, xtickfontsize=fontsize, ytickfontsize=fontsize)
 
     df_noise = nothing
 
@@ -66,16 +55,15 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Matri
     end
 
     if is_noise !== nothing
-        Plots.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; subplot=subplot, noise_kwargs...)
+        MK.scatter!(df_noise.x .+ offset[1], df_noise.y .+ offset[2]; noise_kwargs...)
     end
 
     if annotation === nothing
-        fig = Plots.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, markerstrokewidth=0, markersize=point_size,
-                             alpha=alpha, legend=false, subplot=subplot, kwargs...)
+        MK.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, 
+            strokewidth=0, markersize=point_size, alpha=alpha, kwargs...)
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
         c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10", lchoices=range(20, stop=70, length=15))
-        # c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10")
         if shuffle_colors
             Random.shuffle!(c_map)
         end
@@ -83,29 +71,28 @@ function plot_cell_borders_polygons(df_spatial::DataFrame, polygons::Array{Matri
         for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
             c_alpha = (length(alpha) == 1) ? alpha : alpha[annotation .== ann]
-            fig = Plots.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                                 markerstrokewidth=0, markersize=point_size, alpha=c_alpha, label=ann, legend=legend, color=color,
-                                 bg_legend=Colors.RGBA(1.0, 1.0, 1.0, legend_bg_alpha), subplot=subplot, style_dict..., kwargs...)
+            MK.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
+                strokewidth=0, markersize=point_size, alpha=c_alpha, label=ann, color=color, style_dict..., kwargs...)
         end
 
         if noise_ann in annotation
-            fig = Plots.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
-                                 label=noise_ann, subplot=subplot, noise_kwargs...)
+            MK.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
+                label=noise_ann, noise_kwargs...)
+        end
+        
+        if legend
+            MK.axislegend(;legend_kwargs...)
         end
     end
 
-    shapes = [Plots.Shape(pg[:,1] .+ offset[1], pg[:,2] .+ offset[2]) for pg in polygons]
-    Plots.plot!(shapes, fill=(0, 0.0), linewidth=polygon_line_width, linecolor=polygon_line_color, alpha=polygon_alpha, subplot=subplot, label="")
-
-    if df_centers !== nothing
-        Plots.scatter!(df_centers[!,:x] .+ offset[1], df_centers[!,:y] .+ offset[2], color=colorant"#cc1300", markerstrokewidth=1, markersize=center_size,
-            subplot=subplot, label="")
+    if length(polygons) > 0
+        MK.poly!([MK.Point2.(eachrow(p)) for p in polygons]; polygon_kwargs...)
     end
 
-    Plots.xlims!(xlims .+ offset[1], subplot=subplot)
-    Plots.ylims!(ylims .+ offset[2], subplot=subplot)
+    MK.xlims!(MK.current_axis(), xlims .+ offset[1])
+    MK.ylims!(MK.current_axis(), ylims .+ offset[1])
 
-    return fig
+    return MK.current_figure()
 end
 
 function shuffle_labels(labels::Array{Int})

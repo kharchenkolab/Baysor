@@ -1,6 +1,12 @@
 using DataFrames
 using KernelDensity
 
+KWArgT = Union{Dict, NamedTuple, Nothing}
+
+update_args(args::Union{Dict, NamedTuple}, update::Nothing) = args
+update_args(args::Union{Dict, NamedTuple}, update::Union{Dict, NamedTuple}) =
+    merge([Dict(zip(keys(d), values(d))) for d in (args, update)]...)
+
 estimate_density_kde(coords::Array{Float64, 2}, points::Array{Float64, 2}, bandwidth::T where T <: Real)::Vector{Float64} =
     InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
