@@ -114,7 +114,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Save pdf with plot of the segmentation"
             action = :store_true
         "--save-polygons"
-            help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported."
+            help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported. The option requires setting '-p' to work."
             arg_type = String
             range_tester = (x -> in(lowercase(x), ["geojson"]))
             metavar = "FORMAT"
