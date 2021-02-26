@@ -57,17 +57,20 @@ end
 plot_dataset_colors(df_spatial::DataFrame, colors::Symbol; kwargs...) =
     plot_dataset_colors(df_spatial, df_spatial[!, colors]; kwargs...)
 
-function plot_dataset_colors(df_spatial::DataFrame, color; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, size::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.25,
-        prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], ticks::Bool=true, kwargs...)
+function plot_dataset_colors(df_spatial::DataFrame, color::Union{Vector, Symbol, String}; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, size::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.25,
+        prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], ticks::Bool=true, axis_kwargs::KWArgT=nothing, kwargs...)
+
+    axis_kwargs = update_args((xticklabelsize=12, yticklabelsize=12), axis_kwargs)
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
     if size < 0
         size = 5 / min_molecules_per_cell
     end
 
-    plt = Plots.plot(size=plot_size, minorgrid=ticks, fgaxis=Colors.RGBA(0.0, 0.0, 0.0, 0.0), format=:png, ticks=ticks)
+    fig = MK.Figure(resolution=plot_size)
+    fig[1, 1] = MK.Axis(fig; xticksvisible=ticks, yticksvisible=ticks, axis_kwargs...);
+
     if length(prior_polygons) > 0
-        prior_polygons = [Plots.Shape(pg[:,1], pg[:,2]) for pg in prior_polygons]
-        Plots.plot!(prior_polygons, fill="orange", linecolor="darkred", legend=:none, alpha=0.25)
+        MK.poly!([MK.Point2.(eachrow(p)) for p in prior_polygons]; strokecolor="darkred", color=Colors.RGBA(1, 0.65, 0, 0.25), strokewidth=0.5)
     end
 
     return plot_molecules!(df_spatial, polygons; color=color, point_size=size, alpha=alpha, kwargs...)

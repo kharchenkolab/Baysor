@@ -6,21 +6,24 @@ using DataFramesMeta
 using NearestNeighbors
 using Statistics
 
+import Base64
 import MultivariateStats
 import Plots
+import AbstractPlotting
 import CairoMakie
+import Base.show
 MK = CairoMakie
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
-function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; point_size=2,
-        color::Union{Vector, Symbol, String}=:gene, size=(800, 800), xlims=nothing, ylims=nothing, alpha=0.5, offset=(0, 0),
+function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
+        color::Union{Vector, Symbol, String}=:gene, size=(800, 800), xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
         noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false, 
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
-    noise_args_default = (marker=:xcross, alpha=alpha, markersize=(0.75 * point_size), strokewidth=0, color="black");
+    noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
     axis_args_default = (xticklabelsize=12, yticklabelsize=12);
     legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
     polygon_args_default = (strokecolor="black", color="transparent", strokewidth=0.5, label="")
@@ -60,7 +63,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
 
     if annotation === nothing
         MK.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, 
-            strokewidth=0, markersize=point_size, alpha=alpha, kwargs...)
+            strokewidth=0, markersize=markersize, kwargs...)
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
         c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10", lchoices=range(20, stop=70, length=15))
@@ -70,9 +73,8 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
 
         for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
-            c_alpha = (length(alpha) == 1) ? alpha : alpha[annotation .== ann]
             MK.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                strokewidth=0, markersize=point_size, alpha=c_alpha, label=ann, color=color, style_dict..., kwargs...)
+                strokewidth=0, markersize=markersize, label=ann, color=color, style_dict..., kwargs...)
         end
 
         if noise_ann in annotation
@@ -215,4 +217,18 @@ function plot_colorbar(color_ticks, palette; size=(500, 60), rotation=0, kwargs.
     p.subplots[1][:xaxis][:rotation] = rotation;
 
     return p
+end
+
+### Utils
+
+function Base.show(io::IO, m::MIME"text/html", fig::AbstractPlotting.Figure)
+    io64 = Base64.IOBuffer();
+    iob64 = Base64.Base64EncodePipe(io64)
+    show(iob64, MIME("image/png"), fig);
+    close(iob64)
+    str = String(take!(io64))
+    close(io64)
+
+    print(io, "<img src=\"data:image/png;base64,$str\" />")
+    # show(io, MIME("text/plain"), "<img src=\"data:image/png;base64,$str\" />")
 end
