@@ -83,9 +83,11 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
             error("Either n_clusters or cell_type_exprs must be specified")
         end
 
+        # cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')
         gene_probs = prob_array(genes)
         cell_type_exprs = gene_probs' .* (0.95 .+ (hcat([[hash(x1 * x2^2) for x2 in 1:n_clusters] for x1 in 1:length(gene_probs)]...) .% 10000) ./ 100000) # determenistic way of adding pseudo-random noise
-        cell_type_exprs ./= sum(cell_type_exprs, dims=2)
+        # cell_type_exprs ./= sum(cell_type_exprs, dims=2)
+        cell_type_exprs = (cell_type_exprs .+ 1) ./ (sum(cell_type_exprs, dims=2) .+ 1)
     else
         cell_type_exprs = deepcopy(Matrix(cell_type_exprs))
     end
