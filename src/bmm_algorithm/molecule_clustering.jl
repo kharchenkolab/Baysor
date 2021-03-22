@@ -132,7 +132,7 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         push!(change_fracs, cf)
 
         if verbose
-            next!(progress)
+            next!(progress, showvalues = [(:iteration, i), (:max_diff, md), (:change_frac, cf)])
         end
 
         if (max_diffs[end] < tol) & ((new_prob > 1e-10) | !penalize_small_clusters)
