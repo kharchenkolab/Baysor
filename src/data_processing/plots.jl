@@ -45,7 +45,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     xlims = something(xlims, val_range(df_spatial.x))
-    ylims = something(xlims, val_range(df_spatial.y))
+    ylims = something(ylims, val_range(df_spatial.y))
 
     if !append
         fig = MK.Figure(resolution=size)
@@ -99,7 +99,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     MK.xlims!(MK.current_axis(), xlims .+ offset[1])
-    MK.ylims!(MK.current_axis(), ylims .+ offset[1])
+    MK.ylims!(MK.current_axis(), ylims .+ offset[2])
 
     return MK.current_figure()
 end
