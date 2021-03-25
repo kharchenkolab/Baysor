@@ -80,7 +80,11 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     # Initialization
     if cell_type_exprs === nothing
         if n_clusters <= 1
-            error("Either n_clusters or cell_type_exprs must be specified")
+            if assignment !== nothing
+                n_clusters = maximum(assignment)
+            else
+                error("Either n_clusters, assignment or cell_type_exprs must be specified")
+            end
         end
 
         # cell_type_exprs = copy(hcat(prob_array.(split(genes, rand(1:n_clusters, length(genes))), max_value=maximum(genes))...)')

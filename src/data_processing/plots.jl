@@ -17,7 +17,7 @@ MK = CairoMakie
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
 function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
-        color::Union{Vector, Symbol, String}=:gene, size=(800, 800), xlims=nothing, ylims=nothing, offset=(0, 0),
+        color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
         noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false, 
@@ -26,7 +26,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
     axis_args_default = (xticklabelsize=12, yticklabelsize=12);
     legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
-    polygon_args_default = (strokecolor="black", color="transparent", strokewidth=0.5, label="")
+    polygon_args_default = (strokecolor="black", color="transparent", strokewidth=poly_strokewidth, label="")
 
     noise_kwargs = update_args(update_args(noise_args_default, Dict(kwargs...)), noise_kwargs)
     axis_kwargs = update_args(axis_args_default, axis_kwargs)
