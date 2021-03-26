@@ -7,6 +7,8 @@ using Statistics
 
 import Colors
 import CSV
+import Dates
+import LibGit2
 import Pkg
 import Pkg.TOML
 import Plots
@@ -305,6 +307,19 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     return prior_segmentation, prior_polygons, scale, scale_std
 end
 
+function get_baysor_run_str()::String
+    pkg_info = Pkg.dependencies()[Base.UUID("cc9f9468-1fbe-11e9-0acf-e9460511877c")]
+    pkg_str = "v$(pkg_info.version)"
+    try
+        repo = LibGit2.GitRepo(pkg_info.source)
+        hash_str = "$(LibGit2.GitShortHash(LibGit2.peel(LibGit2.GitCommit, LibGit2.head(repo))))"
+        pkg_str = "$pkg_str [$hash_str]"
+    catch err
+    end
+
+    return "($(Dates.Date(Dates.now()))) Run Baysor $pkg_str"
+end
+
 function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     args_str = join(args, " ")
     args = parse_configs(args)
@@ -335,7 +350,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Run algorithm
 
-    @info "Run Baysor v$(Pkg.dependencies()[Base.UUID("cc9f9468-1fbe-11e9-0acf-e9460511877c")].version)"
+    @info get_baysor_run_str()
     @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=false)
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
@@ -493,7 +508,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Run preview
 
-    @info "Run"
+    @info get_baysor_run_str()
     @info "Loading data..."
     args["min-molecules-per-gene"] = 0
     df_spatial, gene_names = load_df(args)

@@ -3,6 +3,7 @@
 ### Changed
 
 - Fixed the CLI installation bug
+- Some more information in logging
 
 ### Added
 
