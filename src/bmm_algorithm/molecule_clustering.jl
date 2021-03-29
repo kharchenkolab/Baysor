@@ -73,6 +73,18 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
     return total_ll
 end
 
+
+function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
+        n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
+
+    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
+    ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=10000);
+    ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
+
+    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; cell_type_exprs=ct_exprs_init, kwargs...)
+end
+
+
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
         n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         cell_type_exprs::Union{<:AbstractMatrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
@@ -113,6 +125,8 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         else
             assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
         end
+    else
+        assignment_probs = deepcopy(assignment_probs)
     end
 
     assignment_probs_prev = deepcopy(assignment_probs)

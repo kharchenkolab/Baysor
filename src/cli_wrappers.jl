@@ -383,7 +383,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
         adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
 
-        mol_clusts = cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
+        mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights;
             n_clusters=args["n-clusters"], weights_pre_adjusted=false)
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
