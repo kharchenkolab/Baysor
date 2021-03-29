@@ -24,7 +24,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
-    axis_args_default = (xticklabelsize=12, yticklabelsize=12);
+    axis_args_default = (xticklabelsize=12, yticklabelsize=12, :xticksvisible => false, :xticklabelsvisible => false, :yticksvisible => false, :yticklabelsvisible => false);
     legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
     polygon_args_default = (strokecolor="black", color="transparent", strokewidth=poly_strokewidth, label="")
 
@@ -228,7 +228,7 @@ end
 
 ### Utils
 
-function Base.show(io::IO, m::MIME"text/html", fig::AbstractPlotting.Figure)
+function Base.show(io::IO, m::MIME"text/html", fig::AbstractPlotting.Scene)
     io64 = Base64.IOBuffer();
     iob64 = Base64.Base64EncodePipe(io64)
     show(iob64, MIME("image/png"), fig);
