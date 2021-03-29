@@ -1,3 +1,4 @@
+import Distances
 import GeometricalPredicates
 import LightGraphs
 

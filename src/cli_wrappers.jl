@@ -1,7 +1,6 @@
 using ArgParse
 using DataFrames
 using DataFramesMeta
-using Distributed
 using ProgressMeter
 using Statistics
 

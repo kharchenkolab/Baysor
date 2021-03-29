@@ -1,6 +1,5 @@
 module Baysor
 
-using Distributed
 using Distributions
 using LinearAlgebra
 using ProgressMeter
@@ -20,7 +19,6 @@ export
     cluster_molecules_on_mrf
 
 include("utils/utils.jl")
-include("utils/kmeans.jl")
 include("utils/logging.jl")
 include("utils/convex_hull.jl")
 include("utils/spatial.jl")
@@ -33,7 +31,6 @@ include("models/Component.jl")
 include("models/BmmData.jl")
 
 include("data_processing/prior_segmentation.jl")
-include("data_processing/watershed.jl")
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")
 include("data_processing/expression_local_vectors.jl")

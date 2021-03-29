@@ -6,7 +6,6 @@ using StatsBase
 using Base.Threads
 using Dates: now, DateTime
 
-import DistributedArrays
 import LightGraphs
 
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
@@ -309,12 +308,11 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
 track_progress!(progress::Nothing) = nothing
-track_progress!(progress::RemoteChannel) = put!(progress, true)
 track_progress!(progress::Progress) = next!(progress)
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true,
               new_component_frac::Float64=0.05, new_component_weight::Float64=0.3,
-              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, RemoteChannel, Nothing}=nothing,
+              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing,
               component_split_step::Int=3)
     time_start = now()
 
