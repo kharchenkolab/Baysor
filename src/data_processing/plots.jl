@@ -94,7 +94,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     if length(polygons) > 0
-        MK.poly!([MK.Point2.(eachrow(p)) for p in polygons]; polygon_kwargs...)
+        MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons]; polygon_kwargs...)
     end
 
     MK.xlims!(MK.current_axis(), xlims .+ offset[1])
