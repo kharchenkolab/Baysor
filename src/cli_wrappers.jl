@@ -182,6 +182,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         max_diffs::Union{Vector{Float64}, Nothing}=nothing, change_fracs::Union{Vector{Float64}, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
+        println(io, "<html>")
         # Molecule clustering convergence
         if max_diffs !== nothing
             p_mol_conv = Plots.plot(max_diffs, xlabel="Iteration", ylabel="Maximal probability change", title="Molcecule clustering convergence", label="Maximal change");
@@ -223,6 +224,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
             title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells", label=:none)
         show(io, MIME("text/html"), p_n_mols)
+        println(io, "</html>")
     end
 end
 
