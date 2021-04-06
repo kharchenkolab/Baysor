@@ -3,8 +3,9 @@
 ### Changed
 
 - Fixed the CLI installation bug
-- Some more information in logging
+- More information in logging
 - Better initialization for molecule clustering. *This should improve cell separability a lot!*
+- Some memory optimization
 
 ### Added
 

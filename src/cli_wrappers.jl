@@ -235,10 +235,11 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
         gene_colors = gene_composition_colors(df_res, args["gene-composition-neigborhood"])
     end
 
-    @info "Plot transcript assignment"
-    grid_step = args["scale"] / args["min-pixels-per-cell"] / 2;
+    @info "Estimating boundary polygons" # For some parameters, this step takes a lot of time and memory
+    grid_step = args["scale"] / args["min-pixels-per-cell"];
     polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
 
+    @info "Plot transcript assignment"
     gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity", alpha=0.5)
 

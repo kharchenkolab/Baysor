@@ -10,10 +10,10 @@ using StatsBase: countmap
 
 using LightGraphs: src, dst
 
-function grid_borders_per_label(grid_labels::Matrix{<:Integer})
+function grid_borders_per_label(grid_labels::Matrix{<:Unsigned})
     d_cols = [-1 0 1 0]
     d_rows = [0 1 0 -1]
-    borders_per_label = [Array{Int, 1}[] for i in 1:maximum(grid_labels)]
+    borders_per_label = [Array{UInt32, 1}[] for i in 1:maximum(grid_labels)]
 
     for row in 1:size(grid_labels, 1)
         for col in 1:size(grid_labels, 2)
@@ -40,7 +40,7 @@ end
 
 function border_mst(border_points::Array{<:Vector{<:Real},1}; min_edge_length::Float64=0.1, max_edge_length::Float64=1.5)
     leafsize = min(size(border_points, 1), 10) # Some performance feature?
-    tree = KDTree(Array{Float64, 2}(hcat(border_points...)), leafsize=leafsize);
+    tree = KDTree(Matrix{Float64}(hcat(border_points...)), leafsize=leafsize);
     src_verts, dst_verts, weights = Int[], Int[], Float64[]
     edges = Set{Tuple{Int, Int}}()
 
@@ -65,7 +65,7 @@ function border_mst(border_points::Array{<:Vector{<:Real},1}; min_edge_length::F
     return LightGraphs.kruskal_mst(SimpleWeightedGraph(adj_mtx + adj_mtx'));
 end
 
-function find_longest_paths(edges::Array{T, 1})::Array{Vector{Int}, 1} where T <: LightGraphs.AbstractEdge
+function find_longest_paths(edges::Array{<:LightGraphs.AbstractEdge, 1})::Array{Vector{Int}, 1}
     if length(edges) == 0
         return []
     end
@@ -153,8 +153,9 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
     return polygon_inds
 end
 
-function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int}, min_x::Union{Vector{T}, Tuple{T, T}}, max_x::Union{Vector{T}, Tuple{T, T}};
-        grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, verbose::Bool=false)::Matrix{Int}  where T <: Real
+function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{Int}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}}, 
+        max_x::Union{Vector{Float64}, Tuple{Float64, Float64}}; grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, 
+        verbose::Bool=false)::Matrix{<:Unsigned}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
     filt_mask = (size.(coords_per_label, 2) .>= min_molecules_per_cell)
     coords_per_label = coords_per_label[filt_mask];
@@ -167,8 +168,13 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
     FFTW.set_num_threads(1); # see https://github.com/JuliaStats/KernelDensity.jl/issues/80
 
     xw, yw = ceil.(Int, (max_x .- min_x) ./ grid_step)
-    label_mat = zeros(Int, yw, xw);
-    dens_mat = zeros(yw, xw);
+    label_mat = nothing
+    if length(coords_per_label) < (2 ^ 16) - 1
+        label_mat = zeros(UInt16, yw, xw)
+    else
+        label_mat = zeros(UInt32, yw, xw)
+    end
+    dens_mat = zeros(Float16, yw, xw)
 
     p = verbose ? Progress(length(coords_per_label)) : nothing
     for (ci, lab) in zip(1:length(coords_per_label), cell_labels)
@@ -212,8 +218,8 @@ function find_grid_point_labels_kde(pos_data::Matrix{T}, cell_labels::Vector{Int
     return ImageMorphology.closing(label_mat)
 end
 
-function extract_polygons_from_label_grid(grid_labels::Matrix{<:Integer}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
-        exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=zeros(2), grid_step::TR where TR<:Real=1.0)::Array{Matrix{Float64}, 1}
+function extract_polygons_from_label_grid(grid_labels::Matrix{<:Unsigned}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
+        exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=[0.0, 0.0], grid_step::Float64=1.0)::Array{Matrix{Float64}, 1}
     borders_per_label = grid_borders_per_label(grid_labels);
     if !isempty(exclude_labels)
         borders_per_label = borders_per_label[setdiff(1:length(borders_per_label), exclude_labels)]
@@ -242,9 +248,9 @@ boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm
 boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
     boundary_polygons(position_data(spatial_df), args...; kwargs...)
 
-function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Array{Int64,1}; min_x::Union{Array, Nothing}=nothing, max_x::Union{Array, Nothing}=nothing,
-                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::TD where TD <: Real=10.0,
-                           bandwidth::T2 where T2 <: Real =grid_step / 2, exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
+function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{Int}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
+                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
+                           bandwidth::Float64=(grid_step / 2), exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
     if min_x === nothing
         min_x = vec(mapslices(minimum, pos_data, dims=2))
     end
@@ -254,6 +260,7 @@ function boundary_polygons(pos_data::Matrix{T} where T <: Real, cell_labels::Arr
     end
 
     grid_labels_plane = find_grid_point_labels_kde(pos_data, cell_labels, min_x, max_x; grid_step=grid_step, bandwidth=bandwidth, kwargs...)
+    GC.gc()
 
     if length(grid_labels_plane) == 0
         return Matrix{Float64}[]
