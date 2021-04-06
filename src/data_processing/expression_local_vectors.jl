@@ -48,7 +48,7 @@ truncate_pca(pca::MultivariateStats.PCA, outdim::Int) =
     MultivariateStats.PCA(pca.mean, pca.proj[:, 1:outdim], pca.prinvars[1:outdim], pca.tvar)
 
 function gene_composition_transformation(count_matrix::Matrix{Float64}, confidence::Vector{Float64}=ones(size(count_matrix, 2));
-        sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, return_all::Bool=false, n_pcs::Int=15, kwargs...)
+        sample_size::Int=10000, seed::Int=42, method::Symbol=:umap, return_all::Bool=false, n_pcs::Int=15, out_dim::Int=3, kwargs...)
     sample_size = min(sample_size, size(count_matrix, 2))
     Random.seed!(seed)
 
@@ -65,7 +65,7 @@ function gene_composition_transformation(count_matrix::Matrix{Float64}, confiden
 
     emb = nothing
     if method == :umap
-        emb = fit(UmapFit, count_matrix_sample, pca; n_components=3, kwargs...);
+        emb = fit(UmapFit, count_matrix_sample, pca; n_components=out_dim, kwargs...);
     elseif method == :pca
         emb = truncate_pca(pca, 3);
     else
