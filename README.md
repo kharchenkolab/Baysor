@@ -5,7 +5,7 @@
 
 **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
 
-- [News ([0.4.2] — 2020-11-26)](#news-042--2020-11-26)
+- [News ([0.4.3] — 2021-04-06)](#news-043--2021-04-06)
 - [Abstract](#abstract)
   - [Method description](#method-description)
 - [Installation](#installation)
@@ -21,11 +21,12 @@
     - [Choice of parameters](#choice-of-parameters)
     - [Multi-threading](#multi-threading)
 
-## News ([0.4.2] — 2020-11-26)
+## News ([0.4.3] — 2021-04-06)
 
-- Fixed Makefile julia version
-- `min-transcripts-per-center` is renamed to `min-molecules-per-segment` and is working now
-- Fixed visualization of prior segmentation
+- Improved molecule clustering
+- Added the option `--save-polygons=GeoJSON` to save cell boundary polygons in the GeoJSON format
+- Fixed plotting performance
+- Estimating scale when prior segmentation is provided as a CSV column
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 

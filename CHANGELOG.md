@@ -6,6 +6,7 @@
 - More information in logging
 - Better initialization for molecule clustering. *This should improve cell separability a lot!*
 - Some memory optimization
+- Fixed plotting performance by moving to Makie.jl
 
 ### Added
 
