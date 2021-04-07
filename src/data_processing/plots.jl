@@ -9,15 +9,14 @@ import Base64
 import MultivariateStats
 import Plots
 import AbstractPlotting
-import CairoMakie
+import CairoMakie as MK
 import Base.show
-MK = CairoMakie
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
 function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
-        is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Nothing} = nothing,
+        is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
         noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false, 
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
@@ -37,6 +36,10 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     if annotation !== nothing
+        if typeof(annotation) === Symbol
+            annotation = df_spatial[!,annotation]
+        end
+
         annotation = ["$a" for a in annotation]
         if noise_ann !== nothing
             noise_ann = "$noise_ann"
@@ -218,11 +221,15 @@ end
 
 plot_colorbar(colors; kwargs...) = plot_colorbar(colors[:ticks], colors[:palette]; kwargs...)
 
-function plot_colorbar(color_ticks, palette; size=(500, 60), rotation=0, kwargs...)
-    p = Plots.bar(color_ticks, ones(length(palette)); color=palette, size=size, legend=false, yticks=false, kwargs...)
-    p.subplots[1][:xaxis][:rotation] = rotation;
+function plot_colorbar(color_ticks, palette; size=(500, 110), xticklabelsize=12, 
+        xlabelsize=14, xlabelpadding=0, kwargs...)
+    fig = MK.Figure(resolution=size)
+    fig[1, 1] = MK.Axis(fig; yticksvisible=false, yticklabelsvisible=false, xticksvisible=false, xticklabelsize=12, 
+        xlabelsize=14, xlabelpadding=0, kwargs...)
+    MK.barplot!(color_ticks, ones(length(color_ticks)), color=palette)
+    MK.xlims!(MK.current_axis(), val_range(color_ticks))
 
-    return p
+    return fig
 end
 
 ### Utils

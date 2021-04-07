@@ -239,14 +239,18 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
     grid_step = args["scale"] / args["min-pixels-per-cell"];
     polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
 
+    if gene_colors !== nothing
+        gene_colors = Colors.alphacolor.(gene_colors, 0.5)
+    end
+
     @info "Plot transcript assignment"
     gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
-        min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity", alpha=0.5)
+        min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity")
 
     clust_plot = nothing
     if !isempty(clusters)
         clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
-            min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering", alpha=0.5)
+            min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering")
     end
 
     open(append_suffix(args["output"], "borders.html"), "w") do io
@@ -303,7 +307,7 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     @info "Done"
 
     @info "Estimating prior segmentation polygons..."
-    prior_polygons = extract_polygons_from_label_grid(Matrix(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
+    prior_polygons = extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
     @info "Done"
 
     return prior_segmentation, prior_polygons, scale, scale_std
@@ -543,7 +547,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence")
 
     @info "Building gene structure plot"
-    gene_structure_plot = plot_gene_structure(df_spatial, gene_names)
+    gene_structure_plot = plot_gene_structure(df_spatial, gene_names, format=:png)
     ## Plots
 
     n_tr_plot = plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
