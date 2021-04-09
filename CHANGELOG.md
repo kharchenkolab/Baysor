@@ -1,3 +1,13 @@
+## [Upcoming]
+
+### Changed
+
+- `scale-std` now can be specified from CLI parameters
+
+### Added
+
+- `exclude-genes` option that removes genes from the data frame before segmentation
+
 ## [0.4.3] — 2021-04-06
 
 ### Changed

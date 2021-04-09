@@ -72,7 +72,12 @@ function extend_params_with_config!(params::Dict, config::Dict)
     end
 end
 
-load_df(args::Dict; kwargs...) = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], min_molecules_per_gene=args["min-molecules-per-gene"], kwargs...)
+function load_df(args::Dict; kwargs...) 
+    exc_genes = String.(strip.(Base.split(args["exclude-genes"], ",")))
+    @info "Excluding genes: " * join(exc_genes, ", ")
+    return load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], 
+        min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
+end
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
 
@@ -111,6 +116,9 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
             default = "segmentation.csv"
+        "--exclude-genes"
+            help = "Comma-separated list of genes to ignore during segmentation"
+            default = ""
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
@@ -119,6 +127,9 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             arg_type = String
             range_tester = (x -> in(lowercase(x), ["geojson"]))
             metavar = "FORMAT"
+        "--scale-std"
+            help = "Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with '%' to set it relative to scale. Default: 25%"
+            default = "25%"
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."

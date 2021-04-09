@@ -158,12 +158,20 @@ function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::
     return adjacent_points, adjacent_weights
 end
 
-function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, kwargs...)
+function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, exclude_genes::Vector{String}=String[], kwargs...)
     df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
 
     gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
     large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .>= min_molecules_per_gene]);
-    df_spatial = df_spatial[in.(df_spatial[!, :gene], Ref(large_genes)),:];
+    df_spatial = df_spatial[in.(df_spatial.gene, Ref(large_genes)),:];
+
+    if length(exclude_genes) > 0
+        missing_genes = exclude_genes[.!in.(exclude_genes, Ref(Set(unique(df_spatial.gene))))]
+        if length(missing_genes) > 0
+            @warn "Genes $(join(missing_genes, ',')) are missing from the data"
+        end
+        df_spatial = df_spatial[.!in.(df_spatial.gene, Ref(Set(exclude_genes))),:];
+    end
 
     df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
     df_spatial[!, :y] = Array{Float64, 1}(df_spatial[!, :y])
