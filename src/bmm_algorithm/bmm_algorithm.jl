@@ -112,7 +112,7 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_d
         for j in eachindex(adj_weights)
             c_adj = adj_classes[j]
             cc = data.components[c_adj]
-            c_dens = confidence * adj_weights[j] * cc.prior_probability * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
+            c_dens = confidence * adj_weights[j] * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
             if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
                 c_dens *= data.cluster_penalty_mult
             end
