@@ -20,8 +20,17 @@ function pdf(dist::CategoricalSmoothed, x::Int; use_smoothing::Bool=true)::Float
     return fmax(Float64(cnt), dist.smooth) / (dist.sum_counts + dist.smooth)
 end
 
-function maximize!(dist::CategoricalSmoothed, x::T where T <: AbstractArray{Int, 1}, confidences::T2 where T2 <: AbstractVector{Float64})
-    count_array!(dist.counts, x, confidences)
-    dist.sum_counts = sum(confidences)
+function maximize!(dist::CategoricalSmoothed, x::T where T <: Union{AbstractArray{Int, 1}, AbstractArray{Union{Missing, Int}, 1}}, confidences::T2 where T2 <: AbstractVector{Float64})
+    dist.counts .= 0
+    dist.sum_counts = 0.0
+    for i in 1:length(x)
+        c = confidences[i]
+        v = x[i]
+        ismissing(v) && continue
+
+        dist.counts[v] += c
+        dist.sum_counts += c
+    end
+
     return dist
 end

@@ -91,7 +91,7 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_d
     for i in 1:size(data.x, 1)
         x::Float64 = position_data(data)[1,i]
         y::Float64 = position_data(data)[2,i]
-        gene::Int = composition_data(data)[i]
+        gene::Union{Int, Missing} = composition_data(data)[i]
         confidence::Float64 = data.confidence[i]
         mol_cluster::Int = isempty(data.cluster_per_molecule) ? 0 : data.cluster_per_molecule[i]
         segment_id = has_seg_prior ? data.segment_per_molecule[i] : 0
@@ -310,8 +310,8 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
 track_progress!(progress::Nothing) = nothing
 track_progress!(progress::Progress) = next!(progress)
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=1000, log_step::Int=4, verbose=true,
-              new_component_frac::Float64=0.05, new_component_weight::Float64=0.3,
+function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_step::Int=4, verbose=true,
+              new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
               assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing,
               component_split_step::Int=3)
     time_start = now()

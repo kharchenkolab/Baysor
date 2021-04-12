@@ -51,7 +51,8 @@ mutable struct Component
         new(position_params, composition_params, n_samples, 1.0, shape_prior, Dict{Int, Int}(), guid)
 end
 
-function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: AbstractVector{Int}, conf_data::T3 where T3 <: AbstractVector{Float64})
+function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}}, 
+        conf_data::T3 where T3 <: AbstractVector{Float64})
     c.n_samples = size(pos_data, 2) # TODO: need to replace it with confidences, but for that I need to re-write all prior segmentation code to work with confidences as well. Also may need to adjust some other parts
     maximize!(c.composition_params, comp_data, conf_data);
     maximize!(c.position_params, pos_data, conf_data);
@@ -69,6 +70,9 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64
 
     return c
 end
+
+pdf(comp::Component, x::Float64, y::Float64, gene::Missing; use_smoothing::Bool=true)::Float64 =
+    comp.prior_probability * pdf(comp.position_params, x, y)
 
 pdf(comp::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
     comp.prior_probability * pdf(comp.position_params, x, y) * pdf(comp.composition_params, gene; use_smoothing=use_smoothing)

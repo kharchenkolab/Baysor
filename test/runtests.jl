@@ -1,4 +1,5 @@
-using Baysor, Test
+using Test
+using Baysor as B
 using DataFrames
 using Distributions
 using LinearAlgebra
@@ -6,13 +7,10 @@ using Statistics
 using StatsBase
 import Random: seed!
 
-B = Baysor
-
 module DataWrappers
 
 using DataFrames
-import Baysor
-B = Baysor
+import Baysor as B
 
 function get_bmm_data(; n_mols::Int=5000, n_frames::Int=1, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
     df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confidence ? ones(n_mols) : rand(n_mols))
@@ -64,6 +62,13 @@ end
             @test all(stds .> 0)
             @test all(abs.(vec(mean(stds, dims=2)) .- means) .< 1)
             @test all(abs.(vec(std(stds, dims=2)) .- std_stds) .< 1)
+        end
+
+        @testset "CategoricalSmoothed" begin
+            dist = B.CategoricalSmoothed([0.0, 0.0, 0.0])
+            B.maximize!(dist, [missing, 1, 2], [0.5, 0.5, 0.5])
+            @test all(dist.counts .≈ [0.5, 0.5, 0.0])
+            @test dist.sum_counts ≈ 1.0
         end
     end
 

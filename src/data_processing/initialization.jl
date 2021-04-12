@@ -128,6 +128,11 @@ function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3
         use_local_gene_similarities = false
     end
 
+    if use_local_gene_similarities && any(ismissing.(composition_data(df_spatial)))
+        @warn "use_local_gene_similarities is not supported with missing gene values. Setting to false."
+        use_local_gene_similarities = false
+    end
+
     edge_list, adjacent_dists = adjacency_list(df_spatial; kwargs...);
 
     min_edge_length = quantile(adjacent_dists, min_edge_quant);
@@ -241,7 +246,7 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighbo
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior,
-                               gene_smooth::Real=1.0, gene_num::Int=maximum(df_spatial[!,:gene]))
+                               gene_smooth::Real=1.0, gene_num::Int=maximum(skipmissing(composition_data(df_spatial))))
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
     gene_distributions = [CategoricalSmoothed(ones(Float64, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 

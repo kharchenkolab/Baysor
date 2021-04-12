@@ -10,7 +10,7 @@ mutable struct BmmData
     # Static data
     x::DataFrame;
     position_data::Matrix{Float64};
-    composition_data::Vector{Int};
+    composition_data::Vector{<:Union{Int, Missing}};
     confidence::Vector{Float64}
 
     adjacent_points::Array{Vector{Int}, 1};
@@ -84,7 +84,7 @@ mutable struct BmmData
         position_knn_tree = KDTree(p_data)
         knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
 
-        n_genes = maximum(composition_data(x))
+        n_genes = maximum(skipmissing(composition_data(x)))
 
         x = deepcopy(x)
         if !(:confidence in propertynames(x))
@@ -133,8 +133,8 @@ end
 
 position_data(df::AbstractDataFrame)::Matrix{Float64} = Matrix{Float64}(df[:, [:x, :y]])'
 position_data(data::BmmData)::Matrix{Float64} = data.position_data
-composition_data(df::AbstractDataFrame)::Vector{Int} = df.gene
-composition_data(data::BmmData)::Vector{Int} = data.composition_data
+composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
+composition_data(data::BmmData) = data.composition_data
 confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
 confidence(data::BmmData)::Vector{Float64} = data.confidence
 
