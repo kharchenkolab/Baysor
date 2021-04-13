@@ -3,7 +3,7 @@ using Base.Threads
 neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
-function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int}, k::Int;
+function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int}, k::Int; confidences::Union{Vector{Float64}, Nothing}=nothing,
     n_genes::Int=maximum(genes), normalize_by_dist::Bool=true, normalize::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
@@ -14,15 +14,23 @@ function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int},
         normalize_by_dist = false
     end
 
+    if (confidences !== nothing) && normalize
+        @warn "`confidences` are not supported with `normalize=true`. Ignoring them."
+        confidences = nothing
+    end
+        
+
     k = min(k, size(pos_data, 2))
 
     neighbors, dists = knn(KDTree(pos_data), pos_data, k, true);
 
-    n_cm = zeros((normalize ? Float64 : Int), n_genes, size(pos_data, 2));
+    n_cm = zeros(((normalize || (confidences !== nothing)) ? Float64 : Int), n_genes, size(pos_data, 2));
 
     if !normalize_by_dist
         @threads for (i,ids) in collect(enumerate(neighbors))
-            if !normalize
+            if confidences !== nothing
+                count_array!(view(n_cm, :, i), genes[ids], confidences[ids])
+            elseif !normalize
                 count_array!(view(n_cm, :, i), genes[ids])
             else
                 prob_array!(view(n_cm, :, i), genes[ids])
