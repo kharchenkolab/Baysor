@@ -197,7 +197,7 @@ end
 
 ### Colormaps
 
-function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette=Colors.sequential_palette(0, 11))
+function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette::Vector=Colors.sequential_palette(0, 11))
     offset = (lims === nothing) ? minimum(vals) : lims[1]
     scale = (lims === nothing) ? maximum(vals) - offset : (lims[2] - lims[1])
 
