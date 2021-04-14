@@ -8,11 +8,17 @@ using StatsBase: countmap
 mutable struct BmmData
 
     # Static data
+    ## Segmentation data
     x::DataFrame;
     position_data::Matrix{Float64};
     composition_data::Vector{<:Union{Int, Missing}};
     confidence::Vector{Float64}
 
+    cluster_per_molecule::Vector{Int}
+    segment_per_molecule::Vector{Int}
+    nuclei_prob_per_molecule::Vector{Float64}
+
+    ## MRF
     adjacent_points::Array{Vector{Int}, 1};
     adjacent_weights::Array{Vector{Float64}, 1};
     real_edge_weight::Float64;
@@ -27,25 +33,23 @@ mutable struct BmmData
 
     noise_density::Float64;
 
-    cluster_per_molecule::Vector{Int};
     cluster_per_cell::Vector{Int};
-
-    center_sample_cache::Vector{Int}
 
     # Prior segmentation
 
-    segment_per_molecule::Vector{Int}
     n_molecules_per_segment::Vector{Int}
     main_segment_per_cell::Vector{Int}
 
     # Utils
-    tracer::Dict{Symbol, Any};
-    misc::Dict{Symbol, Any};
+    tracer::Dict{Symbol, Any}
+    misc::Dict{Symbol, Any}
+    center_sample_cache::Vector{Int}
 
     # Parameters
-    prior_seg_confidence::Float64;
-    cluster_penalty_mult::Float64;
-    use_gene_smoothing::Bool;
+    prior_seg_confidence::Float64
+    cluster_penalty_mult::Float64
+    use_gene_smoothing::Bool
+    min_nuclei_frac::Float64
 
     """
     ...
@@ -61,7 +65,8 @@ mutable struct BmmData
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
                      k_neighbors::Int=20, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
-                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5)
+                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
+                     min_nuclei_frac::Float64=0.1)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -91,11 +96,16 @@ mutable struct BmmData
             x[!, :confidence] .= 0.95
         end
 
-        self = new(x, p_data, composition_data(x), confidence(x), adjacent_points, adjacent_weights, real_edge_weight,
-                   position_knn_tree, knn_neighbors, components, deepcopy(distribution_sampler), assignment, length(components),
-                   0.0, cluster_per_molecule, deepcopy(cluster_per_cell), Int[],
-                   Int[], Int[], Int[], # prior segmentation info
-                   Dict{Symbol, Any}(), Dict{Symbol, Any}(), prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing)
+        nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
+        self = new(
+            x, p_data, composition_data(x), confidence(x), cluster_per_molecule, Int[], nuclei_probs,
+            adjacent_points, adjacent_weights, real_edge_weight, position_knn_tree, knn_neighbors, 
+            components, deepcopy(distribution_sampler), assignment, length(components), 0.0, 
+            deepcopy(cluster_per_cell),
+            Int[], Int[], # prior segmentation info
+            Dict{Symbol, Any}(), Dict{Symbol, Any}(), Int[], 
+            prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing, min_nuclei_frac
+        )
 
         for c in self.components
             c.n_samples = 0

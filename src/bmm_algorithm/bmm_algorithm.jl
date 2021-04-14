@@ -187,7 +187,9 @@ function maximize!(data::BmmData)
 
     @inbounds @views for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids])
+        nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids]; 
+            nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac)
     end
 
     data.noise_density = estimate_noise_density_level(data)

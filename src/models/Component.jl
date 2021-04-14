@@ -40,6 +40,7 @@ mutable struct Component
     composition_params::CategoricalSmoothed;
     n_samples::Int;
     prior_probability::Float64;
+    confidence::Float64;
 
     shape_prior::Union{Nothing, ShapePrior};
     n_molecules_per_segment::Dict{Int, Int};
@@ -47,15 +48,22 @@ mutable struct Component
     guid::Int;
 
     Component(position_params::MvNormalF, composition_params::CategoricalSmoothed;
-              n_samples::Int=0, shape_prior::Union{Nothing, ShapePrior}=nothing, guid::Int=-1) =
-        new(position_params, composition_params, n_samples, 1.0, shape_prior, Dict{Int, Int}(), guid)
+              n_samples::Int=0, confidence::Float64=1.0, shape_prior::Union{Nothing, ShapePrior}=nothing, guid::Int=-1) =
+        new(position_params, composition_params, n_samples, 1.0, confidence, shape_prior, Dict{Int, Int}(), guid)
 end
 
 function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}}, 
-        conf_data::T3 where T3 <: AbstractVector{Float64})
+        conf_data::T3 where T3 <: AbstractVector{Float64}; nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
     c.n_samples = size(pos_data, 2) # TODO: need to replace it with confidences, but for that I need to re-write all prior segmentation code to work with confidences as well. Also may need to adjust some other parts
     maximize!(c.composition_params, comp_data, conf_data);
-    maximize!(c.position_params, pos_data, conf_data);
+    if nuclei_probs === nothing
+        maximize!(c.position_params, pos_data, conf_data);
+    else
+        maximize!(c.position_params, pos_data, conf_data .* nuclei_probs);
+        if length(nuclei_probs) > 1
+            c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
+        end
+    end
 
     if c.shape_prior !== nothing
         try
@@ -72,10 +80,10 @@ function maximize!(c::Component, pos_data::T1 where T1 <: AbstractMatrix{Float64
 end
 
 pdf(comp::Component, x::Float64, y::Float64, gene::Missing; use_smoothing::Bool=true)::Float64 =
-    comp.prior_probability * pdf(comp.position_params, x, y)
+    comp.prior_probability * comp.confidence * pdf(comp.position_params, x, y)
 
 pdf(comp::Component, x::Float64, y::Float64, gene::Int64; use_smoothing::Bool=true)::Float64 =
-    comp.prior_probability * pdf(comp.position_params, x, y) * pdf(comp.composition_params, gene; use_smoothing=use_smoothing)
+    comp.prior_probability * comp.confidence * pdf(comp.position_params, x, y) * pdf(comp.composition_params, gene; use_smoothing=use_smoothing)
 
 function adjust_cov_by_prior!(Σ::CovMat, prior::ShapePrior; n_samples::TR where TR <: Real)
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
