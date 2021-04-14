@@ -22,6 +22,16 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
+function assign_molecule!(data::BmmData, mol_id::Int; denses::Vector{Float64}, adj_classes::Vector{Int}, stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+    if sum(denses) < noise_density_threshold
+        assign!(data, mol_id, 0) # Noise class
+    elseif !stochastic
+        assign!(data, mol_id, adj_classes[findmax(denses)[2]])
+    else
+        assign!(data, mol_id, fsample(adj_classes, denses))
+    end
+end
+
 """
 ...
 # Arguments
@@ -29,7 +39,7 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
 - `adjacent_points::Array{Int, 1}`:
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
-@inline function adjacent_component_weights!(comp_weights::Vector{Float64}, comp_ids::Vector{Int}, component_weights::Dict{Int, Float64},
+@inline function aggregate_adjacent_component_weights!(comp_ids::Vector{Int}, comp_weights::Vector{Float64}, component_weights::Dict{Int, Float64},
         assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64}, confidences::Vector{Float64})
     empty!(component_weights)
     empty!(comp_weights)
@@ -51,6 +61,21 @@ adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1}
     for (k, v) in component_weights
         push!(comp_ids, k)
         push!(comp_weights, v)
+    end
+
+    return zero_comp_weight
+end
+
+@inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int; 
+        component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
+    # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
+    zero_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
+        data.adjacent_points[mol_id], data.adjacent_weights[mol_id], data.confidence)
+
+    if mol_id in keys(adj_classes_global)
+        n1 = length(adj_classes)
+        append!(adj_classes, adj_classes_global[mol_id])
+        append!(adj_weights, ones(length(adj_classes) - n1) .* data.real_edge_weight)
     end
 
     return zero_comp_weight
@@ -79,83 +104,75 @@ function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segmen
     end
 end
 
-function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData, mol_id::Int; 
+        zero_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64})
+    x::Float64 = position_data(data)[1,mol_id]
+    y::Float64 = position_data(data)[2,mol_id]
+    gene::Union{Int, Missing} = composition_data(data)[mol_id]
+    confidence::Float64 = data.confidence[mol_id]
+    mol_cluster::Int = get(data.cluster_per_molecule, mol_id, 0)
+    segment_id::Int = get(data.segment_per_molecule, mol_id, 0)
+
+    empty!(denses)
+    largest_cell_id = 0
+    largest_cell_size = 0
+    for j in eachindex(adj_weights)
+        c_adj = adj_classes[j]
+        cc = data.components[c_adj]
+        c_dens = confidence * adj_weights[j] * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
+
+        ## Only if molecule clustering is provided
+
+        if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
+            c_dens *= data.cluster_penalty_mult
+        end
+
+        if (segment_id > 0) && (data.main_segment_per_cell[c_adj] in (segment_id, 0))
+            # Find an adjacent cell with the largest number of molecules per cell after assigning the current point to it
+            cur_mols_per_seg = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
+            if (cur_mols_per_seg > largest_cell_size) || ((cur_mols_per_seg == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
+                largest_cell_size = cur_mols_per_seg
+                largest_cell_id = c_adj
+            end
+        end
+
+        push!(denses, c_dens)
+    end
+
+    if (segment_id > 0) & (largest_cell_id > 0)
+        adjust_densities_by_prior_segmentation!(denses, segment_id, largest_cell_id, data, adj_classes, adj_weights)
+    end
+
+    if confidence < 1.0
+        push!(denses, (1 - confidence) * fmax(data.real_edge_weight, zero_comp_weight) * data.noise_density)
+        push!(adj_classes, 0)
+    end
+
+    return largest_cell_id
+end
+
+function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     component_weights = Dict{Int, Float64}();
     adj_classes = Int[]
     adj_weights = Float64[]
     denses = Float64[]
 
-    has_seg_prior = !isempty(data.segment_per_molecule)
     adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
-        x::Float64 = position_data(data)[1,i]
-        y::Float64 = position_data(data)[2,i]
-        gene::Union{Int, Missing} = composition_data(data)[i]
-        confidence::Float64 = data.confidence[i]
-        mol_cluster::Int = isempty(data.cluster_per_molecule) ? 0 : data.cluster_per_molecule[i]
-        segment_id = has_seg_prior ? data.segment_per_molecule[i] : 0
+        zero_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i; 
+            component_weights=component_weights, adj_classes_global=adj_classes_global)
 
-        # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-        zero_comp_weight = adjacent_component_weights!(adj_weights, adj_classes, component_weights, data.assignment,
-            data.adjacent_points[i], data.adjacent_weights[i], data.confidence)
+        expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, zero_comp_weight=zero_comp_weight)
 
-        if i in keys(adj_classes_global)
-            n1 = length(adj_classes)
-            append!(adj_classes, adj_classes_global[i])
-            append!(adj_weights, ones(length(adj_classes) - n1) .* data.real_edge_weight)
-        end
-
-        empty!(denses)
-        largest_cell_id = 0
-        largest_cell_size = 0
-        for j in eachindex(adj_weights)
-            c_adj = adj_classes[j]
-            cc = data.components[c_adj]
-            c_dens = confidence * adj_weights[j] * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
-            if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
-                c_dens *= data.cluster_penalty_mult
-            end
-
-            if (segment_id > 0) && (data.main_segment_per_cell[c_adj] in (segment_id, 0))
-                # Find an adjacent cell with the largest number of molecules per cell after assigning the current point to it
-                cur_mols_per_seg = min(get(cc.n_molecules_per_segment, segment_id, 0) + 1, data.n_molecules_per_segment[segment_id])
-                if (cur_mols_per_seg > largest_cell_size) || ((cur_mols_per_seg == largest_cell_size) && (cc.n_samples > data.components[largest_cell_id].n_samples))
-                    largest_cell_size = cur_mols_per_seg
-                    largest_cell_id = c_adj
-                end
-            end
-
-            push!(denses, c_dens)
-        end
-
-        if (segment_id > 0) & (largest_cell_id > 0)
-            adjust_densities_by_prior_segmentation!(denses, segment_id, largest_cell_id, data, adj_classes, adj_weights)
-        end
-
-        if sum(denses) < noise_density_threshold
-            assign!(data, i, 0) # Noise class
-            continue
-        end
-
-        if confidence < 1.0
-            push!(denses, (1 - confidence) * fmax(data.real_edge_weight, zero_comp_weight) * data.noise_density)
-            push!(adj_classes, 0)
-        end
-
-        if !stochastic
-            assign!(data, i, adj_classes[findmax(denses)[2]])
-            continue
-        end
-
-        assign!(data, i, fsample(adj_classes, denses))
+        assign_molecule!(data, i; denses=denses, adj_classes=adj_classes, stochastic=stochastic)
     end
 end
 
 function update_prior_probabilities!(components::Array{Component, 1}, new_component_weight::Float64)
     c_weights = [max(c.n_samples, new_component_weight) for c in components]
     prior_probs = rand(Distributions.Dirichlet(c_weights))
-    # t_mmc = 150.0;
+    # t_mmc = 150.0; # TODO: finish the idea
     # t_dist = Normal(t_mmc, t_mmc * 3)
     # prior_probs = pdf.(t_dist, c_weights)
     # prior_probs[c_weights .< t_mmc] .= c_weights[c_weights .< t_mmc] ./ t_mmc .* pdf(t_dist, t_mmc)
@@ -222,8 +239,8 @@ function append_empty_components!(data::BmmData, new_component_frac::Float64)
     end
 end
 
-function get_global_adjacent_classes(data::BmmData)::Dict{Int, Array{Int, 1}}
-    adj_classes_global = Dict{Int, Array{Int, 1}}()
+function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
+    adj_classes_global = Dict{Int, Vector{Int}}()
     for (cur_id, comp) in enumerate(data.components)
         if comp.n_samples > 0
             continue
