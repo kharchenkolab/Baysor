@@ -64,8 +64,7 @@ mutable struct BmmData
     """
     function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
                      real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
-                     k_neighbors::Int=20, cluster_per_molecule::Union{Symbol, Vector{Int}}=:cluster, cluster_penalty_mult::Float64=0.25,
-                     cluster_per_cell::Vector{Int}=Vector{Int}(), use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
+                     k_neighbors::Int=20, cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5, 
                      min_nuclei_frac::Float64=0.1)
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
@@ -73,16 +72,6 @@ mutable struct BmmData
 
         if !all(s in propertynames(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
-        end
-
-        if isa(cluster_per_molecule, Symbol)
-            if cluster_per_molecule in propertynames(x)
-                cluster_per_molecule = x[:, cluster_per_molecule]
-            else
-                cluster_per_molecule = Vector{Int}()
-            end
-        elseif (length(cluster_per_molecule) > 0) && (length(cluster_per_molecule) != size(x, 1))
-            error("cluster_per_molecule has length $(length(cluster_per_molecule)), but $(size(x, 1)) is expected")
         end
 
         p_data = position_data(x)
@@ -97,11 +86,12 @@ mutable struct BmmData
         end
 
         nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
+        cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
         self = new(
             x, p_data, composition_data(x), confidence(x), cluster_per_molecule, Int[], nuclei_probs,
             adjacent_points, adjacent_weights, real_edge_weight, position_knn_tree, knn_neighbors, 
             components, deepcopy(distribution_sampler), assignment, length(components), 0.0, 
-            deepcopy(cluster_per_cell),
+            Int[],
             Int[], Int[], # prior segmentation info
             Dict{Symbol, Any}(), Dict{Symbol, Any}(), Int[], 
             prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing, min_nuclei_frac
@@ -225,15 +215,21 @@ function merge_bm_data(bmm_data_arr::Array{BmmData, 1}; reestimate_triangulation
         assignment_offset += length(bd.components)
     end
 
-    k_neighbors=length(bmm_data_arr[1].knn_neighbors[1])
+    bd1 = bmm_data_arr[1]
+    k_neighbors=length(bd1.knn_neighbors[1])
 
-    cluster_per_molecule = vcat([bmd.cluster_per_molecule for bmd in bmm_data_arr]...)
-    cluster_per_cell = vcat([bmd.cluster_per_cell for bmd in bmm_data_arr]...)
+    res = BmmData(components, x, adjacent_points, adjacent_weights, bd1.real_edge_weight,
+        deepcopy(bd1.distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
+        cluster_penalty_mult=bd1.cluster_penalty_mult, use_gene_smoothing=bd1.use_gene_smoothing, 
+        prior_seg_confidence=bd1.prior_seg_confidence, min_nuclei_frac=bd1.min_nuclei_frac)
+    
+    res.cluster_per_molecule = vcat([bmd.cluster_per_molecule for bmd in bmm_data_arr]...)
+    res.segment_per_molecule = vcat([bmd.segment_per_molecule for bmd in bmm_data_arr]...)
+    res.nuclei_prob_per_molecule = vcat([bmd.nuclei_prob_per_molecule for bmd in bmm_data_arr]...)
 
-    res = BmmData(components, x, adjacent_points, adjacent_weights, bmm_data_arr[1].real_edge_weight,
-        deepcopy(bmm_data_arr[1].distribution_sampler), vcat(assignments...); k_neighbors=k_neighbors,
-        cluster_per_molecule=cluster_per_molecule, cluster_penalty_mult=bmm_data_arr[1].cluster_penalty_mult,
-        cluster_per_cell=cluster_per_cell, use_gene_smoothing=bmm_data_arr[1].use_gene_smoothing)
+    res.cluster_per_cell = vcat([bmd.cluster_per_cell for bmd in bmm_data_arr]...)
+    res.n_molecules_per_segment = vcat([bmd.n_molecules_per_segment for bmd in bmm_data_arr]...)
+    res.main_segment_per_cell = vcat([bmd.main_segment_per_cell for bmd in bmm_data_arr]...)
 
     res.tracer = merge_tracers(tracers)
 
