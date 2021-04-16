@@ -331,12 +331,16 @@ track_progress!(progress::Progress) = next!(progress)
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_step::Int=4, verbose=true,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
-              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing}=nothing,
+              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing, Bool}=nothing,
               component_split_step::Int=3)
     time_start = now()
 
     if verbose
         println("BMM fit started")
+    end
+
+    if isa(progress, Bool) && progress
+        progress = Progress(n_iters)
     end
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
