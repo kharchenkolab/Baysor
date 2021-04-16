@@ -20,10 +20,15 @@ function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjace
     end
 end
 
-function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, comp_genes::Vector{Vector{String}}; nn_id::Int)
+init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, comp_genes::Vector{Vector{String}}; kwargs...) =
+    init_molecule_compartments(pos_data, genes, [Dict(g => 1.0 for g in gs) for gs in comp_genes]; kwargs...)
+
+function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, comp_genes::Vector{Dict{String, Float64}}; nn_id::Int)
     assignment_probs = zeros(length(comp_genes) + 1, length(genes))
     for (i,gs) in enumerate(comp_genes)
-        assignment_probs[i, in.(genes, Ref(Set(gs)))] .= 1.0
+        for (g,p) in gs
+            assignment_probs[i, genes .== g] .= p
+        end
     end
     
     nn_ids = knn(KDTree(pos_data), pos_data, nn_id + 1)[1];
@@ -37,7 +42,7 @@ end
 
 function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, 
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64}; 
-        comp_genes::Vector{Vector{String}}, nn_id::Int, n_iters_without_update=20,
+        comp_genes::Vector{<:Union{Vector{String}, Dict{String, Float64}}}, nn_id::Int, n_iters_without_update=20,
         weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500)
 
     if !weights_pre_adjusted
