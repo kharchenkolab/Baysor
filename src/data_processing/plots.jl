@@ -1,16 +1,18 @@
-using Random
 using Colors
 using DataFrames
 using DataFramesMeta
 using NearestNeighbors
+using Random
 using Statistics
+using VegaLite
 
+import AbstractPlotting
+import Base.show
 import Base64
+import CairoMakie as MK
+import ColorSchemes
 import MultivariateStats
 import Plots
-import AbstractPlotting
-import CairoMakie as MK
-import Base.show
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
@@ -22,7 +24,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
-    axis_args_default = (xticklabelsize=12, yticklabelsize=12, :xticksvisible => false, :xticklabelsvisible => false, :yticksvisible => false, :yticklabelsvisible => false);
+    axis_args_default = (xticklabelsize=12, yticklabelsize=12, xticksvisible=false, xticklabelsvisible=false, yticksvisible=false, yticklabelsvisible=false);
     legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
     polygon_args_default = (strokecolor="black", color="transparent", strokewidth=poly_strokewidth, label="")
 
@@ -166,7 +168,7 @@ end
 
 ### Tracing
 
-function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
+function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     if !(:n_components in keys(tracer)) || length(tracer[:n_components]) == 0
         error("No data about #components per iteration was stored")
     end
@@ -177,22 +179,37 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any}; kwargs...)
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    p = Plots.plot(; legendtitle="Min #molecules", title="Convergence", xlabel="Iteration", ylabel="#Cells",
-                   background_color_legend=Colors.RGBA(1.0, 1.0, 1.0, 0.5), legend=:topleft, kwargs...)
+    fig = MK.Figure(resolution=(600, 400));
+    axis_args = (xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14, xlabel="Iteration", ylabel="Num. cells", 
+        xlabelpadding=0, ylabelpadding=0, font="Helvetica")
+    fig[1, 1] = MK.Axis(fig; title="Convergence", axis_args...);
+
     for i in 1:size(n_components_per_iter, 1)
-        p = Plots.plot!(n_components_per_iter[i,:], label="$(labels[i])")
+        p = MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
+    MK.axislegend("Min #molecules"; position=(0.01, 1), nbanks = 2, titlesize=16, labelsize=14)
+    MK.xlims!(MK.current_axis(), 0, size(n_components_per_iter, 2))
+    MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter))
 
-    p = Plots.plot!(xlabel="Iteration", ylabel="#Cells", inset = (1, Plots.bbox(0.05,0.05,0.35,0.35,:top,:right)), subplot=2,
-        bg_inside=nothing, legend=nothing, kwargs...)
-
+    ax2 = MK.Axis(fig; bbox=MK.BBox(370, 550, 180, 330), axis_args...)
     subplot_start = ceil(Int, 0.75 * size(n_components_per_iter, 2))
     iter_vals = subplot_start:size(n_components_per_iter, 2)
     for i in 1:size(n_components_per_iter, 1)
-        p = Plots.plot!(iter_vals, n_components_per_iter[i, iter_vals], subplot=2, ylims=[0, maximum(n_components_per_iter[:, iter_vals]) * 1.05])
+        p = MK.lines!(iter_vals, n_components_per_iter[i, iter_vals], color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
 
-    return p
+    MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter[:, iter_vals]))
+
+    return fig
+end
+
+### Diagnostics
+
+function plot_clustering_convergence(clust_res::NamedTuple)::VegaLite.VLSpec
+    plt = DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
+        @vlplot(x={:x, title="Iteration"}) +
+        @vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
+        @vlplot(:line, y={:change_frac}, color={datum="Molecules changed"})
 end
 
 ### Colormaps

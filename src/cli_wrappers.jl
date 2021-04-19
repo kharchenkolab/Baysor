@@ -189,18 +189,19 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     return r
 end
 
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm,
-        max_diffs::Union{Vector{Float64}, Nothing}=nothing, change_fracs::Union{Vector{Float64}, Nothing}=nothing)
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm, 
+        clust_res::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
+        vega_plots = Dict{String, VegaLite.VLSpec}()
         println(io, "<html>")
+        println(io, vega_header("Report"))
+        println(io, T.vega_style())
+        println(io, "<body>")
         # Molecule clustering convergence
-        if max_diffs !== nothing
-            p_mol_conv = Plots.plot(max_diffs, xlabel="Iteration", ylabel="Maximal probability change", title="Molcecule clustering convergence", label="Maximal change");
-            if change_fracs !== nothing
-                p_mol_conv = Plots.plot!(change_fracs, label="Fraction of molecules changed")
-            end
-            show(io, MIME("text/html"), p_mol_conv)
+        if clust_res !== nothing
+            println(io, "<div id='vg_mol_conv'></div>")
+            vega_plots["vg_mol_conv"] = plot_clustering_convergence(clust_res)
         end
 
         # Main algorithm convergence
@@ -394,7 +395,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.prior_segmentation), nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
     @info "Done"
 
-    max_diffs, change_fracs = nothing, nothing
+    mol_clusts = nothing
     if args["n-clusters"] > 1
         @info "Clustering molecules..."
         # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
@@ -404,8 +405,6 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             n_clusters=args["n-clusters"], weights_pre_adjusted=false)
 
         df_spatial[!, :cluster] = mol_clusts.assignment;
-        max_diffs, change_fracs = mol_clusts.diffs, mol_clusts.change_fracs
-
         # TODO: store mol_clusts.exprs at bm_data.misc?
         @info "Done"
     end
@@ -438,7 +437,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; max_diffs=max_diffs, change_fracs=change_fracs)
+        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; max_diffs=mol_clusts.diffs, change_fracs=mol_clusts.change_fracs)
         polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
             gene_colors=gene_colors)
 

@@ -22,6 +22,7 @@ include("utils/utils.jl")
 include("utils/logging.jl")
 include("utils/convex_hull.jl")
 include("utils/spatial.jl")
+include("utils/vega_wrappers.jl")
 
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
