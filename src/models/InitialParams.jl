@@ -1,13 +1,13 @@
 using SparseArrays
 
-struct InitialParams
+struct InitialParams{L}
     centers::Matrix{Float64}
-    covs::Array{CovMat,1};
+    covs::Array{CovMat{L},1};
     assignment::Vector{Int64};
 
-    InitialParams(centers::Array{T, 2} where T <: Real, covs::Float64, assignment::Array{Int64,1}) =
-        new(deepcopy(centers), [CovMat([covs 0.; 0. covs]) for i in 1:size(centers, 1)], deepcopy(assignment))
+    InitialParams(centers::Matrix{<:Real}, covs::Float64, assignment::Vector{Int64}) where N =
+        new{N}(deepcopy(centers), [CovMat{N}(diagm(0 => (ones(N) .* covs))) for i in 1:size(centers, 1)], deepcopy(assignment))
 
-    InitialParams(centers::Array{T, 2} where T <: Real, covs::Array{CovMat, 1}, assignment::Array{Int64,1}) =
-        new(deepcopy(centers), deepcopy(covs), deepcopy(assignment))
+    InitialParams(centers::Array{T, 2} where T <: Real, covs::Array{<:CovMat{N}, 1}, assignment::Array{Int64,1}) where N =
+        new{N}(deepcopy(centers), deepcopy(covs), deepcopy(assignment))
 end

@@ -1,6 +1,6 @@
 using Random
 
-function sample_position_params!(data::BmmData, shape_prior::ShapePrior)::MvNormalF
+function sample_position_params!(data::BmmData, shape_prior::ShapePrior{N})::MvNormalF{N} where N
     μ = sample_center!(data) # TODO: should we store it as non-static arrays from the beginning?
     Σ = Array(Diagonal(shuffle(sample_var(shape_prior))))
 

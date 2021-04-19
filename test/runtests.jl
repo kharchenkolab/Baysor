@@ -1,11 +1,12 @@
 using Test
-using Baysor as B
 using DataFrames
 using Distributions
 using LinearAlgebra
 using Statistics
 using StatsBase
+
 import Random: seed!
+import Baysor as B
 
 module DataWrappers
 
@@ -51,14 +52,14 @@ end
         @testset "ShapePrior" begin
             seed!(42)
 
-            means = B.MeanVec([10.0, 20.0])
-            std_stds = B.MeanVec([5.0, 10.0])
-            stds = hcat([Vector(B.sample_var(B.ShapePrior(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
+            means = B.MeanVec{2}([10.0, 20.0])
+            std_stds = B.MeanVec{2}([5.0, 10.0])
+            stds = hcat([Vector(B.sample_var(B.ShapePrior{2}(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
             @test all(stds .> 0)
             @test all(abs.(vec(mean(stds, dims=2)) .- means) .< 1)
 
-            means = B.MeanVec([1000.0, 2000.0])
-            stds = hcat([Vector(B.sample_var(B.ShapePrior(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
+            means = B.MeanVec{2}([1000.0, 2000.0])
+            stds = hcat([Vector(B.sample_var(B.ShapePrior{2}(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
             @test all(stds .> 0)
             @test all(abs.(vec(mean(stds, dims=2)) .- means) .< 1)
             @test all(abs.(vec(std(stds, dims=2)) .- std_stds) .< 1)

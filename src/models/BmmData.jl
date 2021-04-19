@@ -5,7 +5,7 @@ using NearestNeighbors
 using Statistics
 using StatsBase: countmap
 
-mutable struct BmmData
+mutable struct BmmData{L}
 
     # Static data
     ## Segmentation data
@@ -26,8 +26,8 @@ mutable struct BmmData
     knn_neighbors::Array{Vector{Int}, 1};
 
     # Distribution-related
-    components::Array{Component, 1};
-    distribution_sampler::Component;
+    components::Array{Component{L}, 1};
+    distribution_sampler::Component{L};
     assignment::Vector{Int};
     max_component_guid::Int;
 
@@ -62,10 +62,10 @@ mutable struct BmmData
     - `distribution_sampler::Component`:
     - `assignment::Array{Int, 1}`:
     """
-    function BmmData(components::Array{Component, 1}, x::DataFrame, adjacent_points::Array{Array{Int, 1}, 1}, adjacent_weights::Array{Array{Float64, 1}, 1},
-                     real_edge_weight::Float64, distribution_sampler::Component, assignment::Array{Int, 1};
+    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1},
+                     real_edge_weight::Float64, distribution_sampler::Component{N}, assignment::Vector{Int};
                      k_neighbors::Int=20, cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5, 
-                     min_nuclei_frac::Float64=0.1)
+                     min_nuclei_frac::Float64=0.1) where N
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -75,6 +75,8 @@ mutable struct BmmData
         end
 
         p_data = position_data(x)
+        @assert size(p_data, 1) == N
+
         position_knn_tree = KDTree(p_data)
         knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
 
@@ -87,7 +89,7 @@ mutable struct BmmData
 
         nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
         cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
-        self = new(
+        self = new{N}(
             x, p_data, composition_data(x), confidence(x), cluster_per_molecule, Int[], nuclei_probs,
             adjacent_points, adjacent_weights, real_edge_weight, position_knn_tree, knn_neighbors, 
             components, deepcopy(distribution_sampler), assignment, length(components), 0.0, 
@@ -131,7 +133,13 @@ mutable struct BmmData
     end
 end
 
-position_data(df::AbstractDataFrame)::Matrix{Float64} = Matrix{Float64}(df[:, [:x, :y]])'
+function position_data(df::AbstractDataFrame)::Matrix{Float64}
+    if (:z in propertynames(df))
+        return copy(Matrix{Float64}(df[:, [:x, :y, :z]])')
+    end
+    
+    return copy(Matrix{Float64}(df[:, [:x, :y]])')
+end
 position_data(data::BmmData)::Matrix{Float64} = data.position_data
 composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
 composition_data(data::BmmData) = data.composition_data

@@ -73,13 +73,15 @@ function position_data_by_assignment(pos_data::T where T<: AbstractMatrix{<:Real
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
-function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer}; min_size::Int=1)::Array{CovMat, 1}
+function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer}; min_size::Int=1)::Array{<:CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
-    covs = estimate_sample_cov.(pos_data_by_assignment);
-    mean_covs = MeanVec(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .>= min_size]))...), dims=2)))
+    CM, MV = (size(pos_data, 1) == 2) ? (CovMat{2}, MeanVec{2}) : (CovMat{3}, MeanVec{3})
+
+    covs = [estimate_sample_cov!(zeros(CM), pd) for pd in pos_data_by_assignment];
+    mean_covs = MV(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .>= min_size]))...), dims=2)))
 
     for i in findall(size.(pos_data_by_assignment, 2) .<= min_size)
-        covs[i] = CovMat(diagm(0 => deepcopy(mean_covs)))
+        covs[i] = CM(diagm(0 => deepcopy(mean_covs)))
     end
 
     return covs
@@ -95,7 +97,19 @@ function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data', confidences; n=n_clusters, confidence_threshold=0.25)]
     cluster_labels = vcat(knn(KDTree(cluster_centers), pos_data, 1)[1]...)
 
-    covs = (scale === nothing) ? covs_from_assignment(pos_data, cluster_labels) : Float64(scale) ^ 2
+    covs = nothing
+    if scale === nothing
+        covs = covs_from_assignment(pos_data, cluster_labels)
+    elseif size(pos_data, 1) == 2
+        scale = Float64(scale) ^ 2
+        covs = [CovMat{2}(diagm(0 => (ones(2) .* scale))) for i in 1:size(cluster_centers, 2)]
+    elseif size(pos_data, 1) == 3
+        scale = Float64(scale) ^ 2
+        covs = [CovMat{3}(diagm(0 => (ones(3) .* scale))) for i in 1:size(cluster_centers, 2)]
+    else
+        error("Unexpected number of dimensions: $(size(pos_data, 1))")
+    end
+
     return InitialParams(copy(cluster_centers'), covs, cluster_labels)
 end
 
@@ -223,7 +237,9 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
 
     ## Initialize BmmData array
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init."
-    size_prior = ShapePrior(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell);
+    size_prior = (:z in propertynames(df_spatial)) ? 
+        ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell) :
+        ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
 
     bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
     for i in 1:length(dfs_spatial)
@@ -245,8 +261,8 @@ function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighbo
     return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, prior_seg_confidence=prior_seg_confidence)
 end
 
-function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior,
-                               gene_smooth::Real=1.0, gene_num::Int=maximum(skipmissing(composition_data(df_spatial))))
+function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior{N},
+                               gene_smooth::Real=1.0, gene_num::Int=maximum(skipmissing(composition_data(df_spatial)))) where N
     position_distrubutions = [MvNormalF(initial_params.centers[i,:], initial_params.covs[i]) for i in 1:size(initial_params.centers, 1)]
     gene_distributions = [CategoricalSmoothed(ones(Float64, gene_num), smooth=Float64(gene_smooth)) for i in 1:length(position_distrubutions)]
 

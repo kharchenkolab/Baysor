@@ -2,6 +2,7 @@ using DataFrames
 using Distributions
 using NearestNeighbors
 using StatsBase
+using StaticArrays
 
 using Base.Threads
 using Dates: now, DateTime
@@ -119,7 +120,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData, mo
     for j in eachindex(adj_weights)
         c_adj = adj_classes[j]
         cc = data.components[c_adj]
-        c_dens = confidence * adj_weights[j] * pdf(cc, x, y, gene, use_smoothing=data.use_gene_smoothing)
+        c_dens = confidence * adj_weights[j] * pdf(cc, SVector(x, y), gene, use_smoothing=data.use_gene_smoothing)
 
         ## Only if molecule clustering is provided
 
@@ -169,7 +170,7 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     end
 end
 
-function update_prior_probabilities!(components::Array{Component, 1}, new_component_weight::Float64)
+function update_prior_probabilities!(components::Array{<:Component, 1}, new_component_weight::Float64)
     c_weights = [max(c.n_samples, new_component_weight) for c in components]
     prior_probs = rand(Distributions.Dirichlet(c_weights))
     # t_mmc = 150.0; # TODO: finish the idea
@@ -348,7 +349,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_
     end
 
     if trace_components && !(:component_history in keys(data.tracer))
-        data.tracer[:component_history] = Vector{Component}[]
+        data.tracer[:component_history] = Vector{typeof(data.components[1])}[]
     end
 
     it_num = 0
