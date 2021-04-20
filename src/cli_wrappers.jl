@@ -164,14 +164,15 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 
     for k in ["gene-column", "x-column", "y-column"]
         if !(k in keys(r)) || (r[k] === nothing) # should never be the case as we have defaults
-            error("$k must be specified")
+            @warn "$k must be specified"
+            return nothing
         end
         r[k] = Symbol(r[k])
     end
 
     if r["prior_segmentation"] === nothing && r["scale"] === nothing
-        println("Either `prior_segmentation` or `scale` must be provided.")
-        exit(1)
+        @warn "Either `prior_segmentation` or `scale` must be provided."
+        return nothing
     end
 
     if r["min-molecules-per-segment"] === nothing
@@ -338,12 +339,7 @@ function get_baysor_run_str()::String
     return "($(Dates.Date(Dates.now()))) Run Baysor $pkg_str"
 end
 
-function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
-    args_str = join(args, " ")
-    args = parse_configs(args)
-
-    # Dump parameters
-
+function dump_parameters(args::Dict{String, Any}, args_str::String)
     if args["config"] !== nothing
         dump_dst = abspath(append_suffix(args["output"], "config.toml"))
         if abspath(args["config"]) != dump_dst
@@ -355,19 +351,9 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         println(f, "# CLI params: `$args_str`")
         TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
     end
+end
 
-    # Set up logger
-
-    log_file = open(append_suffix(args["output"], "log.log"), "w")
-    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
-
-    # Set up plotting
-
-    ENV["GKSwstype"] = "100"; # Disable output device
-    Plots.gr()
-
-    # Run algorithm
-
+function load_and_preprocess_data!(args::Dict{String, Any})
     @info get_baysor_run_str()
     @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=false)
@@ -388,39 +374,29 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     end
     GC.gc()
 
-    bm_data_arr = BmmData[]
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
 
     @info "Estimating noise level"
-    append_confidence!(df_spatial, (args["prior_segmentation"]===nothing ? nothing : df_spatial.prior_segmentation), nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
+    prior_seg = (args["prior_segmentation"]===nothing) ? nothing : df_spatial.prior_segmentation
+    append_confidence!(df_spatial, prior_seg, nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
     @info "Done"
 
-    mol_clusts = nothing
-    if args["n-clusters"] > 1
-        @info "Clustering molecules..."
-        # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
-        adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
+    return df_spatial, gene_names, prior_polygons
+end
 
-        mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights;
-            n_clusters=args["n-clusters"], weights_pre_adjusted=false)
+function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
+    @info "Clustering molecules..."
+    # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
+    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
 
-        df_spatial[!, :cluster] = mol_clusts.assignment;
-        # TODO: store mol_clusts.exprs at bm_data.misc?
-        @info "Done"
-    end
+    mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=n_clusters, weights_pre_adjusted=false)
 
-    bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
-            n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
-            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
+    @info "Done"
+    return mol_clusts
+end
 
-    history_depth = round(Int, args["iters"] * 0.1)
-    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
-                                min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
-
-    @info "Processing complete."
-
-    # Save results
-
+function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; mol_clusts::Union{NamedTuple, Nothing}, 
+        prior_polygons::Vector{Matrix{Float64}})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
@@ -449,7 +425,48 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             end
         end
     end
+end
 
+function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
+    args_str = join(args, " ")
+    args = parse_configs(args)
+    (args !== nothing) || return 1
+
+    dump_parameters(args, args_str)
+
+    # Set up logger
+
+    log_file = open(append_suffix(args["output"], "log.log"), "w")
+    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+
+    # Set up plotting
+
+    ENV["GKSwstype"] = "100"; # Disable output device
+    Plots.gr()
+
+
+    df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
+
+    mol_clusts = nothing
+    if args["n-clusters"] > 1
+        mol_clusts = estimate_molecule_clusters(df_spatial, args["n-clusters"])
+        df_spatial[!, :cluster] = mol_clusts.assignment;
+    end
+
+    # Run algorithm
+
+    bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
+            n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
+            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
+
+    history_depth = round(Int, args["iters"] * 0.1)
+    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
+                                min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
+
+    @info "Processing complete."
+
+    # Save results
+    save_segmentation_results(bm_data, gene_names, args; mol_clusts=mol_clusts, prior_polygons=prior_polygons)
     @info "All done!"
 
     close(log_file)
