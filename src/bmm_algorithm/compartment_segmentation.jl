@@ -73,12 +73,13 @@ function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{
         push!(max_diffs, md)
         push!(change_fracs, cf)
 
+        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of assignment changed", cf)]
         if progress !== nothing
-            next!(progress, showvalues = [(:iteration, i), (:max_diff, md), (:change_frac, cf)])
+            next!(progress, showvalues=prog_vals)
         end
         if (i > n_iters_without_update) && (maximum(max_diffs[(end - n_iters_without_update):end]) < tol)
             if verbose
-                finish!(progress)
+                finish!(progress, showvalues=prog_vals)
             end
             break
         end

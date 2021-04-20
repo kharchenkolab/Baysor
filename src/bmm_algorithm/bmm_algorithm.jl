@@ -327,22 +327,13 @@ log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
     @info "BMM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
         "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
 
-track_progress!(progress::Nothing) = nothing
-track_progress!(progress::Progress) = next!(progress)
-
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_step::Int=4, verbose=true,
+function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
-              assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing, Bool}=nothing,
+              assignment_history_depth::Int=0, trace_components::Bool=false, verbose::Union{Progress, Bool}=true,
               component_split_step::Int=3, refine::Bool=true)
     time_start = now()
 
-    if verbose
-        println("BMM fit started")
-    end
-
-    if isa(progress, Bool) && progress
-        progress = Progress(n_iters)
-    end
+    progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
         data.tracer[:assignment_history] = Vector{Int}[]
@@ -352,7 +343,6 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_
         data.tracer[:component_history] = Vector{typeof(data.components[1])}[]
     end
 
-    it_num = 0
     trace_n_components!(data, min_molecules_per_cell);
 
     maximize!(data)
@@ -371,22 +361,17 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_
         drop_unused_components!(data)
         maximize!(data)
 
-        it_num = i
-        if verbose && i % log_step == 0
-            log_em_state(data, it_num, time_start)
-        end
-
         trace_n_components!(data, min_molecules_per_cell);
         trace_assignment_history!(data, assignment_history_depth; use_guids=!trace_components)
         if trace_components
             trace_component_history!(data)
         end
 
-        track_progress!(progress)
-    end
-
-    if verbose
-        log_em_state(data, it_num, time_start)
+        if progress !== nothing
+            n_components = sum(num_of_molecules_per_cell(data) .> 0)
+            noise_level = round(mean(data.assignment .== 0) * 100, digits=2)
+            next!(progress, showvalues = [("Iteration", i), ("Noise level, %", noise_level), ("Num. components", n_components)])
+        end
     end
 
     if refine
