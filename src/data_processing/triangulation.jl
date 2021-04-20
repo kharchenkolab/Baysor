@@ -26,7 +26,12 @@ geti(p::IndexedPoint2D) = p._index
 
 function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::T2 where T2 <: Real =2, k_adj::Int=5,
         adjacency_type::Symbol=:triangulation, distance::TD where TD <: Distances.SemiMetric = Euclidean())
-    @assert size(points, 1) == 2
+    if size(points, 1) == 3
+        (adjacency_type == :knn) || @warn "Only k-nn random field is supported for 3D data"
+        adjacency_type = :knn
+    else
+        (size(points, 1) == 2) || error("Only 2D and 3D data is supported")
+    end
 
     if !in(adjacency_type, (:knn, :triangulation, :both))
         error("Unknown adjacency type: $adjacency_type")
@@ -42,7 +47,7 @@ function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Boo
     # Tesselation don't work with duplicated points. And in knn 0-distance points result in loop edges
     hashes = vec(mapslices(row -> "$(row[1]) $(row[2])", round.(points, digits=10), dims=1));
     is_duplicated = get.(Ref(countmap(hashes)), hashes, 0) .> 1;
-    points[:, is_duplicated] .+= (rand(Float64, (2, sum(is_duplicated))) .- 0.5) .* 2e-5;
+    points[:, is_duplicated] .+= (rand(Float64, (size(points, 1), sum(is_duplicated))) .- 0.5) .* 2e-5;
 
     edge_list = Matrix{Int}(undef, 2,0)
     if (adjacency_type == :triangulation) || (adjacency_type == :both)

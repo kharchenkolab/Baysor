@@ -251,6 +251,7 @@ boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
 function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{Int}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
                            grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
                            bandwidth::Float64=(grid_step / 2), exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
+    pos_data = pos_data[1:2,:]
     if min_x === nothing
         min_x = vec(mapslices(minimum, pos_data, dims=2))
     end

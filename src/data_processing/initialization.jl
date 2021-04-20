@@ -191,8 +191,8 @@ function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String}
     return matches
 end
 
-function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, exclude_genes::Vector{String}=String[], kwargs...)
-    df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
+function load_df(data_path::String; min_molecules_per_gene::Int=0, exclude_genes::Vector{String}=String[], kwargs...)
+    df_spatial = read_spatial_df(data_path; kwargs...)
 
     gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
     large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .>= min_molecules_per_gene]);
@@ -265,7 +265,7 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior)) for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
     gene_sampler = CategoricalSmoothed(ones(Float64, gene_num))
-    sampler = Component(MvNormalF(zeros(2)), gene_sampler, shape_prior=deepcopy(size_prior)) # position_params are never used
+    sampler = Component(MvNormalF(zeros(N)), gene_sampler, shape_prior=deepcopy(size_prior)) # position_params are never used
 
     return components, sampler, initial_params.assignment
 end

@@ -1,10 +1,13 @@
 [Data]
 
-# Name of x column in the input data. Default: "x"
+# Name of the x column in the input data. Default: "x"
 x-column = "x"
 
-# Name of y column in the input data. Default: "y"
+# Name of the y column in the input data. Default: "y"
 y-column = "y"
+
+# Name of the y column in the input data. Default: "z"
+z-column = "z"
 
 # Name of gene column in the input data. Default: "gene"
 gene-column = "gene"

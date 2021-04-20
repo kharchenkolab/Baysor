@@ -22,6 +22,7 @@ function get_default_config()
         "Data" => Dict{String, Any}(
             "x-column" => "x",
             "y-column" => "y",
+            "z-column" => "z",
             "gene-column" => "gene",
             "min-molecules-per-gene" => 1,
             "min-molecules-per-cell" => 3,
@@ -75,8 +76,16 @@ end
 function load_df(args::Dict; kwargs...) 
     exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
 
-    return load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], 
+    df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"], 
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
+    
+    if args["force-2d"] && (:z in propertynames(df_spatial))
+        select!(df_spatial, Not(:z))
+    elseif (args["z-column"] != :z) && !(:z in propertynames(df_spatial))
+        error("z-column $(args["z-column"]) not found in the data")
+    end
+
+    return df_spatial, gene_names
 end
 
 append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
@@ -91,7 +100,9 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--x-column", "-x"
             help = "Name of x column. Overrides the config value."
         "--y-column", "-y"
-            help = "Name of gene column. Overrides the config value."
+            help = "Name of y column. Overrides the config value."
+        "--z-column", "-z"
+            help = "Name of z column. Overrides the config value."
         "--gene-column", "-g"
             help = "Name of gene column. Overrides the config value."
 
@@ -119,15 +130,18 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported. The option requires setting '-p' to work."
             range_tester = (x -> in(lowercase(x), ["geojson"]))
             metavar = "FORMAT"
-        "--scale-std"
-            help = "Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with '%' to set it relative to scale. Default: 25%"
-            default = "25%"
+        "--force-2d"
+            help = "Ignores z-column in the data if it is provided"
+            action = :store_true
         "--exclude-genes"
             help = "Comma-separated list of genes to ignore during segmentation"
         "--nuclei-genes"
             help = "Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well."
         "--cyto-genes"
             help = "Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well."
+        "--scale-std"
+            help = "Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with '%' to set it relative to scale. Default: 25%"
+            default = "25%"
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
@@ -167,6 +181,8 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         end
         r[k] = Symbol(r[k])
     end
+
+    r["z-column"] = Symbol(r["z-column"])
 
     if r["prior_segmentation"] === nothing && r["scale"] === nothing
         @warn "Either `prior_segmentation` or `scale` must be provided."
@@ -520,6 +536,8 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0,
             adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=vcat(comp_genes...));
+        
+    @info "Using $(size(position_data(bm_data), 1))D coordinates"
 
     history_depth = round(Int, args["iters"] * 0.1)
     bm_data = bmm!(bm_data; n_iters=args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],

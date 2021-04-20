@@ -105,10 +105,9 @@ function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segmen
     end
 end
 
-function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData, mol_id::Int; 
-        zero_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64})
-    x::Float64 = position_data(data)[1,mol_id]
-    y::Float64 = position_data(data)[2,mol_id]
+function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int; 
+        zero_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
+    x = SVector{N}(position_data(data)[:,mol_id]...)
     gene::Union{Int, Missing} = composition_data(data)[mol_id]
     confidence::Float64 = data.confidence[mol_id]
     mol_cluster::Int = get(data.cluster_per_molecule, mol_id, 0)
@@ -120,7 +119,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData, mo
     for j in eachindex(adj_weights)
         c_adj = adj_classes[j]
         cc = data.components[c_adj]
-        c_dens = confidence * adj_weights[j] * pdf(cc, SVector(x, y), gene, use_smoothing=data.use_gene_smoothing)
+        c_dens = confidence * adj_weights[j] * pdf(cc, x, gene, use_smoothing=data.use_gene_smoothing)
 
         ## Only if molecule clustering is provided
 
@@ -228,7 +227,7 @@ function estimate_noise_density_level(data::BmmData)::Float64
     composition_density = noise_composition_density(data)
 
     std_vals = data.distribution_sampler.shape_prior.std_values;
-    position_density = pdf(MultivariateNormal([0.0, 0.0], diagm(0 => std_vals.^2)), 3 .* std_vals)
+    position_density = pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 3 .* std_vals)
 
     return position_density * composition_density
 end
