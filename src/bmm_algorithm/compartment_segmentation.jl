@@ -20,10 +20,14 @@ function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjace
     end
 end
 
-init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, comp_genes::Vector{Vector{String}}; kwargs...) =
+init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Vector{String}}; kwargs...) =
     init_molecule_compartments(pos_data, genes, [Dict(g => 1.0 for g in gs) for gs in comp_genes]; kwargs...)
 
-function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, comp_genes::Vector{Dict{String, Float64}}; nn_id::Int)
+function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Dict{String, Float64}}; 
+        gene_names::Vector{String}, nn_id::Int)
+    id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
+    comp_genes = [Dict(id_per_gene[g] => v for (g,v) in gsd) for gsd in comp_genes]
+
     assignment_probs = zeros(length(comp_genes) + 1, length(genes))
     for (i,gs) in enumerate(comp_genes)
         for (g,p) in gs
@@ -40,20 +44,21 @@ function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Str
     return assignment_probs, is_locked
 end
 
-function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{String}, 
+function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, 
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64}; 
-        comp_genes::Vector{<:Union{Vector{String}, Dict{String, Float64}}}, nn_id::Int, n_iters_without_update=20,
-        weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500)
+        comp_genes::Vector{<:Union{Vector{String}, Dict{String, Float64}}}, gene_names::Vector{String}, nn_id::Int, n_iters_without_update=20,
+        weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500, verbose::Bool=true)
 
     if !weights_pre_adjusted
         adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
     # Init
-    assignment_probs, is_locked = init_molecule_compartments(pos_data, genes, comp_genes; nn_id=nn_id);
+    assignment_probs, is_locked = init_molecule_compartments(pos_data, genes, comp_genes; gene_names=gene_names, nn_id=nn_id);
 
     max_diffs, change_fracs = Float64[], Float64[]
     assignment_probs_prev = deepcopy(assignment_probs)
+    progress = verbose ? Progress(max_iter) : nothing
     for i in 1:max_iter
         assignment_probs_prev .= assignment_probs
         # Iteration
@@ -64,7 +69,13 @@ function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{
         push!(max_diffs, md)
         push!(change_fracs, cf)
 
+        if progress !== nothing
+            next!(progress, showvalues = [(:iteration, i), (:max_diff, md), (:change_frac, cf)])
+        end
         if (i > n_iters_without_update) && (maximum(max_diffs[(end - n_iters_without_update):end]) < tol)
+            if verbose
+                finish!(progress)
+            end
             break
         end
     end
