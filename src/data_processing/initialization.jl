@@ -175,6 +175,22 @@ function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::
     return adjacent_points, adjacent_weights
 end
 
+function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String})
+    matches = Set{String}()
+    missing_genes = String[]
+    for gm in gene_masks
+        g_ids = findall(match.(Regex(gm), gene_names) .!== nothing)
+        if length(g_ids) == 0
+            @show push!(missing_genes, gm)
+        else
+            union!(matches, gene_names[g_ids])
+        end
+    end
+
+    (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
+    return matches
+end
+
 function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol=:gene, min_molecules_per_gene::Int=0, exclude_genes::Vector{String}=String[], kwargs...)
     df_spatial = read_spatial_df(data_path; x_col=x_col, y_col=y_col, gene_col=gene_col, kwargs...)
 
@@ -183,11 +199,9 @@ function load_df(data_path; x_col::Symbol=:x, y_col::Symbol=:y, gene_col::Symbol
     df_spatial = df_spatial[in.(df_spatial.gene, Ref(large_genes)),:];
 
     if length(exclude_genes) > 0
-        missing_genes = exclude_genes[.!in.(exclude_genes, Ref(Set(unique(df_spatial.gene))))]
-        if length(missing_genes) > 0
-            @warn "Genes $(join(missing_genes, ',')) are missing from the data"
-        end
-        df_spatial = df_spatial[.!in.(df_spatial.gene, Ref(Set(exclude_genes))),:];
+        exclude_genes = match_gene_names(exclude_genes, unique(df_spatial.gene))
+        df_spatial = df_spatial[.!in.(df_spatial.gene, Ref(exclude_genes)),:];
+        @info "Excluding genes: " * join(sort(collect(exclude_genes)), ", ")
     end
 
     df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
@@ -222,7 +236,7 @@ function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int,
     end
 
     ## Initialize BmmData array
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init."
+    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init, #molecules: $(size(df_spatial, 1))."
     size_prior = (:z in propertynames(df_spatial)) ? 
         ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell) :
         ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
