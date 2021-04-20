@@ -73,8 +73,11 @@ function extend_params_with_config!(params::Dict, config::Dict)
 end
 
 function load_df(args::Dict; kwargs...) 
-    exc_genes = String.(strip.(Base.split(args["exclude-genes"], ",")))
-    @info "Excluding genes: " * join(exc_genes, ", ")
+    exc_genes = String[]
+    if args["exclude-genes"] !== nothing
+        exc_genes = String.(strip.(Base.split(args["exclude-genes"], ",")))
+        @info "Excluding genes: " * join(exc_genes, ", ")
+    end
     return load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], 
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
 end
@@ -112,20 +115,22 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
             default = "segmentation.csv"
-        "--exclude-genes"
-            help = "Comma-separated list of genes to ignore during segmentation"
-            default = ""
         "--plot", "-p"
             help = "Save pdf with plot of the segmentation"
             action = :store_true
         "--save-polygons"
             help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported. The option requires setting '-p' to work."
-            arg_type = String
             range_tester = (x -> in(lowercase(x), ["geojson"]))
             metavar = "FORMAT"
         "--scale-std"
             help = "Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with '%' to set it relative to scale. Default: 25%"
             default = "25%"
+        "--exclude-genes"
+            help = "Comma-separated list of genes to ignore during segmentation"
+        "--nuclei-genes"
+            help = "Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well."
+        "--cyto-genes"
+            help = "Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well."
 
         "--scale", "-s"
             help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
@@ -181,6 +186,15 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 
     if (r["save-polygons"] !== nothing) && (!r["plot"])
         @warn "--plot option is required for saving polygons (--save-polygons). The polygons will not be saved."
+    end
+
+    if xor(r["nuclei-genes"] === nothing, r["cyto-genes"] === nothing)
+        @warn "Only one of `nuclei-genes` and `cyto-genes` is provided. It has to be either both or none."
+        return nothing
+    end
+
+    if (r["nuclei-genes"] !== nothing) && (r["n-clusters"] > 1)
+        @warn "Setting n-clusters > 1 is not recommended with compartment-specific expression patterns (nuclei- and cyto-genes parameters)."
     end
 
     return r
@@ -391,6 +405,36 @@ function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
     return mol_clusts
 end
 
+function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vector{String}, args::Dict{String, Any})
+    @info "Estimating compartment regions..."
+    comp_genes = Vector{String}[]
+
+    # Parse genes from CLI
+    for k in ["nuclei-genes", "cyto-genes"]
+        c_genes = String.(strip.(Base.split(args[k], ",")))
+        all(length.(c_genes) .> 0) || @warn "Empty genes were provided in $k"
+        
+        missing_genes = c_genes[.!in.(c_genes, Ref(Set(gene_names)))]
+        (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
+        c_genes = intersect(c_genes, gene_names)
+        length(c_genes) > 0 || error("No genes left in $k after filtration")
+        push!(comp_genes, c_genes)
+    end
+
+    # Run segmentation
+    nn_id = default_param_value(:compartment_nn_id, args["min-molecules-per-cell"])
+    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
+    comp_segs = segment_molecule_compartments(position_data(df_spatial), df_spatial.gene, 
+        adjacent_points, adjacent_weights, df_spatial.confidence; comp_genes=comp_genes, gene_names=gene_names, nn_id=nn_id);
+
+    @info "Done"
+
+    id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
+    comp_genes = [[id_per_gene[g] for g in gs] for gs in comp_genes]
+
+    return comp_segs, comp_genes
+end
+
 function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; mol_clusts::Union{NamedTuple, Nothing}, 
         prior_polygons::Vector{Matrix{Float64}})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
@@ -440,8 +484,20 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     ENV["GKSwstype"] = "100"; # Disable output device
     Plots.gr()
 
-
     df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
+
+    # Region-based segmentations
+
+    comp_segs, comp_genes = nothing, Vector{Int}[]
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:triangulation)[1:2]
+    if args["nuclei-genes"] !== nothing
+        comp_segs, comp_genes = estimate_molecule_compartments(df_spatial, gene_names, args)
+        df_spatial[!, :compartment] = ["Nuclei", "Cyto", "Unknown"][comp_segs.assignment];
+        df_spatial[!, :nuclei_probs] = 1 .- comp_segs.assignment_probs[2,:];
+
+        adjacent_points, adjacent_weights = adjust_mrf_with_compartments(adjacent_points, adjacent_weights, 
+            comp_segs.assignment_probs[1,:], comp_segs.assignment_probs[2,:]);
+    end
 
     mol_clusts = nothing
     if args["n-clusters"] > 1
@@ -449,11 +505,12 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         df_spatial[!, :cluster] = mol_clusts.assignment;
     end
 
-    # Run algorithm
+    # Cell segmentation
 
     bm_data = initialize_bmm_data(df_spatial; scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
-            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
+            min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0,
+            adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=vcat(comp_genes...));
 
     history_depth = round(Int, args["iters"] * 0.1)
     bm_data = bmm!(bm_data; n_iters=args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],

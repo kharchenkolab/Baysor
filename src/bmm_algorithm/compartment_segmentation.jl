@@ -6,6 +6,10 @@ function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjace
         cur_weights = adjacent_weights[i]
         cur_points = adjacent_points[i]
 
+        if length(cur_points) == 0
+            continue
+        end
+
         dense_sum = 0.0
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0

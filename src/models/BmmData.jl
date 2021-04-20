@@ -62,10 +62,10 @@ mutable struct BmmData{L}
     - `distribution_sampler::Component`:
     - `assignment::Array{Int, 1}`:
     """
-    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1},
-                     real_edge_weight::Float64, distribution_sampler::Component{N}, assignment::Vector{Int};
-                     k_neighbors::Int=20, cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5, 
-                     min_nuclei_frac::Float64=0.1) where N
+    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1}, 
+                     assignment::Vector{Int}, distribution_sampler::Component{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20, 
+                     cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5, 
+                     min_nuclei_frac::Float64=0.1, na_genes::Vector{Int}=Int[]) where N
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -80,6 +80,7 @@ mutable struct BmmData{L}
         position_knn_tree = KDTree(p_data)
         knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
 
+        comp_data = [ifelse(g in na_genes, missing, g) for g in composition_data(x)]
         n_genes = maximum(skipmissing(composition_data(x)))
 
         x = deepcopy(x)
@@ -90,7 +91,7 @@ mutable struct BmmData{L}
         nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
         cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
         self = new{N}(
-            x, p_data, composition_data(x), confidence(x), cluster_per_molecule, Int[], nuclei_probs,
+            x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
             adjacent_points, adjacent_weights, real_edge_weight, position_knn_tree, knn_neighbors, 
             components, deepcopy(distribution_sampler), assignment, length(components), 0.0, 
             Int[],

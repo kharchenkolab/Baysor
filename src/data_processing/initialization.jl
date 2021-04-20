@@ -35,19 +35,17 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
         return max(div(n_genes, 10), min_molecules_per_cell, 3)
     end
 
-    if param == :n_gene_pcs
-        if n_genes === nothing
-            error("Either `$param` or `n_genes` must be provided")
-        end
+    if param == :compartment_nn_id
+        return max(div(min_molecules_per_cell, 2), 5)
+    end
 
+    if param == :n_gene_pcs
+        (n_genes !== nothing) || error("Either `$param` or `n_genes` must be provided")
         return min(max(div(n_genes, 3), 30), 100, n_genes)
     end
 
     if param == :n_cells_init
-        if n_molecules === nothing
-            error("Either `$param` or `n_molecules` must be provided")
-        end
-
+        (n_molecules !== nothing) || error("Either `$param` or `n_molecules` must be provided")
         return div(n_molecules, min_molecules_per_cell) * 2
     end
 end
@@ -203,19 +201,16 @@ end
 """
     main function for initialization of bm_data
 """
-function initialize_bmm_data(df_spatial::DataFrame; scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing, n_cells_init::Union{Int, Nothing}=nothing,
-                             confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{<:Integer, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation,
-                             n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
+function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing, 
+        n_cells_init::Union{Int, Nothing}=nothing, confidence_nn_id::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
+        adjacent_points::Union{Vector{Vector{Int64}}, Nothing}=nothing, adjacent_weights::Union{Vector{Vector{Float64}}, Nothing}=nothing,
+        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, 
+        kwargs...)::BmmData
     df_spatial = deepcopy(df_spatial)
 
     ## Parse parameters
     confidence_nn_id = default_if_not_provided(confidence_nn_id, :confidence_nn_id, min_molecules_per_cell)
     n_cells_init = default_if_not_provided(n_cells_init, :n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
-
-    composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
-    n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
-
     scale_std = parse_scale_std(scale_std, scale)
 
     ## Estimate confidence
@@ -233,12 +228,19 @@ function initialize_bmm_data(df_spatial::DataFrame; scale::T where T<: Real, sca
         ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
 
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
-        n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)[1:2]
+    if adjacent_points === nothing
+        composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood, 
+            min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
+        n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
+        
+        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
+            n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)[1:2]
+    end
 
-    components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior, kwargs...)
+    components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
 
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, prior_seg_confidence=prior_seg_confidence)
+    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, assignment, sampler;
+        prior_seg_confidence=prior_seg_confidence, kwargs...)
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior{N},
