@@ -205,9 +205,9 @@ end
 
 ### Diagnostics
 
-function plot_clustering_convergence(clust_res::NamedTuple)::VegaLite.VLSpec
+function plot_clustering_convergence(clust_res::NamedTuple, title::String="")::VegaLite.VLSpec
     plt = DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
-        @vlplot(x={:x, title="Iteration"}) +
+        @vlplot(x={:x, title="Iteration"}, title=title) +
         @vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
         @vlplot(:line, y={:change_frac}, color={datum="Molecules changed"})
 end

@@ -26,16 +26,18 @@ function vega_style()
     """
 end
 
-function vega_plot_html(spec::VegaLite.VLSpec, divid::String)
-    return """
-    <script type="text/javascript">
-      var opt = {
-        mode: "vega-lite",
-        renderer: "$(VegaLite.Vega.RENDERER)",
-        actions: $(VegaLite.Vega.ACTIONSLINKS)
-      }
-      var spec = $(JSON.json(VegaLite.add_encoding_types(VegaLite.Vega.getparams(spec))))
-      vegaEmbed('#$divid', spec, opt);
-    </script>
+function vega_plot_html(specs::Dict{String, VegaLite.VLSpec})
+    res = """
+      <script type="text/javascript">
+        var opt = {
+          mode: "vega-lite",
+          renderer: "$(VegaLite.Vega.RENDERER)",
+          actions: $(VegaLite.Vega.ACTIONSLINKS)
+        }
     """
+    for (i, (divid,spec)) in enumerate(specs)
+        res *= "var spec$i = $(JSON.json(VegaLite.add_encoding_types(VegaLite.Vega.getparams(spec))))\nvegaEmbed('#$divid', spec$i, opt);\n\n"
+    end
+
+    return res * "</script>"
 end

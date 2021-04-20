@@ -73,11 +73,8 @@ function extend_params_with_config!(params::Dict, config::Dict)
 end
 
 function load_df(args::Dict; kwargs...) 
-    exc_genes = String[]
-    if args["exclude-genes"] !== nothing
-        exc_genes = String.(strip.(Base.split(args["exclude-genes"], ",")))
-        @info "Excluding genes: " * join(exc_genes, ", ")
-    end
+    exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
+
     return load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], gene_col=args["gene-column"], 
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
 end
@@ -201,20 +198,26 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 end
 
 function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm, 
-        clust_res::Union{NamedTuple, Nothing}=nothing)
+        clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
         vega_plots = Dict{String, VegaLite.VLSpec}()
         println(io, "<html>")
         println(io, vega_header("Report"))
-        println(io, T.vega_style())
+        println(io, vega_style())
         println(io, "<body>")
         # Molecule clustering convergence
         if clust_res !== nothing
-            println(io, "<div id='vg_mol_conv'></div>")
-            vega_plots["vg_mol_conv"] = plot_clustering_convergence(clust_res)
+            println(io, "<div id='vg_clust_conv'></div>")
+            vega_plots["vg_clust_conv"] = plot_clustering_convergence(clust_res, "Molecule clustering convergence")
         end
 
+        if comp_segs !== nothing
+            println(io, "<div id='vg_compart_conv'></div>")
+            vega_plots["vg_compart_conv"] = plot_clustering_convergence(comp_segs, "Compartment segmentation convergence")
+        end
+
+        println(io, "<br><br>")
         # Main algorithm convergence
         if (:n_components in keys(tracer)) && length(tracer[:n_components]) != 0
             p_conv = plot_num_of_cells_per_iterarion(tracer);
@@ -247,6 +250,12 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
             title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells", label=:none)
         show(io, MIME("text/html"), p_n_mols)
+
+        println(io, "</body>")
+        if length(vega_plots) > 0
+            println(io, vega_style())
+            println(io, vega_plot_html(vega_plots))
+        end
         println(io, "</html>")
     end
 end
@@ -435,8 +444,8 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     return comp_segs, comp_genes
 end
 
-function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; mol_clusts::Union{NamedTuple, Nothing}, 
-        prior_polygons::Vector{Matrix{Float64}})
+function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; 
+        mol_clusts::Union{NamedTuple, Nothing}, comp_segs::Union{NamedTuple, Nothing}, prior_polygons::Vector{Matrix{Float64}})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
@@ -448,12 +457,12 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
     CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
 
-    cm = convert_segmentation_to_counts(composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
+    cm = convert_segmentation_to_counts(bm_data.x.gene, bm_data.assignment; gene_names=gene_names)
     count_str = join(names(cm), "\t") * "\n" * join([join(["$v" for v in r], '\t') for r in eachrow(cm)], '\n');
     open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; max_diffs=mol_clusts.diffs, change_fracs=mol_clusts.change_fracs)
+        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
         polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
             gene_colors=gene_colors)
 
@@ -519,7 +528,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     @info "Processing complete."
 
     # Save results
-    save_segmentation_results(bm_data, gene_names, args; mol_clusts=mol_clusts, prior_polygons=prior_polygons)
+    save_segmentation_results(bm_data, gene_names, args; mol_clusts=mol_clusts, comp_segs=comp_segs, prior_polygons=prior_polygons)
     @info "All done!"
 
     close(log_file)
