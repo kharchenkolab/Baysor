@@ -203,16 +203,15 @@ end
 """
     main function for initialization of bm_data
 """
-function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames_return::Int=0, n_cells_init::Union{Int, Nothing}=nothing,
-                                  scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
-                                  confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{<:Integer, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-                                  n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::Array{BmmData, 1}
+function initialize_bmm_data(df_spatial::DataFrame; scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing, n_cells_init::Union{Int, Nothing}=nothing,
+                             confidence_nn_id::Union{Int, Nothing}=nothing, min_molecules_per_cell::Union{<:Integer, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
+                             use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation,
+                             n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
     df_spatial = deepcopy(df_spatial)
 
     ## Parse parameters
     confidence_nn_id = default_if_not_provided(confidence_nn_id, :confidence_nn_id, min_molecules_per_cell)
     n_cells_init = default_if_not_provided(n_cells_init, :n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
-    n_cells_init = max(div(n_cells_init, n_frames), 1)
 
     composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
     n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
@@ -227,36 +226,17 @@ function initial_distribution_arr(df_spatial::DataFrame; n_frames::Int, n_frames
         @info "Done"
     end
 
-    ## Split data
-    dfs_spatial = n_frames > 1 ? split_spatial_data(df_spatial, n_frames) : [df_spatial]
-    @info "#frames: $(length(dfs_spatial)); mean number of molecules per frame: $(median(size.(dfs_spatial, 1)))."
-
-    if (n_frames_return > 0) && (n_frames_return < n_frames)
-        dfs_spatial = dfs_spatial[1:n_frames_return]
-    end
-
     ## Initialize BmmData array
     @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init."
     size_prior = (:z in propertynames(df_spatial)) ? 
         ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell) :
         ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
 
-    bm_datas_res = Array{BmmData, 1}(undef, length(dfs_spatial))
-    for i in 1:length(dfs_spatial)
-        init_params = cell_centers_uniformly(dfs_spatial[i], n_cells_init; scale=scale)
-        bm_datas_res[i] = initialize_bmm_data(dfs_spatial[i], init_params; size_prior=size_prior,
-            composition_neighborhood=composition_neighborhood, n_gene_pcs=n_gene_pcs, prior_seg_confidence=prior_seg_confidence, kwargs...)
-    end
+    init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
+        n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)[1:2]
 
-    return bm_datas_res;
-end
-
-function initialize_bmm_data(df_spatial::DataFrame, args...; composition_neighborhood::Int=0, n_gene_pcs::Int=0,
-        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, prior_seg_confidence::Float64=0.5, kwargs...)::BmmData
-    adjacent_points, adjacent_weights, adjacent_dists = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
-        n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)
-
-    components, sampler, assignment = initial_distributions(df_spatial, args...; kwargs...)
+    components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior, kwargs...)
 
     return BmmData(components, df_spatial, adjacent_points, adjacent_weights, 1.0, sampler, assignment, prior_seg_confidence=prior_seg_confidence)
 end
@@ -273,25 +253,6 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
 
     return components, sampler, initial_params.assignment
 end
-
-# Split data by frames
-
-function split_spatial_data(df::DataFrame, n::Int, key::Symbol)::Array{DataFrame, 1}
-    factor = vec(sum(hcat([df[!,key] .<= quantile(df[!,key], q) for q in range(1 / n, stop=1.0, length=n)]...), dims=2))
-    return split(df, factor)
-end
-
-split_spatial_data(df::DataFrame, n_hor::Int, n_ver::Int) = vcat(split_spatial_data.(split_spatial_data(df, n_ver, :y), n_hor, :x)...)
-
-function split_spatial_data(df::DataFrame, n::Int) # TODO: very approximate separation. Example: n=3.
-    df_sizes = Dict(s => maximum(df[!,s]) - minimum(df[!,s]) for s in [:x, :y]);
-    x_elongation = df_sizes[:x] / sum(values(df_sizes))
-    a = round(Int, sqrt(x_elongation * n / (1 - x_elongation))) # solution of "a * b = n; a / (a + b) = x_elongation"
-
-    return split_spatial_data(df, a, max(floor(Int, n / a), 1))
-end
-
-split_spatial_data(df::DataFrame; mean_mols_per_frame::Int) = split_spatial_data(df, round(Int, size(df, 1) / mean_mols_per_frame))
 
 # Utils
 

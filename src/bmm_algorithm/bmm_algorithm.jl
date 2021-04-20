@@ -333,7 +333,7 @@ track_progress!(progress::Progress) = next!(progress)
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_step::Int=4, verbose=true,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
               assignment_history_depth::Int=0, trace_components::Bool=false, progress::Union{Progress, Nothing, Bool}=nothing,
-              component_split_step::Int=3)
+              component_split_step::Int=3, refine::Bool=true)
     time_start = now()
 
     if verbose
@@ -389,30 +389,15 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500, log_
         log_em_state(data, it_num, time_start)
     end
 
+    if refine
+        if :assignment_history in keys(data.tracer)
+            data.assignment = estimate_assignment_by_history(data)[1];
+            maximize!(data)
+        end
+    
+        drop_unused_components!(data; min_n_samples=1)
+        maximize!(data)
+    end
+
     return data
-end
-
-run_bmm_parallel(bm_data_arr, args...; kwargs...) =
-    run_bmm_parallel!(deepcopy(bm_data_arr), args...; kwargs...)
-
-function run_bmm_parallel!(bm_data_arr::Array{BmmData, 1}, n_iters::Int; min_molecules_per_cell::Int, kwargs...)::BmmData
-    @info "Algorithm start"
-    p = Progress(n_iters * length(bm_data_arr))
-    @threads for i in 1:length(bm_data_arr)
-        bmm!(bm_data_arr[i]; n_iters=n_iters, min_molecules_per_cell=min_molecules_per_cell, verbose=false, progress=p, kwargs...)
-    end
-
-    bm_data_merged = merge_bm_data(bm_data_arr)
-
-    if :assignment_history in keys(bm_data_merged.tracer)
-        bm_data_merged.assignment = estimate_assignment_by_history(bm_data_merged)[1];
-        maximize!(bm_data_merged)
-    end
-
-    drop_unused_components!(bm_data_merged; min_n_samples=1)
-    maximize!(bm_data_merged)
-
-    @info "Done!"
-
-    return bm_data_merged
 end

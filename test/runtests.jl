@@ -13,16 +13,14 @@ module DataWrappers
 using DataFrames
 import Baysor as B
 
-function get_bmm_data(; n_mols::Int=5000, n_frames::Int=1, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
+function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
     df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confidence ? ones(n_mols) : rand(n_mols))
-    bm_data_arr = B.initial_distribution_arr(df, n_frames=n_frames, scale=scale, min_molecules_per_cell=min_molecules_per_cell, confidence_nn_id=0, kwargs...);
+    bmd = B.initialize_bmm_data(df, scale=scale, min_molecules_per_cell=min_molecules_per_cell, confidence_nn_id=0, kwargs...);
     if do_maximize
-        for bmd in bm_data_arr
-            B.maximize!(bmd)
-        end
+        B.maximize!(bmd)
     end
 
-    return bm_data_arr
+    return bmd
 end
 
 end
@@ -78,14 +76,9 @@ end
             n_mols = 1000
             df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
 
-            for i in 1:10
-                bm_data_arr = B.initial_distribution_arr(df, n_frames=i, scale=6.0, min_molecules_per_cell=30);
-                @test length(bm_data_arr) <= i
-            end
-
             df[!, :cluster] = rand(1:5, n_mols)
             df[!, :prior_segmentation] = rand(1:100, n_mols)
-            bm_data = B.initial_distribution_arr(df, n_frames=1, scale=6.0, min_molecules_per_cell=30)[1];
+            bm_data = B.initialize_bmm_data(df, scale=6.0, min_molecules_per_cell=30);
             @test all(bm_data.cluster_per_molecule .== df.cluster)
             @test all(bm_data.segment_per_molecule .== df.prior_segmentation)
 
@@ -142,7 +135,7 @@ end
     @testset "bmm_algorithm" begin
         @testset "noise_composition_density" begin
             for conf in [false, true]
-                bm_data = DataWrappers.get_bmm_data(confidence=conf, do_maximize=true)[1];
+                bm_data = DataWrappers.get_bmm_data(confidence=conf, do_maximize=true);
                 dens_exp = mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in bm_data.components]);
                 dens_obs = B.noise_composition_density(bm_data)
                 @test abs(dens_exp - dens_obs) < 1e-10
@@ -150,14 +143,14 @@ end
         end
 
         @testset "distribution_sampling" begin
-            bm_data = DataWrappers.get_bmm_data(confidence=true, do_maximize=true)[1];
+            bm_data = DataWrappers.get_bmm_data(confidence=true, do_maximize=true);
             @test_nowarn for i in 1:1000
                 B.sample_distribution!(bm_data)
             end
         end
 
         @testset "drop_unused_components" begin
-            bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true)[1];
+            bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true);
             bm_data.assignment[rand(1:length(bm_data.assignment), 100)] .= 0
             B.maximize!(bm_data)
             B.drop_unused_components!(bm_data)
@@ -201,8 +194,8 @@ end
                 if i > 4
                     df_spatial[!, :cluster] = df_spatial.cell .+ 1
                 end
-                bm_data_arr = B.initial_distribution_arr(df_spatial; n_frames=1, scale=scale, scale_std="5%", min_molecules_per_cell=10);
-                bm_data = B.run_bmm_parallel!(bm_data_arr, 300, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=50, verbose=false);
+                bm_data_arr = B.initialize_bmm_data(df_spatial; scale=scale, scale_std="5%", min_molecules_per_cell=10);
+                bm_data = B.bmm!(bm_data_arr; n_iters=300, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=50, verbose=false);
 
                 conj_table = counts(B.estimate_assignment_by_history(bm_data)[1], df_spatial.cell)[2:end, 2:end];
                 @test all([all(vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.5) for d in 1:2])

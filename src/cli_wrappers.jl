@@ -106,10 +106,6 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Number of molecule clusters, i.e. major cell types. Depends on protocol resolution, but should not be too high. In most cases something between 3 and 15 should work well."
             arg_type = Int
             default=4
-        "--n-frames", "-n"
-            help = "Number of frames, which is the same as number of processes. Algorithm data is splitted by frames to allow parallel run over frames."
-            arg_type = Int
-            default=1
         "--num-cells-init"
             help = "Initial number of cells."
             arg_type = Int
@@ -455,13 +451,13 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Run algorithm
 
-    bm_data_arr = initial_distribution_arr(df_spatial; n_frames=args["n-frames"], scale=args["scale"], scale_std=args["scale-std"],
+    bm_data = initialize_bmm_data(df_spatial; scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0);
 
     history_depth = round(Int, args["iters"] * 0.1)
-    bm_data = run_bmm_parallel!(bm_data_arr, args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
-                                min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
+    bm_data = bmm!(bm_data; n_iters=args["iters"], new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
+            min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth);
 
     @info "Processing complete."
 
