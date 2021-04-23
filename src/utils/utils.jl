@@ -352,8 +352,9 @@ function upscale(image::T where T <: AbstractMatrix{TR}, ratio::Int64) where TR 
     return res_img
 end
 
-function estimate_hist(vec::Vector{<:Real}, args...; ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Bool=false, center=true, kwargs...)
-    hf = fit(Histogram, vec, args...; kwargs...)
+function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length(vec))); 
+        ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Bool=false, center=true, bins=nothing, kwargs...)
+    hf = (bins === nothing) ? fit(Histogram, vec, weights; kwargs...) : fit(Histogram, vec, weights, bins; kwargs...)
     diffs = rel_width * diff(hf.edges[1])[1]
     df = DataFrame(:s => hf.edges[1][1:end-1], :e => hf.edges[1][1:end-1] .+ diffs, :h => hf.weights)
     if center

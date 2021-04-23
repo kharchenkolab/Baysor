@@ -10,7 +10,6 @@ import Dates
 import LibGit2
 import Pkg
 import Pkg.TOML
-import Plots
 
 ## Common
 
@@ -213,7 +212,7 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     return r
 end
 
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict; margin=5*Plots.mm, 
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict;
         clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
     open(append_suffix(args["output"], "diagnostics.html"), "w") do io
@@ -244,28 +243,30 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 
         # Confidence per molecule
         if :confidence in propertynames(df_res)
-            bins = 0.0:0.025:1.0
-            p_conf = Plots.histogram(df_res.confidence[assignment .!= 0], bins=bins, label="Assigned molecules",
-                xlabel="Confidence", ylabel="#Molecules", title="Confidence per molecule", margin=margin)
-            p_conf = Plots.histogram!(df_res.confidence[assignment .== 0], alpha=0.5, bins=bins, label="Noise molecules")
-            show(io, MIME("text/html"), p_conf)
+            println(io, "<div id='vg_mol_confidence'></div>")
+            vega_plots["vg_mol_confidence"] = plot_confidence_distribution(df_res.confidence, assignment, size=(500, 250))
         end
 
         # Assignment confidence
         if :assignment_confidence in propertynames(df_res)
-            p_conf = Plots.histogram(df_res.assignment_confidence[assignment .> 0], bins=50, legend=false)
-            p_conf = Plots.vline!([0.95], xlabel="Assignment confidence", ylabel="#Molecules", xlims=(-0.01, 1.03),
-                title="Assignment confidence per real molecules")
-            show(io, MIME("text/html"), p_conf)
+            println(io, "<div id='vg_assignment_confidence'></div>")
+            vega_plots["vg_assignment_confidence"] = estimate_hist(df_res.assignment_confidence[assignment .> 0]; nbins=30) |>
+                @vlplot() +
+                @vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"}, 
+                    title="Assignment confidence", width=500, height=250) +
+                @vlplot(:rule, x={datum=0.95})
         end
 
         println(io, "<br><br>")
 
         # Num. of molecules per cell
         n_mols_per_cell = count_array(assignment, drop_zero=true)
-        p_n_mols = Plots.histogram(n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)],
-            title="Num. molecules per cell", xlabel="Num. molecules per cell", ylabel="Num. cells", label=:none)
-        show(io, MIME("text/html"), p_n_mols)
+        n_mols_per_cell = n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)]
+
+        println(io, "<div id='vg_num_transcripts'></div>")
+        vega_plots["vg_num_transcripts"] = estimate_hist(n_mols_per_cell, nbins=50, center=false) |>
+        @vlplot(:bar, x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"}, x2=:e, y={:h, title="Num. cells"}, 
+            width=500, height=250, title="Num. molecules per cell")
 
         println(io, "</body>")
         if length(vega_plots) > 0
@@ -503,10 +504,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     log_file = open(append_suffix(args["output"], "log.log"), "w")
     Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
 
-    # Set up plotting
-
-    ENV["GKSwstype"] = "100"; # Disable output device
-    Plots.gr()
+    # Load data
 
     df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
 
@@ -616,11 +614,6 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
     log_file = open(append_suffix(args["output"], "preview_log.log"), "w")
     Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
-
-    # Set up plotting
-
-    ENV["GKSwstype"] = "100"; # Disable output device
-    Plots.gr()
 
     # Run preview
 

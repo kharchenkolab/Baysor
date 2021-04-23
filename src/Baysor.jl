@@ -39,7 +39,7 @@ include("data_processing/noise_estimation.jl")
 include("data_processing/initialization.jl")
 include("data_processing/plots.jl")
 include("data_processing/boundary_estimation.jl")
-include("data_processing/preview_diagnostics.jl")
+include("data_processing/diagnostic_plots.jl")
 
 include("bmm_algorithm/molecule_clustering.jl")
 include("bmm_algorithm/compartment_segmentation.jl")

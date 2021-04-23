@@ -12,7 +12,6 @@ import Base64
 import CairoMakie as MK
 import ColorSchemes
 import MultivariateStats
-import Plots
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
