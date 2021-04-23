@@ -79,7 +79,7 @@ function load_df(args::Dict; kwargs...)
     df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"], 
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
     
-    if args["force-2d"] && (:z in propertynames(df_spatial))
+    if ("force-2d" in keys(args)) && args["force-2d"] && (:z in propertynames(df_spatial))
         select!(df_spatial, Not(:z))
     elseif (args["z-column"] != :z) && !(:z in propertynames(df_spatial))
         error("z-column $(args["z-column"]) not found in the data")
@@ -269,7 +269,6 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 
         println(io, "</body>")
         if length(vega_plots) > 0
-            println(io, vega_style())
             println(io, vega_plot_html(vega_plots))
         end
         println(io, "</html>")
@@ -565,6 +564,8 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
             help = "Name of x column. Overrides the config value."
         "--y-column", "-y"
             help = "Name of gene column. Overrides the config value."
+        "--z-column", "-z"
+            help = "Name of gene column. Overrides the config value."
         "--gene-column", "-g"
             help = "Name of gene column. Overrides the config value."
         "--min-molecules-per-cell", "-m"
@@ -574,6 +575,8 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
             help = "Minimal number of pixels per cell. Used to estimate size of the dataset plot."
             arg_type = Int
             default = 15
+        "--exclude-genes"
+            help = "Comma-separated list of genes to ignore during segmentation"
         "--output", "-o"
             help = "Name of the output file or path to the output directory"
             default = "preview.html"
@@ -595,7 +598,7 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
         extend_params_with_config!(r, get_default_config())
     end
 
-    for k in ["gene-column", "x-column", "y-column"]
+    for k in ["gene-column", "x-column", "y-column", "z-column"]
         r[k] = Symbol(r[k])
     end
 
@@ -641,7 +644,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     if args["gene-composition-neigborhood"] === nothing
         args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
-
+    
     @info "Estimating local colors"
     gene_colors = gene_composition_colors(df_spatial, args["gene-composition-neigborhood"])
 
@@ -654,11 +657,11 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence")
 
     @info "Building gene structure plot"
-    gene_structure_plot = plot_gene_structure(df_spatial, gene_names, format=:png)
-    ## Plots
+    vega_plots = Dict{String, VegaLite.VLSpec}()
 
-    n_tr_plot = plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
-    noise_dist_plot = plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
+    vega_plots["vg_gene_structure"] = plot_gene_structure(df_spatial, gene_names)
+    vega_plots["vg_num_trans"] = plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
+    vega_plots["vg_noise_dist"] = plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
 
     @info "Plotting"
 
@@ -666,7 +669,8 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         print(io, """
             <!DOCTYPE html>
             <html>
-            <head><style> body {background-color: #ffffff;}</style></head>
+            $(vega_header("Report", "<style> body {background-color: #ffffff;}</style>"))
+            $(vega_style())
 
             <body>
             <div>
@@ -685,18 +689,24 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
         println(io, "<hr>\n<h1 id=\"Noise_Level\">Noise level</h1><br>")
         show(io, MIME("text/html"), cc_plot)
+        
         println(io, "<br>")
-        show(io, MIME("text/html"), noise_dist_plot)
+        println(io, "<div id='vg_noise_dist'></div>")
+
         println(io, "<br>")
         println(io, "Minimal noise level=$(round(100 * mean(confidences .< 0.01), sigdigits=3))%. ",
             "Expected noise level=$(round(100 * mean(1 .- confidences), sigdigits=2))%.")
+        
         println(io, "<br>")
-
         println(io, "<hr>\n<h1 id=\"Gene_Structure\">Gene structure</h1><br>")
-        show(io, MIME("text/html"), n_tr_plot)
+        println(io, "<div id='vg_num_trans'></div>")
+        
         println(io, "<br>")
-        show(io, MIME("text/html"), gene_structure_plot)
+        println(io, "<div id='vg_gene_structure'></div>")
+        
         println(io, "</body>")
+
+        println(io, vega_plot_html(vega_plots))
         println(io, "</html>")
     end
 

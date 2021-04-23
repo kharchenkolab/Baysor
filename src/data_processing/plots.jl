@@ -121,23 +121,22 @@ function shuffle_colors(colors::Vector)
     return [uniq_cols[col_ord[tc]] for tc in colors]
 end
 
-function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.05, alpha::Float64=0.5, fontsize::Int=5, text_offset::Float64=0.005,
-        labels::Vector{String}=["y$i" for i in 1:length(vecs)], xrotation=60, xticks::Bool=false, kwargs...)
+function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.025, alpha::Float64=0.5, text_offset::Float64=0.005,
+        labels::Vector{String}=["y$i" for i in 1:length(vecs)], xrotation=-60, xticks::Bool=false, ylabel::String="Expression")
     y_vals = maximum(hcat(vecs...), dims=2) |> vec
     scale = sum(y_vals)
 
-    p = Plots.plot(;widen=false, ylims=(0, maximum(y_vals) + text_offset * scale), kwargs...)
-    for (v,l) in zip(vecs, labels)
-        p = Plots.bar!(v, alpha=alpha, label=l)
-    end
+    p_df = DataFrame(:gene => gene_names)
+    plt = @vlplot(x={:gene, title="Gene"}, tooltip=:gene, config={axisX={labels=xticks, ticks=false, labelAngle=xrotation}}, width=700, height=300)
 
-    ann_genes = findall(y_vals .>= min_expr_frac * scale)
-    p = Plots.annotate!(collect(zip(ann_genes, y_vals[ann_genes] .+ text_offset * scale, Plots.text.(gene_names[ann_genes], fontsize))))
-    if xticks
-        Plots.xticks!(1:length(gene_names), gene_names, xrotation=xrotation, xgrid=false)
+    for (l,cnt) in zip(labels, vecs)
+        p_df[!,l] = cnt
+        plt += @vlplot({:bar, opacity=alpha}, y={l, title=ylabel}, color={datum=l})
     end
-    
-    return p
+    p_df[!, :_yf] = y_vals
+    p_df[!, :_yt] = y_vals .+ text_offset * scale
+
+    return p_df |> (plt + @vlplot(:text, y=:_yt, text=:gene, transform=[{filter="datum._yf > $(min_expr_frac * scale)"}]))
 end
 
 ### Tracing

@@ -1,28 +1,34 @@
 import UMAP
 
-function plot_noise_estimation_diagnostics(edge_length::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
-        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=2.0, bins::Int=200, kwargs...) where T <: Distributions.UnivariateDistribution
-    x_max = quantile(edge_length, 0.99)
-    Plots.histogram(edge_length[edge_length .< x_max]; bins=bins, normalize=true, label="Observed",
-        xlabel="Distance to $(confidence_nn_id)'th nearest neighbor", ylabel="Density", title=title,
-        linewidth=linewidth, legendtitle="Distribution", kwargs...)
-    x_vals = range(0, x_max, length=1000)
-    n1 = sum(confidences)
-    n2 = length(confidences) - n1
-    Plots.plot!(x_vals, n1 / (n1 + n2) .* pdf.(d1, x_vals), label="Intracellular", linewidth=linewidth)
-    Plots.plot!(x_vals, n2 / (n1 + n2) .* pdf.(d2, x_vals), label="Background", linewidth=linewidth)
+function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
+        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: Distributions.UnivariateDistribution
+        x_max = quantile(edge_lengths, 0.99);
+        x_vals = range(0, x_max, length=1000)
+        n1 = sum(confidences);
+        n2 = length(confidences) - n1;
+        
+        p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins)
+        p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
+        p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
+        
+        return p_df |> 
+        @vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
+        @vlplot(:bar, x2=:e, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
+        @vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
+        @vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
 end
 
-function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; size=(800, 300), kwargs...)
+function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; alpha::Float64=0.3)
     order = sortperm(gene_names)
-    plot_expression_vectors(
+    return plot_expression_vectors(
         count_array(genes[confidences .>= 0.5], max_value=length(gene_names))[order],
         count_array(genes[confidences .< 0.5], max_value=length(gene_names))[order],
-        gene_names=gene_names[order]; labels=["Real", "Noise"], xlabel="Gene ID", ylabel="#Transcripts",
-        min_expr_frac=0.01, legend=:topleft, alpha=0.3, xlims=(0, length(gene_names)), size=size, kwargs...)
+        gene_names=gene_names[order]; labels=["Real", "Noise"], ylabel="Num. molecules",
+        min_expr_frac=0.01, alpha=alpha
+    )
 end
 
-function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confidence::Vector{Float64}=df_spatial.confidence; kwargs...)
+function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confidence::Vector{Float64}=df_spatial.confidence)
     adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2];
     cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights);
     cor_vals = vec(cor_mat)
@@ -33,12 +39,20 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
 
     embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000, n_neighbors=max(min(15, length(gene_names) ÷ 2), 2));
     marker_sizes = log.(count_array(df_spatial.gene));
-    marker_sizes ./= median(marker_sizes) ./ 2;
 
-    Plots.scatter(embedding[1,:], embedding[2,:]; ms=marker_sizes, legend=false, alpha=0.1, size=(800, 800),
-        ticks=false, xlabel="UMAP-1", ylabel="UMAP-2", title="Gene local structure", kwargs...)
+    p_df = DataFrame(Dict(:x => embedding[1,:], :y => embedding[2,:], :gene => Symbol.(gene_names), :size => marker_sizes));
 
-    Plots.annotate!(collect(zip(embedding[1,:], embedding[2,:], Plots.text.(gene_names, ceil.(Int, marker_sizes .* 1.5)))), color=Colors.RGBA(0.0, 0.0, 0.0, 0.75))
+    return p_df |>
+    @vlplot(
+        x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"}, 
+        y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"}, 
+        size={:size, scale={range=[5, 10]}, legend=false}, 
+        tooltip={:gene, type="nominal"}, 
+        width=600, height=600, title="Gene local structure",
+        config={axis={grid=false, ticks=false, ticklabels=false, labels=false}}
+    ) +
+    @vlplot(:text, text={:gene, type="nominal"}, selection={view={type=:interval, bind=:scales}}) +
+    @vlplot({:point, filled=true})
 end
 
 function estimate_panel_plot_size(df_spatial::DataFrame, min_molecules_per_cell::Int, min_pixels_per_cell::Int=7)

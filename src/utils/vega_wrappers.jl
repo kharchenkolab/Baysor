@@ -1,7 +1,7 @@
 import JSON
 using VegaLite
 
-function vega_header(title::String="Plot")
+function vega_header(title::String="Plot", other::String="")
     return """
       <head>
         <title>$title</title>
@@ -9,6 +9,7 @@ function vega_header(title::String="Plot")
         <script>$(read(VegaLite.asset("vega.min.js"), String))</script>
         <script>$(read(VegaLite.asset("vega-lite.min.js"), String))</script>
         <script>$(read(VegaLite.asset("vega-embed.min.js"), String))</script>
+        $other
       </head>
     """
 end
