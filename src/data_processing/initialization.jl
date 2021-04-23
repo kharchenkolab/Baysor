@@ -297,7 +297,7 @@ function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where
 end
 
 function encode_genes(gene_list)
-    gene_names = unique(gene_list);
+    gene_names = sort(unique(gene_list));
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
     return [gene_ids[g] for g in gene_list], gene_names
 end
