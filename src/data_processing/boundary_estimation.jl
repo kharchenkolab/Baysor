@@ -153,7 +153,7 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
     return polygon_inds
 end
 
-function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{Int}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}}, 
+function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}}, 
         max_x::Union{Vector{Float64}, Tuple{Float64, Float64}}; grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, 
         verbose::Bool=false)::Matrix{<:Unsigned}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
@@ -248,7 +248,7 @@ boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm
 boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
     boundary_polygons(position_data(spatial_df), args...; kwargs...)
 
-function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{Int}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
+function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
                            grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
                            bandwidth::Float64=(grid_step / 2), exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
     pos_data = pos_data[1:2,:]

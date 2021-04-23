@@ -198,7 +198,7 @@ end
 
 function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=segmented_df.cell; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment), dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
     seg_df_per_cell = split(segmented_df, cell_assignment .+ 1; max_factor=max_cell+1)[2:end];
-    pos_data_per_cell = position_data.(seg_df_per_cell);
+    pos_data_per_cell = [position_data(df)[1:2,:] for df in seg_df_per_cell];
 
     df = DataFrame(:n_transcripts => size.(pos_data_per_cell, 2));
     large_cell_mask = (df.n_transcripts .> 2)
