@@ -353,7 +353,7 @@ function upscale(image::T where T <: AbstractMatrix{TR}, ratio::Int64) where TR 
 end
 
 function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length(vec))); 
-        ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Bool=false, center=true, bins=nothing, kwargs...)
+        ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Union{Bool, Symbol}=false, center=true, bins=nothing, kwargs...)
     hf = (bins === nothing) ? fit(Histogram, vec, weights; kwargs...) : fit(Histogram, vec, weights, bins; kwargs...)
     diffs = rel_width * diff(hf.edges[1])[1]
     df = DataFrame(:s => hf.edges[1][1:end-1], :e => hf.edges[1][1:end-1] .+ diffs, :h => hf.weights)
@@ -365,8 +365,16 @@ function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length
         df[!,k] .= v
     end
 
-    if normalize
+    if isa(normalize, Bool)
+        normalize = normalize ? :density : :none
+    end
+
+    if normalize == :density
         df[!, :h] = df.h ./ sum(df.h) ./ hf.edges[1].step.hi
+    elseif normalize == :frac
+        df[!, :h] = df.h ./ sum(df.h)
+    elseif normalize != :none
+        error("Unknown normalize")
     end
 
     return df
