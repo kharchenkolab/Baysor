@@ -35,10 +35,6 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
         return max(div(n_genes, 10), min_molecules_per_cell, 3)
     end
 
-    if param == :compartment_nn_id
-        return max(div(min_molecules_per_cell, 2), 5)
-    end
-
     if param == :n_gene_pcs
         (n_genes !== nothing) || error("Either `$param` or `n_genes` must be provided")
         return min(max(div(n_genes, 3), 30), 100, n_genes)
