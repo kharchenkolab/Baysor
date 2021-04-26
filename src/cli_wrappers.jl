@@ -432,7 +432,7 @@ end
 
 function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vector{String}, args::Dict{String, Any})
     @info "Estimating compartment regions..."
-    comp_genes = Vector{String}[]
+    comp_genes = Dict{String, Vector{String}}()
 
     # Parse genes from CLI
     for k in ["nuclei-genes", "cyto-genes"]
@@ -443,19 +443,21 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
         (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
         c_genes = intersect(c_genes, gene_names)
         length(c_genes) > 0 || error("No genes left in $k after filtration")
-        push!(comp_genes, c_genes)
+        comp_genes[k] = c_genes
     end
 
     # Run segmentation
-    nn_id = default_param_value(:compartment_nn_id, args["min-molecules-per-cell"])
     adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
-    comp_segs = segment_molecule_compartments(position_data(df_spatial), df_spatial.gene, 
-        adjacent_points, adjacent_weights, df_spatial.confidence; comp_genes=comp_genes, gene_names=gene_names, nn_id=nn_id);
+
+    init_probs, is_locked = init_nuclei_cyto_compartments(position_data(df_spatial), df_spatial.gene; 
+        nuclei_genes=comp_genes["nuclei-genes"], cyto_genes=comp_genes["cyto-genes"], gene_names=gene_names, scale=args["scale"]);
+
+    comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
 
     @info "Done"
 
     id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
-    comp_genes = [[id_per_gene[g] for g in gs] for gs in comp_genes]
+    comp_genes = [[id_per_gene[g] for g in gs] for gs in values(comp_genes)]
 
     return comp_segs, comp_genes
 end

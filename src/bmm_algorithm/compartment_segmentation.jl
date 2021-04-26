@@ -70,21 +70,20 @@ function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int
     return assignment_probs, is_locked
 end
 
-function segment_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, 
+function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_locked::BitVector, 
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64}; 
-        comp_genes::Vector{<:Union{Vector{String}, Dict{String, Float64}}}, gene_names::Vector{String}, nn_id::Int, n_iters_without_update=20,
-        weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500, verbose::Bool=true)
+        n_iters_without_update=20, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, 
+        max_iter::Int=500, verbose::Bool=true)
 
     if !weights_pre_adjusted
         adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
-    # Init
-    assignment_probs, is_locked = init_molecule_compartments(pos_data, genes, comp_genes; gene_names=gene_names, nn_id=nn_id);
-
     max_diffs, change_fracs = Float64[], Float64[]
     assignment_probs_prev = deepcopy(assignment_probs)
     progress = verbose ? Progress(max_iter) : nothing
+
+    # Run
     for i in 1:max_iter
         assignment_probs_prev .= assignment_probs
         # Iteration
