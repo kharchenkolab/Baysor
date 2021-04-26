@@ -24,27 +24,49 @@ function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjace
     end
 end
 
+init_nuclei_cyto_compartments(args...; nuclei_genes::T, cyto_genes::T, scale::Float64, kwargs...) where T<:Union{Vector{String}, Dict{String, Float64}} =
+    init_molecule_compartments(args..., [nuclei_genes, cyto_genes]; center_comps=[1], scale=scale, kwargs...)
+
 init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Vector{String}}; kwargs...) =
     init_molecule_compartments(pos_data, genes, [Dict(g => 1.0 for g in gs) for gs in comp_genes]; kwargs...)
 
 function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Dict{String, Float64}}; 
-        gene_names::Vector{String}, nn_id::Int)
+        gene_names::Vector{String}, nn_id::Int=-1, scale::Float64=-1.0, center_comps::Union{Vector{Int}, Nothing}=nothing)
+    (nn_id > 0) || (scale > 0) || error("Either nn_id or scale must be provided")
+
     id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
     comp_genes = [Dict(id_per_gene[g] => v for (g,v) in gsd) for gsd in comp_genes]
 
+    default_probs = vcat(ones(length(comp_genes)) ./ length(comp_genes), 0.0)
     assignment_probs = zeros(length(comp_genes) + 1, length(genes))
+    assignment_probs .= default_probs
+
+    is_assigned = falses(size(pos_data, 2))
     for (i,gs) in enumerate(comp_genes)
         for (g,p) in gs
-            assignment_probs[i, genes .== g] .= p
+            gene_vec = setindex!(zeros(length(comp_genes) + 1), p, i)
+            assignment_probs[:, genes .== g] .= gene_vec .+ (1 - p) .* default_probs
+            if (center_comps === nothing) || (i in center_comps)
+                is_assigned[genes .== g] .= true
+            end
         end
     end
+
+    in_compartment_probs = Float64[]
+    is_locked = is_assigned
+    if scale <= 0
+        nn_ids = knn(KDTree(pos_data), pos_data, nn_id + 1)[1];
+        in_compartment_probs = Float64[any(is_assigned[ids]) for ids in nn_ids]
+    else
+        dists = maximum.(knn(KDTree(pos_data[:,is_assigned]), pos_data, 2)[2])
+        in_compartment_probs = [1.0 - max(min((d / scale - 1.) / 2., 1.), 0.) for d in dists]
+        is_locked .&= (in_compartment_probs .> 0.99)
+    end
+
+    is_locked .|= (in_compartment_probs .< 0.01)
+    assignment_probs[end, :] .= 1 .- in_compartment_probs;
+    assignment_probs[1:(end-1), :] .*= in_compartment_probs';
     
-    nn_ids = knn(KDTree(pos_data), pos_data, nn_id + 1)[1];
-    is_assigned = sum(assignment_probs, dims=1)[:] .> 1e-5;
-    assignment_probs[end, [!any(is_assigned[ids]) for ids in nn_ids]] .= 1.0;
-    
-    is_locked = sum(assignment_probs, dims=1)[:] .> 1e-5;
-    assignment_probs[:, .!is_locked] .= 1. / size(assignment_probs, 1);
     return assignment_probs, is_locked
 end
 
