@@ -46,7 +46,6 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         ct_dense_sum = 0.0 # Because of pseudocounts, cell_type_exprs aren't normalized
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0
-            adj_prob = 1.0 # probability that there are no neighbors from this component. Without it, having all assignment_probs=0 still lead to non-zero probability of assignment
             for j in 1:length(cur_points) # TODO: can try to use sparsity to optimize it. Can store BitMatrix with info about a_p > 1e-10
                 a_p = assignment_probs[ri, cur_points[j]]
                 if a_p < 1e-5
@@ -54,11 +53,10 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
                 end
 
                 c_d += cur_weights[j] * a_p
-                adj_prob *= 1 - a_p
             end
 
             ctp = cell_type_exprs[ri, gene]
-            assignment_probs[ri, i] = ctp * exp(c_d) * (1 - adj_prob)
+            assignment_probs[ri, i] = ctp * exp(c_d)
             dense_sum += assignment_probs[ri, i]
             ct_dense_sum += ctp
         end
