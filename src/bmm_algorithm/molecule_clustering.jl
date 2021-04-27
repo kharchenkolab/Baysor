@@ -35,7 +35,7 @@ Params:
 - adjacent_weights: must be multiplied by confidence of the corresponding adjacent_point
 """
 function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}, genes::Vector{Int},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; new_prob::Float64=0.05)
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}})
     total_ll = 0.0
     for i in 1:length(genes)
         gene = genes[i]
@@ -43,29 +43,21 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         cur_points = adjacent_points[i]
 
         dense_sum = 0.0
-        ct_dense_sum = 0.0 # Because of pseudocounts, cell_type_exprs aren't normalized
-        for ri in 1:size(assignment_probs, 1)
+        for ri in 1:size(assignment_probs, 1) # TODO: this function can probably be optimized by iterating by j first and then by ri
             c_d = 0.0
             for j in 1:length(cur_points) # TODO: can try to use sparsity to optimize it. Can store BitMatrix with info about a_p > 1e-10
                 a_p = assignment_probs[ri, cur_points[j]]
-                if a_p < 1e-5
-                    continue
-                end
+                (a_p > 1e-5) || continue
 
                 c_d += cur_weights[j] * a_p
             end
 
-            ctp = cell_type_exprs[ri, gene]
-            assignment_probs[ri, i] = ctp * exp(c_d)
+            assignment_probs[ri, i] = cell_type_exprs[ri, gene] * exp(c_d)
             dense_sum += assignment_probs[ri, i]
-            ct_dense_sum += ctp
         end
 
         total_ll += log10(dense_sum)
-        # TODO: for initial test, add lock array here and check whether taking it takes time
-        for ri in 1:size(assignment_probs, 1)
-            assignment_probs[ri, i] = (1 - new_prob) * assignment_probs[ri, i] / dense_sum + new_prob * cell_type_exprs[ri, gene] / ct_dense_sum
-        end
+        assignment_probs[:, i] ./= dense_sum
     end
 
     return total_ll
@@ -84,7 +76,7 @@ end
 
 
 function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
-        n_clusters::Int=1, new_prob::Float64=0.05, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
+        n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         cell_type_exprs::Union{<:AbstractMatrix{Float64}, Nothing}=nothing, assignment::Union{Vector{Int}, Nothing}=nothing, assignment_probs::Union{Matrix{Float64}, Nothing}=nothing,
         verbose::Bool=true, progress::Union{Progress, Nothing}=nothing, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, init_mod::Int=10000, kwargs...)
     # Initialization
@@ -136,13 +128,12 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
     end
 
     # EM iterations
-    penalize_small_clusters = false
     n_iters = 0
     for i in 1:max_iters
         n_iters = i
         assignment_probs_prev .= assignment_probs
 
-        expect_molecule_clusters!(assignment_probs, cell_type_exprs, genes, adjacent_points, adjacent_weights, new_prob=new_prob)
+        expect_molecule_clusters!(assignment_probs, cell_type_exprs, genes, adjacent_points, adjacent_weights)
 
         if do_maximize
             maximize_molecule_clusters!(cell_type_exprs, genes, confidence, assignment_probs; add_pseudocount=true, kwargs...)
@@ -152,15 +143,9 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         push!(max_diffs, md)
         push!(change_fracs, cf)
 
-        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of assignment changed", cf)]
+        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of probs changed", cf)]
         if verbose
             next!(progress, showvalues=prog_vals)
-        end
-
-        if (max_diffs[end] < tol) & ((new_prob > 1e-10) | !penalize_small_clusters)
-            new_prob = 0.0
-            penalize_small_clusters = true
-            continue
         end
 
         if (i > n_iters_without_update) && (maximum(max_diffs[(end - n_iters_without_update):end]) < tol)
