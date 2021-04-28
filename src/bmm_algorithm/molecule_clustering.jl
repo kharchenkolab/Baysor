@@ -57,7 +57,11 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
         end
 
         total_ll += log10(dense_sum)
-        assignment_probs[:, i] ./= dense_sum
+        if dense_sum .> 1e-20
+            assignment_probs[:, i] ./= dense_sum 
+        else
+            assignment_probs[:, i] .= 1 / size(assignment_probs, 1)
+        end
     end
 
     return total_ll
@@ -110,7 +114,8 @@ function cluster_molecules_on_mrf(genes::Vector{Int}, adjacent_points::Vector{Ve
         assignment_probs = zeros(size(cell_type_exprs, 1), length(genes));
 
         if assignment === nothing
-            assignment_probs .= cell_type_exprs[:, genes];
+            assignment_probs .= cell_type_exprs[:, genes]
+            assignment_probs[:, vec(sum(assignment_probs, dims=1)) .< 1e-10] .= 1 / size(assignment_probs, 1)
             assignment_probs ./= sum(assignment_probs, dims=1)
         else
             assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;

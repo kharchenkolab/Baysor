@@ -77,7 +77,7 @@ function plot_dataset_colors(df_spatial::DataFrame, color::Union{Vector, Symbol,
     axis_kwargs = update_args((xticklabelsize=12, yticklabelsize=12), axis_kwargs)
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
     if markersize < 0
-        markersize = max(50.0 / min_molecules_per_cell, 0.25)
+        markersize = min(max(50.0 / min_molecules_per_cell, 0.25), 5)
     end
 
     fig = MK.Figure(resolution=plot_size)

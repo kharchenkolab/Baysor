@@ -538,7 +538,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     bm_data = initialize_bmm_data(df_spatial; scale=args["scale"], scale_std=args["scale-std"],
             n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0,
-            adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=vcat(comp_genes...));
+            adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=Vector{Int}(vcat(comp_genes...)));
         
     @info "Using $(size(position_data(bm_data), 1))D coordinates"
 
