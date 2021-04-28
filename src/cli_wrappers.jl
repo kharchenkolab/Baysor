@@ -162,6 +162,10 @@ end
 
 function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     r = parse_commandline(args)
+    if r === nothing
+        return nothing
+    end
+
     if r["scale"] !== nothing
         r["estimate-scale-from-centers"] = false
     end
@@ -592,6 +596,10 @@ end
 
 function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     r = parse_preview_commandline(args)
+    if r === nothing
+        return nothing
+    end
+
     if r["config"] !== nothing
         extend_params_with_config!(r, parse_toml_config(r["config"]))
     else

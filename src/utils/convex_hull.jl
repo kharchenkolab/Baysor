@@ -33,7 +33,7 @@ function convex_hull(a::Array{Array{T,1},1} where T<:Real)
     return hcat(vcat(up, reverse(down[1:end-1]))...);
 end
 
-function area(polygon::Array{T, 2} where T <: Real)
+function area(polygon::Matrix{<:Real})
     area = 0.0;
 
     for i in 1:size(polygon, 2)

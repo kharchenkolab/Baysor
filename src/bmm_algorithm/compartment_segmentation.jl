@@ -94,7 +94,7 @@ function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_loc
         push!(max_diffs, md)
         push!(change_fracs, cf)
 
-        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of assignment changed", cf)]
+        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of probs changed", cf)]
         if progress !== nothing
             next!(progress, showvalues=prog_vals)
         end
