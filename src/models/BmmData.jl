@@ -66,7 +66,7 @@ mutable struct BmmData{L}
     function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1}, 
                      assignment::Vector{Int}, distribution_sampler::Component{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20, 
                      cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5, 
-                     min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.5, na_genes::Vector{Int}=Int[]) where N
+                     min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where N
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
