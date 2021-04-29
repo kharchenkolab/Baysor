@@ -34,3 +34,15 @@ function maximize!(dist::CategoricalSmoothed, x::T where T <: Union{AbstractArra
 
     return dist
 end
+
+function maximize!(dist::CategoricalSmoothed, x::T where T <: Union{AbstractArray{Int, 1}, AbstractArray{Union{Missing, Int}, 1}})
+    dist.counts .= 0
+    dist.sum_counts = 0.0
+    for v in x
+        ismissing(v) && continue
+        dist.counts[v] += 1
+        dist.sum_counts += 1
+    end
+
+    return dist
+end

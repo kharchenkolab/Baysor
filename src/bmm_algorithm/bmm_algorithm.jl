@@ -41,7 +41,7 @@ end
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
 @inline function aggregate_adjacent_component_weights!(comp_ids::Vector{Int}, comp_weights::Vector{Float64}, component_weights::Dict{Int, Float64},
-        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64}, confidences::Vector{Float64})
+        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64})
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
@@ -50,12 +50,11 @@ end
     @inbounds @simd for i in 1:length(adjacent_weights)
         c_point = adjacent_points[i]
         c_id = assignment[c_point]
-        c_conf = confidences[c_point]
         cw = adjacent_weights[i]
         if c_id == 0
-            zero_comp_weight += cw * (1 - c_conf)
+            zero_comp_weight += cw
         else
-            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw * c_conf
+            component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
         end
     end
 
@@ -71,7 +70,7 @@ end
         component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
     zero_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
-        data.adjacent_points[mol_id], data.adjacent_weights[mol_id], data.confidence)
+        data.adjacent_points[mol_id], data.adjacent_weights[mol_id])
 
     if mol_id in keys(adj_classes_global)
         n1 = length(adj_classes)
@@ -188,7 +187,7 @@ function maximize!(data::BmmData)
     @inbounds @views for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids], confidence(data)[p_ids]; 
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids]; 
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac)
     end
 

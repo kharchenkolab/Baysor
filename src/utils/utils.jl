@@ -284,33 +284,6 @@ end
 
 @inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
 
-"""
-It works only for large samples with more or less uniform weights
-"""
-function wmedian(values::Vector{T} where T <: Real, weights::Vector{Float64}; ord::Vector{Int}=sortperm(values))::Float64
-    w_avg = sum(weights) / 2
-    w_cur = 0.0
-    for i in ord
-        w_cur += weights[i]
-        if w_cur >= w_avg
-            return values[i]
-        end
-    end
-
-    if any(isnan.(weights))
-        error("NaNs are presented in weights for wmedian")
-    end
-end
-
-wmad(values::Vector{T} where T <: Real, weights::Vector{Float64}; ord::Vector{Int}=sortperm(values))::Float64 =
-    wmad(values, weights, wmedian(values, weights, ord=ord))
-
-"""
-It works only for large samples with more or less uniform weights
-"""
-wmad(values::Vector{T} where T <: Real, weights::Vector{Float64}, m::Float64)::Float64 =
-    1.4826 * wmedian(abs.(values .- m), weights)
-
 function wmean(values::Vector{T} where T <: Real, weights::T1 where T1 <: AbstractVector{Float64}; non_zero_ids::T2 where T2 <: AbstractArray{Int} = 1:length(values))
     s, ws = 0.0, 0.0
     for i in non_zero_ids
