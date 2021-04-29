@@ -72,10 +72,16 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
         n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
 
     cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
-    ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=10000);
-    ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
+    ct_exprs_init = nothing
+    try
+        ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=10000);
+        ct_exprs_init = copy((abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))')
+    catch
+        @warn "ICA did not converge, fall back to random initialization"
+    end
 
-    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; cell_type_exprs=ct_exprs_init, kwargs...)
+    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; 
+        cell_type_exprs=ct_exprs_init, n_clusters=n_clusters, kwargs...)
 end
 
 
