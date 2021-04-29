@@ -119,7 +119,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     for j in eachindex(adj_weights)
         c_adj = adj_classes[j]
         cc = data.components[c_adj]
-        c_dens = confidence * adj_weights[j] * pdf(cc, x, gene, use_smoothing=data.use_gene_smoothing)
+        c_dens = confidence * exp(data.mrf_strength * adj_weights[j]) * pdf(cc, x, gene, use_smoothing=data.use_gene_smoothing)
 
         ## Only if molecule clustering is provided
 
@@ -144,7 +144,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     end
 
     if confidence < 1.0
-        push!(denses, (1 - confidence) * fmax(data.real_edge_weight, zero_comp_weight) * data.noise_density)
+        push!(denses, (1 - confidence) * exp(data.mrf_strength * fmax(data.real_edge_weight, zero_comp_weight)) * data.noise_density)
         push!(adj_classes, 0)
     end
 
