@@ -2,7 +2,7 @@ import CSV
 using DataFrames
 
 function read_spatial_df(data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Union{Symbol, Nothing}=:z, gene_col::Union{Symbol, Nothing}=:gene, filter_cols::Bool=false)
-    df_spatial = DataFrame!(CSV.File(data_path));
+    df_spatial = DataFrame(CSV.File(data_path), copycols=false);
 
     if (z_col === :z) && !(:z in propertynames(df_spatial))
         z_col = nothing

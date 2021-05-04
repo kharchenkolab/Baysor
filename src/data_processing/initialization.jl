@@ -211,11 +211,11 @@ end
 """
     main function for initialization of bm_data
 """
-function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing, 
+function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
         n_cells_init::Union{Int, Nothing}=nothing, confidence_nn_id::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
         adjacent_points::Union{Vector{Vector{Int64}}, Nothing}=nothing, adjacent_weights::Union{Vector{Vector{Float64}}, Nothing}=nothing,
-        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5, 
-        kwargs...)::BmmData
+        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5,
+        verbose::Bool=true, kwargs...)::BmmData
     df_spatial = deepcopy(df_spatial)
 
     ## Parse parameters
@@ -225,24 +225,24 @@ function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int,
 
     ## Estimate confidence
     if confidence_nn_id > 0
-        @info "Estimate confidence per molecule"
+        verbose && @info "Estimate confidence per molecule"
         prior_segmentation = (:prior_segmentation in propertynames(df_spatial)) ? df_spatial.prior_segmentation : nothing
         append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
-        @info "Done"
+        verbose && @info "Done"
     end
 
     ## Initialize BmmData array
-    @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init, #molecules: $(size(df_spatial, 1))."
-    size_prior = (:z in propertynames(df_spatial)) ? 
+    verbose && @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init, #molecules: $(size(df_spatial, 1))."
+    size_prior = (:z in propertynames(df_spatial)) ?
         ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell) :
         ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
 
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
     if adjacent_points === nothing
-        composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood, 
+        composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood,
             min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
         n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
-        
+
         adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
             n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)[1:2]
     end

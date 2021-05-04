@@ -72,12 +72,12 @@ function extend_params_with_config!(params::Dict, config::Dict)
     end
 end
 
-function load_df(args::Dict; kwargs...) 
+function load_df(args::Dict; kwargs...)
     exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
 
-    df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"], 
+    df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
-    
+
     if ("force-2d" in keys(args)) && args["force-2d"] && (:z in propertynames(df_spatial))
         select!(df_spatial, Not(:z))
     elseif (args["z-column"] != :z) && !(:z in propertynames(df_spatial))
@@ -256,7 +256,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
             println(io, "<div id='vg_assignment_confidence'></div>")
             vega_plots["vg_assignment_confidence"] = estimate_hist(df_res.assignment_confidence[assignment .> 0]; nbins=30) |>
                 @vlplot() +
-                @vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"}, 
+                @vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"},
                     title="Assignment confidence", width=500, height=250) +
                 @vlplot(:rule, x={datum=0.95})
         end
@@ -269,7 +269,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 
         println(io, "<div id='vg_num_transcripts'></div>")
         vega_plots["vg_num_transcripts"] = estimate_hist(n_mols_per_cell, nbins=50, center=false) |>
-        @vlplot(:bar, x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"}, x2=:e, y={:h, title="Num. cells"}, 
+        @vlplot(:bar, x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"}, x2=:e, y={:h, title="Num. cells"},
             width=500, height=250, title="Num. molecules per cell")
 
         println(io, "</body>")
@@ -331,7 +331,7 @@ function parse_prior_assignment(df_spatial::DataFrame, args::Dict{String, Any})
     filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=args["min-molecules-per-segment"])
     if args["scale"] === nothing
         pos_data = position_data(df_spatial)
-        scale, scale_std = estimate_scale_from_assignment(pos_data, prior_segmentation; 
+        scale, scale_std = estimate_scale_from_assignment(pos_data, prior_segmentation;
             min_mols_per_cell=args["min-molecules-per-cell"])
     else
         scale, scale_std = args["scale"], args["scale-std"]
@@ -358,9 +358,12 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     end
     @info "Done"
 
-    @info "Estimating prior segmentation polygons..."
-    prior_polygons = extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:3:end, 1:3:end]); grid_step=3.0) # subset to save memory and time
-    @info "Done"
+    prior_polygons = nothing
+    if args["plot"]
+        @info "Estimating prior segmentation polygons..."
+        prior_polygons = extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+        @info "Done"
+    end
 
     return prior_segmentation, prior_polygons, scale, scale_std
 end
@@ -442,7 +445,7 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     for k in ["nuclei-genes", "cyto-genes"]
         c_genes = String.(strip.(Base.split(args[k], ",")))
         all(length.(c_genes) .> 0) || @warn "Empty genes were provided in $k"
-        
+
         missing_genes = c_genes[.!in.(c_genes, Ref(Set(gene_names)))]
         (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
         c_genes = intersect(c_genes, gene_names)
@@ -453,7 +456,7 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     # Run segmentation
     adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
 
-    init_probs, is_locked = init_nuclei_cyto_compartments(position_data(df_spatial), df_spatial.gene; 
+    init_probs, is_locked = init_nuclei_cyto_compartments(position_data(df_spatial), df_spatial.gene;
         nuclei_genes=comp_genes["nuclei-genes"], cyto_genes=comp_genes["cyto-genes"], gene_names=gene_names, scale=args["scale"]);
 
     comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
@@ -466,8 +469,8 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     return comp_segs, comp_genes
 end
 
-function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; 
-        mol_clusts::Union{NamedTuple, Nothing}, comp_segs::Union{NamedTuple, Nothing}, prior_polygons::Vector{Matrix{Float64}})
+function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any};
+        mol_clusts::Union{NamedTuple, Nothing}, comp_segs::Union{NamedTuple, Nothing}, prior_polygons::Union{Vector{Matrix{Float64}}, Nothing})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
@@ -523,7 +526,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         df_spatial[!, :compartment] = ["Nuclei", "Cyto", "Unknown"][comp_segs.assignment];
         df_spatial[!, :nuclei_probs] = 1 .- comp_segs.assignment_probs[2,:];
 
-        adjacent_points, adjacent_weights = adjust_mrf_with_compartments(adjacent_points, adjacent_weights, 
+        adjacent_points, adjacent_weights = adjust_mrf_with_compartments(adjacent_points, adjacent_weights,
             comp_segs.assignment_probs[1,:], comp_segs.assignment_probs[2,:]);
     end
 
@@ -539,7 +542,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
             n_cells_init=args["num-cells-init"], prior_seg_confidence=args["prior-segmentation-confidence"],
             min_molecules_per_cell=args["min-molecules-per-cell"], confidence_nn_id=0,
             adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=Vector{Int}(vcat(comp_genes...)));
-        
+
     @info "Using $(size(position_data(bm_data), 1))D coordinates"
 
     history_depth = round(Int, args["iters"] * 0.1)
@@ -647,7 +650,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     if args["gene-composition-neigborhood"] === nothing
         args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
-    
+
     @info "Estimating local colors"
     gene_colors = gene_composition_colors(df_spatial, args["gene-composition-neigborhood"])
 
@@ -692,21 +695,21 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
         println(io, "<hr>\n<h1 id=\"Noise_Level\">Noise level</h1><br>")
         show(io, MIME("text/html"), cc_plot)
-        
+
         println(io, "<br>")
         println(io, "<div id='vg_noise_dist'></div>")
 
         println(io, "<br>")
         println(io, "Minimal noise level=$(round(100 * mean(confidences .< 0.01), sigdigits=3))%. ",
             "Expected noise level=$(round(100 * mean(1 .- confidences), sigdigits=2))%.")
-        
+
         println(io, "<br>")
         println(io, "<hr>\n<h1 id=\"Gene_Structure\">Gene structure</h1><br>")
         println(io, "<div id='vg_num_trans'></div>")
-        
+
         println(io, "<br>")
         println(io, "<div id='vg_gene_structure'></div>")
-        
+
         println(io, "</body>")
 
         println(io, vega_plot_html(vega_plots))
