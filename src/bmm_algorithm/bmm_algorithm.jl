@@ -66,7 +66,7 @@ end
     return zero_comp_weight
 end
 
-@inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int; 
+@inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
         component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
     zero_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
@@ -104,7 +104,7 @@ function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segmen
     end
 end
 
-function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int; 
+function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int;
         zero_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
     x = SVector{N}(position_data(data)[:,mol_id]...)
     gene::Union{Int, Missing} = composition_data(data)[mol_id]
@@ -159,7 +159,7 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
-        zero_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i; 
+        zero_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i;
             component_weights=component_weights, adj_classes_global=adj_classes_global)
 
         expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, zero_comp_weight=zero_comp_weight)
@@ -187,7 +187,7 @@ function maximize!(data::BmmData)
     @inbounds @views for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids]; 
+        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac)
     end
 
@@ -366,7 +366,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
         end
 
         if progress !== nothing
-            n_components = sum(num_of_molecules_per_cell(data) .> 0)
+            n_components = sum(num_of_molecules_per_cell(data) .>= min_molecules_per_cell)
             noise_level = round(mean(data.assignment .== 0) * 100, digits=2)
             next!(progress, showvalues = [("Iteration", i), ("Noise level, %", noise_level), ("Num. components", n_components)])
         end
@@ -377,7 +377,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
             data.assignment = estimate_assignment_by_history(data)[1];
             maximize!(data)
         end
-    
+
         drop_unused_components!(data; min_n_samples=1)
         maximize!(data)
     end

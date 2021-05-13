@@ -19,7 +19,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
-        noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false, 
+        noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false,
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
@@ -72,7 +72,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     if annotation === nothing
-        MK.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color, 
+        MK.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color,
             strokewidth=0, markersize=markersize, kwargs...)
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
@@ -91,7 +91,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
             MK.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
                 label=noise_ann, noise_kwargs...)
         end
-        
+
         if legend
             MK.axislegend(;legend_kwargs...)
         end
@@ -152,7 +152,7 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     labels = sort(labels)
 
     fig = MK.Figure(resolution=(600, 400));
-    axis_args = (xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14, xlabel="Iteration", ylabel="Num. cells", 
+    axis_args = (xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14, xlabel="Iteration", ylabel="Num. cells",
         xlabelpadding=0, ylabelpadding=0, font="Helvetica")
     fig[1, 1] = MK.Axis(fig; title="Convergence", axis_args...);
 
@@ -210,10 +210,10 @@ end
 
 plot_colorbar(colors; kwargs...) = plot_colorbar(colors[:ticks], colors[:palette]; kwargs...)
 
-function plot_colorbar(color_ticks, palette; size=(500, 110), xticklabelsize=12, 
+function plot_colorbar(color_ticks, palette; size=(500, 110), xticklabelsize=12,
         xlabelsize=14, xlabelpadding=0, kwargs...)
     fig = MK.Figure(resolution=size)
-    fig[1, 1] = MK.Axis(fig; yticksvisible=false, yticklabelsvisible=false, xticksvisible=false, xticklabelsize=12, 
+    fig[1, 1] = MK.Axis(fig; yticksvisible=false, yticklabelsvisible=false, xticksvisible=false, xticklabelsize=12,
         xlabelsize=14, xlabelpadding=0, kwargs...)
     MK.barplot!(color_ticks, ones(length(color_ticks)), color=palette)
     MK.xlims!(MK.current_axis(), val_range(color_ticks))
