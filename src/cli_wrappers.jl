@@ -78,9 +78,11 @@ function load_df(args::Dict; kwargs...)
     df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
 
-    if ("force-2d" in keys(args)) && args["force-2d"] && (:z in propertynames(df_spatial))
-        select!(df_spatial, Not(:z))
-    elseif (args["z-column"] != :z) && !(:z in propertynames(df_spatial))
+    if :z in propertynames(df_spatial)
+        if ("force-2d" in keys(args)) && args["force-2d"] || (length(unique(df_spatial.z)) < 2)
+            select!(df_spatial, Not(:z))
+        end
+    elseif args["z-column"] != :z
         error("z-column $(args["z-column"]) not found in the data")
     end
 
