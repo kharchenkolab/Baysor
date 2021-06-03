@@ -64,6 +64,7 @@ end
 
 function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     args = parse_preview_configs(args)
+    (args !== nothing) || return 1
 
     # Set up logger
 
