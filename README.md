@@ -3,11 +3,10 @@
 
 # Baysor
 
-**Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data
+**Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
 
-- [News ([0.4.3] — 2021-04-06)](#news-043--2021-04-06)
-- [Abstract](#abstract)
-  - [Method description](#method-description)
+- [News ([0.5.0] — 2021-06-03)](#news-050--2021-06-03)
+- [Overview](#overview)
 - [Installation](#installation)
   - [Install as a Julia package](#install-as-a-julia-package)
   - [Build CLI application from source](#build-cli-application-from-source)
@@ -17,16 +16,16 @@
   - [Full run](#full-run)
     - [Normal run](#normal-run)
     - [Using a prior segmentation](#using-a-prior-segmentation)
+      - [Segmenting stains](#segmenting-stains)
+    - [Segmenting cells with pronounced intracellular structure](#segmenting-cells-with-pronounced-intracellular-structure)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
-    - [Multi-threading](#multi-threading)
 
-## News ([0.4.3] — 2021-04-06)
+## News ([0.5.0] — 2021-06-03)
 
-- Improved molecule clustering
-- Added the option `--save-polygons=GeoJSON` to save cell boundary polygons in the GeoJSON format
-- Fixed plotting performance
-- Estimating scale when prior segmentation is provided as a CSV column
+- 3D segmentation
+- Core algorithm improvement
+- Segmentation of cell compartments
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 
