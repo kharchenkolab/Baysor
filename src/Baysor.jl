@@ -8,6 +8,7 @@ using Statistics
 import Distributions.pdf
 import Distributions.logpdf
 import Statistics.rand
+import Pkg
 
 export
     BmmData, bmm!,
@@ -17,6 +18,8 @@ export
     append_confidence!,
     plot_molecules, plot_molecules!, plot_expression_vectors,
     cluster_molecules_on_mrf
+
+pkg_version = Pkg.TOML.parsefile(joinpath(dirname(dirname(pathof(@__MODULE__))), "Project.toml"))["version"] # Pre-estimated for binary builds
 
 include("utils/utils.jl")
 include("utils/logging.jl")

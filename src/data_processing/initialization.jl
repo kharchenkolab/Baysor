@@ -177,7 +177,7 @@ function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String}
     for gm in gene_masks
         g_ids = findall(match.(Regex(gm), gene_names) .!== nothing)
         if length(g_ids) == 0
-            @show push!(missing_genes, gm)
+            push!(missing_genes, gm)
         else
             union!(matches, gene_names[g_ids])
         end

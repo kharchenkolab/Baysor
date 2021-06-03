@@ -153,8 +153,8 @@ function order_points_to_polygon(vert_inds::Vector{Int}, border_coords::Matrix{T
     return polygon_inds
 end
 
-function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}}, 
-        max_x::Union{Vector{Float64}, Tuple{Float64, Float64}}; grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3, 
+function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}},
+        max_x::Union{Vector{Float64}, Tuple{Float64, Float64}}; grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3,
         verbose::Bool=false)::Matrix{<:Unsigned}  where T <: Real
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
     filt_mask = (size.(coords_per_label, 2) .>= min_molecules_per_cell)
@@ -271,15 +271,16 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         exclude_labels=exclude_labels, offset=min_x, grid_step=grid_step)
 end
 
-
-function save_polygons_to_geojson(polygons::Array{Array{T,2},1} where T<:Number, path::Union{String, Nothing}=nothing)
+function polygons_to_geojson(polygons::Vector{Matrix{T}}) where T <:Real
     geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))]) for p in polygons]
-    geo_json_dict = Dict("type" => "GeometryCollection", "geometries" => geoms);
-    if path == nothing
-        return geo_json_dict
-    end
+    return Dict("type" => "GeometryCollection", "geometries" => geoms);
+end
 
+polygons_to_geojson(polygons::Dict{String, Vector{Matrix{T}}}) where T <:Real =
+    [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
+
+function save_polygons_to_geojson(polygons::Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}}, path::String) where T <: Real
     open(path, "w") do f
-        print(f, JSON.json(geo_json_dict))
+        print(f, JSON.json(polygons_to_geojson(polygons)))
     end
 end

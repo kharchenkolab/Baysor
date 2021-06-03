@@ -175,7 +175,7 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     if r["config"] !== nothing
         extend_params_with_config!(r, parse_toml_config(r["config"]))
     else
-        @warn "No config file provided. Back-up to default parameters."
+        @warn "No config file provided. Using default parameters."
         extend_params_with_config!(r, get_default_config())
     end
 
@@ -291,19 +291,32 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
 
     @info "Estimating boundary polygons" # For some parameters, this step takes a lot of time and memory
     grid_step = args["scale"] / args["min-pixels-per-cell"];
-    polygons = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
+    polygons = poly_joint = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
+
+    if (args["save-polygons"] !== nothing) && (:z in propertynames(df_res))
+        if length(unique(df_res.z)) > (size(df_res, 1) / args["min-molecules-per-cell"])
+            @warn "To many values of z. Using 2D polygons"
+        else
+            z_vals = sort(unique(df_res.z))
+            mask_per_z = [(df_res.z .≈ z) for z in z_vals]
+            poly_per_z = progress_map(mask -> boundary_polygons(df_res[mask,:], assignment[mask]; grid_step=grid_step, bandwidth=args["scale"]/10), mask_per_z);
+            poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
+            poly_per_z["joint"] = polygons
+            polygons = poly_per_z
+        end
+    end
 
     if gene_colors !== nothing
         gene_colors = Colors.alphacolor.(gene_colors, 0.5)
     end
 
     @info "Plot transcript assignment"
-    gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
+    gc_plot = plot_dataset_colors(df_res, gene_colors; polygons=poly_joint, prior_polygons=prior_polygons, min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity")
 
     clust_plot = nothing
     if !isempty(clusters)
-        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=polygons, prior_polygons=prior_polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
+        clust_plot = plot_dataset_colors(df_res, gene_colors; polygons=poly_joint, prior_polygons=prior_polygons, annotation=clusters, min_molecules_per_cell=args["min-molecules-per-cell"],
             min_pixels_per_cell=args["min-pixels-per-cell"], title="Molecule clustering")
     end
 
@@ -371,10 +384,10 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
 end
 
 function get_baysor_run_str()::String
-    pkg_info = Pkg.dependencies()[Base.UUID("cc9f9468-1fbe-11e9-0acf-e9460511877c")]
-    pkg_str = "v$(pkg_info.version)"
+    pkg_str = "v$pkg_version"
     try
-        repo = LibGit2.GitRepo(pkg_info.source)
+        pkg_info = Pkg.dependencies()[Base.UUID("cc9f9468-1fbe-11e9-0acf-e9460511877c")]
+        repo = LibGit2.GitRepo(pkg_info.source) # In case it's a development version with a commit instead of a release
         hash_str = "$(LibGit2.GitShortHash(LibGit2.peel(LibGit2.GitCommit, LibGit2.head(repo))))"
         pkg_str = "$pkg_str [$hash_str]"
     catch err
