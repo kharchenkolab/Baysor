@@ -3,10 +3,21 @@
 ### Changed
 
 - `scale-std` now can be specified from CLI parameters
+- Several bugs fixed
+- Allow missing genes in the input data
+- Updates in the core algorithm
+- All diagnostic plots were updated
 
 ### Added
 
-- `exclude-genes` option that removes genes from the data frame before segmentation
+- `exclude-genes` option that removes genes from the data frame before segmentation.
+- **Segmentation of compartments based on the list of compartment-specific genes**
+- Using information about compartment per molecule in the segmentation algorithm when available
+- **3D segmentation**
+
+### Removed
+
+- The data can not be split by frames anymore. *This functionality didn't work well previously and was hard to maintan.*
 
 ## [0.4.3] — 2021-04-06
 

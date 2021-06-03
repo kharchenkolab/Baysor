@@ -135,7 +135,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             help = "Ignores z-column in the data if it is provided"
             action = :store_true
         "--exclude-genes"
-            help = "Comma-separated list of genes to ignore during segmentation"
+            help = "Comma-separated list of genes or regular expressions to ignore during segmentation. Example: --exclude-genes='Blank*,MALAT1'"
         "--nuclei-genes"
             help = "Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well."
         "--cyto-genes"

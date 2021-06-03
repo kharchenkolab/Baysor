@@ -30,12 +30,6 @@
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 
-## Abstract
-
-Spatial transcriptomics is an emerging stack of technologies, which adds spatial dimension to conventional single-cell RNA-sequencing. New protocols, based on in situ sequencing or multiplexed RNA fluorescent in situ hybridization register positions of single molecules in fixed tissue slices. Analysis of such data at the level of individual cells, however, requires accurate identification of cell boundaries. While many existing methods are able to approximate cell center positions using nuclei stains, current protocols do not report robust signal on the cell membranes, making accurate cell segmentation a key barrier for downstream analysis and interpretation of the data. To address this challenge, we developed a tool for **Bay**esian **S**egmentation **o**f Spatial T**r**anscriptomics Data (Baysor), which optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The Bayesian approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected molecules alone. We show that Baysor segmentation can in some cases nearly double the number of the identified cells, while reducing contamination. Importantly, we demonstrate that Baysor performs well on data acquired using five different spatially-resolved protocols, making it a useful general tool for analysis of high-resolution spatial data.
-
-### Method description
-
 See our [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1) for details on the method.
 
 ## Installation
@@ -105,8 +99,6 @@ Here:
 - Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
 - OUTPUT_PATH determines path to the output html file with the diagnostic plots
 
-<!-- TODO: describe output format -->
-
 ### Full run
 
 #### Normal run
@@ -114,15 +106,15 @@ Here:
 To run the algorithm on your data, use
 
 ```bash
-baysor run [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [PRIOR_SEGMENTATION]
+baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
 Here:
 
 - MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each molecule
 - PRIOR_SEGMENTATION is optional molecule segmentation obtrained from other method (see [Using prior segmentation](#using-prior-segmentation))
-- Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly.
-- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x" and "y". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
+- Parameters X_COL, Y_COL, Z_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y", "z" and "gene" correspondingly.
+- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x", "y" and "z". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
 
 To see full list of command-line options run
 
@@ -142,13 +134,14 @@ In some cases, you may want to use another segmentation as a prior for Baysor. T
 baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
-Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`.
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`. **Note:** only CSV column prior is currently supported for 3D segmentation.
 
 To specify expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential usecase is high-quality data with visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
 
-##### Segmenting DAPI with ImageJ
+##### Segmenting stains
 
 If you have a non-segmented DAPI image, the simplest way to segment it would go through the following steps [ImageJ](https://fiji.sc/):
+
 1. Open the image (File -> Open)
 2. Go to Image -> Type and pick "8-bit"
 3. Run Process -> Filters -> Gaussian Blur, using Sigma = 1.0. *The value can vary, depending on your DAPI, but 1.0 generally works fine.*
@@ -156,9 +149,23 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
 5. Run Process -> Binary -> Watershed
 6. Save the resulting image in the .tif
 
+Another promising tool is [CellPose](https://github.com/mouseland/cellpose), however it may require some manual labeling to fine-tune the network.
+
+#### Segmenting cells with pronounced intracellular structure
+
+High-resolution protocols, such as MERFISH or seq-FISH, can capture intracellular structure. Most often, it would mean pronounced difference between nuclear and citoplasmic gene composition. By default, such differences would push Baysor to recognize compartments as different cells. However, if some compartment-specific genes are known, they may be used to mitigate the situation. These genes can be specified through `--nuclei-genes` and `--cyto-genes` options, *e.g.*:
+
+```julia
+baysor run -m 30 --n-clusters=1 -s 30 --scale-std=50% --nuclei-genes=Neat1 --cyto-genes=Apob,Net1,Slc5a1,Mptx2 --exclude-genes='Blank*' ./molecules.csv
+```
+
+Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule clustering would not be affected by compartment differences.
+
+**Note.** Currently, there is no automated way to determine such compartment-specific genes. So, the only way we can suggest is interactive explaration of data. In theory, it should be straightforward to infer such information from DAPI and poly-A stains, however it is not implemented yet. If you have particular need for such functionality, please submit an issue with description of your experimental set up.
+
 #### Outputs
 
-- *segmentation_borders.html*: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part)
+- *segmentation_borders.html*: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
 - *segmentation_cell_stats.csv*: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
   - `area`: area of the convex hull around the cell molecules
   - `avg_confidence`: average confidence of the cell molecules
@@ -166,7 +173,9 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
   - `elongation`: ration of the two eigenvalues of the cell covariance matrix
   - `n_transcripts`: number of molecules per cell
 - *segmentation_config.toml*: copy of the config to improve reproducibility
+- *segmentation_diagnostics.html*: visualization of the algoritm QC. *Shown only when `-p` is set.*
 - *segmentation_params.dump*: aggregated parameters from the config and CLI
+- *segmentation_polygons.json*: polygons used for visualization in GeoJSON format. In case of 3D segmentation, it is an array of with GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
 - *segmentation.csv*: segmentation info per molecule:
   - `confidence`: probability of a molecule to be real (i.e. not noise)
   - `cell`: id of the assigned cell. Value "0" corresponds to noise.
@@ -190,11 +199,3 @@ Run parameters:
 
 - `num-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
 - `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
-
-#### Multi-threading
-
-Currently, running multi-threaded version is only available by splitting dataset to independent frames, which creates artifacts on the frame borders. If you're fine with that, please use the command
-
-```bash
-JULIA_NUM_THREADS=10; baysor run -n $JULIA_NUM_THREADS [-s SCALE -x X_COL -y Y_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [CENTERS_CSV]
-```
