@@ -1,9 +1,9 @@
-import Baysor as B
+#! /usr/bin/env julia
 
-B.run_cli(["--help"]);
-B.run_cli(["run", "--help"]);
-B.run_cli(["preview", "--help"]);
+using PackageCompiler
 
-# To build, run create_sysimage(:Baysor; precompile_execution_file="$(dirname(pathof(Baysor)))/../bin/build.jl", replace_default=true)
-# If you need to build app, comment @require part in __init__ function of ImageCore (~/.julia/packages/ImageCore/BTvmx/src/ImageCore.jl:167)
-# and use create_app instead of create_sysimage
+out_path = length(ARGS) > 1 ? ARGS[1] : "Baysor";
+baysor_path = length(ARGS) > 2 ? ARGS[2] : dirname(@__DIR__);
+
+Base.LOAD_PATH .= baysor_path
+create_app(baysor_path, out_path; precompile_execution_file="$(baysor_path)/bin/build.jl")
