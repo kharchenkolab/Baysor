@@ -51,6 +51,8 @@ include("bmm_algorithm/distribution_samplers.jl")
 include("bmm_algorithm/history_analysis.jl")
 include("bmm_algorithm/bmm_algorithm.jl")
 
-include("cli_wrappers.jl")
+include("cli/common.jl")
+include("cli/main.jl")
+include("cli/preview.jl")
 
 end # module
