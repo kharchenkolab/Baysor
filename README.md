@@ -53,7 +53,7 @@ import Baysor
 After that you can create Baysor executable by running
 
 ```bash
-echo "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chmod +x baysor
+printf "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chmod +x baysor
 ```
 
 ### Build CLI application from source
