@@ -6,7 +6,6 @@ using Random
 using Statistics
 using VegaLite
 
-import AbstractPlotting
 import Base.show
 import Base64
 import CairoMakie as MK
@@ -157,7 +156,7 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     fig[1, 1] = MK.Axis(fig; title="Convergence", axis_args...);
 
     for i in 1:size(n_components_per_iter, 1)
-        p = MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
+        MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
     MK.axislegend("Min #molecules"; position=(0.01, 1), nbanks = 2, titlesize=16, labelsize=14)
     MK.xlims!(MK.current_axis(), 0, size(n_components_per_iter, 2))
@@ -167,7 +166,7 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     subplot_start = ceil(Int, 0.75 * size(n_components_per_iter, 2))
     iter_vals = subplot_start:size(n_components_per_iter, 2)
     for i in 1:size(n_components_per_iter, 1)
-        p = MK.lines!(iter_vals, n_components_per_iter[i, iter_vals], color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
+        MK.lines!(iter_vals, n_components_per_iter[i, iter_vals], color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
 
     MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter[:, iter_vals]))
@@ -223,7 +222,7 @@ end
 
 ### Utils
 
-function Base.show(io::IO, m::MIME"text/html", fig::AbstractPlotting.Scene)
+function Base.show(io::IO, m::MIME"text/html", fig::MK.Scene)
     io64 = Base64.IOBuffer();
     iob64 = Base64.Base64EncodePipe(io64)
     show(iob64, MIME("image/png"), fig);
