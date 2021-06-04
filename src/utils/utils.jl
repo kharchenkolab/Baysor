@@ -182,7 +182,7 @@ end
 
 @inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
 
-function wmean(values::Vector{Float64}, weights::Vector{Float64}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
+function wmean(values::Vector{Float64}, weights::T where T <: AbstractVector{Float64}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
     s, ws = 0.0, 0.0
     for i in non_zero_ids
         s += values[i] * weights[i]
@@ -192,7 +192,7 @@ function wmean(values::Vector{Float64}, weights::Vector{Float64}; non_zero_ids::
     return s / ws
 end
 
-function wmean_std(values::Vector{Float64}, weights::Vector{Float64}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
+function wmean_std(values::Vector{Float64}, weights::T where T <: AbstractVector{Float64}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
     m = wmean(values, weights; non_zero_ids=non_zero_ids)
     s, ws = 0.0, 0.0
     for i in non_zero_ids

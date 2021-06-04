@@ -1,5 +1,5 @@
-convex_hull(a::Matrix{<:Real}) = convex_hull(collect.(eachcol(a)))
-function convex_hull(a::Array{Vector{<:Real},1})
+convex_hull(a::Matrix{<: Real}) = convex_hull(collect.(eachcol(a)))
+function convex_hull(a::Array{Vector{T},1} where T<: Real)
     cw(a, b, c) = (a[1]*(b[2]-c[2])+b[1]*(c[2]-a[2])+c[1]*(a[2]-b[2]) < 0);
     ccw(a, b, c) = (a[1]*(b[2]-c[2])+b[1]*(c[2]-a[2])+c[1]*(a[2]-b[2]) > 0);
 
