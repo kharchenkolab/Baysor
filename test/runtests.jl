@@ -40,10 +40,6 @@ end
             @test all(chull .== [0 0 2 2 0; 0 2 2 0 0])
             @test B.area(chull) ≈ 4.0
         end
-
-        @testset "utils" begin
-            @test all([B.interpolate_linear(x, 0.0, 1.0; y_start=0.0, y_end=1.0) ≈ x for x in range(0, 1.0, length=50)])
-        end
     end
 
     @testset "distributions" begin
