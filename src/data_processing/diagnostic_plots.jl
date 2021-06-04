@@ -6,12 +6,12 @@ function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confid
         x_vals = range(0, x_max, length=1000)
         n1 = sum(confidences);
         n2 = length(confidences) - n1;
-        
+
         p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins)
         p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
         p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
-        
-        return p_df |> 
+
+        return p_df |>
         @vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
         @vlplot(:bar, x2=:e, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
         @vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
@@ -44,10 +44,10 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
 
     return p_df |>
     @vlplot(
-        x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"}, 
-        y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"}, 
-        size={:size, scale={range=[5, 10]}, legend=false}, 
-        tooltip={:gene, type="nominal"}, 
+        x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"},
+        y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"},
+        size={:size, scale={range=[5, 10]}, legend=false},
+        tooltip={:gene, type="nominal"},
         width=600, height=600, title="Gene local structure",
         config={axis={grid=false, ticks=false, ticklabels=false, labels=false}}
     ) +

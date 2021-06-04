@@ -24,7 +24,7 @@ getx(p::IndexedPoint2D) = p._x
 gety(p::IndexedPoint2D) = p._y
 geti(p::IndexedPoint2D) = p._index
 
-function adjacency_list(points::AbstractArray{T, 2} where T <: Real; filter::Bool=true, n_mads::T2 where T2 <: Real =2, k_adj::Int=5,
+function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float64=2.0, k_adj::Int=5,
         adjacency_type::Symbol=:triangulation, distance::TD where TD <: Distances.SemiMetric = Euclidean())
     if size(points, 1) == 3
         (adjacency_type == :knn) || @warn "Only k-nn random field is supported for 3D data"
@@ -81,7 +81,7 @@ end
 
 adjacency_list(spatial_df::DataFrame; kwargs...) = adjacency_list(position_data(spatial_df); kwargs...)
 
-function connected_components(adjacent_points::Array{Array{Int, 1}, 1})
+function connected_components(adjacent_points::Array{Vector{Int}, 1})
     g = LightGraphs.SimpleGraph(length(adjacent_points));
     for (v1, vs) in enumerate(adjacent_points)
         for v2 in vs

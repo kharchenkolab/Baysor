@@ -1,9 +1,9 @@
 using Base.Threads
 
-neighborhood_count_matrix(data::Union{BmmData, T} where T <: AbstractDataFrame, k::Int; kwargs...) =
+neighborhood_count_matrix(data::Union{BmmData, DataFrame}, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
-function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int}, k::Int; confidences::Union{Vector{Float64}, Nothing}=nothing,
+function neighborhood_count_matrix(pos_data::Matrix{Float64}, genes::Vector{Int}, k::Int; confidences::Union{Vector{Float64}, Nothing}=nothing,
     n_genes::Int=maximum(genes), normalize_by_dist::Bool=true, normalize::Bool=true)
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
@@ -18,7 +18,6 @@ function neighborhood_count_matrix(pos_data::Matrix{<:Real}, genes::Vector{Int},
         @warn "`confidences` are not supported with `normalize=true`. Ignoring them."
         confidences = nothing
     end
-        
 
     k = min(k, size(pos_data, 2))
 
@@ -117,7 +116,7 @@ function gene_composition_colors!(embedding::Matrix{Float64}; lrange::Tuple{<:Re
     return vec(mapslices(col -> Colors.Lab(col...), embedding, dims=1))
 end
 
-function gene_composition_colors(df_spatial::T where T <: AbstractDataFrame, k::Int; kwargs...)
+function gene_composition_colors(df_spatial::DataFrame, k::Int; kwargs...)
     neighb_cm = neighborhood_count_matrix(df_spatial, k);
     confidence = (:confidence in propertynames(df_spatial)) ? df_spatial.confidence : ones(size(df_spatial, 1))
     transformation = gene_composition_transformation(neighb_cm, confidence)
