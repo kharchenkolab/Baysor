@@ -53,7 +53,7 @@ mutable struct Component{N}
 end
 
 # # This function would be useful when processing QC score as another kind of confidences
-# function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}}, 
+# function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}},
 #         conf_data::T3 where T3 <: AbstractVector{Float64}; nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
 #     c.n_samples = size(pos_data, 2) # TODO: need to replace it with confidences, but for that I need to re-write all prior segmentation code to work with confidences as well. Also may need to adjust some other parts
 #     maximize!(c.composition_params, comp_data, conf_data);
@@ -80,7 +80,7 @@ end
 #     return c
 # end
 
-function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}}; 
+function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}};
         nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
     c.n_samples = size(pos_data, 2)
     maximize!(c.composition_params, comp_data);

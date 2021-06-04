@@ -10,7 +10,7 @@ struct DoubleLogger <: AbstractLogger
     message_limits::Dict{Any,Int}
     force_flush::Bool
 end
-DoubleLogger(cli_stream::IO=stderr, file_stream::Union{IO, Nothing}=nothing, level=Info; force_flush::Bool=false) = 
+DoubleLogger(cli_stream::IO=stderr, file_stream::Union{IO, Nothing}=nothing, level=Info; force_flush::Bool=false) =
     DoubleLogger(cli_stream, file_stream, level, Dict{Any,Int}(), force_flush)
 shouldlog(logger::DoubleLogger, level, _module, group, id) = get(logger.message_limits, id, 1) > 0
 
@@ -46,7 +46,7 @@ function log_message(stream::IO, level, message, _module, filepath, line; force_
 
     msglines[2:end] = (" " ^ (length(prefix) - 1)) .* msglines[2:end]
     if level !== Info
-        source_address = " " * something("$_module", "nothing") * " " * 
+        source_address = " " * something("$_module", "nothing") * " " *
             something("$filepath", "nothing") * ":" * something("$line", "nothing")
         push!(msglines, source_address)
     end
