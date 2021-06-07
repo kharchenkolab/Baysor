@@ -8,6 +8,7 @@
 - [News ([0.5.0] — 2021-06-03)](#news-050--2021-06-03)
 - [Overview](#overview)
 - [Installation](#installation)
+  - [Binary download](#binary-download)
   - [Install as a Julia package](#install-as-a-julia-package)
   - [Build CLI application from source](#build-cli-application-from-source)
   - [Docker](#docker)
@@ -36,6 +37,10 @@ Baysor is a tool for performing cell segmentation on imaging-based spatial trans
 See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow!
 
 ## Installation
+
+### Binary download
+
+The easiest way to install Baysor on linux is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets -> baysor_v..._linux_x64.zip*). There, you can use *bin/baysor* executable. Other platforms will be added later.
 
 ### Install as a Julia package
 
