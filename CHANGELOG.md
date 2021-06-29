@@ -1,3 +1,10 @@
+## Upcoming
+
+### Changed
+
+- Slightly optimized compilation time
+- Minor updates of core formulas
+
 ## [0.5.0] — 2021-06-03
 
 ### Changed

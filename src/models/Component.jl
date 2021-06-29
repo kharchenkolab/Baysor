@@ -52,42 +52,14 @@ mutable struct Component{N}
         new{L}(position_params, composition_params, n_samples, 1.0, confidence, shape_prior, Dict{Int, Int}(), guid)
 end
 
-# # This function would be useful when processing QC score as another kind of confidences
-# function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}},
-#         conf_data::T3 where T3 <: AbstractVector{Float64}; nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
-#     c.n_samples = size(pos_data, 2) # TODO: need to replace it with confidences, but for that I need to re-write all prior segmentation code to work with confidences as well. Also may need to adjust some other parts
-#     maximize!(c.composition_params, comp_data, conf_data);
-#     if nuclei_probs === nothing
-#         maximize!(c.position_params, pos_data, conf_data);
-#     else
-#         maximize!(c.position_params, pos_data, conf_data .* nuclei_probs);
-#         if length(nuclei_probs) > 1
-#             c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
-#         end
-#     end
-
-#     if c.shape_prior !== nothing
-#         try
-#             adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=sum(conf_data))
-#         catch
-#             @show c.position_params.Σ
-#             @show c.shape_prior
-#             @show sum(conf_data)
-#             rethrow()
-#         end
-#     end
-
-#     return c
-# end
-
 function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMatrix{Float64}, comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}};
         nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
     c.n_samples = size(pos_data, 2)
-    maximize!(c.composition_params, comp_data);
+    maximize!(c.composition_params, comp_data)
     if nuclei_probs === nothing
-        maximize!(c.position_params, pos_data);
+        maximize!(c.position_params, pos_data)
     else
-        maximize!(c.position_params, pos_data, nuclei_probs);
+        maximize!(c.position_params, pos_data; center_probs=nuclei_probs)
         if length(nuclei_probs) > 1
             c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
         end

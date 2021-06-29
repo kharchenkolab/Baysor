@@ -19,7 +19,7 @@ struct MvNormalF{L}
 
         return MvNormalF(MeanVec{3}(μ))
     end
-        
+
     function MvNormalF(μ::T1 where T1 <: AbstractVector{Float64}, Σ::T2 where T2 <: AbstractMatrix{Float64})
         if length(μ) == 2
             return MvNormalF(MeanVec{2}(μ), CovMat{2}(Σ))
@@ -68,7 +68,7 @@ end
 pdf(d::MvNormalF, x::SVector{N, Float64} where N) = exp(log_pdf(d, x))
 shape(d::MvNormalF) = Matrix(d.Σ)
 
-function estimate_sample_cov!(Σ::CovMat{N}, x::T where T <: AbstractMatrix{Float64}, weights::Nothing=nothing; μ::MeanVec{N}) where N
+function estimate_sample_cov!(Σ::CovMat{N}, x::T where T <: AbstractMatrix{Float64}; μ::MeanVec{N}) where N
     # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
     Σ .= 0.0
     for i in 1:size(x, 2)
@@ -83,39 +83,21 @@ function estimate_sample_cov!(Σ::CovMat{N}, x::T where T <: AbstractMatrix{Floa
     return Σ
 end
 
-function estimate_sample_cov!(Σ::CovMat{N}, x::T where T <: AbstractMatrix{Float64}, weights::T2 where T2 <: AbstractVector{<:Real}; μ::MeanVec{N}) where N
-    # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
-    Σ .= 0.0
-    sum_w = 0.0
-    for i in 1:size(x, 2)
-        w = fmax(weights[i], 0.01)
-        for c in 1:size(Σ, 1)
-            for r in 1:size(Σ, 1)
-                Σ[r, c] += w * (x[c, i] - μ[c]) * (x[r, i] - μ[r])
-            end
-        end
-        sum_w += w
-    end
-
-    Σ ./= sum_w
-    return Σ
-end
-
-function maximize!(dist::MvNormalF, x::T, confidences::T2 where T2 <: Union{AbstractVector{<:Real}, Nothing}=nothing)::MvNormalF where T <: AbstractMatrix{Float64}
+function maximize!(dist::MvNormalF, x::T; center_probs::T2 where T2 <: Union{AbstractVector{<:Real}, Nothing}=nothing)::MvNormalF where T <: AbstractMatrix{Float64}
     if size(x, 2) == 0
         return dist
     end
 
-    if confidences === nothing
+    if center_probs === nothing
         mean!(dist.μ, x)
     else
-        wmean!(dist.μ, x, confidences)
+        wmean!(dist.μ, x, center_probs)
     end
     if size(x, 2) <= length(dist.μ)
         return dist
     end
 
-    estimate_sample_cov!(dist.Σ, x, confidences; μ=dist.μ)
+    estimate_sample_cov!(dist.Σ, x; μ=dist.μ)
     return dist
 end
 
