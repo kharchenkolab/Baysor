@@ -45,14 +45,14 @@ end
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
-    zero_comp_weight = 0.0
+    bg_comp_weight = 0.0
 
     @inbounds @simd for i in 1:length(adjacent_weights)
         c_point = adjacent_points[i]
         c_id = assignment[c_point]
         cw = adjacent_weights[i]
         if c_id == 0
-            zero_comp_weight += cw
+            bg_comp_weight += cw
         else
             component_weights[c_id] = get(component_weights, c_id, 0.0) + cw
         end
@@ -63,13 +63,13 @@ end
         push!(comp_weights, v)
     end
 
-    return zero_comp_weight
+    return bg_comp_weight
 end
 
 @inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
         component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-    zero_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
+    bg_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
         data.adjacent_points[mol_id], data.adjacent_weights[mol_id])
 
     if mol_id in keys(adj_classes_global)
@@ -78,7 +78,7 @@ end
         append!(adj_weights, ones(length(adj_classes) - n1) .* data.real_edge_weight)
     end
 
-    return zero_comp_weight
+    return bg_comp_weight
 end
 
 function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segment_id::Int, largest_cell_id::Int,
@@ -105,7 +105,7 @@ function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segmen
 end
 
 function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int;
-        zero_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
+        bg_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
     x = SVector{N}(position_data(data)[:,mol_id]...)
     gene::Union{Int, Missing} = composition_data(data)[mol_id]
     confidence::Float64 = data.confidence[mol_id]
@@ -143,7 +143,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     end
 
     if confidence < 1.0
-        push!(denses, (1 - confidence) * exp(data.mrf_strength * fmax(data.real_edge_weight, zero_comp_weight)) * data.noise_density)
+        push!(denses, (1 - confidence) * exp(data.mrf_strength * bg_comp_weight) * data.noise_density)
         push!(adj_classes, 0)
     end
 
@@ -159,10 +159,10 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
-        zero_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i;
+        bg_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i;
             component_weights=component_weights, adj_classes_global=adj_classes_global)
 
-        expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, zero_comp_weight=zero_comp_weight)
+        expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, bg_comp_weight=bg_comp_weight)
 
         assign_molecule!(data, i; denses=denses, adj_classes=adj_classes, stochastic=stochastic)
     end
