@@ -32,7 +32,7 @@
 
 ## Overview
 
-Baysor is a tool for performing cell segmentation on imaging-based spatial transcriptomics data. It optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected molecules alone. The details of the method are described in the [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1).
+Baysor is a tool for performing cell segmentation on imaging-based spatial transcriptomics data. It optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected molecules alone. The details of the method are described in the [paper](https://www.nature.com/articles/s41587-021-01044-w), or [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1)(old version of text). To reproduce analysis from the paper see [BaysorAnalysis](https://github.com/kharchenkolab/BaysorAnalysis) repo.
 
 See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow!
 
