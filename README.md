@@ -21,6 +21,7 @@
     - [Segmenting cells with pronounced intracellular structure](#segmenting-cells-with-pronounced-intracellular-structure)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
+-[Citation]
 
 ## News ([0.5.0] — 2021-06-03)
 
@@ -207,3 +208,14 @@ Run parameters:
 
 - `num-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
 - `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
+
+
+## Citation
+
+If you find Baysor useful for your publication, please cite:
+
+```
+Petukhov V, Xu RJ, Soldatov RA, Cadinu P, Khodosevich K, Moffitt JR & Kharchenko PV.
+Cell segmentation in imaging-based spatial transcriptomics. 
+Nat Biotechnol (2021). https://doi.org/10.1038/s41587-021-01044-w
+```
