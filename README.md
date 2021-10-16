@@ -21,7 +21,7 @@
     - [Segmenting cells with pronounced intracellular structure](#segmenting-cells-with-pronounced-intracellular-structure)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
--[Citation]
+- [Citation](#citation)
 
 ## News ([0.5.0] — 2021-06-03)
 
