@@ -1,0 +1,60 @@
+name: platforms_build
+
+on:
+  push:
+    tags:
+      - v*
+jobs:
+  build_and_release:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - '1.6.3'
+        os: [macos-latest, ubuntu-latest]
+        arch:
+          - x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Julia setup
+        uses: julia-actions/setup-julia@v1
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+
+      - name: Prepare environment and install dependecies
+        run: |
+          julia -e 'using Pkg; Pkg.add(Pkg.PackageSpec(;name="PackageCompiler", version="1.2.7")); Pkg.activate("."); Pkg.instantiate();'
+
+      - name: Cache dependencies
+        uses: actions/cache@v1
+        env:
+          cache-name: cache-artifacts
+        with:
+          path: ~/.julia/artifacts
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/Project.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - name: Build binary
+        run: |
+          julia ./bin/build.jl
+
+      - name: Prepare distribution archives
+        run: |
+          zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip LICENSE README.MD ./Baysor/*
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            LICENSE
+            README.MD
+            baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip
