@@ -65,9 +65,10 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             arg_type = Float64
             default = 0.2
 
-        "--estimate-ncvs"
-            help = "Estimate neighborhood composition vectors"
-            action = :store_true
+        "--no-ncvs-estimation"
+            dest_name = "estimate-ncvs"
+            help = "Turns off neighborhood composition vectors estimation"
+            action = :store_false
 
         "coordinates"
             help = "CSV file with coordinates of molecules and gene type"
