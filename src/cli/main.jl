@@ -65,7 +65,7 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             arg_type = Float64
             default = 0.2
 
-        "--no-ncvs-estimation"
+        "--no-ncv-estimation"
             dest_name = "estimate-ncvs"
             help = "Turns off neighborhood composition vectors estimation"
             action = :store_false
