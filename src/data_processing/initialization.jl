@@ -62,12 +62,12 @@ end
 
 # Initialize cell positions
 
-function position_data_by_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer})
+function position_data_by_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int})
     filt_ids = findall(assignment .> 0)
     return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
 end
 
-function covs_from_assignment(pos_data::T where T<: AbstractMatrix{<:Real}, assignment::Vector{<:Integer}; min_size::Int=1)::Array{<:CovMat, 1}
+function covs_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}; min_size::Int=1)::Array{<:CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
     CM, MV = (size(pos_data, 1) == 2) ? (CovMat{2}, MeanVec{2}) : (CovMat{3}, MeanVec{3})
 
@@ -84,8 +84,8 @@ end
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
     cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in propertynames(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
 
-function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_clusters::Int,
-        confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{<:Real, Nothing})
+function cell_centers_uniformly(pos_data::Matrix{Float64}, n_clusters::Int,
+        confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{Float64, Nothing})
     n_clusters = min(n_clusters, size(pos_data, 2))
 
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data', confidences; n=n_clusters, confidence_threshold=0.25)]
@@ -95,10 +95,10 @@ function cell_centers_uniformly(pos_data::T where T<: AbstractMatrix{<:Real}, n_
     if scale === nothing
         covs = covs_from_assignment(pos_data, cluster_labels)
     elseif size(pos_data, 1) == 2
-        scale = Float64(scale) ^ 2
+        scale = scale ^ 2
         covs = [CovMat{2}(diagm(0 => (ones(2) .* scale))) for i in 1:size(cluster_centers, 2)]
     elseif size(pos_data, 1) == 3
-        scale = Float64(scale) ^ 2
+        scale = scale ^ 2
         covs = [CovMat{3}(diagm(0 => (ones(3) .* scale))) for i in 1:size(cluster_centers, 2)]
     else
         error("Unexpected number of dimensions: $(size(pos_data, 1))")

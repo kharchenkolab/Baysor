@@ -1,8 +1,8 @@
-@views maximize_noise_distributions(edge_lengths::Vector{Float64}, assignment_probs::Matrix{Float64}; updating_ids::T2 where T2 <: AbstractArray{Int} = 1:length(edge_lengths)) =
+@views maximize_noise_distributions(edge_lengths::Vector{Float64}, assignment_probs::Matrix{Float64}; updating_ids::Vector{Int}) =
     (Normal(wmean_std(edge_lengths, assignment_probs[:,i], non_zero_ids=updating_ids)...) for i in 1:2)
 
 function expect_noise_probabilities!(assignment_probs::Matrix{Float64}, d1::Normal, d2::Normal, edge_lengths::Vector{Float64},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; updating_ids::T where T <: AbstractVector{Int} = 1:length(edge_lengths),
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; updating_ids::Vector{Int},
         min_confidence::Union{Vector{Float64}, Nothing}=nothing)
     norm_denses = (pdf.(d1, edge_lengths), pdf.(d2, edge_lengths));
     n1 = sum(assignment_probs[:, 1])

@@ -23,15 +23,15 @@ function fit(::Type{UmapFit}, x::Array{Float64, 2}, pca::MultivariateStats.PCA; 
     return UmapFit(embedding, nn_tree, pca, nn_interpolate)
 end
 
-fit(::Type{UmapFit}, x::Array{Float64, 2}; n_pcs::Int=15, kwargs...)::UmapFit =
+fit(::Type{UmapFit}, x::Matrix{Float64}; n_pcs::Int=15, kwargs...)::UmapFit =
     fit(UmapFit, x, fit(MultivariateStats.PCA, x, maxoutdim=n_pcs); kwargs...)
 
-function transform(transformation::UmapFit, x::Array{Float64, 2}; dist_offset::Float64=1e-10)::Array{Float64, 2}
+function transform(transformation::UmapFit, x::Matrix{Float64}; dist_offset::Float64=1e-10)::Matrix{Float64}
     x_pc = transform(transformation.pca_transform, x)
 
     # This transformation is much faster than the implementation from UMAP.jl, even for input dimensionality = 50.
     # Probably, because of the slow NearestNeighborDescent package.
     indices, distances = knn(transformation.nn_tree, x_pc, transformation.nn_interpolate)
-    res = [mapslices(x -> wmean(x, 1 ./ (dists .+ dist_offset)), transformation.embedding[:, ids], dims=2) for (ids, dists) in zip(indices, distances)]
+    res = [mapslices(v -> wmean(v, 1 ./ (dists .+ dist_offset)), transformation.embedding[:, ids], dims=2) for (ids, dists) in zip(indices, distances)]
     return hcat(res...)
 end

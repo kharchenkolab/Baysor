@@ -1,6 +1,7 @@
 #! /usr/bin/env julia
 
 using PackageCompiler
+import Pkg
 
 out_path = length(ARGS) > 1 ? ARGS[1] : "Baysor";
 baysor_path = length(ARGS) > 2 ? ARGS[2] : dirname(@__DIR__);

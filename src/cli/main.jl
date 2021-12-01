@@ -65,6 +65,11 @@ function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TOD
             arg_type = Float64
             default = 0.2
 
+        "--no-ncv-estimation"
+            dest_name = "estimate-ncvs"
+            help = "Turns off neighborhood composition vectors estimation"
+            action = :store_false
+
         "coordinates"
             help = "CSV file with coordinates of molecules and gene type"
             required = true
@@ -389,9 +394,11 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
 
-    @info "Estimating local colors"
-    gene_colors = gene_composition_colors(bm_data.x, args["gene-composition-neigborhood"])
-    segmentated_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
+    if args["estimate-ncvs"]
+        @info "Estimating local colors"
+        gene_colors = gene_composition_colors(bm_data.x, args["gene-composition-neigborhood"])
+        segmentated_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
+    end
 
     @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
@@ -403,14 +410,16 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
 
     if args["plot"]
         plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
-        polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
-            gene_colors=gene_colors)
+        if args["estimate-ncvs"]
+            polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
+                gene_colors=gene_colors)
 
-        if args["save-polygons"] !== nothing
-            if lowercase(args["save-polygons"]) == "geojson"
-                save_polygons_to_geojson(polygons, append_suffix(args["output"], "polygons.json"))
-            else
-                @warn "Unknown polygon format: $(args["save-polygons"])"
+            if args["save-polygons"] !== nothing
+                if lowercase(args["save-polygons"]) == "geojson"
+                    save_polygons_to_geojson(polygons, append_suffix(args["output"], "polygons.json"))
+                else
+                    @warn "Unknown polygon format: $(args["save-polygons"])"
+                end
             end
         end
     end

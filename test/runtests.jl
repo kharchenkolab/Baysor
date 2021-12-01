@@ -40,10 +40,6 @@ end
             @test all(chull .== [0 0 2 2 0; 0 2 2 0 0])
             @test B.area(chull) ≈ 4.0
         end
-
-        @testset "utils" begin
-            @test all([B.interpolate_linear(x, 0.0, 1.0; y_start=0.0, y_end=1.0) ≈ x for x in range(0, 1.0, length=50)])
-        end
     end
 
     @testset "distributions" begin
@@ -86,7 +82,7 @@ end
             @test !any(i in bm_data.adjacent_points[i] for i in 1:length(bm_data.adjacent_points))
 
             for i in 5:10:55
-                init_params = B.cell_centers_uniformly(df, i; scale=10)
+                init_params = B.cell_centers_uniformly(df, i; scale=10.0)
                 @test size(init_params.centers, 1) == i
                 @test size(init_params.centers, 2) == 2
                 @test length(init_params.covs) == i
@@ -162,7 +158,7 @@ end
             is_not_nan = map(1:10000) do i
                 n_samps = rand(0:100)
                 d = B.MvNormalF([0., 0.], diagm(0 => ones(2)));
-                B.maximize!(d, rand(2, n_samps), rand(n_samps) .* rand(Binomial(1, 0.5), n_samps))
+                B.maximize!(d, rand(2, n_samps); center_probs=rand(n_samps) .* rand(Binomial(1, 0.5), n_samps))
                 !isnan(d.Σ[1])
             end
 
@@ -171,7 +167,7 @@ end
 
         @testset "synthetic_run" begin
             seed!(42)
-            for i in 1:6
+            for it in 1:6
                 n_components = 10;
                 n_genes = 20
                 scale = 0.2;
@@ -191,7 +187,11 @@ end
                 df_spatial = vcat(df_spatial, DataFrame(:x => rand(noise_size) * frame_size[1], :y => rand(noise_size) * frame_size[2],
                     :gene => rand(1:n_genes, noise_size), :cell => 0));
 
-                if i > 4
+                if it % 2 == 0
+                    df_spatial[!, :z] = rand(1:3, size(df_spatial, 1)) .* scale ./ 10
+                end
+
+                if it > 4
                     df_spatial[!, :cluster] = df_spatial.cell .+ 1
                 end
                 bm_data_arr = B.initialize_bmm_data(df_spatial; scale=scale, scale_std="5%", min_molecules_per_cell=10);
