@@ -19,6 +19,7 @@ In this example we used "visual_1020/20180410-BY3_1kgenes" dataset. To convert i
 julia ../convert_to_csv.jl goodPoints.mat cell_barcode_names.csv labels.npz
 ```
 
+*OR*
 ### Download pre-processed data
 
 ```bash
@@ -33,11 +34,11 @@ WARNING: these command run the segmentation using 10 proccesses. To reduce this 
 ### Without DAPI
 
 ```bash
-baysor -i 500 -n 10 -p -c ../../configs/starmap.toml -o ./output_dapi -p ./data/molecules.csv ./data/segmentation.tiff
+baysor -i 500 --n-clusters=10 -p -c ../../configs/starmap.toml -o ./output_dapi -p ./data/molecules.csv ./data/segmentation.tiff
 ```
 
 ### With DAPI
 
 ```bash
-baysor -i 500 -n 10 -p -c ../../configs/starmap.toml -o ./output_no_dapi -p ./data/molecules.csv
+baysor -i 500 --n-clusters=10 -p -c ../../configs/starmap.toml -o ./output_no_dapi -p ./data/molecules.csv
 ```
