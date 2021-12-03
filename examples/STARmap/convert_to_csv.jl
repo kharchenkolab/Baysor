@@ -16,7 +16,7 @@ close(file)
 
 @info "Read $(ARGS[2])"
 
-gene_per_base = CSV.read(ARGS[2], header=0); # "cell_barcode_names.csv"
+gene_per_base = CSV.read(ARGS[2], DataFrame, header=0); # "cell_barcode_names.csv"
 gene_per_base = Dict("$(row[2])" => row[3] for row in eachrow(gene_per_base));
 
 df_spatial = DataFrame(good_points, [:x, :y, :z]);
