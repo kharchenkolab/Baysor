@@ -29,16 +29,14 @@ wget -P data http://pklab.med.harvard.edu/viktor/baysor/starmap/segmentation.tif
 
 ## CLI run
 
-WARNING: these command run the segmentation using 10 proccesses. To reduce this number change `-n 10` option.
-
 ### Without DAPI
 
 ```bash
-baysor -i 500 --n-clusters=10 -p -c ../../configs/starmap.toml -o ./output_dapi -p ./data/molecules.csv ./data/segmentation.tiff
+baysor -i 500 -p -c ../../configs/starmap.toml -o ./output_dapi -p ./data/molecules.csv ./data/segmentation.tiff
 ```
 
 ### With DAPI
 
 ```bash
-baysor -i 500 --n-clusters=10 -p -c ../../configs/starmap.toml -o ./output_no_dapi -p ./data/molecules.csv
+baysor -i 500 -p -c ../../configs/starmap.toml -o ./output_no_dapi -p ./data/molecules.csv
 ```
