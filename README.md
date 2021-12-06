@@ -27,7 +27,6 @@
 
 - CLI parameter `no-ncv-estimation` to disable estimation of NCVs
 - We have MacOS binaries now!
-- Segmentation of cell compartments
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 
