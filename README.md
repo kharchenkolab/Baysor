@@ -5,7 +5,7 @@
 
 **Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
 
-- [News ([0.5.0] — 2021-06-03)](#news-050--2021-06-03)
+- [News ([0.5.1] — 2021-12-01)](#news-051--2021-12-01)
 - [Overview](#overview)
 - [Installation](#installation)
   - [Binary download](#binary-download)
@@ -23,10 +23,10 @@
     - [Choice of parameters](#choice-of-parameters)
 - [Citation](#citation)
 
-## News ([0.5.0] — 2021-06-03)
+## News ([0.5.1] — 2021-12-01)
 
-- 3D segmentation
-- Core algorithm improvement
+- CLI parameter `no-ncv-estimation` to disable estimation of NCVs
+- We have MacOS binaries now!
 - Segmentation of cell compartments
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
@@ -41,7 +41,7 @@ See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an ove
 
 ### Binary download
 
-The easiest way to install Baysor on linux is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets -> baysor_v..._linux_x64.zip*). There, you can use *bin/baysor* executable. Other platforms will be added later.
+The easiest way to install Baysor on Linux or MacOS is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets* for your platform). There, you can use *bin/baysor* executable.
 
 ### Install as a Julia package
 
