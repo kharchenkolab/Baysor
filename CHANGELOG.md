@@ -1,3 +1,7 @@
+## [Upcoming]
+
+- Fixed some package versions, dependencies should cause fewer bugs now
+
 ## [0.5.1] — 2021-12-01
 
 ### Changed

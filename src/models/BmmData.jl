@@ -1,5 +1,4 @@
 using DataFrames
-using DataFramesMeta
 using LinearAlgebra
 using NearestNeighbors
 using Statistics

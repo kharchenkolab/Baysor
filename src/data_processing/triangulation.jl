@@ -1,6 +1,6 @@
 import Distances
 import GeometricalPredicates
-import LightGraphs
+import Graphs
 
 using DataFrames
 using Statistics
@@ -82,12 +82,12 @@ end
 adjacency_list(spatial_df::DataFrame; kwargs...) = adjacency_list(position_data(spatial_df); kwargs...)
 
 function connected_components(adjacent_points::Array{Vector{Int}, 1})
-    g = LightGraphs.SimpleGraph(length(adjacent_points));
+    g = Graphs.SimpleGraph(length(adjacent_points));
     for (v1, vs) in enumerate(adjacent_points)
         for v2 in vs
-            LightGraphs.add_edge!(g, v1, v2)
+            Graphs.add_edge!(g, v1, v2)
         end
     end
 
-    return LightGraphs.connected_components(g);
+    return Graphs.connected_components(g);
 end

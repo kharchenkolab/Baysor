@@ -7,7 +7,7 @@ using StaticArrays
 using Base.Threads
 using Dates: now, DateTime
 
-import LightGraphs
+import Graphs
 
 function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     non_noise_ids = findall(data.assignment .> 0)
@@ -283,15 +283,15 @@ function build_cell_graph(assignment::Vector{Int}, adjacent_points::Array{Vector
         end
     end
 
-    neg = LightGraphs.SimpleGraphs.cleanupedges!(cur_adj_point)
-    return LightGraphs.SimpleGraph(neg, cur_adj_point), mol_ids
+    neg = Graphs.SimpleGraphs.cleanupedges!(cur_adj_point)
+    return Graphs.SimpleGraph(neg, cur_adj_point), mol_ids
 end
 
 function get_connected_components_per_label(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, min_molecules_per_cell::Int; kwargs...)
     mol_ids_per_cell = split(1:length(assignment), assignment .+ 1)[2:end]
     real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
     graph_per_cell = [build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1] for ci in real_cell_ids];
-    return LightGraphs.connected_components.(graph_per_cell), real_cell_ids, mol_ids_per_cell
+    return Graphs.connected_components.(graph_per_cell), real_cell_ids, mol_ids_per_cell
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)

@@ -1,14 +1,14 @@
 import FFTW
 import JSON
 import ImageMorphology
-import LightGraphs
+import Graphs
 
 using DataFrames
 using SimpleWeightedGraphs
 using SparseArrays
 using StatsBase: countmap
 
-using LightGraphs: src, dst
+using Graphs: src, dst
 
 function grid_borders_per_label(grid_labels::Matrix{<:Unsigned})
     d_cols = [-1 0 1 0]
@@ -62,10 +62,10 @@ function border_mst(border_points::Array{<:Vector{<:Real},1}; min_edge_length::F
     end
 
     adj_mtx = sparse(src_verts, dst_verts, weights, size(border_points, 1), size(border_points, 1));
-    return LightGraphs.kruskal_mst(SimpleWeightedGraph(adj_mtx + adj_mtx'));
+    return Graphs.kruskal_mst(SimpleWeightedGraph(adj_mtx + adj_mtx'));
 end
 
-function find_longest_paths(edges::Array{<:LightGraphs.AbstractEdge, 1})::Array{Vector{Int}, 1}
+function find_longest_paths(edges::Array{<:Graphs.AbstractEdge, 1})::Array{Vector{Int}, 1}
     if length(edges) == 0
         return []
     end
@@ -77,7 +77,7 @@ function find_longest_paths(edges::Array{<:LightGraphs.AbstractEdge, 1})::Array{
     adj_mtx = sparse(src.(edges), dst.(edges), weight.(edges), n_verts, n_verts)
     g_inc = SimpleWeightedGraph(adj_mtx + adj_mtx')
 
-    conn_comps = LightGraphs.connected_components(g_inc);
+    conn_comps = Graphs.connected_components(g_inc);
     longest_paths = Array{Int, 1}[]
     for vert_inds in conn_comps
         if size(vert_inds, 1) < 3
@@ -88,7 +88,7 @@ function find_longest_paths(edges::Array{<:LightGraphs.AbstractEdge, 1})::Array{
         max_dist, max_source, max_target = -1, -1, -1
         paths = []
         for src_id in comp_leafs
-            paths = LightGraphs.dijkstra_shortest_paths(g_inc, src_id);
+            paths = Graphs.dijkstra_shortest_paths(g_inc, src_id);
             cur_target = comp_leafs[findmax(paths.dists[comp_leafs])[2]];
             if isinf(paths.dists[cur_target])
                 @warn "Infinite distance for verteces $src_id and $cur_target"
@@ -109,7 +109,7 @@ function find_longest_paths(edges::Array{<:LightGraphs.AbstractEdge, 1})::Array{
 
         cur_target = max_target
         path = Int[cur_target]
-        paths = LightGraphs.dijkstra_shortest_paths(g_inc, max_source);
+        paths = Graphs.dijkstra_shortest_paths(g_inc, max_source);
         if isinf(paths.dists[max_target])
             @warn "Infinite distance for verteces $src_id and $cur_target"
             continue
@@ -232,7 +232,7 @@ function extract_polygons_from_label_grid(grid_labels::Matrix{<:Unsigned}; min_b
     if shape_method == :path
         paths = find_longest_paths.(edges_per_label);
     elseif shape_method == :order
-        conn_comps = [LightGraphs.connected_components(LightGraphs.SimpleGraphFromIterator(LightGraphs.SimpleGraphs.SimpleEdge.(src.(edges), dst.(edges)))) for edges in edges_per_label]
+        conn_comps = [Graphs.connected_components(Graphs.SimpleGraphFromIterator(Graphs.SimpleGraphs.SimpleEdge.(src.(edges), dst.(edges)))) for edges in edges_per_label]
         paths = [vcat(order_points_to_polygon.(cc, Ref(hcat(borders...)), max_dev=max_dev)...) for (borders, cc) in zip(borders_per_label, conn_comps)];
     else
         error("Unknown shape_method: $shape_method")
