@@ -1,6 +1,10 @@
 ## [Upcoming]
 
 - Fixed some package versions, dependencies should cause fewer bugs now
+- Fixed some bugs
+- Fixed random seed for all CLI runs
+- Adjusted some CLI parameters
+- Added `segfree` run option to extract NCV vectors
 
 ## [0.5.1] — 2021-12-01
 

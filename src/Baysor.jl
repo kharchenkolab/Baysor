@@ -54,5 +54,6 @@ include("bmm_algorithm/bmm_algorithm.jl")
 include("cli/common.jl")
 include("cli/main.jl")
 include("cli/preview.jl")
+include("cli/segfree.jl")
 
 end # module

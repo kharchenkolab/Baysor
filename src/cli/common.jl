@@ -156,6 +156,10 @@ function run_cli(args::Vector{String}=ARGS)::Cint
             return run_cli_preview(args[2:end])
         end
 
+        if args[1] == "segfree"
+            return run_cli_segfree(args[2:end])
+        end
+
         @error "Can't parse argument $(args[1])"
         println(help_message)
         return 1

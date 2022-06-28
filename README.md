@@ -5,7 +5,7 @@
 
 **Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
 
-- [News ([0.5.1] — 2021-12-01)](#news-051--2021-12-01)
+- [News (\[0.5.1\] — 2021-12-01)](#news-051--2021-12-01)
 - [Overview](#overview)
 - [Installation](#installation)
   - [Binary download](#binary-download)
@@ -17,10 +17,10 @@
   - [Full run](#full-run)
     - [Normal run](#normal-run)
     - [Using a prior segmentation](#using-a-prior-segmentation)
-      - [Segmenting stains](#segmenting-stains)
     - [Segmenting cells with pronounced intracellular structure](#segmenting-cells-with-pronounced-intracellular-structure)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
+  - [Extract NCVs (neighborhood composition vectors)](#extract-ncvs-neighborhood-composition-vectors)
 - [Citation](#citation)
 
 ## News ([0.5.1] — 2021-12-01)
@@ -209,12 +209,22 @@ Run parameters:
 - `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
 
 
+### Extract NCVs (neighborhood composition vectors)
+
+To extract NCVs you need to run:
+
+```bash
+baysor segfree [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_CSV
+```
+
+The results will be stored in [loom format](https://linnarssonlab.org/loompy/format/index.html) with `/matrix` corresponding to the NCV matrix and `/col_attrs/ncv_color` showing the NCV color.
+
 ## Citation
 
 If you find Baysor useful for your publication, please cite:
 
 ```
 Petukhov V, Xu RJ, Soldatov RA, Cadinu P, Khodosevich K, Moffitt JR & Kharchenko PV.
-Cell segmentation in imaging-based spatial transcriptomics. 
+Cell segmentation in imaging-based spatial transcriptomics.
 Nat Biotechnol (2021). https://doi.org/10.1038/s41587-021-01044-w
 ```

@@ -66,14 +66,17 @@ end
 
 function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     Random.seed!(1)
+    args_str = join(args, " ")
     args = parse_preview_configs(args)
     (args !== nothing) || return 1
 
     log_file = setup_logger(args["output"], "preview_log.log")
 
+    @info "# CLI params: `$args_str`"
+    @info get_baysor_run_str()
+
     # Run preview
 
-    @info get_baysor_run_str()
     @info "Loading data..."
     args["min-molecules-per-gene"] = 0
     df_spatial, gene_names = load_df(args)
