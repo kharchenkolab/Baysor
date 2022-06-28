@@ -169,7 +169,7 @@ function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vect
 
     xw, yw = ceil.(Int, (max_x .- min_x) ./ grid_step)
     label_mat = nothing
-    if length(coords_per_label) < (2 ^ 16) - 1
+    if maximum(cell_labels) < (2 ^ 16) - 1
         label_mat = zeros(UInt16, yw, xw)
     else
         label_mat = zeros(UInt32, yw, xw)
