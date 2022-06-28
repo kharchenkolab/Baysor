@@ -24,6 +24,9 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
             help = "Minimal number of pixels per cell. Used to estimate size of the dataset plot."
             arg_type = Int
             default = 15
+        "--gene-composition-neigborhood"
+            help = "Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell"
+            arg_type = Int
         "--exclude-genes"
             help = "Comma-separated list of genes to ignore during segmentation"
         "--output", "-o"
@@ -32,7 +35,6 @@ function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothin
         "coordinates"
             help = "CSV file with coordinates of transcripts and gene type"
             required = true
-        # TODO: add gene-composition-neighborhood
         # TODO: add verbosity level
     end
 
@@ -63,13 +65,11 @@ function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
 end
 
 function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
+    Random.seed!(1)
     args = parse_preview_configs(args)
     (args !== nothing) || return 1
 
-    # Set up logger
-
-    log_file = open(append_suffix(args["output"], "preview_log.log"), "w")
-    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+    log_file = setup_logger(args["output"], "preview_log.log")
 
     # Run preview
 

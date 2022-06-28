@@ -1,10 +1,12 @@
 using DataFrames
 using Statistics
 
+import HDF5
 import Dates
 import LibGit2
 import Pkg
 import Pkg.TOML
+import UUIDs
 
 parse_toml_config(config::T where T <: AbstractString) =
     parse_toml_config(TOML.parsefile(config))
@@ -65,6 +67,14 @@ function extend_params_with_config!(params::Dict, config::Dict)
     end
 end
 
+get_run_id() = "$(UUIDs.uuid1())"[25:end] # must be independent of Random.seed
+
+function setup_logger(prefix::String, file_name::String)
+    log_file = open(append_suffix(prefix, file_name), "w")
+    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+    return log_file
+end
+
 function load_df(args::Dict; kwargs...)
     exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
 
@@ -95,6 +105,30 @@ function get_baysor_run_str()::String
     end
 
     return "($(Dates.Date(Dates.now()))) Run Baysor $pkg_str"
+end
+
+function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vector{String}, file_path::String,
+        row_attrs::Union{Dict{String, T1}, Nothing} where T1=nothing, col_attrs::Union{Dict{String, T2}, Nothing} where T2=nothing)
+    # Specification: https://linnarssonlab.org/loompy/format/index.html
+    HDF5.h5open(file_path, "w") do fid
+        fid["matrix", chunk=(64,64), compress=3] = matrix
+        HDF5.create_group(fid, "row_attrs")
+        HDF5.create_group(fid, "col_attrs")
+        HDF5.create_group(fid, "attrs")
+        fid["row_attrs"]["Name"] = gene_names
+        fid["col_attrs"]["CellID"] = cell_names
+        if row_attrs !== nothing
+            for (k,v) in row_attrs
+                fid["row_attrs"][k] = v
+            end
+        end
+
+        if col_attrs !== nothing
+            for (k,v) in col_attrs
+                fid["col_attrs"][k] = v
+            end
+        end
+    end;
 end
 
 run_cli(args::String) = run_cli(String.(Base.split(args)))

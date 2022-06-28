@@ -426,16 +426,18 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
 end
 
 function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
+    Random.seed!(1)
     args_str = join(args, " ")
     args = parse_configs(args)
     (args !== nothing) || return 1
 
     dump_parameters(args, args_str)
 
-    # Set up logger
+    log_file = setup_logger(args["output"], "log.log")
 
-    log_file = open(append_suffix(args["output"], "log.log"), "w")
-    Base.CoreLogging.global_logger(DoubleLogger(log_file, stdout; force_flush=true))
+    # run_id = get_run_id()
+    # @info "Run $run_id"
+    # TODO: add run_id to cell ids
 
     # Load data
 
