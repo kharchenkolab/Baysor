@@ -1,8 +1,4 @@
-<<<<<<< Updated upstream
-## [Upcoming]
-=======
 ## [0.5.2] — 2022-06-29
->>>>>>> Stashed changes
 
 - Fixed some package versions, dependencies should cause fewer bugs now
 - Fixed some bugs
