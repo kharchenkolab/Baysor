@@ -1,9 +1,7 @@
 using ArgParse
-using DataFrames
 using Statistics
+# using VegaLite
 
-import Colors
-import CSV
 import Pkg.TOML
 
 function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TODO: add verbosity level
@@ -175,10 +173,10 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         if :assignment_confidence in propertynames(df_res)
             println(io, "<div id='vg_assignment_confidence'></div>")
             vega_plots["vg_assignment_confidence"] = estimate_hist(df_res.assignment_confidence[assignment .> 0]; nbins=30) |>
-                @vlplot() +
-                @vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"},
+                VL.@vlplot() +
+                VL.@vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"},
                     title="Assignment confidence", width=500, height=250) +
-                @vlplot(:rule, x={datum=0.95})
+                    VL.@vlplot(:rule, x={datum=0.95})
         end
 
         println(io, "<br><br>")
@@ -189,8 +187,8 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 
         println(io, "<div id='vg_num_transcripts'></div>")
         vega_plots["vg_num_transcripts"] = estimate_hist(n_mols_per_cell, nbins=50, center=false) |>
-        @vlplot(:bar, x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"}, x2=:e, y={:h, title="Num. cells"},
-            width=500, height=250, title="Num. molecules per cell")
+            VL.@vlplot(:bar, x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"}, x2=:e, y={:h, title="Num. cells"},
+                width=500, height=250, title="Num. molecules per cell")
 
         println(io, "</body>")
         if length(vega_plots) > 0
@@ -409,7 +407,7 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
     open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
-        plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
+        # plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
         if args["estimate-ncvs"]
             polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
                 gene_colors=gene_colors)

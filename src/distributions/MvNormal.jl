@@ -1,6 +1,5 @@
 using Distributions
 using LinearAlgebra
-using StatsBase
 using StaticArrays
 
 import LinearAlgebra.isposdef

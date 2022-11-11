@@ -1,4 +1,3 @@
-using DataFrames
 using LinearAlgebra
 using NearestNeighbors
 using Statistics

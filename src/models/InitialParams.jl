@@ -1,5 +1,3 @@
-using SparseArrays
-
 struct InitialParams{L}
     centers::Matrix{Float64}
     covs::Array{CovMat{L},1};

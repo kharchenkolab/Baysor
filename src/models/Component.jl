@@ -1,8 +1,5 @@
-using DataFrames
 using Distributions
-using NearestNeighbors
 using StaticArrays
-using StatsBase
 
 struct ShapePrior{N}
     std_values::MeanVec{N};

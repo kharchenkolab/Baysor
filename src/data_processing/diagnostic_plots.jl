@@ -3,7 +3,6 @@ import UMAP
 function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
         confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: Distributions.UnivariateDistribution
         x_max = quantile(edge_lengths, 0.99);
-        x_vals = range(0, x_max, length=1000)
         n1 = sum(confidences);
         n2 = length(confidences) - n1;
 
@@ -12,10 +11,10 @@ function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confid
         p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
 
         return p_df |>
-        @vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
-        @vlplot(:bar, x2=:e, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
-        @vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
-        @vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
+            VL.@vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
+            VL.@vlplot(:bar, x2=:e, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
+            VL.@vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
+            VL.@vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
 end
 
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; alpha::Float64=0.3)
@@ -43,16 +42,16 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
     p_df = DataFrame(Dict(:x => embedding[1,:], :y => embedding[2,:], :gene => Symbol.(gene_names), :size => marker_sizes));
 
     return p_df |>
-    @vlplot(
-        x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"},
-        y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"},
-        size={:size, scale={range=[5, 10]}, legend=false},
-        tooltip={:gene, type="nominal"},
-        width=600, height=600, title="Gene local structure",
-        config={axis={grid=false, ticks=false, ticklabels=false, labels=false}}
-    ) +
-    @vlplot(:text, text={:gene, type="nominal"}, selection={view={type=:interval, bind=:scales}}) +
-    @vlplot({:point, filled=true})
+        VL.@vlplot(
+            x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"},
+            y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"},
+            size={:size, scale={range=[5, 10]}, legend=false},
+            tooltip={:gene, type="nominal"},
+            width=600, height=600, title="Gene local structure",
+            config={axis={grid=false, ticks=false, ticklabels=false, labels=false}}
+        ) +
+        VL.@vlplot(:text, text={:gene, type="nominal"}, selection={view={type=:interval, bind=:scales}}) +
+        VL.@vlplot({:point, filled=true})
 end
 
 function estimate_panel_plot_size(df_spatial::DataFrame, min_molecules_per_cell::Int, min_pixels_per_cell::Int=7)
@@ -97,7 +96,7 @@ function plot_confidence_distribution(confidence::Vector{Float64}, assignment::V
     p_df[!, :h2] = estimate_hist(v2, bins=bins).h;
 
     return p_df |>
-    @vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title="Confidence per molecule") +
-    @vlplot(:bar, y={:h, title="Num. molecules"}, color={datum="Assigned molecules"}) +
-    @vlplot({:bar, opacity=0.5}, y=:h2, color={datum="Noise molecules"})
+        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title="Confidence per molecule") +
+        VL.@vlplot(:bar, y={:h, title="Num. molecules"}, color={datum="Assigned molecules"}) +
+        VL.@vlplot({:bar, opacity=0.5}, y=:h2, color={datum="Noise molecules"})
 end

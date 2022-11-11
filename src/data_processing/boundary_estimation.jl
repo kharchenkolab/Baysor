@@ -1,9 +1,9 @@
-import FFTW
+@lazy import FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+@lazy import ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
+
 import JSON
-import ImageMorphology
 import Graphs
 
-using DataFrames
 using SimpleWeightedGraphs
 using SparseArrays
 using StatsBase: countmap
@@ -155,7 +155,7 @@ end
 
 function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}, min_x::Union{Vector{Float64}, Tuple{Float64, Float64}},
         max_x::Union{Vector{Float64}, Tuple{Float64, Float64}}; grid_step::Float64, bandwidth::Float64, dens_threshold::Float64=1e-5, min_molecules_per_cell::Int=3,
-        verbose::Bool=false)::Matrix{<:Unsigned}  where T <: Real
+        verbose::Bool=false)::Matrix{<:Unsigned}
     coords_per_label = [pos_data[:, ids] for ids in split_ids(cell_labels .+ 1)];
     filt_mask = (size.(coords_per_label, 2) .>= min_molecules_per_cell)
     coords_per_label = coords_per_label[filt_mask];
@@ -189,7 +189,7 @@ function find_grid_point_labels_kde(pos_data::Matrix{Float64}, cell_labels::Vect
         cxs = (sxi * grid_step + min_x[1]):grid_step:ex;
         cys = (syi * grid_step + min_x[2]):grid_step:ey;
 
-        dens = kde((coords[2,:], coords[1,:]), (cys, cxs), bandwidth=(c_bandwidth, c_bandwidth)).density
+        dens = KDE.kde((coords[2,:], coords[1,:]), (cys, cxs), bandwidth=(c_bandwidth, c_bandwidth)).density
 
         for dyi in 1:length(cys)
             yi = dyi + syi

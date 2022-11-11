@@ -1,14 +1,11 @@
 import Distances
-import GeometricalPredicates
-import Graphs
 
-using DataFrames
-using Statistics
-using VoronoiDelaunay
-
-import GeometricalPredicates.getx, GeometricalPredicates.gety
-
+@lazy import VoronoiDelaunay as VD = "72f80fcb-8c52-57d9-aff0-40c1a3526986"
 using StatsBase: countmap
+using NearestNeighbors
+
+import GeometricalPredicates
+import GeometricalPredicates.getx, GeometricalPredicates.gety
 
 struct IndexedPoint2D <: GeometricalPredicates.AbstractPoint2D
     _x::Float64
@@ -53,10 +50,10 @@ function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float
     if (adjacency_type == :triangulation) || (adjacency_type == :both)
         points_g = [IndexedPoint2D(points[:,i]..., i) for i in 1:size(points, 2)];
 
-        tess = DelaunayTessellation2D(length(points_g), IndexedPoint2D());
+        tess = VD.DelaunayTessellation2D(length(points_g), IndexedPoint2D());
         push!(tess, points_g);
 
-        edge_list = hcat([geti.([geta(v), getb(v)]) for v in delaunayedges(tess)]...);
+        edge_list = hcat([geti.([geta(v), getb(v)]) for v in VD.delaunayedges(tess)]...);
     end
 
     if (adjacency_type == :knn) || (adjacency_type == :both)
@@ -80,14 +77,3 @@ function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float
 end
 
 adjacency_list(spatial_df::DataFrame; kwargs...) = adjacency_list(position_data(spatial_df); kwargs...)
-
-function connected_components(adjacent_points::Array{Vector{Int}, 1})
-    g = Graphs.SimpleGraph(length(adjacent_points));
-    for (v1, vs) in enumerate(adjacent_points)
-        for v2 in vs
-            Graphs.add_edge!(g, v1, v2)
-        end
-    end
-
-    return Graphs.connected_components(g);
-end

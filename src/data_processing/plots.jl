@@ -1,15 +1,11 @@
-using Colors
-using DataFrames
 using NearestNeighbors
 using Random
-using Statistics
-using VegaLite
+# using VegaLite
 
 import Base.show
 import Base64
-import CairoMakie as MK
-import ColorSchemes
-import MultivariateStats
+
+@lazy import ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
@@ -124,16 +120,16 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     scale = sum(y_vals)
 
     p_df = DataFrame(:gene => gene_names)
-    plt = @vlplot(x={:gene, title="Gene"}, tooltip=:gene, config={axisX={labels=xticks, ticks=false, labelAngle=xrotation}}, width=700, height=300)
+    plt = VL.@vlplot(x={:gene, title="Gene"}, tooltip=:gene, config={axisX={labels=xticks, ticks=false, labelAngle=xrotation}}, width=700, height=300)
 
     for (l,cnt) in zip(labels, vecs)
         p_df[!,l] = cnt
-        plt += @vlplot({:bar, opacity=alpha}, y={l, title=ylabel}, color={datum=l})
+        plt += VL.@vlplot({:bar, opacity=alpha}, y={l, title=ylabel}, color={datum=l})
     end
     p_df[!, :_yf] = y_vals
     p_df[!, :_yt] = y_vals .+ text_offset * scale
 
-    return p_df |> (plt + @vlplot(:text, y=:_yt, text=:gene, transform=[{filter="datum._yf > $(min_expr_frac * scale)"}]))
+    return p_df |> (plt + VL.@vlplot(:text, y=:_yt, text=:gene, transform=[{filter="datum._yf > $(min_expr_frac * scale)"}]))
 end
 
 ### Tracing
@@ -176,10 +172,10 @@ end
 ### Diagnostics
 
 function plot_clustering_convergence(clust_res::NamedTuple, title::String="")::VegaLite.VLSpec
-    plt = DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
-        @vlplot(x={:x, title="Iteration"}, title=title, width=300, height=250) +
-        @vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
-        @vlplot(:line, y={:change_frac}, color={datum="Molecules changed"})
+    DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
+        VL.@vlplot(x={:x, title="Iteration"}, title=title, width=300, height=250) +
+        VL.@vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
+        VL.@vlplot(:line, y={:change_frac}, color={datum="Molecules changed"})
 end
 
 ### Colormaps

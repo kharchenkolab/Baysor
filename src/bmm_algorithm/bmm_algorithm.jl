@@ -1,4 +1,3 @@
-using DataFrames
 using Distributions
 using NearestNeighbors
 using StatsBase

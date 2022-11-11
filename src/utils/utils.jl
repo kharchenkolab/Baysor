@@ -1,6 +1,3 @@
-using DataFrames
-using KernelDensity
-
 KWArgT = Union{Dict, NamedTuple, Nothing}
 
 update_args(args::Union{Dict, NamedTuple}, update::Nothing) = args
@@ -8,7 +5,7 @@ update_args(args::Union{Dict, NamedTuple}, update::Union{Dict, NamedTuple}) =
     merge([Dict{Symbol, Any}(zip(keys(d), values(d))) for d in (args, update)]...)
 
 estimate_density_kde(coords::Matrix{Float64}, points::Matrix{Float64}, bandwidth::T where T <: Real)::Vector{Float64} =
-    InterpKDE(kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
+    KDE.InterpKDE(KDE.kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
 function val_range(arr::AT where AT <: AbstractArray{<:Real})
     if length(arr) == 0

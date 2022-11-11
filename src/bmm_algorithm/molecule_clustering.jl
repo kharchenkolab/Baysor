@@ -1,5 +1,4 @@
 using ProgressMeter
-using DataFrames
 using Statistics
 using StatsBase
 using Random

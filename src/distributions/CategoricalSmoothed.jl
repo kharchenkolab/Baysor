@@ -1,6 +1,5 @@
 using Distributions
 using LinearAlgebra
-using StatsBase
 
 mutable struct CategoricalSmoothed{CT <: Real} <: Distributions.Distribution{Distributions.Multivariate,Distributions.Discrete}
     counts::Vector{CT};

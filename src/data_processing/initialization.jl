@@ -1,4 +1,3 @@
-using DataFrames
 import MultivariateStats
 using NearestNeighbors
 using StatsBase: countmap, denserank
@@ -6,7 +5,6 @@ using Statistics
 
 using Base.Threads
 
-import CSV
 import Distances
 
 # Parse parameters
@@ -239,6 +237,8 @@ function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int,
 
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
     if adjacent_points === nothing
+        # TODO: in the current pipeline adjacent_points are always provided. Perhaps, I can drop this completely
+        # or at least make default parameters unified with the CLI
         composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood,
             min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
         n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))

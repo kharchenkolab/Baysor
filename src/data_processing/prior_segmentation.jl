@@ -1,11 +1,10 @@
-using DataFrames
 using NearestNeighbors
 using SparseArrays
 using StatsBase
 
-import ImageMagick
-import Images
-import MAT
+@lazy import Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+@lazy import ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
+@lazy import MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
 
 function load_segmentation_mask(path::String)::SparseMatrixCSC
     if lowercase(splitext(path)[end]) == ".mat"

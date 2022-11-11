@@ -100,7 +100,7 @@ function fit_noise_probabilities(edge_lengths::Vector{Float64}, adjacent_points:
     return assignment_probs, assignment, (d1, d2), max_diffs
 end
 
-function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Nothing}=nothing; nn_id::Int, prior_confidence::Float64=0.5)
+function estimate_confidence(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Nothing}=nothing; nn_id::Int, prior_confidence::Float64=0.5)
     pos_data = position_data(df_spatial);
     mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
 
@@ -108,7 +108,11 @@ function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vecto
 
     adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2]; # TODO: can be optimized as we already have kNNs
     probs, (d1, d2) = fit_noise_probabilities(mean_dists, adjacent_points, adjacent_weights, min_confidence=min_confidence)[[1, 3]]
-    df_spatial[!,:confidence] = probs[:, 1];
 
+    return mean_dists, probs[:, 1], d1, d2
+end
+
+function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Nothing}=nothing; nn_id::Int, prior_confidence::Float64=0.5)
+    mean_dists, df_spatial[!,:confidence], d1, d2 = estimate_confidence(df_spatial, prior_assignment, nn_id=nn_id, prior_confidence=prior_confidence)
     return mean_dists, df_spatial[!,:confidence], d1, d2
 end

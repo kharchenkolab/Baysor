@@ -1,8 +1,5 @@
 using ArgParse
-using DataFrames
 using Statistics
-
-import Colors
 
 function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
     s = ArgParseSettings(prog="baysor preview")

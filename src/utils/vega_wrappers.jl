@@ -1,14 +1,13 @@
 import JSON
-using VegaLite
 
 function vega_header(title::String="Plot", other::String="")
     return """
       <head>
         <title>$title</title>
         <meta charset="UTF-8">
-        <script>$(read(VegaLite.asset("vega.min.js"), String))</script>
-        <script>$(read(VegaLite.asset("vega-lite.min.js"), String))</script>
-        <script>$(read(VegaLite.asset("vega-embed.min.js"), String))</script>
+        <script>$(read(VL.asset("vega.min.js"), String))</script>
+        <script>$(read(VL.asset("vega-lite.min.js"), String))</script>
+        <script>$(read(VL.asset("vega-embed.min.js"), String))</script>
         $other
       </head>
     """
@@ -27,17 +26,18 @@ function vega_style()
     """
 end
 
-function vega_plot_html(specs::Dict{String, VegaLite.VLSpec})
+# function vega_plot_html(specs::Dict{String, VL.VLSpec})
+function vega_plot_html(specs::Dict{String})
     res = """
       <script type="text/javascript">
         var opt = {
           mode: "vega-lite",
-          renderer: "$(VegaLite.Vega.RENDERER)",
-          actions: $(VegaLite.Vega.ACTIONSLINKS)
+          renderer: "$(VL.Vega.RENDERER)",
+          actions: $(VL.Vega.ACTIONSLINKS)
         }
     """
     for (i, (divid,spec)) in enumerate(specs)
-        res *= "var spec$i = $(JSON.json(VegaLite.add_encoding_types(VegaLite.Vega.getparams(spec))))\nvegaEmbed('#$divid', spec$i, opt);\n\n"
+        res *= "var spec$i = $(JSON.json(VL.add_encoding_types(VL.Vega.getparams(spec))))\nvegaEmbed('#$divid', spec$i, opt);\n\n"
     end
 
     return res * "</script>"
