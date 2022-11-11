@@ -9,6 +9,7 @@ using DataFrames
 @lazy import KernelDensity as KDE = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 @lazy import VegaLite as VL = "112f6efa-9a02-5b7d-90c0-432ed331239a"
 @lazy import Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+@lazy import ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
 
 using Distributions
 using LinearAlgebra

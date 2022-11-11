@@ -2,7 +2,7 @@ using NearestNeighbors
 using SparseArrays
 using StatsBase
 
-@lazy import Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+@lazy import ImageCore = "a09fc81d-aa75-5fe9-8630-4744c3626534"
 @lazy import ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
 @lazy import MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
 
@@ -20,9 +20,9 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
-    labels = ImageMagick.load(path) |> Images.channelview |> Images.rawview |> sparse |> dropzeros!
+    labels = ImageMagick.load(path) |> ImageCore.channelview |> ImageCore.rawview |> sparse |> dropzeros!
     if length(unique(nonzeros(labels))) == 1
-        return BitMatrix(labels) |> Images.label_components |> sparse
+        return BitMatrix(labels) |> ImageMorphology.label_components |> sparse
     end
 
     return labels
@@ -38,7 +38,7 @@ estimate_scale_from_centers(centers::Matrix{Float64}) =
     estimate_scale_from_centers(maximum.(knn(KDTree(centers), centers, 2)[2]) ./ 2)
 
 estimate_scale_from_centers(seg_labels::Matrix{<:Integer}) =
-    estimate_scale_from_centers(sqrt.(Images.component_lengths(seg_labels)[2:end] ./ π))
+    estimate_scale_from_centers(sqrt.(ImageMorphology.component_lengths(seg_labels)[2:end] ./ π))
 
 function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
     nz_vals = nonzeros(seg_labels);

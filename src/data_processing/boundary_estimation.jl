@@ -1,5 +1,4 @@
 @lazy import FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
-@lazy import ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
 
 import JSON
 import Graphs
