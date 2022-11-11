@@ -6,12 +6,12 @@ using Statistics
 using StatsBase
 
 import Random: seed!
-import Baysor as B
+import Baysor.Processing as B
 
 module DataWrappers
 
 using DataFrames
-import Baysor as B
+import Baysor.Processing as B
 
 function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
     df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols), :confidence => confidence ? ones(n_mols) : rand(n_mols))

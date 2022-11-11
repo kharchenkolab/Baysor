@@ -1,6 +1,7 @@
 import Distances
 
-@lazy import VoronoiDelaunay as VD = "72f80fcb-8c52-57d9-aff0-40c1a3526986"
+# @lazy import VoronoiDelaunay as VD = "72f80fcb-8c52-57d9-aff0-40c1a3526986"
+import VoronoiDelaunay as VD # It causes world age issues
 using StatsBase: countmap
 using NearestNeighbors
 
@@ -53,7 +54,7 @@ function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float
         tess = VD.DelaunayTessellation2D(length(points_g), IndexedPoint2D());
         push!(tess, points_g);
 
-        edge_list = hcat([geti.([geta(v), getb(v)]) for v in VD.delaunayedges(tess)]...);
+        edge_list = hcat([geti.([VD.geta(v), VD.getb(v)]) for v in VD.delaunayedges(tess)]...);
     end
 
     if (adjacency_type == :knn) || (adjacency_type == :both)

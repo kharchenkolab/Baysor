@@ -1,6 +1,5 @@
 using Statistics
 
-import HDF5
 import Dates
 import LibGit2
 import Pkg
@@ -77,7 +76,7 @@ end
 function load_df(args::Dict; kwargs...)
     exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
 
-    df_spatial, gene_names = load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
+    df_spatial, gene_names = BPR.load_df(args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
         min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes, kwargs...)
 
     if :z in propertynames(df_spatial)
@@ -104,30 +103,6 @@ function get_baysor_run_str()::String
     end
 
     return "($(Dates.Date(Dates.now()))) Run Baysor $pkg_str"
-end
-
-function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vector{String}, file_path::String,
-        row_attrs::Union{Dict{String, T1}, Nothing} where T1=nothing, col_attrs::Union{Dict{String, T2}, Nothing} where T2=nothing)
-    # Specification: https://linnarssonlab.org/loompy/format/index.html
-    HDF5.h5open(file_path, "w") do fid
-        fid["matrix", chunk=(64,64), compress=3] = matrix
-        HDF5.create_group(fid, "row_attrs")
-        HDF5.create_group(fid, "col_attrs")
-        HDF5.create_group(fid, "attrs")
-        fid["row_attrs"]["Name"] = gene_names
-        fid["col_attrs"]["CellID"] = cell_names
-        if row_attrs !== nothing
-            for (k,v) in row_attrs
-                fid["row_attrs"][k] = v
-            end
-        end
-
-        if col_attrs !== nothing
-            for (k,v) in col_attrs
-                fid["col_attrs"][k] = v
-            end
-        end
-    end;
 end
 
 run_cli(args::String) = run_cli(String.(Base.split(args)))

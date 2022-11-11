@@ -88,24 +88,26 @@ function run_cli_segfree(args::Union{Nothing, Array{String, 1}}=nothing)
         if args["min-molecules-per-cell"] === nothing
             error("Either `min-molecules-per-cell` or `k` must be provided")
         end
-        args["k"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
+        args["k"] = BPR.default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
 
     @info "Estimating neighborhoods..."
-    neighb_cm = neighborhood_count_matrix(df_spatial, args["k"]);
+    neighb_cm = BPR.neighborhood_count_matrix(df_spatial, args["k"]);
 
     @info "Estimating molecule confidences..."
-    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
-    append_confidence!(df_spatial, nn_id=confidence_nn_id)
+    confidence_nn_id = BPR.default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+    BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id)
 
     @info "Estimating gene colors..."
-    transformation = gene_composition_transformation(neighb_cm, df_spatial.confidence)
-    gene_colors = gene_composition_colors(neighb_cm, transformation)
+    transformation = BPR.gene_composition_transformation(neighb_cm, df_spatial.confidence)
+    gene_colors = BPR.gene_composition_colors(neighb_cm, transformation)
     gene_colors = "#" .* Colors.hex.(gene_colors)
 
     @info "Saving results..."
-    save_matrix_to_loom(neighb_cm; gene_names=gene_names, cell_names=["$run_id-$i" for i in 1:size(neighb_cm, 1)],
-        col_attrs=Dict("ncv_color" => gene_colors), file_path=args["output"])
+    BPR.save_matrix_to_loom(
+        neighb_cm; gene_names=gene_names, cell_names=["$run_id-$i" for i in 1:size(neighb_cm, 1)],
+        col_attrs=Dict("ncv_color" => gene_colors), file_path=args["output"]
+    )
 
     @info "Done!"
     close(log_file)
