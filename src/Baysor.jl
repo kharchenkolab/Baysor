@@ -13,6 +13,7 @@ module Baysor
 include("LazySubmodules.jl")
 using .LazySubmodules
 
+@lazy_submodule REP = "Reporting.jl"
 @lazy_submodule BPR = "Processing.jl"
 @lazy_submodule CLI = "CLI.jl"
 

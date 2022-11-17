@@ -102,23 +102,23 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     ## Plot
 
     @info "Building transcript plots"
-    gc_plot = BPR.plot_dataset_colors(
+    gc_plot = REP.plot_dataset_colors(
         df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity"
     )
 
-    conf_colors = BPR.map_to_colors(confidences, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
-    cc_plot = BPR.plot_dataset_colors(
+    conf_colors = REP.map_to_colors(confidences, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
+    cc_plot = REP.plot_dataset_colors(
         df_spatial, conf_colors[:colors]; min_molecules_per_cell=args["min-molecules-per-cell"],
         min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence"
     )
 
     @info "Building gene structure plot"
-    vega_plots = Dict{String, VegaLite.VLSpec}()
+    vega_plots = Dict{String}()
 
-    vega_plots["vg_gene_structure"] = BPR.plot_gene_structure(df_spatial, gene_names)
-    vega_plots["vg_num_trans"] = BPR.plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
-    vega_plots["vg_noise_dist"] = BPR.plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
+    vega_plots["vg_gene_structure"] = REP.plot_gene_structure(df_spatial, gene_names)
+    vega_plots["vg_num_trans"] = REP.plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
+    vega_plots["vg_noise_dist"] = REP.plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
 
     @info "Plotting"
 
@@ -163,7 +163,7 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
         println(io, "</body>")
 
-        println(io, BPR.vega_plot_html(vega_plots))
+        println(io, REP.vega_plot_html(vega_plots))
         println(io, "</html>")
     end
 

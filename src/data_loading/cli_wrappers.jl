@@ -72,10 +72,12 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
     open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
 
     if args["plot"]
-        # plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
+        REP.plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
         if args["estimate-ncvs"]
-            polygons = plot_transcript_assignment_panel(bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons,
-                gene_colors=gene_colors)
+            polygons = REP.plot_transcript_assignment_panel(
+                bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule,
+                prior_polygons=prior_polygons, gene_colors=gene_colors
+            )
 
             if args["save-polygons"] !== nothing
                 if lowercase(args["save-polygons"]) == "geojson"

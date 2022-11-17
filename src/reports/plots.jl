@@ -1,6 +1,5 @@
 using NearestNeighbors
 using Random
-# using VegaLite
 
 import Base.show
 import Base64
@@ -101,19 +100,6 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     return MK.current_figure()
 end
 
-function shuffle_labels(labels::Array{Int})
-    new_labs = deepcopy(labels)
-    mask = (new_labs .!= 0)
-    new_labs[mask] = shuffle(1:maximum(labels))[new_labs[mask]]
-    return new_labs
-end
-
-function shuffle_colors(colors::Vector)
-    uniq_cols = unique(colors);
-    col_ord = Dict(Pair.(uniq_cols, shuffle(1:length(uniq_cols))));
-    return [uniq_cols[col_ord[tc]] for tc in colors]
-end
-
 function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_frac::Float64=0.025, alpha::Float64=0.5, text_offset::Float64=0.005,
         labels::Vector{String}=["y$i" for i in 1:length(vecs)], xrotation=-60, xticks::Bool=false, ylabel::String="Expression")
     y_vals = maximum(hcat(vecs...), dims=2) |> vec
@@ -171,7 +157,7 @@ end
 
 ### Diagnostics
 
-function plot_clustering_convergence(clust_res::NamedTuple, title::String="")::VegaLite.VLSpec
+function plot_clustering_convergence(clust_res::NamedTuple, title::String="")
     DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
         VL.@vlplot(x={:x, title="Iteration"}, title=title, width=300, height=250) +
         VL.@vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
@@ -180,7 +166,7 @@ end
 
 ### Colormaps
 
-function map_to_colors(vals::Array{T, 1} where T; lims=nothing, palette::Vector=Colors.sequential_palette(0, 11))
+function map_to_colors(vals::Vector{T} where T; lims=nothing, palette::Vector=Colors.sequential_palette(0, 11))
     offset = (lims === nothing) ? minimum(vals) : lims[1]
     scale = (lims === nothing) ? maximum(vals) - offset : (lims[2] - lims[1])
 

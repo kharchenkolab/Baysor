@@ -26,7 +26,6 @@ function vega_style()
     """
 end
 
-# function vega_plot_html(specs::Dict{String, VL.VLSpec})
 function vega_plot_html(specs::Dict{String})
     res = """
       <script type="text/javascript">
