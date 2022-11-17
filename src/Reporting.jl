@@ -11,6 +11,7 @@ import CairoMakie as MK # lazy loading doesn't help, as it's used as an argument
 import VegaLite as VL # lazy loading doesn't help, as macroses trigger compilation
 
 include("reports/utils.jl")
+include("reports/vega_wrappers.jl")
 include("reports/plots.jl")
 include("reports/diagnostic_plots.jl")
 include("reports/cell_segmentation.jl")

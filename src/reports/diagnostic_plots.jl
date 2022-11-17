@@ -1,7 +1,8 @@
 import UMAP
+import Distributions.UnivariateDistribution
 
 function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
-        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: Distributions.UnivariateDistribution
+        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: UnivariateDistribution
         x_max = quantile(edge_lengths, 0.99);
         n1 = sum(confidences);
         n2 = length(confidences) - n1;

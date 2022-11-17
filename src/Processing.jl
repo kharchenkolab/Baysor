@@ -6,7 +6,7 @@ using DataFrames
 
 import ..Baysor: REP
 
-@lazy import CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+import CSV # lazy import causes world age issues
 @lazy import KernelDensity as KDE = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 
 @lazy import Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
@@ -23,8 +23,6 @@ import Statistics.rand
 
 include("utils/utils.jl")
 include("utils/convex_hull.jl")
-include("utils/spatial.jl")
-include("utils/vega_wrappers.jl")
 
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
@@ -48,6 +46,7 @@ include("bmm_algorithm/distribution_samplers.jl")
 include("bmm_algorithm/history_analysis.jl")
 include("bmm_algorithm/bmm_algorithm.jl")
 
+include("data_loading/data.jl")
 include("data_loading/cli_wrappers.jl")
 
 

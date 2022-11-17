@@ -1,5 +1,7 @@
 import HDF5
 
+## Internals
+
 function parse_prior_assignment(df_spatial::DataFrame, args::Dict{String, Any})
     prior_col = Symbol(args["prior_segmentation"][2:end])
     prior_segmentation = df_spatial[!, prior_col]
@@ -52,6 +54,10 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     return prior_segmentation, prior_polygons, scale, scale_std
 end
 
+## Exports
+
+### Data
+
 function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any};
         mol_clusts::Union{NamedTuple, Nothing}, comp_segs::Union{NamedTuple, Nothing}, prior_polygons::Union{Vector{Matrix{Float64}}, Nothing})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
@@ -90,37 +96,6 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
     end
 end
 
-function load_and_preprocess_data!(args::Dict{String, Any})
-    @info get_baysor_run_str()
-    @info "Loading data..."
-    df_spatial, gene_names = load_df(args, filter_cols=false)
-    df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
-
-    @info "Loaded $(size(df_spatial, 1)) transcripts"
-    if size(df_spatial, 1) != size(unique(df_spatial), 1)
-        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
-    end
-
-    if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
-    end
-
-    prior_polygons = Matrix{Float64}[]
-    if args["prior_segmentation"] !== nothing
-        df_spatial[!, :prior_segmentation], prior_polygons, args["scale"], args["scale-std"] = load_prior_segmentation(df_spatial, args)
-    end
-    GC.gc()
-
-    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
-
-    @info "Estimating noise level"
-    prior_seg = (args["prior_segmentation"]===nothing) ? nothing : df_spatial.prior_segmentation
-    append_confidence!(df_spatial, prior_seg, nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
-    @info "Done"
-
-    return df_spatial, gene_names, prior_polygons
-end
-
 function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vector{String}, file_path::String,
         row_attrs::Union{Dict{String, T1}, Nothing} where T1=nothing, col_attrs::Union{Dict{String, T2}, Nothing} where T2=nothing)
     # Specification: https://linnarssonlab.org/loompy/format/index.html
@@ -145,7 +120,7 @@ function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vec
     end;
 end
 
-## Processing
+### Processing
 
 function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
     @info "Clustering molecules..."
@@ -177,8 +152,10 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     # Run segmentation
     adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
 
-    init_probs, is_locked = init_nuclei_cyto_compartments(position_data(df_spatial), df_spatial.gene;
-        nuclei_genes=comp_genes["nuclei-genes"], cyto_genes=comp_genes["cyto-genes"], gene_names=gene_names, scale=args["scale"]);
+    init_probs, is_locked = init_nuclei_cyto_compartments(
+        position_data(df_spatial), df_spatial.gene; gene_names=gene_names, scale=args["scale"],
+        nuclei_genes=comp_genes["nuclei-genes"], cyto_genes=comp_genes["cyto-genes"]
+    );
 
     comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
 

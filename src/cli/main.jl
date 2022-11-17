@@ -149,6 +149,38 @@ function dump_parameters(args::Dict{String, Any}, args_str::String)
     end
 end
 
+## Utils
+
+function load_and_preprocess_data!(args::Dict{String, Any})
+    @info "Loading data..."
+    df_spatial, gene_names = load_df(args, filter_cols=false)
+    df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
+
+    @info "Loaded $(size(df_spatial, 1)) transcripts"
+    if size(df_spatial, 1) != size(unique(df_spatial), 1)
+        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
+    end
+
+    if args["gene-composition-neigborhood"] === nothing
+        args["gene-composition-neigborhood"] = BPR.default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
+    end
+
+    prior_polygons = Matrix{Float64}[]
+    if args["prior_segmentation"] !== nothing
+        df_spatial[!, :prior_segmentation], prior_polygons, args["scale"], args["scale-std"] = BPR.load_prior_segmentation(df_spatial, args)
+    end
+    GC.gc()
+
+    confidence_nn_id = BPR.default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+
+    @info "Estimating noise level"
+    prior_seg = (args["prior_segmentation"]===nothing) ? nothing : df_spatial.prior_segmentation
+    BPR.append_confidence!(df_spatial, prior_seg, nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
+    @info "Done"
+
+    return df_spatial, gene_names, prior_polygons
+end
+
 ## CLI
 
 function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
@@ -165,9 +197,10 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     # @info "Run $run_id"
     # TODO: add run_id to cell ids
 
-    # Load data
+    @info get_baysor_run_str()
 
-    df_spatial, gene_names, prior_polygons = BPR.load_and_preprocess_data!(args)
+    # Load data
+    df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
 
     # Region-based segmentations
 
@@ -199,7 +232,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
         na_genes=Vector{Int}(vcat(comp_genes...))
     );
 
-    @info "Using $(size(position_data(bm_data), 1))D coordinates"
+    @info "Using $(size(BPR.position_data(bm_data), 1))D coordinates"
 
     history_depth = round(Int, args["iters"] * 0.1)
     bm_data = BPR.bmm!(

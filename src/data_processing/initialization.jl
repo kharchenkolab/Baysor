@@ -185,25 +185,6 @@ function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String}
     return matches
 end
 
-function load_df(data_path::String; min_molecules_per_gene::Int=0, exclude_genes::Vector{String}=String[], kwargs...)
-    df_spatial = read_spatial_df(data_path; kwargs...)
-
-    gene_counts = StatsBase.countmap(df_spatial[!, :gene]);
-    large_genes = Set{String}(collect(keys(gene_counts))[collect(values(gene_counts)) .>= min_molecules_per_gene]);
-    df_spatial = df_spatial[in.(df_spatial.gene, Ref(large_genes)),:];
-
-    if length(exclude_genes) > 0
-        exclude_genes = match_gene_names(exclude_genes, unique(df_spatial.gene))
-        df_spatial = df_spatial[.!in.(df_spatial.gene, Ref(exclude_genes)),:];
-        @info "Excluding genes: " * join(sort(collect(exclude_genes)), ", ")
-    end
-
-    df_spatial[!, :x] = Array{Float64, 1}(df_spatial[!, :x])
-    df_spatial[!, :y] = Array{Float64, 1}(df_spatial[!, :y])
-    df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
-    return df_spatial, gene_names;
-end
-
 # Initialize BmmData
 
 """
