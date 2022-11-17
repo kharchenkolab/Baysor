@@ -21,6 +21,7 @@ import Distributions.pdf
 import Distributions.logpdf
 import Statistics.rand
 
+include("utils/shared_utils.jl")
 include("utils/utils.jl")
 include("utils/convex_hull.jl")
 

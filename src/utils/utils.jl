@@ -1,69 +1,6 @@
 estimate_density_kde(coords::Matrix{Float64}, points::Matrix{Float64}, bandwidth::T where T <: Real)::Vector{Float64} =
     KDE.InterpKDE(KDE.kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
 
-function val_range(arr::AT where AT <: AbstractArray{<:Real})
-    if length(arr) == 0
-        return (nothing, nothing)
-    end
-
-    min_val, max_val = arr[1], arr[1]
-    for v in arr
-        min_val = fmin(min_val, v)
-        max_val = fmax(max_val, v)
-    end
-
-    return min_val, max_val
-end
-
-count_array(values::VT where VT<: AbstractVector{<:Integer}, args...; max_value::Union{<:Integer, Nothing}=nothing, kwargs...) =
-    count_array!(zeros(Int, max_value !== nothing ? max_value : maximum(values)), values, args...; erase_counts=false, kwargs...)
-
-function count_array!(counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer}; drop_zero::Bool=false, erase_counts::Bool=true)
-    if erase_counts
-        counts .= 0
-    end
-
-    has_zero = false
-    for v in values
-        if v == 0
-            has_zero = true
-            continue
-        end
-
-        counts[v] += 1
-    end
-
-    if !drop_zero && has_zero
-        @warn "Array has zero values. It was ignored."
-    end
-
-    return counts
-end
-
-function count_array!(counts::VT1 where VT1 <: AbstractVector{RT}, values::VT2 where VT2 <: AbstractVector{<:Integer}, weights::VT3 where VT3 <: AbstractVector{RT};
-        drop_zero::Bool=false, erase_counts::Bool=true) where RT<:Real
-    if erase_counts
-        counts .= 0
-    end
-
-    has_zero = false
-    for i in 1:length(values)
-        v = values[i]
-        if v == 0
-            has_zero = true
-            continue
-        end
-
-        counts[v] += weights[i]
-    end
-
-    if !drop_zero && has_zero
-        @warn "Array has zero values. It was ignored."
-    end
-
-    return counts
-end
-
 function prob_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing, smooth::Float64=0.0)
     if max_value === nothing
         max_value = maximum(values)
@@ -117,14 +54,6 @@ split_ids(factor::Array{Int, 1}; kwargs...) = split(1:length(factor), factor; kw
 
 split(df::DataFrame, factor::Symbol; kwargs...) = split(df, Array(df[!, factor]); kwargs...)
 split(df::DataFrame, factor::Vector{Int}; kwargs...) = [df[ids, :] for ids in split(1:size(df, 1), factor; kwargs...)]
-
-@inline @fastmath function fmax(v1::T, v2::T) where T <: Real
-    v1 > v2 ? v1 : v2
-end
-
-@inline @fastmath function fmin(v1::T, v2::T) where T <: Real
-    v1 < v2 ? v1 : v2
-end
 
 function estimate_difference_l0(m1::Matrix{Float64}, m2::Matrix{Float64}; col_weights::Union{Nothing, Vector{Float64}}=nothing, change_threshold::Float64=1e-7)::Tuple{Float64, Float64}
     max_diff = 0.0

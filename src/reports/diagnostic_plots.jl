@@ -21,8 +21,8 @@ end
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; alpha::Float64=0.3)
     order = sortperm(gene_names)
     return plot_expression_vectors(
-        BPR.count_array(genes[confidences .>= 0.5], max_value=length(gene_names))[order],
-        BPR.count_array(genes[confidences .< 0.5], max_value=length(gene_names))[order],
+        count_array(genes[confidences .>= 0.5], max_value=length(gene_names))[order],
+        count_array(genes[confidences .< 0.5], max_value=length(gene_names))[order],
         gene_names=gene_names[order]; labels=["Real", "Noise"], ylabel="Num. molecules",
         min_expr_frac=0.01, alpha=alpha
     )
@@ -38,7 +38,7 @@ function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confiden
     p_dists[diagind(p_dists)] .= 0.0;
 
     embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000, n_neighbors=max(min(15, length(gene_names) ÷ 2), 2));
-    marker_sizes = log.(BPR.count_array(df_spatial.gene));
+    marker_sizes = log.(count_array(df_spatial.gene));
 
     p_df = DataFrame(Dict(:x => embedding[1,:], :y => embedding[2,:], :gene => Symbol.(gene_names), :size => marker_sizes));
 

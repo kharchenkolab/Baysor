@@ -90,9 +90,14 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
             clust_res=mol_clusts, comp_segs=comp_segs
         )
         if args["estimate-ncvs"]
-            polygons = REP.plot_transcript_assignment_panel(
-                bm_data.x, bm_data.assignment, args; file=paths.molecule_plot,
-                clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons, gene_colors=gene_colors
+            poly_joint, polygons = boundary_polygons_auto(
+                bm_data.x, bm_data.assignment; scale=args["scale"], min_pixels_per_cell=args["min-pixels-per-cell"],
+                estimate_per_z=(args["save-polygons"] !== nothing)
+            )
+            REP.plot_transcript_assignment_panel(
+                bm_data.x; clusters=bm_data.cluster_per_molecule, gene_colors=gene_colors, file=paths.molecule_plot,
+                min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"],
+                prior_polygons=prior_polygons, polygons=poly_joint,
             )
 
             if args["save-polygons"] !== nothing

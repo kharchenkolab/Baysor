@@ -271,6 +271,33 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         exclude_labels=exclude_labels, offset=min_x, grid_step=grid_step)
 end
 
+function boundary_polygons_auto(df_res::DataFrame, assignment::Vector{<:Integer}; scale::Float64, min_pixels_per_cell::Int, estimate_per_z::Bool)
+    @info "Estimating boundary polygons" # For some parameters, this step takes a lot of time and memory
+
+    grid_step = scale / min_pixels_per_cell;
+    bandwidth = scale / 10;
+    poly_joint = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=bandwidth);
+
+    if !estimate_per_z | !(:z in propertynames(df_res))
+        return poly_joint, poly_joint
+    end
+
+    if length(unique(df_res.z)) > (size(df_res, 1) / 100)
+        @warn "To many values of z. Using 2D polygons"
+        return poly_joint, poly_joint
+    end
+
+    z_vals = sort(unique(df_res.z))
+    mask_per_z = [(df_res.z .≈ z) for z in z_vals]
+    poly_per_z = progress_map(
+        mask -> boundary_polygons(df_res[mask,:], assignment[mask]; grid_step=grid_step, bandwidth=bandwidth),
+        mask_per_z
+    );
+    poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
+    poly_per_z["joint"] = poly_joint
+    return poly_joint, poly_per_z
+end
+
 function polygons_to_geojson(polygons::Vector{Matrix{T}}) where T <:Real
     geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))]) for p in polygons]
     return Dict("type" => "GeometryCollection", "geometries" => geoms);

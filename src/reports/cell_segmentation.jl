@@ -1,5 +1,3 @@
-using ProgressMeter: progress_map
-
 function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict;
         file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
@@ -44,7 +42,7 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
         println(io, "<br><br>")
 
         # Num. of molecules per cell
-        n_mols_per_cell = BPR.count_array(assignment, drop_zero=true)
+        n_mols_per_cell = count_array(assignment, drop_zero=true)
         n_mols_per_cell = n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)]
 
         println(io, "<div id='vg_num_transcripts'></div>")
@@ -58,52 +56,16 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
     end
 end
 
-function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{Int}, args::Dict;
-        clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1}, file::String,
-        gene_colors::Union{Vector{<:Colors.ColorTypes.Color}, Nothing}=nothing)
-    if gene_colors === nothing
-        @info "Estimating local colors"
-        gene_colors = BPR.gene_composition_colors(df_res, args["gene-composition-neigborhood"])
-    end
-
-    @info "Estimating boundary polygons" # For some parameters, this step takes a lot of time and memory
-    grid_step = args["scale"] / args["min-pixels-per-cell"];
-    polygons = poly_joint = BPR.boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=args["scale"]/10);
-
-    if (args["save-polygons"] !== nothing) && (:z in propertynames(df_res))
-        if length(unique(df_res.z)) > (size(df_res, 1) / args["min-molecules-per-cell"])
-            @warn "To many values of z. Using 2D polygons"
-        else
-            z_vals = sort(unique(df_res.z))
-            mask_per_z = [(df_res.z .≈ z) for z in z_vals]
-            poly_per_z = progress_map(
-                mask -> boundary_polygons(df_res[mask,:], assignment[mask]; grid_step=grid_step, bandwidth=args["scale"]/10),
-                mask_per_z
-            );
-            poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
-            poly_per_z["joint"] = polygons
-            polygons = poly_per_z
-        end
-    end
-
-    if gene_colors !== nothing
-        gene_colors = Colors.alphacolor.(gene_colors, 0.5)
-    end
-
+function plot_transcript_assignment_panel(df_res::DataFrame; clusters::Vector{Int}, gene_colors::Vector{<:Colors.ColorTypes.Color}, file::String, kwargs...)
     @info "Plot transcript assignment"
-    gc_plot = plot_dataset_colors(
-        df_res, gene_colors; polygons=poly_joint, prior_polygons=prior_polygons,
-        min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"],
-        title="Local expression similarity"
-    )
+
+    gene_colors = Colors.alphacolor.(gene_colors, 0.5)
+
+    gc_plot = plot_dataset_colors(df_res, gene_colors; title="Local expression similarity", kwargs...)
 
     clust_plot = nothing
     if !isempty(clusters)
-        clust_plot = plot_dataset_colors(
-            df_res, gene_colors; polygons=poly_joint, prior_polygons=prior_polygons, annotation=clusters,
-            min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"],
-            title="Molecule clustering"
-        )
+        clust_plot = plot_dataset_colors(df_res, gene_colors; annotation=clusters, title="Molecule clustering", kwargs...)
     end
 
     open(file, "w") do io
@@ -113,6 +75,4 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
             show(io, MIME("text/html"), clust_plot)
         end
     end
-
-    return polygons
 end
