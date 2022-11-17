@@ -169,22 +169,6 @@ function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::
     return adjacent_points, adjacent_weights
 end
 
-function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String})
-    matches = Set{String}()
-    missing_genes = String[]
-    for gm in gene_masks
-        g_ids = findall(match.(Regex(gm), gene_names) .!== nothing)
-        if length(g_ids) == 0
-            push!(missing_genes, gm)
-        else
-            union!(matches, gene_names[g_ids])
-        end
-    end
-
-    (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
-    return matches
-end
-
 # Initialize BmmData
 
 """
@@ -271,12 +255,6 @@ function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where
     end
 
     return staining_vals
-end
-
-function encode_genes(gene_list)
-    gene_names = sort(unique(gene_list));
-    gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
-    return [gene_ids[g] for g in gene_list], gene_names
 end
 
 # This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
