@@ -219,6 +219,7 @@ end
 
 function extract_polygons_from_label_grid(grid_labels::Matrix{<:Unsigned}; min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
         exclude_labels::Vector{Int}=Int[], offset::Vector{Float64}=[0.0, 0.0], grid_step::Float64=1.0)::Array{Matrix{Float64}, 1}
+    # TODO: In theory, this whole matrix can be binary to save memory. But need to check better algorithms for polygon estimation first.
     borders_per_label = grid_borders_per_label(grid_labels);
     if !isempty(exclude_labels)
         borders_per_label = borders_per_label[setdiff(1:length(borders_per_label), exclude_labels)]

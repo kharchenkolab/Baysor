@@ -30,7 +30,7 @@ init_nuclei_cyto_compartments(args...; nuclei_genes::T, cyto_genes::T, kwargs...
 init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Vector{String}}; kwargs...) =
     init_molecule_compartments(pos_data, genes, [Dict(g => 1.0 for g in gs) for gs in comp_genes]; kwargs...)
 
-function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Dict{String, Float64}}; 
+function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int}, comp_genes::Vector{Dict{String, Float64}};
         gene_names::Vector{String}, scale::Float64, required_comps::Union{Vector{Int}, Nothing}=nothing)
 
     id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
@@ -60,19 +60,19 @@ function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int
         dists = max.(dists, maximum.(knn(KDTree(pos_data[:,ia]), pos_data, 2)[2]))
     end
     in_compartment_probs = [1.0 - max(min((d / scale - 1.) / 2., 1.), 0.) for d in dists]
-    
+
     is_locked .&= (in_compartment_probs .> 0.99)
     is_locked .|= (in_compartment_probs .< 0.01)
-    
+
     assignment_probs[end, :] .= 1 .- in_compartment_probs;
     assignment_probs[1:(end-1), :] .*= in_compartment_probs';
-    
+
     return assignment_probs, is_locked
 end
 
-function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_locked::BitVector, 
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64}; 
-        n_iters_without_update=20, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01, 
+function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_locked::BitVector,
+        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
+        n_iters_without_update=20, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01,
         max_iter::Int=500, verbose::Bool=true)
 
     if !weights_pre_adjusted
@@ -88,7 +88,7 @@ function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_loc
         assignment_probs_prev .= assignment_probs
         # Iteration
         expect_molecule_compartments!(assignment_probs, adjacent_points, adjacent_weights, is_locked)
-        
+
         # Stop criterion
         md, cf = estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence)
         push!(max_diffs, md)

@@ -1,9 +1,9 @@
 using ProgressMeter: progress_map
 
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict, args::Dict;
-        clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict;
+        file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
-    open(append_suffix(args["output"], "diagnostics.html"), "w") do io
+    open(file, "w") do io
         vega_plots = Dict{String, VL.VLSpec}()
         println(io, "<html>")
         println(io, vega_header("Report"))
@@ -59,7 +59,8 @@ function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tr
 end
 
 function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{Int}, args::Dict;
-        clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1}, gene_colors::Union{Vector{<:Colors.ColorTypes.Color}, Nothing}=nothing)
+        clusters::Vector{Int}, prior_polygons::Array{Matrix{Float64}, 1}, file::String,
+        gene_colors::Union{Vector{<:Colors.ColorTypes.Color}, Nothing}=nothing)
     if gene_colors === nothing
         @info "Estimating local colors"
         gene_colors = BPR.gene_composition_colors(df_res, args["gene-composition-neigborhood"])
@@ -105,7 +106,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame, assignment::Vector{
         )
     end
 
-    open(append_suffix(args["output"], "borders.html"), "w") do io
+    open(file, "w") do io
         show(io, MIME("text/html"), gc_plot)
 
         if clust_plot !== nothing

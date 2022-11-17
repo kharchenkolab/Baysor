@@ -1,4 +1,5 @@
 using Statistics
+using StatsBase
 
 function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length(vec)));
         ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Union{Bool, Symbol}=false, center=true, bins=nothing, kwargs...)

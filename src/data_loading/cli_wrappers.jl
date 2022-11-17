@@ -1,6 +1,14 @@
 import HDF5
 
-## Internals
+struct OutputPaths
+    cell_stats::String;
+    counts::String;
+    diagnostic_report::String;
+    molecule_plot::String;
+    polygons::String;
+end
+OutputPaths(;cell_stats::String, counts::String, diagnostic_report::String, molecule_plot::String, polygons::String) =
+    OutputPaths(cell_stats, counts, diagnostic_report, molecule_plot, polygons)
 
 function parse_prior_assignment(df_spatial::DataFrame, args::Dict{String, Any})
     prior_col = Symbol(args["prior_segmentation"][2:end])
@@ -54,11 +62,9 @@ function load_prior_segmentation(df_spatial::DataFrame, args::Dict{String, Any})
     return prior_segmentation, prior_polygons, scale, scale_std
 end
 
-## Exports
-
 ### Data
 
-function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any};
+function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String}, args::Dict{String, Any}; paths::OutputPaths,
         mol_clusts::Union{NamedTuple, Nothing}, comp_segs::Union{NamedTuple, Nothing}, prior_polygons::Union{Vector{Matrix{Float64}}, Nothing})
     segmentated_df = get_segmentation_df(bm_data, gene_names)
     cell_stat_df = get_cell_stat_df(bm_data, segmentated_df; add_qc=true)
@@ -71,23 +77,27 @@ function save_segmentation_results(bm_data::BmmData, gene_names::Vector{String},
 
     @info "Saving results to $(args["output"])"
     CSV.write(args["output"], segmentated_df[sortperm(segmentated_df.molecule_id), :]);
-    CSV.write(append_suffix(args["output"], "cell_stats.csv"), cell_stat_df);
+    CSV.write(paths.cell_stats, cell_stat_df);
 
     cm = convert_segmentation_to_counts(bm_data.x.gene, bm_data.assignment; gene_names=gene_names)
     count_str = join(names(cm), "\t") * "\n" * join([join(["$v" for v in r], '\t') for r in eachrow(cm)], '\n');
-    open(append_suffix(args["output"], "counts.tsv"), "w") do f; print(f, count_str) end
+    open(paths.counts, "w") do f; print(f, count_str) end
 
     if args["plot"]
-        REP.plot_diagnostics_panel(segmentated_df, segmentated_df.cell, bm_data.tracer, args; clust_res=mol_clusts, comp_segs=comp_segs)
+        REP.plot_diagnostics_panel(
+            segmentated_df, segmentated_df.cell, bm_data.tracer;
+            file=paths.diagnostic_report,
+            clust_res=mol_clusts, comp_segs=comp_segs
+        )
         if args["estimate-ncvs"]
             polygons = REP.plot_transcript_assignment_panel(
-                bm_data.x, bm_data.assignment, args; clusters=bm_data.cluster_per_molecule,
-                prior_polygons=prior_polygons, gene_colors=gene_colors
+                bm_data.x, bm_data.assignment, args; file=paths.molecule_plot,
+                clusters=bm_data.cluster_per_molecule, prior_polygons=prior_polygons, gene_colors=gene_colors
             )
 
             if args["save-polygons"] !== nothing
                 if lowercase(args["save-polygons"]) == "geojson"
-                    save_polygons_to_geojson(polygons, append_suffix(args["output"], "polygons.json"))
+                    save_polygons_to_geojson(polygons, paths.polygons)
                 else
                     @warn "Unknown polygon format: $(args["save-polygons"])"
                 end

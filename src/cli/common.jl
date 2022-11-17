@@ -81,7 +81,7 @@ function load_df(args::Dict; kwargs...)
 
     if :z in propertynames(df_spatial)
         if ("force-2d" in keys(args)) && args["force-2d"] || (length(unique(df_spatial.z)) < 2)
-            select!(df_spatial, Not(:z))
+            select!(df_spatial, Not(:z)) # TODO: this requires DataFrames
         end
     elseif args["z-column"] != :z
         error("z-column $(args["z-column"]) not found in the data")

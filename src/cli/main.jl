@@ -199,6 +199,14 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info get_baysor_run_str()
 
+    out_paths = BPR.OutputPaths(; Dict(k => append_suffix(args["output"], v) for (k,v) in [
+        :cell_stats => "cell_stats.csv",
+        :counts => "counts.tsv",
+        :diagnostic_report => "diagnostics.html",
+        :molecule_plot => "borders.html",
+        :polygons => "polygons.json"
+    ])...)
+
     # Load data
     df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
 
@@ -244,7 +252,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     @info "Processing complete."
 
     # Save results
-    BPR.save_segmentation_results(bm_data, gene_names, args; mol_clusts=mol_clusts, comp_segs=comp_segs, prior_polygons=prior_polygons)
+    BPR.save_segmentation_results(bm_data, gene_names, args; paths=out_paths, mol_clusts=mol_clusts, comp_segs=comp_segs, prior_polygons=prior_polygons)
     @info "All done!"
 
     close(log_file)
