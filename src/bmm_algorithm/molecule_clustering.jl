@@ -57,7 +57,7 @@ function expect_molecule_clusters!(assignment_probs::Matrix{Float64}, cell_type_
 
         total_ll += log10(dense_sum)
         if dense_sum .> 1e-20
-            assignment_probs[:, i] ./= dense_sum 
+            assignment_probs[:, i] ./= dense_sum
         else
             assignment_probs[:, i] .= 1 / size(assignment_probs, 1)
         end
@@ -79,7 +79,7 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
         @warn "ICA did not converge, fall back to random initialization"
     end
 
-    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence; 
+    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
         cell_type_exprs=ct_exprs_init, n_clusters=n_clusters, kwargs...)
 end
 
@@ -256,4 +256,17 @@ function pairwise_gene_spatial_cor(genes::Vector{Int}, confidence::Vector{Float6
     end
 
     return gene_cors
+end
+
+## Wrappers
+
+function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
+    @info "Clustering molecules..."
+    # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
+    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
+
+    mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=n_clusters, weights_pre_adjusted=false)
+
+    @info "Done"
+    return mol_clusts
 end

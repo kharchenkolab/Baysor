@@ -13,8 +13,16 @@ module Baysor
 include("LazySubmodules.jl")
 using .LazySubmodules
 
+# DataLoading: work with different input and output formats. Isolated as it requires additional file-type specific libraries
+@lazy_submodule DAT = "DataLoading.jl"
+
+# Reporting: all plotting code isolated, as plotting libraries are the slowest in Julia
 @lazy_submodule REP = "Reporting.jl"
+
+# Processing: all the actual logic
 @lazy_submodule BPR = "Processing.jl"
+
+# CLI: minimal CLI code required for fast responsive CLI
 @lazy_submodule CLI = "CLI.jl"
 
 end # module

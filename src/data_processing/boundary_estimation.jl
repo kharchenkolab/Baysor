@@ -1,6 +1,5 @@
 @lazy import FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 
-import JSON
 import Graphs
 
 using SimpleWeightedGraphs
@@ -244,13 +243,13 @@ function extract_polygons_from_label_grid(grid_labels::Matrix{<:Unsigned}; min_b
     return [vcat(cp, cp[1,:]') for cp in polygons]
 end
 
-boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(bm_data.x, bm_data.assignment; kwargs...)
-boundary_polygons(spatial_df::DataFrame, args...; kwargs...) =
-    boundary_polygons(position_data(spatial_df), args...; kwargs...)
+boundary_polygons(bm_data::BmmData; kwargs...) = boundary_polygons(position_data(bm_data), bm_data.assignment; kwargs...)
 
-function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
-                           grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
-                           bandwidth::Float64=(grid_step / 2), exclude_labels::Vector{Int}=Int[], kwargs...)::Array{Matrix{Float64}, 1}
+function boundary_polygons(
+        pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; min_x::Union{Array{Float64}, Nothing}=nothing, max_x::Union{Array{Float64}, Nothing}=nothing,
+        grid_step::Float64=5.0, min_border_length::Int=3, shape_method::Symbol=:path, max_dev::Float64=10.0,
+        bandwidth::Float64=(grid_step / 2), exclude_labels::Vector{Int}=Int[], kwargs...
+    )::Array{Matrix{Float64}, 1}
     pos_data = pos_data[1:2,:]
     if min_x === nothing
         min_x = vec(mapslices(minimum, pos_data, dims=2))
@@ -271,26 +270,27 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         exclude_labels=exclude_labels, offset=min_x, grid_step=grid_step)
 end
 
-function boundary_polygons_auto(df_res::DataFrame, assignment::Vector{<:Integer}; scale::Float64, min_pixels_per_cell::Int, estimate_per_z::Bool)
+function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; scale::Float64, min_pixels_per_cell::Int, estimate_per_z::Bool)
     @info "Estimating boundary polygons" # For some parameters, this step takes a lot of time and memory
 
     grid_step = scale / min_pixels_per_cell;
     bandwidth = scale / 10;
-    poly_joint = boundary_polygons(df_res, assignment; grid_step=grid_step, bandwidth=bandwidth);
+    poly_joint = boundary_polygons(pos_data, assignment; grid_step=grid_step, bandwidth=bandwidth);
 
-    if !estimate_per_z | !(:z in propertynames(df_res))
+    if !estimate_per_z || size(pos_data, 1) == 2
         return poly_joint, poly_joint
     end
 
-    if length(unique(df_res.z)) > (size(df_res, 1) / 100)
+    z_coords = @view pos_data[3,:]
+    z_vals = sort(unique(z_coords))
+    if length(z_vals) > (size(pos_data, 1) / 100)
         @warn "To many values of z. Using 2D polygons"
         return poly_joint, poly_joint
     end
 
-    z_vals = sort(unique(df_res.z))
-    mask_per_z = [(df_res.z .≈ z) for z in z_vals]
+    mask_per_z = [(z_coords .≈ z) for z in z_vals]
     poly_per_z = progress_map(
-        mask -> boundary_polygons(df_res[mask,:], assignment[mask]; grid_step=grid_step, bandwidth=bandwidth),
+        mask -> boundary_polygons(pos_data[mask,:], assignment[mask]; grid_step=grid_step, bandwidth=bandwidth),
         mask_per_z
     );
     poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
@@ -298,16 +298,3 @@ function boundary_polygons_auto(df_res::DataFrame, assignment::Vector{<:Integer}
     return poly_joint, poly_per_z
 end
 
-function polygons_to_geojson(polygons::Vector{Matrix{T}}) where T <:Real
-    geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))]) for p in polygons]
-    return Dict("type" => "GeometryCollection", "geometries" => geoms);
-end
-
-polygons_to_geojson(polygons::Dict{String, Vector{Matrix{T}}}) where T <:Real =
-    [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
-
-function save_polygons_to_geojson(polygons::Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}}, path::String) where T <: Real
-    open(path, "w") do f
-        print(f, JSON.json(polygons_to_geojson(polygons)))
-    end
-end

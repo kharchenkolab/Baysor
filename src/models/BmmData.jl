@@ -271,6 +271,40 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     return df
 end
 
+function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vector{Int}; drop_empty_labels::Bool=false, gene_names::Union{Vector{String}, Nothing}=nothing)
+    if drop_empty_labels
+        if minimum(cell_assignment) == 0
+            cell_assignment = denserank(cell_assignment) .- 1
+        else
+            cell_assignment = denserank(cell_assignment)
+        end
+    end
+
+    cm = zeros(Int, maximum(genes), maximum(cell_assignment))
+    for i in 1:length(genes)
+        if cell_assignment[i] == 0
+            continue
+        end
+        cm[genes[i], cell_assignment[i]] += 1
+    end
+
+    if gene_names !== nothing
+        cm = DataFrame(cm, [Symbol("$c") for c in 1:size(cm, 2)])
+        cm[!, :gene] = gene_names
+        cm = cm[:, vcat(end, 1:end-1)]
+    end
+
+    return cm
+end
+
+function get_segmentation_results(data::BmmData, gene_names::Vector{String})
+    segmented_df = get_segmentation_df(data, gene_names)
+    cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true)
+    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; gene_names=gene_names)
+
+    return segmented_df, cell_stat_df, cm
+end
+
 function global_assignment_ids(data::BmmData)::Vector{Int}
     cur_guids = [c.guid for c in data.components]
     res = deepcopy(data.assignment)

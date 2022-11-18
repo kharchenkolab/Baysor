@@ -24,32 +24,6 @@ function encode_genes(genes::Vector)
     return [gene_ids[g] for g in genes], gene_names
 end
 
-function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vector{Int}; drop_empty_labels::Bool=false, gene_names::Union{Vector{String}, Nothing}=nothing)
-    if drop_empty_labels
-        if minimum(cell_assignment) == 0
-            cell_assignment = denserank(cell_assignment) .- 1
-        else
-            cell_assignment = denserank(cell_assignment)
-        end
-    end
-
-    cm = zeros(Int, maximum(genes), maximum(cell_assignment))
-    for i in 1:length(genes)
-        if cell_assignment[i] == 0
-            continue
-        end
-        cm[genes[i], cell_assignment[i]] += 1
-    end
-
-    if gene_names !== nothing
-        cm = DataFrame(cm, [Symbol("$c") for c in 1:size(cm, 2)])
-        cm[!, :gene] = gene_names
-        cm = cm[:, vcat(end, 1:end-1)]
-    end
-
-    return cm
-end
-
 function read_spatial_df(
         data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Union{Symbol, Nothing}=:z,
         gene_col::Union{Symbol, Nothing}=:gene, filter_cols::Bool=false, drop_z::Bool=false

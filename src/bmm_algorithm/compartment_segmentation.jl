@@ -131,3 +131,41 @@ function adjust_mrf_with_compartments!(adjacent_points::Vector{Vector{Int}}, adj
     end
     return adjacent_points, adjacent_weights
 end
+
+## Wrappers
+
+function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vector{String}; nuclei_genes::String, cyto_genes::String, scale::Float64)
+    @info "Estimating compartment regions..."
+    comp_genes = Dict{String, Vector{String}}()
+
+    # Parse genes from CLI
+    nuclei_genes, cyto_genes = map((nuclei_genes, cyto_genes)) do g
+        c_genes = String.(strip.(Base.split(g, ",")))
+        all(length.(c_genes) .> 0) || @warn "Empty genes were provided in $k"
+
+        missing_genes = c_genes[.!in.(c_genes, Ref(Set(gene_names)))]
+        (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
+        c_genes = intersect(c_genes, gene_names)
+        length(c_genes) > 0 || error("No genes left in $k after filtration")
+        c_genes
+    end
+
+    # Run segmentation
+    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
+
+    init_probs, is_locked = init_nuclei_cyto_compartments(
+        position_data(df_spatial), df_spatial.gene; gene_names=gene_names, scale=scale,
+        nuclei_genes=nuclei_genes, cyto_genes=cyto_genes
+    );
+
+    comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
+
+    @info "Done"
+
+    id_per_gene = Dict(g => i for (i,g) in enumerate(gene_names))
+    comp_genes = [[id_per_gene[g] for g in gs] for gs in values(comp_genes)]
+
+    compartment = ["Nuclei", "Cyto", "Unknown"][comp_segs.assignment]
+
+    return comp_segs, comp_genes, compartment
+end

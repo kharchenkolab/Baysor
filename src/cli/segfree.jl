@@ -104,7 +104,7 @@ function run_cli_segfree(args::Union{Nothing, Array{String, 1}}=nothing)
     gene_colors = "#" .* Colors.hex.(gene_colors)
 
     @info "Saving results..."
-    BPR.save_matrix_to_loom(
+    DAT.save_matrix_to_loom(
         neighb_cm; gene_names=gene_names, cell_names=["$run_id-$i" for i in 1:size(neighb_cm, 1)],
         col_attrs=Dict("ncv_color" => gene_colors), file_path=args["output"]
     )

@@ -1,4 +1,4 @@
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Array{Int, 1}, tracer::Dict;
+function plot_diagnostics_panel(df_res::DataFrame, assignment::Vector{Int}, tracer::Dict{Symbol};
         file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
     @info "Plot diagnostics"
     open(file, "w") do io
@@ -74,5 +74,17 @@ function plot_transcript_assignment_panel(df_res::DataFrame; clusters::Vector{In
         if clust_plot !== nothing
             show(io, MIME("text/html"), clust_plot)
         end
+    end
+end
+
+function plot_segmentation_report(segmented_df::DataFrame; tracer::Dict{Symbol}, plot_transcripts::Bool, diagnostic_file::String, molecule_file::String, kwargs...)
+    plot_diagnostics_panel(
+        segmented_df, segmented_df.cell, tracer;
+        clust_res=mol_clusts, comp_segs=comp_segs, file=diagnostic_file
+    )
+
+    if plot_transcripts
+        clusters = (:cluster in propertynames(segmented_df)) ? segmented_df.cluster : Int[]
+        plot_transcript_assignment_panel(segmented_df; clusters=clusters, file=molecule_file, kwargs...)
     end
 end
