@@ -77,10 +77,14 @@ function plot_transcript_assignment_panel(df_res::DataFrame; clusters::Vector{In
     end
 end
 
-function plot_segmentation_report(segmented_df::DataFrame; tracer::Dict{Symbol}, plot_transcripts::Bool, diagnostic_file::String, molecule_file::String, kwargs...)
+function plot_segmentation_report(
+        segmented_df::DataFrame; tracer::Dict{Symbol},
+        clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing,
+        plot_transcripts::Bool, diagnostic_file::String, molecule_file::String, kwargs...
+    )
     plot_diagnostics_panel(
         segmented_df, segmented_df.cell, tracer;
-        clust_res=mol_clusts, comp_segs=comp_segs, file=diagnostic_file
+        clust_res=clust_res, comp_segs=comp_segs, file=diagnostic_file
     )
 
     if plot_transcripts

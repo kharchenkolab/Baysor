@@ -213,11 +213,6 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
         df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
     end
 
-    if dapi_arr !== nothing # TODO: forward DAPI from CLI
-        brightness_per_mol = staining_value_per_transcript(segmented_df, dapi_arr);
-        df[!, :mean_dapi_brightness] = mean.(trim.(split(brightness_per_mol, cell_assignment .+ 1)[2:end]; prop=0.2))
-    end
-
     return df
 end
 

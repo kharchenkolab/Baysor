@@ -31,7 +31,6 @@ include("models/InitialParams.jl")
 include("models/Component.jl")
 include("models/BmmData.jl")
 
-include("data_processing/prior_segmentation.jl")
 include("data_processing/triangulation.jl")
 include("data_processing/umap_wrappers.jl")
 include("data_processing/neighborhood_composition.jl")

@@ -179,7 +179,29 @@ function load_and_preprocess_data!(args::Dict{String, Any})
 
     prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
-        df_spatial[!, :prior_segmentation], prior_polygons, args["scale"], args["scale-std"] = DAT.load_prior_segmentation(df_spatial, args)
+        if args["prior_segmentation"][1] == ':'
+            prior_col = Symbol(args["prior_segmentation"][2:end])
+            prior_seg, scale, scale_std = DAT.parse_prior_assignment(
+                BPR.position_data(df_spatial), df_spatial[!, prior_col]; col_name=prior_col,
+                min_molecules_per_segment=args["min-molecules-per-segment"], min_mols_per_cell=args["min-molecules-per-cell"],
+            )
+        else
+            prior_seg, prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation(
+                args["prior_segmentation"], BPR.position_data(df_spatial);
+                min_molecules_per_segment=args["min-molecules-per-segment"], estimate_prior_polygons=args["plot"]
+            )
+
+            if args["plot"]
+                @info "Estimating prior segmentation polygons..."
+                prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+                @info "Done"
+            end
+        end
+
+        df_spatial[!, :prior_segmentation] = prior_seg
+        if args["estimate-scale-from-centers"]
+            args["scale"], args["scale-std"] = scale, scale_std
+        end
     end
     GC.gc()
 
@@ -307,7 +329,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     if args["plot"]
         REP.plot_segmentation_report(
             segmented_df; tracer=bm_data.tracer, plot_transcripts=args["estimate-ncvs"],
-            gene_colors=gene_colors, prior_polygons=prior_polygons, polygons=poly_joint,
+            clust_res=mol_clusts, comp_segs=comp_segs, gene_colors=gene_colors, prior_polygons=prior_polygons, polygons=poly_joint,
             min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"],
             diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot
         )

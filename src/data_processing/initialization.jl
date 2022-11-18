@@ -233,30 +233,6 @@ end
 
 # Utils
 
-function staining_value_per_transcript(df_spatial::DataFrame, staining::MT where MT <: AbstractMatrix{T}; quiet::Bool=false)::Vector{T} where T <: Real
-    x_vals = round.(Int, df_spatial.x)
-    y_vals = round.(Int, df_spatial.y)
-    if !quiet && ((maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the DAPI size: $(size(staining)). Filling it with 0."
-    end
-
-    if !quiet && ((minimum(x_vals) < 1) || (minimum(y_vals) < 1))
-        @warn "Minimum transcript coordinates are < 1: $((minimum(y_vals), minimum(x_vals))). Filling it with 0."
-    end
-
-    if !quiet && ((maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
-    end
-
-    inds = findall((x_vals .> 0) .& (x_vals .<= size(staining, 2)) .& (y_vals .> 0) .& (y_vals .<= size(staining, 1)))
-    staining_vals = zeros(T, length(x_vals))
-    for i in inds
-        staining_vals[i] = staining[y_vals[i], x_vals[i]];
-    end
-
-    return staining_vals
-end
-
 # This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
 function select_ids_uniformly(vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int}
     if n <= 1
