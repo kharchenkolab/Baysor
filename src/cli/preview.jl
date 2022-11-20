@@ -84,14 +84,14 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     @info "Estimating noise level"
-    confidence_nn_id = BPR.default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
     edge_lengths, confidences, d1, d2 = BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
     @info "Done"
 
     @info "Estimating local neighborhoods"
 
     if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = BPR.default_param_value(
+        args["gene-composition-neigborhood"] = default_param_value(
             :composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names)
         )
     end

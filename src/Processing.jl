@@ -4,8 +4,6 @@ using LazyModules
 
 using DataFrames
 
-import ..Baysor: REP
-
 @lazy import KernelDensity as KDE = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
 
 @lazy import Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"

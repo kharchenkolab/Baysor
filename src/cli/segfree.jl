@@ -88,14 +88,14 @@ function run_cli_segfree(args::Union{Nothing, Array{String, 1}}=nothing)
         if args["min-molecules-per-cell"] === nothing
             error("Either `min-molecules-per-cell` or `k` must be provided")
         end
-        args["k"] = BPR.default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
+        args["k"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
 
     @info "Estimating neighborhoods..."
     neighb_cm = BPR.neighborhood_count_matrix(df_spatial, args["k"]);
 
     @info "Estimating molecule confidences..."
-    confidence_nn_id = BPR.default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
     BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id)
 
     @info "Estimating gene colors..."

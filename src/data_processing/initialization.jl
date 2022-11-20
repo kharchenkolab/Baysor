@@ -9,44 +9,6 @@ import Distances
 
 # Parse parameters
 
-function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
-                             n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing)
-    if min_molecules_per_cell === nothing
-        error("Either `$param` or `min_molecules_per_cell` must be provided")
-    end
-
-    min_molecules_per_cell = max(min_molecules_per_cell, 3)
-
-    if param == :min_molecules_per_segment
-        return max(round(Int, min_molecules_per_cell / 4), 2)
-    end
-
-    if param == :confidence_nn_id
-        return max(div(min_molecules_per_cell, 2) + 1, 5)
-    end
-
-    if param == :composition_neighborhood
-        if n_genes === nothing
-            return max(min_molecules_per_cell, 3)
-        end
-
-        return max(div(n_genes, 10), min_molecules_per_cell, 3)
-    end
-
-    if param == :n_gene_pcs
-        (n_genes !== nothing) || error("Either `$param` or `n_genes` must be provided")
-        return min(max(div(n_genes, 3), 30), 100, n_genes)
-    end
-
-    if param == :n_cells_init
-        (n_molecules !== nothing) || error("Either `$param` or `n_molecules` must be provided")
-        return div(n_molecules, min_molecules_per_cell) * 2
-    end
-end
-
-default_if_not_provided(value::Union{<:Real, Nothing}, param_name::Symbol, args...; kwargs...) =
-    (value === nothing) ? default_param_value(param_name, args...; kwargs...) : value
-
 parse_scale_std(scale_std::Float64, ::Real) = scale_std
 parse_scale_std(scale_std::Nothing, scale::Real) = 0.25 * scale
 function parse_scale_std(scale_std::String, scale::Real)
@@ -174,25 +136,13 @@ end
 """
     main function for initialization of bm_data
 """
-function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
-        n_cells_init::Union{Int, Nothing}=nothing, confidence_nn_id::Union{Int, Nothing}=nothing, composition_neighborhood::Union{Int, Nothing}=nothing,
-        adjacent_points::Union{Vector{Vector{Int64}}, Nothing}=nothing, adjacent_weights::Union{Vector{Vector{Float64}}, Nothing}=nothing,
-        use_local_gene_similarities::Bool=true, adjacency_type::Symbol=:triangulation, n_gene_pcs::Union{Int, Nothing}=nothing, prior_seg_confidence::Float64=0.5,
-        verbose::Bool=true, kwargs...)::BmmData
+function initialize_bmm_data(
+        df_spatial::DataFrame; min_molecules_per_cell::Int, adjacent_points::Vector{Vector{Int64}}, adjacent_weights::Vector{Vector{Float64}},
+        n_cells_init::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
+        prior_seg_confidence::Float64=0.5, verbose::Bool=true, kwargs...
+    )::BmmData
     df_spatial = deepcopy(df_spatial)
-
-    ## Parse parameters
-    confidence_nn_id = default_if_not_provided(confidence_nn_id, :confidence_nn_id, min_molecules_per_cell)
-    n_cells_init = default_if_not_provided(n_cells_init, :n_cells_init, min_molecules_per_cell, n_molecules=size(df_spatial, 1))
     scale_std = parse_scale_std(scale_std, scale)
-
-    ## Estimate confidence
-    if confidence_nn_id > 0
-        verbose && @info "Estimate confidence per molecule"
-        prior_segmentation = (:prior_segmentation in propertynames(df_spatial)) ? df_spatial.prior_segmentation : nothing
-        append_confidence!(df_spatial, prior_segmentation; nn_id=confidence_nn_id, prior_confidence=prior_seg_confidence)
-        verbose && @info "Done"
-    end
 
     ## Initialize BmmData array
     verbose && @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init, #molecules: $(size(df_spatial, 1))."
@@ -201,16 +151,6 @@ function initialize_bmm_data(df_spatial::DataFrame; min_molecules_per_cell::Int,
         ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
 
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
-    if adjacent_points === nothing
-        # TODO: in the current pipeline adjacent_points are always provided. Perhaps, I can drop this completely
-        # or at least make default parameters unified with the CLI
-        composition_neighborhood = default_if_not_provided(composition_neighborhood, :composition_neighborhood,
-            min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
-        n_gene_pcs = default_if_not_provided(n_gene_pcs, :n_gene_pcs, min_molecules_per_cell, n_genes=maximum(df_spatial.gene))
-
-        adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=use_local_gene_similarities,
-            n_gene_pcs=n_gene_pcs, composition_neighborhood=composition_neighborhood, adjacency_type=adjacency_type)[1:2]
-    end
 
     components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
 

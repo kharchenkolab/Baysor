@@ -65,6 +65,41 @@ function extend_params_with_config!(params::Dict, config::Dict)
     end
 end
 
+function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
+                             n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing)
+    if min_molecules_per_cell === nothing
+        error("Either `$param` or `min_molecules_per_cell` must be provided")
+    end
+
+    min_molecules_per_cell = max(min_molecules_per_cell, 3)
+
+    if param == :min_molecules_per_segment
+        return max(round(Int, min_molecules_per_cell / 4), 2)
+    end
+
+    if param == :confidence_nn_id
+        return max(div(min_molecules_per_cell, 2) + 1, 5)
+    end
+
+    if param == :composition_neighborhood
+        if n_genes === nothing
+            return max(min_molecules_per_cell, 3)
+        end
+
+        return max(div(n_genes, 10), min_molecules_per_cell, 3)
+    end
+
+    if param == :n_gene_pcs
+        (n_genes !== nothing) || error("Either `$param` or `n_genes` must be provided")
+        return min(max(div(n_genes, 3), 30), 100, n_genes)
+    end
+
+    if param == :n_cells_init
+        (n_molecules !== nothing) || error("Either `$param` or `n_molecules` must be provided")
+        return div(n_molecules, min_molecules_per_cell) * 2
+    end
+end
+
 get_run_id() = "$(UUIDs.uuid1())"[25:end] # must be independent of Random.seed
 
 function setup_logger(prefix::String, file_name::String)

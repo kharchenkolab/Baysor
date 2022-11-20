@@ -25,8 +25,8 @@ function encode_genes(genes::Vector)
 end
 
 function read_spatial_df(
-        data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Union{Symbol, Nothing}=:z,
-        gene_col::Union{Symbol, Nothing}=:gene, filter_cols::Bool=false, drop_z::Bool=false
+        data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Symbol=:z,
+        gene_col::Symbol=:gene, filter_cols::Bool=false, drop_z::Bool=false
     )
     df_spatial = DataFrame(CSV.File(data_path), copycols=false);
 
@@ -50,16 +50,10 @@ function read_spatial_df(
         DataFrames.rename!(df_spatial, co => cn);
     end
 
-    if gene_col === nothing
-        if filter_cols
-            df_spatial = df_spatial[:, [:x, :y]]
-        end
-    else
-        if filter_cols
-            df_spatial = df_spatial[:, [:x, :y, :gene]]
-        end
-        df_spatial[!, :gene] = ["$g" for g in df_spatial.gene]
+    if filter_cols
+        df_spatial = df_spatial[:, [:x, :y, :gene]]
     end
+    df_spatial[!, :gene] = ["$g" for g in df_spatial.gene]
 
     if (:z in propertynames(df_spatial)) && (drop_z || (length(unique(df_spatial.z)) < 2))
         DataFrames.select!(df_spatial, DataFrames.Not(:z))

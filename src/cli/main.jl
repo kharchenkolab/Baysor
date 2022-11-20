@@ -112,7 +112,7 @@ function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
     end
 
     if r["min-molecules-per-segment"] === nothing
-        r["min-molecules-per-segment"] = BPR.default_param_value(:min_molecules_per_segment, r["min-molecules-per-cell"])
+        r["min-molecules-per-segment"] = default_param_value(:min_molecules_per_segment, r["min-molecules-per-cell"])
     end
 
     if isdir(r["output"]) || isdirpath(r["output"])
@@ -163,6 +163,19 @@ end
 OutputPaths(;segmented_df::String, cell_stats::String, counts::String, diagnostic_report::String, molecule_plot::String, polygons::String) =
     OutputPaths(segmented_df, cell_stats, counts, diagnostic_report, molecule_plot, polygons)
 
+function get_output_paths(segmented_df_path::String)
+    return OutputPaths(;
+        segmented_df=segmented_df_path,
+        Dict(k => append_suffix(segmented_df_path, v) for (k,v) in [
+            :cell_stats => "cell_stats.csv",
+            :counts => "counts.tsv",
+            :diagnostic_report => "diagnostics.html",
+            :molecule_plot => "borders.html",
+            :polygons => "polygons.json"
+        ])...
+    )
+end
+
 function load_and_preprocess_data!(args::Dict{String, Any})
     @info "Loading data..."
     df_spatial, gene_names = load_df(args, filter_cols=false)
@@ -174,7 +187,7 @@ function load_and_preprocess_data!(args::Dict{String, Any})
     end
 
     if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = BPR.default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
+        args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
     end
 
     prior_polygons = Matrix{Float64}[]
@@ -205,7 +218,7 @@ function load_and_preprocess_data!(args::Dict{String, Any})
     end
     GC.gc()
 
-    confidence_nn_id = BPR.default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
+    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
 
     @info "Estimating noise level"
     prior_seg = (args["prior_segmentation"]===nothing) ? nothing : df_spatial.prior_segmentation
@@ -213,19 +226,6 @@ function load_and_preprocess_data!(args::Dict{String, Any})
     @info "Done"
 
     return df_spatial, gene_names, prior_polygons
-end
-
-function get_output_paths(segmented_df_path::String)
-    return OutputPaths(;
-        segmented_df=segmented_df_path,
-        Dict(k => append_suffix(segmented_df_path, v) for (k,v) in [
-            :cell_stats => "cell_stats.csv",
-            :counts => "counts.tsv",
-            :diagnostic_report => "diagnostics.html",
-            :molecule_plot => "borders.html",
-            :polygons => "polygons.json"
-        ])...
-    )
 end
 
 ## CLI
@@ -239,6 +239,7 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     dump_parameters(args, args_str)
 
     log_file = setup_logger(args["output"], "log.log")
+    out_paths = get_output_paths(args["output"])
 
     # run_id = get_run_id()
     # @info "Run $run_id"
@@ -273,8 +274,13 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
 
     # Cell segmentation
 
+    n_cells_init = something(
+        args["num-cells-init"],
+        default_param_value(:n_cells_init, args["min-molecules-per-cell"], n_molecules=size(df_spatial, 1)) TODO
+    )
+
     bm_data = BPR.initialize_bmm_data(
-        df_spatial; scale=args["scale"], scale_std=args["scale-std"], n_cells_init=args["num-cells-init"],
+        df_spatial; scale=args["scale"], scale_std=args["scale-std"], n_cells_init=n_cells_init,
         prior_seg_confidence=args["prior-segmentation-confidence"], min_molecules_per_cell=args["min-molecules-per-cell"],
         confidence_nn_id=0, adjacent_points=adjacent_points, adjacent_weights=adjacent_weights,
         na_genes=Vector{Int}(vcat(comp_genes...))
@@ -306,7 +312,6 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     ## Save results
 
     @info "Saving results to $(args["output"])"
-    out_paths = get_output_paths(args["output"])
 
     DAT.save_segmented_df(segmented_df, out_paths.segmented_df);
     DAT.save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
