@@ -20,7 +20,7 @@ using .LazySubmodules
 @lazy_submodule REP = "Reporting.jl"
 
 # Processing: all the actual logic
-@lazy_submodule BPR = "Processing.jl"
+@lazy_submodule BPR = "processing/Processing.jl"
 
 # CLI: minimal CLI code required for fast responsive CLI
 @lazy_submodule CLI = "CLI.jl"

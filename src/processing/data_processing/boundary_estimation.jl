@@ -295,6 +295,7 @@ function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:
     );
     poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
     poly_per_z["joint"] = poly_joint
+
     return poly_joint, poly_per_z
 end
 
