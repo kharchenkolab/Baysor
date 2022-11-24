@@ -28,7 +28,8 @@ function read_spatial_df(
         data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Symbol=:z,
         gene_col::Symbol=:gene, filter_cols::Bool=false, drop_z::Bool=false
     )
-    df_spatial = DataFrame(CSV.File(data_path), copycols=false);
+    # df_spatial = DataFrame(CSV.File(data_path), copycols=false);
+    df_spatial = CSV.read(data_path, DataFrame);
 
     for (cn, co) in zip((:x, :y, :z, :gene), (x_col, y_col, z_col, gene_col))
         if (co === nothing) || ((co == :z) && !(co in propertynames(df_spatial)))
@@ -84,6 +85,7 @@ function load_df(data_path::String; min_molecules_per_gene::Int=0, exclude_genes
     end
 
     df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
+    df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
 
     return df_spatial, gene_names;
 end

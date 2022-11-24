@@ -5,9 +5,10 @@ using LazyModules
 import CSV # lazy import causes world age issues
 using Statistics
 using DataFrames
+using ..Baysor.Utils
 
-include("data_loading/data.jl")
-include("data_loading/prior_segmentation.jl")
-include("data_loading/cli_wrappers.jl")
+include("data.jl")
+include("prior_segmentation.jl")
+include("cli_wrappers.jl")
 
 end

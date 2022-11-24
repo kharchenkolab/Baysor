@@ -78,7 +78,7 @@ function plot_transcript_assignment_panel(df_res::DataFrame; clusters::Vector{In
 end
 
 function plot_segmentation_report(
-        segmented_df::DataFrame; tracer::Dict{Symbol},
+        segmented_df::DataFrame; tracer::Dict{Symbol}, gene_colors::Symbol=:ncv_color,
         clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing,
         plot_transcripts::Bool, diagnostic_file::String, molecule_file::String, kwargs...
     )
@@ -89,6 +89,9 @@ function plot_segmentation_report(
 
     if plot_transcripts
         clusters = (:cluster in propertynames(segmented_df)) ? segmented_df.cluster : Int[]
-        plot_transcript_assignment_panel(segmented_df; clusters=clusters, file=molecule_file, kwargs...)
+        plot_transcript_assignment_panel(
+            segmented_df; gene_colors=parse.(Colors.Colorant, segmented_df[!, gene_colors]),
+            clusters=clusters, file=molecule_file, kwargs...
+        )
     end
 end

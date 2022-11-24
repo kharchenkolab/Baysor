@@ -108,18 +108,6 @@ function setup_logger(prefix::String, file_name::String)
     return log_file
 end
 
-function load_df(args::Dict; kwargs...)
-    exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
-
-    return DAT.load_df(
-        args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
-        min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes,
-        drop_z=(("force-2d" in keys(args)) && args["force-2d"]), kwargs...
-    )
-end
-
-append_suffix(output::String, suffix) = "$(splitext(output)[1])_$suffix"
-
 function get_baysor_run_str()::String
     pkg_str = "v$pkg_version"
     try

@@ -18,9 +18,11 @@ import Distributions.pdf
 import Distributions.logpdf
 import Statistics.rand
 
-include("utils/shared_utils.jl")
+using ..Baysor.Utils
+
 include("utils/utils.jl")
 include("utils/convex_hull.jl")
+include("utils/cli_wrappers.jl")
 
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")

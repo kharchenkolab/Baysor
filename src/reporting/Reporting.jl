@@ -8,11 +8,12 @@ using DataFrames
 import CairoMakie as MK # lazy loading doesn't help, as it's used as an argument type in Base.show
 import VegaLite as VL # lazy loading doesn't help, as macroses trigger compilation
 
-include("utils/shared_utils.jl")
-include("reports/utils.jl")
-include("reports/vega_wrappers.jl")
-include("reports/plots.jl")
-include("reports/diagnostic_plots.jl")
-include("reports/cell_segmentation.jl")
+using ..Baysor.Utils
+
+include("utils.jl")
+include("vega_wrappers.jl")
+include("plots.jl")
+include("diagnostic_plots.jl")
+include("cell_segmentation.jl")
 
 end

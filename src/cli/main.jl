@@ -149,83 +149,27 @@ function dump_parameters(args::Dict{String, Any}, args_str::String)
     end
 end
 
-## Utils
-
-struct OutputPaths
-    # The class is here for clarity of what files are saved
-    segmented_df::String;
-    cell_stats::String;
-    counts::String;
-    diagnostic_report::String;
-    molecule_plot::String;
-    polygons::String;
-end
-OutputPaths(;segmented_df::String, cell_stats::String, counts::String, diagnostic_report::String, molecule_plot::String, polygons::String) =
-    OutputPaths(segmented_df, cell_stats, counts, diagnostic_report, molecule_plot, polygons)
-
-function get_output_paths(segmented_df_path::String)
-    return OutputPaths(;
-        segmented_df=segmented_df_path,
-        Dict(k => append_suffix(segmented_df_path, v) for (k,v) in [
-            :cell_stats => "cell_stats.csv",
-            :counts => "counts.tsv",
-            :diagnostic_report => "diagnostics.html",
-            :molecule_plot => "borders.html",
-            :polygons => "polygons.json"
-        ])...
-    )
-end
-
-function load_and_preprocess_data!(args::Dict{String, Any})
-    @info "Loading data..."
-    df_spatial, gene_names = load_df(args, filter_cols=false)
-    df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
-
-    @info "Loaded $(size(df_spatial, 1)) transcripts"
-    if size(df_spatial, 1) != size(unique(df_spatial), 1)
-        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
-    end
-
-    if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = default_param_value(:composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names))
-    end
-
+function load_prior_segmentation!(df_spatial, args::Dict{String, Any})
     prior_polygons = Matrix{Float64}[]
     if args["prior_segmentation"] !== nothing
-        if args["prior_segmentation"][1] == ':'
-            prior_col = Symbol(args["prior_segmentation"][2:end])
-            prior_seg, scale, scale_std = DAT.parse_prior_assignment(
-                BPR.position_data(df_spatial), df_spatial[!, prior_col]; col_name=prior_col,
-                min_molecules_per_segment=args["min-molecules-per-segment"], min_mols_per_cell=args["min-molecules-per-cell"],
-            )
-        else
-            prior_seg, prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation(
-                args["prior_segmentation"], BPR.position_data(df_spatial);
-                min_molecules_per_segment=args["min-molecules-per-segment"], estimate_prior_polygons=args["plot"]
-            )
+        prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation!(
+            args["prior_segmentation"], df_spatial, BPR.position_data(df_spatial);
+            min_mols_per_cell=args["min-molecules-per-cell"], min_molecules_per_segment=args["min-molecules-per-segment"]
+        )
 
-            if args["plot"]
-                @info "Estimating prior segmentation polygons..."
-                prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
-                @info "Done"
-            end
-        end
-
-        df_spatial[!, :prior_segmentation] = prior_seg
         if args["estimate-scale-from-centers"]
             args["scale"], args["scale-std"] = scale, scale_std
+        end
+
+        if (prior_seg_labels !== nothing) && args["plot"]
+            @info "Estimating prior segmentation polygons..."
+            prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+            @info "Done"
         end
     end
     GC.gc()
 
-    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
-
-    @info "Estimating noise level"
-    prior_seg = (args["prior_segmentation"]===nothing) ? nothing : df_spatial.prior_segmentation
-    BPR.append_confidence!(df_spatial, prior_seg, nn_id=confidence_nn_id, prior_confidence=args["prior-segmentation-confidence"])
-    @info "Done"
-
-    return df_spatial, gene_names, prior_polygons
+    return prior_polygons
 end
 
 ## CLI
@@ -239,108 +183,43 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     dump_parameters(args, args_str)
 
     log_file = setup_logger(args["output"], "log.log")
-    out_paths = get_output_paths(args["output"])
-
-    # run_id = get_run_id()
-    # @info "Run $run_id"
-    # TODO: add run_id to cell ids
 
     @info get_baysor_run_str()
 
-    # Load data
-    df_spatial, gene_names, prior_polygons = load_and_preprocess_data!(args)
+    @info "Loading data..."
+    df_spatial, gene_names = DAT.load_df(args, filter_cols=false)
 
-    # Region-based segmentations
-
-    comp_segs, comp_genes = nothing, Vector{Int}[]
-    adjacent_points, adjacent_weights = BPR.build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:triangulation)[1:2]
-    if args["nuclei-genes"] !== nothing
-        comp_segs, comp_genes, df_spatial[!, :compartment] = BPR.estimate_molecule_compartments(
-            df_spatial, gene_names; nuclei_genes=args["nuclei-genes"], cyto_genes=args["cyto-genes"], scale=args["scale"]
+    if args["gene-composition-neigborhood"] === nothing
+        args["gene-composition-neigborhood"] = default_param_value(
+            :composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names)
         )
-        df_spatial[!, :nuclei_probs] = 1 .- comp_segs.assignment_probs[2,:];
-
-        adjacent_points, adjacent_weights = BPR.adjust_mrf_with_compartments(
-            adjacent_points, adjacent_weights,
-            comp_segs.assignment_probs[1,:], comp_segs.assignment_probs[2,:]
-        );
     end
 
-    mol_clusts = nothing
-    if args["n-clusters"] > 1
-        mol_clusts = BPR.estimate_molecule_clusters(df_spatial, args["n-clusters"])
-        df_spatial[!, :cluster] = mol_clusts.assignment;
-    end
+    prior_polygons = load_prior_segmentation!(df_spatial, args)
+    BPR.append_confidence!(df_spatial, args)
 
-    # Cell segmentation
-
-    n_cells_init = something(
-        args["num-cells-init"],
-        default_param_value(:n_cells_init, args["min-molecules-per-cell"], n_molecules=size(df_spatial, 1)) TODO
+    (segmented_df, tracer, mol_clusts, comp_segs, poly_joint, cell_stat_df, cm, polygons) = BPR.run_segmentation(
+        df_spatial, gene_names, args
     )
-
-    bm_data = BPR.initialize_bmm_data(
-        df_spatial; scale=args["scale"], scale_std=args["scale-std"], n_cells_init=n_cells_init,
-        prior_seg_confidence=args["prior-segmentation-confidence"], min_molecules_per_cell=args["min-molecules-per-cell"],
-        confidence_nn_id=0, adjacent_points=adjacent_points, adjacent_weights=adjacent_weights,
-        na_genes=Vector{Int}(vcat(comp_genes...))
-    );
-
-    @info "Using $(size(BPR.position_data(bm_data), 1))D coordinates"
-
-    history_depth = round(Int, args["iters"] * 0.1)
-    bm_data = BPR.bmm!(
-        bm_data; n_iters=args["iters"],
-        new_component_frac=args["new-component-fraction"], new_component_weight=args["new-component-weight"],
-        min_molecules_per_cell=args["min-molecules-per-cell"], assignment_history_depth=history_depth
-    );
-
-    @info "Processing complete."
-
-    # Save results
-
-    ## Extract results
-
-    segmented_df, cell_stat_df, cm = BPR.get_segmentation_results(bm_data, gene_names)
-    gene_colors = nothing
-    if args["estimate-ncvs"]
-        @info "Estimating local colors"
-        gene_colors = BPR.gene_composition_colors(bm_data.x, args["gene-composition-neigborhood"])
-        segmented_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
-    end
-
-    ## Save results
 
     @info "Saving results to $(args["output"])"
 
-    DAT.save_segmented_df(segmented_df, out_paths.segmented_df);
-    DAT.save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
-    DAT.save_molecule_counts(cm, out_paths.counts)
-
-    poly_joint, polygons = nothing, nothing
-    if args["save-polygons"] !== nothing || args["plot"] && args["estimate-ncvs"]
-        poly_joint, polygons = BPR.boundary_polygons_auto(
-            BPR.position_data(bm_data), bm_data.assignment; scale=args["scale"], min_pixels_per_cell=args["min-pixels-per-cell"],
-            estimate_per_z=(args["save-polygons"] !== nothing)
-        )
-    end
-
-    if args["save-polygons"] !== nothing
-        DAT.save_polygons(polygons; format=args["save-polygons"], file=out_paths.polygons)
-    end
-
-    # Plot report
+    out_paths = get_output_paths(args["output"])
+    DAT.save_segmentation_results(
+        segmented_df, cell_stat_df, cm, polygons, out_paths; poly_format=args["save-polygons"]
+    )
 
     if args["plot"]
+        @info "Plotting results"
         REP.plot_segmentation_report(
-            segmented_df; tracer=bm_data.tracer, plot_transcripts=args["estimate-ncvs"],
-            clust_res=mol_clusts, comp_segs=comp_segs, gene_colors=gene_colors, prior_polygons=prior_polygons, polygons=poly_joint,
-            min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"],
-            diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot
+            segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
+            prior_polygons=prior_polygons, polygons=poly_joint,
+            diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
+            plot_transcripts=args["estimate-ncvs"],
+            gene_colors=:ncv_color,
+            min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"]
         )
     end
-
-    # Finish!
 
     @info "All done!"
 

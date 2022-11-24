@@ -1,6 +1,8 @@
 import HDF5
 import JSON
 
+Polygons = Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}} where T <: Real
+
 function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int, min_mols_per_cell::Int)
     try
         prior_segmentation = Int.(prior_segmentation);
@@ -54,13 +56,13 @@ end
 polygons_to_geojson(polygons::Dict{String, Vector{Matrix{T}}}) where T <:Real =
     [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
 
-function save_polygons_to_geojson(polygons::Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}}, file::String) where T <: Real
+function save_polygons_to_geojson(polygons::Polygons, file::String)
     open(file, "w") do f
         print(f, JSON.json(polygons_to_geojson(polygons)))
     end
 end
 
-function save_polygons(polygons::Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}}; format::String, file::String) where T <: Real
+function save_polygons(polygons::Polygons; format::String, file::String)
     if lowercase(format) == "geojson"
         save_polygons_to_geojson(polygons, file)
     else
@@ -90,4 +92,58 @@ function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vec
             end
         end
     end;
+end
+
+function load_df(args::Dict; kwargs...)
+    exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
+
+    df_spatial, gene_names = load_df(
+        args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
+        min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes,
+        drop_z=(("force-2d" in keys(args)) && args["force-2d"]), kwargs...
+    )
+
+    @info "Loaded $(size(df_spatial, 1)) transcripts"
+
+    if size(df_spatial, 1) != size(unique(df_spatial), 1)
+        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
+    end
+
+    return df_spatial, gene_names
+end
+
+function save_segmentation_results(
+        segmented_df::DataFrame, cell_stat_df::DataFrame, cm::DataFrame, polygons::Polygons,
+        out_paths::OutputPaths; poly_format::Union{String, Nothing}
+    )
+    save_segmented_df(segmented_df, out_paths.segmented_df);
+    save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
+    save_molecule_counts(cm, out_paths.counts)
+
+    if poly_format !== nothing
+        save_polygons(polygons; format=poly_format, file=out_paths.polygons)
+    end
+end
+
+function load_prior_segmentation!(
+        path::String, df_spatial::DataFrame, pos_data::Matrix{Float64};
+        min_molecules_per_segment::Int, min_mols_per_cell::Int
+    )
+
+    length(path) > 0 || error("Prior segmentation file path is empty")
+    if path[1] == ':'
+        prior_col = Symbol(path[2:end])
+        prior_seg, scale, scale_std = parse_prior_assignment(
+            pos_data, df_spatial[!, prior_col]; col_name=prior_col,
+            min_molecules_per_segment=min_molecules_per_segment, min_mols_per_cell=min_mols_per_cell
+        )
+        prior_seg_labels = nothing
+    else
+        prior_seg, prior_seg_labels, scale, scale_std = load_prior_segmentation(
+            path, pos_data; min_molecules_per_segment=min_molecules_per_segment
+        )
+    end
+
+    df_spatial[!, :prior_segmentation] = prior_seg
+
 end
