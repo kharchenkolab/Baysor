@@ -58,9 +58,11 @@ function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float
     end
 
     if (adjacency_type == :knn) || (adjacency_type == :both)
-        edge_list = hcat(hcat([hcat([[i, v] for v in x[2:end]]...)
-            for (i, x) in enumerate(knn(KDTree(points), points, k_adj + 1, true)[1])]...), edge_list)
-        edge_list = hcat(collect.(unique(mapslices(x -> Tuple(sort(x)), edge_list, dims=1)))...)
+        nns = knn(KDTree(points), points, k_adj + 1, true)[1];
+        e_start = repeat(1:length(nns), inner=k_adj)
+        e_end = vcat([es[2:end] for es in nns]...)
+        edge_list = hcat(fmin.(e_start, e_end), fmax.(e_start, e_end));
+        edge_list = unique(edge_list'; dims=2)
     end
 
     adj_dists = Distances.colwise(distance, points[:, edge_list[1,:]], points[:, edge_list[2,:]])

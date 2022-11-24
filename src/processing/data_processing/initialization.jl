@@ -120,10 +120,10 @@ function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::
     end
 
     adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; kwargs...)
-    for i in 1:length(adjacent_weights)
+    for i in eachindex(adjacent_weights)
         cur_points = adjacent_points[i]
         cur_weights = adjacent_weights[i]
-        for j in 1:length(cur_weights)
+        for j in eachindex(cur_weights)
             cur_weights[j] *= vertex_weights[cur_points[j]]
         end
     end
