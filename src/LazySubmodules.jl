@@ -27,25 +27,39 @@ macro lazy_submodule(ex)
     end
 end
 
-function Base.getproperty(m::LazySubmodule, s::Symbol)
-    if s in (:_alias, :_module_name, :_include_path, :_parent_module)
-        return getfield(m, s)
-    end
-
-    f = nothing
+function load_module(m::LazySubmodule)
     lock(_LOAD_LOCKER) do
         if m._module_name === nothing
-            # Ideally, this function should be called only once per module
-            # However in case of multi-threading or for keyword argument functons it can be called multiple times
-            # See # https://discourse.julialang.org/t/how-to-properly-implement-lazy-compilation-of-submodules-problem-with-invokelatest-for-kwarg-functions/90459
             mod = Core.eval(m._parent_module, :(include($(m._include_path))))
             m._module_name = Symbol(split("$(mod)", ".")[end])
         else
             mod = getfield(m._parent_module, m._module_name)
         end
 
-        f = getfield(mod, s)
+        return mod
     end
+end
+
+function initialize(m::LazySubmodule)
+    load_module(m)
+    lock(_LOAD_LOCKER) do
+        Core.eval(m._parent_module, :($(m._alias) = $(m._module_name)))
+    end
+
+    return Core.eval(m._parent_module, :($(m._module_name)))
+end
+
+function Base.getproperty(m::LazySubmodule, s::Symbol)
+    if s in (:_alias, :_module_name, :_include_path, :_parent_module)
+        return getfield(m, s)
+    end
+
+    if s == :initialize || s == :init
+        return () -> initialize(m)
+    end
+
+    mod = load_module(m)
+    f = getfield(mod, s)
 
     if !(f isa Function)
         return f
@@ -53,14 +67,6 @@ function Base.getproperty(m::LazySubmodule, s::Symbol)
 
     # invokelatest solves issues with world age and missing functions
     return (args...; kwargs...) -> Base.invokelatest(f, args...; kwargs...)
-    # return (args...; kwargs...) -> begin
-        # res = Base.invokelatest(f, args...; kwargs...)
-        # Substitude the LazySubmodule with an actual compiled module
-        # lock(_LOAD_LOCKER) do
-        #     Core.eval(m._parent_module, :($(m._alias) = $(m._module_name)))
-        # end
-        # return res
-    # end
 end
 
 function __init__()
