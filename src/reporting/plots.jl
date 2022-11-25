@@ -203,7 +203,7 @@ end
 
 ### Utils
 
-function Base.show(io::IO, m::MIME"text/html", fig::MK.Scene)
+function makie_to_base64(fig::Union{MK.Scene, MK.Figure})
     io64 = Base64.IOBuffer();
     iob64 = Base64.Base64EncodePipe(io64)
     show(iob64, MIME("image/png"), fig);
@@ -211,6 +211,8 @@ function Base.show(io::IO, m::MIME"text/html", fig::MK.Scene)
     str = String(take!(io64))
     close(io64)
 
-    print(io, "<img src=\"data:image/png;base64,$str\" />")
-    # show(io, MIME("text/plain"), "<img src=\"data:image/png;base64,$str\" />")
+    return "<img src=\"data:image/png;base64,$str\" />"
 end
+
+Base.show(io::IO, ::MIME"text/html", fig::Union{MK.Scene, MK.Figure}) = print(io, makie_to_base64(fig))
+    # show(io, MIME("text/plain"), "<img src=\"data:image/png;base64,$str\" />")

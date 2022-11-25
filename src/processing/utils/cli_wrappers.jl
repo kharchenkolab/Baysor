@@ -7,6 +7,21 @@ function append_confidence!(df_spatial::DataFrame, args::Dict{String})
     @info "Done"
 end
 
+function estimate_gene_structure_embedding(df_spatial::DataFrame, gene_names::Vector{String}, confidence::Vector{Float64}=df_spatial.confidence)
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2];
+    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, confidence, adjacent_points, adjacent_weights);
+    cor_vals = vec(cor_mat)
+    min_cor = quantile(cor_vals[cor_vals .> 0], 0.001) ./ 5;
+    max_cor = quantile(cor_vals, 0.99);
+    p_dists = 1 .- max.(min.(cor_mat, max_cor), min_cor) ./ max_cor;
+    p_dists[diagind(p_dists)] .= 0.0;
+
+    embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000, n_neighbors=max(min(15, length(gene_names) ÷ 2), 2));
+    marker_sizes = log.(count_array(df_spatial.gene));
+
+    return DataFrame(Dict(:x => embedding[1,:], :y => embedding[2,:], :gene => Symbol.(gene_names), :size => marker_sizes));
+end
+
 function run_segmentation(df_spatial::DataFrame, gene_names::Vector{String}, args::Dict{String, Any})
     # run_id = get_run_id()
     # @info "Run $run_id"

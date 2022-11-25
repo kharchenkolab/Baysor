@@ -1,5 +1,5 @@
 import UMAP
-import Distributions.UnivariateDistribution
+import Distributions: UnivariateDistribution,pdf
 
 function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
         confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: UnivariateDistribution
@@ -18,6 +18,10 @@ function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confid
             VL.@vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
 end
 
+# Function to be called from an environment without DataFrames imported
+plot_num_transcript_overview(df_spatial::DataFrame, args...; kwargs...) =
+    plot_num_transcript_overview(df_spatial.gene, args...; kwargs...)
+
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; alpha::Float64=0.3)
     order = sortperm(gene_names)
     return plot_expression_vectors(
@@ -28,24 +32,11 @@ function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Fl
     )
 end
 
-function plot_gene_structure(df_spatial::DataFrame, gene_names::Vector, confidence::Vector{Float64}=df_spatial.confidence)
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2];
-    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights);
-    cor_vals = vec(cor_mat)
-    min_cor = quantile(cor_vals[cor_vals .> 0], 0.001) ./ 5;
-    max_cor = quantile(cor_vals, 0.99);
-    p_dists = 1 .- max.(min.(cor_mat, max_cor), min_cor) ./ max_cor;
-    p_dists[diagind(p_dists)] .= 0.0;
-
-    embedding = UMAP.umap(p_dists, 2; metric=:precomputed, spread=1.0, min_dist=0.1, n_epochs=5000, n_neighbors=max(min(15, length(gene_names) ÷ 2), 2));
-    marker_sizes = log.(count_array(df_spatial.gene));
-
-    p_df = DataFrame(Dict(:x => embedding[1,:], :y => embedding[2,:], :gene => Symbol.(gene_names), :size => marker_sizes));
-
-    return p_df |>
+function plot_gene_structure(gene_emb::DataFrame)
+    return gene_emb |>
         VL.@vlplot(
-            x={:x, scale={domain=val_range(p_df.x)}, title="UMAP-1"},
-            y={:y, scale={domain=val_range(p_df.y)}, title="UMAP-2"},
+            x={:x, scale={domain=val_range(gene_emb.x)}, title="UMAP-1"},
+            y={:y, scale={domain=val_range(gene_emb.y)}, title="UMAP-2"},
             size={:size, scale={range=[5, 10]}, legend=false},
             tooltip={:gene, type="nominal"},
             width=600, height=600, title="Gene local structure",

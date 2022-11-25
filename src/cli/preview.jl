@@ -76,19 +76,14 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Loading data..."
     args["min-molecules-per-gene"] = 0
-    df_spatial, gene_names = load_df(args)
-
-    @info "Loaded $(size(df_spatial, 1)) transcripts"
-    if size(df_spatial, 1) != size(unique(df_spatial), 1)
-        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
-    end
+    df_spatial, gene_names = DAT.load_df(args)
 
     @info "Estimating noise level"
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
     edge_lengths, confidences, d1, d2 = BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
     @info "Done"
 
-    @info "Estimating local neighborhoods"
+    @info "Estimating local colors"
 
     if args["gene-composition-neigborhood"] === nothing
         args["gene-composition-neigborhood"] = default_param_value(
@@ -96,7 +91,6 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         )
     end
 
-    @info "Estimating local colors"
     gene_colors = BPR.gene_composition_colors(df_spatial, args["gene-composition-neigborhood"])
 
     ## Plot
@@ -114,10 +108,11 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     )
 
     @info "Building gene structure plot"
-    vega_plots = Dict{String}()
+    vega_plots = Dict{String, Any}()
 
-    vega_plots["vg_gene_structure"] = REP.plot_gene_structure(df_spatial, gene_names)
-    vega_plots["vg_num_trans"] = REP.plot_num_transcript_overview(df_spatial.gene, confidences, gene_names)
+    gene_emb = BPR.estimate_gene_structure_embedding(df_spatial, gene_names)
+    vega_plots["vg_gene_structure"] = REP.plot_gene_structure(gene_emb)
+    vega_plots["vg_num_trans"] = REP.plot_num_transcript_overview(df_spatial, confidences, gene_names)
     vega_plots["vg_noise_dist"] = REP.plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
 
     @info "Plotting"
@@ -126,8 +121,8 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
         print(io, """
             <!DOCTYPE html>
             <html>
-            $(vega_header("Report", "<style> body {background-color: #ffffff;}</style>"))
-            $(vega_style())
+            $(REP.vega_header("Report", "<style> body {background-color: #ffffff;}</style>"))
+            $(REP.vega_style())
 
             <body>
             <div>
@@ -141,11 +136,11 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
             """)
 
         println(io, "<h1 id=\"Transcript_Plots\">Transcript plots</h1><br>")
-        show(io, MIME("text/html"), gc_plot)
+        println(io, REP.makie_to_base64(gc_plot))
         println(io, "<br>")
 
         println(io, "<hr>\n<h1 id=\"Noise_Level\">Noise level</h1><br>")
-        show(io, MIME("text/html"), cc_plot)
+        println(io, REP.makie_to_base64(cc_plot))
 
         println(io, "<br>")
         println(io, "<div id='vg_noise_dist'></div>")
