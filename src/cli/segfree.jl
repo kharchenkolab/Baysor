@@ -77,12 +77,7 @@ function run_cli_segfree(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Loading data..."
     args["min-molecules-per-gene"] = 0
-    df_spatial, gene_names = load_df(args)
-
-    @info "Loaded $(size(df_spatial, 1)) transcripts"
-    if size(df_spatial, 1) != size(unique(df_spatial), 1)
-        @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
-    end
+    df_spatial, gene_names = DAT.load_df(args)
 
     if args["k"] === nothing
         if args["min-molecules-per-cell"] === nothing
@@ -96,10 +91,10 @@ function run_cli_segfree(args::Union{Nothing, Array{String, 1}}=nothing)
 
     @info "Estimating molecule confidences..."
     confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
-    BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id)
+    confidences = BPR.estimate_confidence(df_spatial, nn_id=confidence_nn_id)[2]
 
     @info "Estimating gene colors..."
-    transformation = BPR.gene_composition_transformation(neighb_cm, df_spatial.confidence)
+    transformation = BPR.gene_composition_transformation(neighb_cm, confidences)
     gene_colors = BPR.gene_composition_colors(neighb_cm, transformation)
     gene_colors = "#" .* Colors.hex.(gene_colors)
 

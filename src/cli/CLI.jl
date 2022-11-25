@@ -8,6 +8,7 @@ using LazyModules
 
 import ..Baysor: BPR, DAT, REP
 using ..Baysor.Utils
+using ArgParse
 
 pkg_version = Pkg.TOML.parsefile(
     joinpath(dirname(dirname(dirname(@__FILE__))), "Project.toml")
@@ -18,6 +19,6 @@ include("logging.jl")
 include("common.jl")
 include("main.jl")
 include("preview.jl")
-# include("segfree.jl")
+include("segfree.jl")
 
 end
