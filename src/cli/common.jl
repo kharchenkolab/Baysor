@@ -100,7 +100,7 @@ function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, N
     end
 end
 
-get_run_id() = "$(UUIDs.uuid1())"[25:end] # must be independent of Random.seed
+get_run_id() = "r$(UUIDs.uuid1())"[25:end] # must be independent of Random.seed
 
 function setup_logger(prefix::String, file_name::String)
     log_file = open(append_suffix(prefix, file_name), "w")
