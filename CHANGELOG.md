@@ -1,3 +1,9 @@
+## [Upcoming]
+
+- Breaking changes in config file structure
+- Greatly improved responsiveness of the CLI
+- Major refactoring of the code
+
 ## [0.5.2] — 2022-06-29
 
 - Fixed some package versions, dependencies should cause fewer bugs now

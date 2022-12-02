@@ -139,9 +139,8 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     comp_genes = Dict{String, Vector{String}}()
 
     # Parse genes from CLI
-    nuclei_genes, cyto_genes = map((nuclei_genes, cyto_genes)) do g
-        c_genes = String.(strip.(Base.split(g, ",")))
-        all(length.(c_genes) .> 0) || @warn "Empty genes were provided in $k"
+    nuclei_genes, cyto_genes = map((nuclei => nuclei_genes, "cyto" => cyto_genes)) do (k,g)
+        c_genes = split_string_list(g)
 
         missing_genes = c_genes[.!in.(c_genes, Ref(Set(gene_names)))]
         (length(missing_genes) == 0) || @warn "Genes $(join(missing_genes, ',')) are missing from the data"
@@ -159,6 +158,7 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     );
 
     comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
+    # TODO: comp_genes is always empty now
 
     @info "Done"
 

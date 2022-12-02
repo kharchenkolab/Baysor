@@ -91,3 +91,6 @@ function default_param_value(
         return div(n_molecules, min_molecules_per_cell) * 2
     end
 end
+
+split_string_list(list::String, sep::Char=',') =
+    Base.split(list, sep) .|> strip .|> String |> (x -> x[length.(x) .> 0])

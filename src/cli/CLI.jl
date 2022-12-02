@@ -7,8 +7,9 @@ using LazyModules
 @lazy import Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
 
 import ..Baysor: BPR, DAT, REP
-using ..Baysor.Utils
-using ArgParse
+using ..Utils
+using Comonicon
+using Configurations
 
 pkg_version = Pkg.TOML.parsefile(
     joinpath(dirname(dirname(dirname(@__FILE__))), "Project.toml")
@@ -18,7 +19,9 @@ include("logging.jl")
 
 include("common.jl")
 include("main.jl")
-include("preview.jl")
-include("segfree.jl")
+# include("preview.jl")
+# include("segfree.jl")
+
+@main
 
 end

@@ -214,5 +214,5 @@ function makie_to_base64(fig::Union{MK.Scene, MK.Figure})
     return "<img src=\"data:image/png;base64,$str\" />"
 end
 
-Base.show(io::IO, ::MIME"text/html", fig::Union{MK.Scene, MK.Figure}) = print(io, makie_to_base64(fig))
-    # show(io, MIME("text/plain"), "<img src=\"data:image/png;base64,$str\" />")
+Base.show(io::IO, ::MIME"text/html", fig::MK.Scene) = print(io, makie_to_base64(fig))
+Base.show(io::IO, ::MIME"text/html", fig::MK.Figure) = print(io, makie_to_base64(fig))

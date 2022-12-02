@@ -26,6 +26,6 @@ include("utils/Utils.jl")
 @lazy_submodule BPR = "processing/Processing.jl"
 
 # CLI: minimal CLI code required for fast responsive CLI
-@lazy_submodule CLI = "cli/CLI.jl"
+CLI = include("cli/CLI.jl")
 
 end # module

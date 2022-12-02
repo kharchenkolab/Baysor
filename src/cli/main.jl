@@ -1,222 +1,149 @@
 using Statistics
 
-import Pkg.TOML
-
 ## Configs and parameters
 
-function parse_commandline(args::Union{Nothing, Array{String, 1}}=nothing) # TODO: add verbosity level
-    s = ArgParseSettings(prog="baysor run")
-    @add_arg_table! s begin
-        "--config", "-c"
-            help = "TOML file with config"
-        "--x-column", "-x"
-            help = "Name of x column. Overrides the config value."
-        "--y-column", "-y"
-            help = "Name of y column. Overrides the config value."
-        "--z-column", "-z"
-            help = "Name of z column. Overrides the config value."
-        "--gene-column", "-g"
-            help = "Name of gene column. Overrides the config value."
+"""
+Run cell segmentation
 
-        "--iters", "-i"
-            help = "Number of iterations"
-            arg_type = Int
-            default = 500
-        "--min-molecules-per-cell", "-m"
-            help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
-            arg_type = Int
-        "--n-clusters"
-            help = "Number of molecule clusters, i.e. major cell types. Depends on protocol resolution, but should not be too high. In most cases something between 3 and 15 should work well."
-            arg_type = Int
-            default=4
-        "--num-cells-init"
-            help = "Initial number of cells."
-            arg_type = Int
-        "--output", "-o"
-            help = "Name of the output file or path to the output directory"
-            default = "segmentation.csv"
-        "--plot", "-p"
-            help = "Save pdf with plot of the segmentation"
-            action = :store_true
-        "--save-polygons"
-            help = "Save estimated cell boundary polygons to a file with a specified FORMAT. Only 'GeoJSON' format is currently supported. The option requires setting '-p' to work."
-            range_tester = (x -> in(lowercase(x), ["geojson"]))
-            metavar = "FORMAT"
-        "--force-2d"
-            help = "Ignores z-column in the data if it is provided"
-            action = :store_true
-        "--exclude-genes"
-            help = "Comma-separated list of genes or regular expressions to ignore during segmentation. Example: --exclude-genes='Blank*,MALAT1'"
-        "--nuclei-genes"
-            help = "Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well."
-        "--cyto-genes"
-            help = "Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well."
-        "--scale-std"
-            help = "Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with '%' to set it relative to scale. Default: 25%"
-            default = "25%"
+# Args
 
-        "--scale", "-s"
-            help = "Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same units as 'x' and 'y' molecule coordinates. Overrides the config value. Sets 'estimate-scale-from-centers' to false."
-            arg_type = Float64
-        "--prior-segmentation-confidence"
-            help = "Confidence of the `prior_segmentation` results. Value in [0; 1]. If you want the final segmentation not contradicting to prior_segmentation, set it to 1. Otherwise, if you assume errors in prior_segmentation, values in [0.2-0.7] allow flexibility for the algorithm."
-            arg_type = Float64
-            default = 0.2
+- `coordinates`:            CSV file with coordinates of molecules and gene type
+- `prior_segmentation`:     Image or a MAT file with segmentation mask (either boolean or component indexing) or CSV
+                            column with integer segmentation labels.
+                            If it's the column name, it should be preceded ':' symbol (e.g. `:cell`)
 
-        "--no-ncv-estimation"
-            dest_name = "estimate-ncvs"
-            help = "Turns off neighborhood composition vectors estimation"
-            action = :store_false
+# Options
 
-        "coordinates"
-            help = "CSV file with coordinates of molecules and gene type"
-            required = true
-        "prior_segmentation"
-            help = "Image or a MAT file with segmentation mask (either boolean or component indexing) or CSV column with integer segmentation labels. If it's the column name, it should be preceded ':' symbol (e.g. :cell)"
-    end
+- `-c, --config=<config.toml>`:         TOML file with config
+- `-x, --x-column=<x>`:                 Name of x column. Overrides the config value.
+- `-y, --y-column=<y>`:                 Name of y column. Overrides the config value.
+- `-z, --z-column=<z>`:                 Name of z column. Overrides the config value.
+- `-g, --gene-column=<gene>`:           Name of gene column. Overrides the config value.
+- `-m, --min-molecules-per-cell=<m>`:   Minimal number of molecules for a cell to be considered as real.
+                                        It's an important parameter, as it's used to infer several other parameters.
+                                        Overrides the config value.
 
-    return (args === nothing) ? parse_args(s) : parse_args(args, s)
-end
+- `--n-clusters=<nc>`:                  Number of molecule clusters, i.e. major cell types. Depends on protocol resolution,
+                                        but should not be too high. In most cases something between 3 and 15 should work well.
+                                        (default: 4)
+- `--num-cells-init=<nci>`:             Initial number of cells
+- `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
+- `--save-polygons=<format>`:           Save estimated cell boundary polygons to a file with a specified `format`.
+                                        Only 'GeoJSON' format is currently supported. The option requires setting `-p` to work.
+- `--exclude-genes=<genes>`:            Comma-separated list of genes or regular expressions to ignore during segmentation.
+                                        Example: `--exclude-genes='Blank*,MALAT1'`
+- `--nuclei-genes=<genes>`:             Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
+- `--cyto-genes=<genes>`:               Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
+- `--scale-std=<ss>`:                   Standard deviation of scale across cells. Can be either number, which means absolute value of
+                                        the std, or string ended with '%' to set it relative to scale (default: "25%")
+- `-s, --scale=<s>`:                    Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same
+                                        units as `x` and `y` molecule coordinates. Overrides the config value.
+                                        Sets `estimate-scale-from-centers` to `false`.
+- `--prior-segmentation-confidence=<p>`:    Confidence of the `prior_segmentation` results. Value in [0; 1].
+                                            If you want the final segmentation not contradicting to `prior_segmentation`, set it to 1.
+                                            Otherwise, if you assume errors in prior_segmentation, values in [0.2-0.7] allow
+                                            flexibility for the algorithm. (default: 0.2)
 
-function parse_configs(args::Union{Nothing, Array{String, 1}}=nothing)
-    r = parse_commandline(args)
-    if r === nothing
-        return nothing
-    end
 
-    if r["scale"] !== nothing
-        r["estimate-scale-from-centers"] = false
-    end
+# Flags
 
-    if r["config"] !== nothing
-        extend_params_with_config!(r, parse_toml_config(r["config"]))
-    else
-        @warn "No config file provided. Using default parameters."
-        extend_params_with_config!(r, get_default_config())
-    end
+- `-p, --plot`:             Save pdf with plot of the segmentation
+- `--no-ncv-estimation`:    Turns off neighborhood composition vectors estimation
 
-    for k in ["gene-column", "x-column", "y-column"]
-        if !(k in keys(r)) || (r[k] === nothing) # should never be the case as we have defaults
-            @warn "$k must be specified"
-            return nothing
-        end
-        r[k] = Symbol(r[k])
-    end
+"""
+@cast function run(
+        coordinates::String, prior_segmentation::String="";
+        config::RunOptions=RunOptions(),
+        x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
+        gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
 
-    r["z-column"] = Symbol(r["z-column"])
+        scale::Float64=config.segmentation.scale, scale_std::String=config.segmentation.scale_std,
+        n_clusters::Int=config.segmentation.n_clusters,
+        prior_segmentation_confidence::Float64=config.segmentation.prior_segmentation_confidence,
 
-    if r["prior_segmentation"] === nothing && r["scale"] === nothing
-        @warn "Either `prior_segmentation` or `scale` must be provided."
-        return nothing
-    end
+        # TODO: add save_polygons to the help
+        # TODO: update the part on `nuclei_genes` and `cyto_genes` in the tutorial
+        output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false", no_ncv_estimation::Bool=false,
+    )
 
-    if r["min-molecules-per-segment"] === nothing
-        r["min-molecules-per-segment"] = default_param_value(:min_molecules_per_segment, r["min-molecules-per-cell"])
-    end
+    # Parse options
 
-    if isdir(r["output"]) || isdirpath(r["output"])
-        r["output"] = joinpath(r["output"], "segmentation.csv")
-    end
+    opts = config; # `config` is purely for UI clarity
+    opts.data = from_dict(DataOptions,
+        merge(to_dict(opts.data), Dict(
+            "x" => x_column, "y" => y_column, "z" => z_column, "gene" => gene_column,
+            "min_molecules_per_cell" => min_molecules_per_cell
+        ))
+    )
 
-    if (r["save-polygons"] !== nothing) && (!r["plot"])
-        @warn "--plot option is required for saving polygons (--save-polygons). The polygons will not be saved."
-    end
+    opts.segmentation = from_dict(SegmentationOptions,
+        merge(to_dict(opts.segmentation), Dict(
+            "scale" => scale, "scale_std" => scale_std, "n_clusters" => n_clusters,
+            "prior_segmentation_confidence" => prior_segmentation_confidence
+        ))
+    )
 
-    if xor(r["nuclei-genes"] === nothing, r["cyto-genes"] === nothing)
-        @warn "Only one of `nuclei-genes` and `cyto-genes` is provided. It has to be either both or none."
-        return nothing
-    end
+    opts, output = fill_and_check_options!(opts, prior_segmentation, output)
 
-    if (r["nuclei-genes"] !== nothing) && (r["n-clusters"] > 1)
-        @warn "Setting n-clusters > 1 is not recommended with compartment-specific expression patterns (nuclei- and cyto-genes parameters)."
-    end
+    # Dump run info
 
-    return r
-end
-
-function dump_parameters(args::Dict{String, Any}, args_str::String)
-    if args["config"] !== nothing
-        dump_dst = abspath(append_suffix(args["output"], "config.toml"))
-        if abspath(args["config"]) != dump_dst
-            cp(args["config"], dump_dst, force=true)
-        end
-    end
-
-    open(append_suffix(args["output"], "params.dump"), "w") do f
-        println(f, "# CLI params: `$args_str`")
-        TOML.print(f, Dict(k => (v !== nothing) ? ((typeof(v) === Symbol) ? String(v) : v) : "" for (k,v) in args))
-    end
-end
-
-function load_prior_segmentation!(df_spatial, args::Dict{String, Any})
-    prior_polygons = Matrix{Float64}[]
-    if args["prior_segmentation"] !== nothing
-        prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation!(
-            args["prior_segmentation"], df_spatial, BPR.position_data(df_spatial);
-            min_mols_per_cell=args["min-molecules-per-cell"], min_molecules_per_segment=args["min-molecules-per-segment"]
-        )
-
-        if args["estimate-scale-from-centers"]
-            args["scale"], args["scale-std"] = scale, scale_std
-        end
-
-        if (prior_seg_labels !== nothing) && args["plot"]
-            @info "Estimating prior segmentation polygons..."
-            prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
-            @info "Done"
-        end
-    end
-    GC.gc()
-
-    return prior_polygons
-end
-
-## CLI
-
-function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     Random.seed!(1)
-    args_str = join(args, " ")
-    args = parse_configs(args)
-    (args !== nothing) || return 1
+    dump_parameters(opts, join(ARGS[2:end], " "), output)
 
-    dump_parameters(args, args_str)
-
-    log_file = setup_logger(args["output"], "log.log")
+    log_file = setup_logger(output, "log.log")
 
     @info get_baysor_run_str()
 
-    @info "Loading data..."
-    df_spatial, gene_names = DAT.load_df(args, filter_cols=false)
+    # Load data
 
-    if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = default_param_value(
-            :composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names)
-        )
+    @info "Loading data..."
+    df_spatial, gene_names, n_molecules = DAT.load_df(coordinates, opts.data, filter_cols=false)
+
+    fill_and_check_options!(opts.plotting, opts.data.min_molecules_per_cell, length(gene_names))
+
+    if opts.segmentation.n_cells_init <= 0
+        opts.segmentation.n_cells_init = default_param_value(:n_cells_init, opts.data.min_molecules_per_cell; n_molecules=n_molecules)
     end
 
-    prior_polygons = load_prior_segmentation!(df_spatial, args)
-    BPR.append_confidence!(df_spatial, args)
+    prior_polygons = load_prior_segmentation!(
+        df_spatial, prior_segmentation, opts.segmentation; # it may change scale in opts.segmentation
+        min_molecules_per_cell=opts.data.min_molecules_per_cell,
+        min_molecules_per_segment=opts.data.min_molecules_per_segment, plot=plot
+    )
+
+    # Run segmentation
+
+    @info "Estimating noise level"
+    BPR.append_confidence!(
+        df_spatial; nn_id=opts.data.confidence_nn_id,
+        prior_confidence=opts.segmentation.prior_segmentation_confidence
+    )
+    @info "Done"
 
     (segmented_df, tracer, mol_clusts, comp_segs, poly_joint, cell_stat_df, cm, polygons) = BPR.run_segmentation(
-        df_spatial, gene_names, args
+        df_spatial, gene_names, opts.segmentation; plot_opts=opts.plotting,
+        min_molecules_per_cell=opts.data.min_molecules_per_cell, estimate_ncvs=!no_ncv_estimation, plot=plot,
+        save_polygons=(save_polygons != "false")
     )
 
-    @info "Saving results to $(args["output"])"
+    # Save and plot results
 
-    out_paths = get_output_paths(args["output"])
+    @info "Saving results to $output"
+
+    out_paths = get_output_paths(output)
     DAT.save_segmentation_results(
-        segmented_df, cell_stat_df, cm, polygons, out_paths; poly_format=args["save-polygons"]
+        segmented_df, cell_stat_df, cm, polygons, out_paths; poly_format=save_polygons
     )
 
-    if args["plot"]
+    if plot
         @info "Plotting results"
         REP.plot_segmentation_report(
             segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
             prior_polygons=prior_polygons, polygons=poly_joint,
             diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
-            plot_transcripts=args["estimate-ncvs"],
-            gene_colors=:ncv_color,
-            min_molecules_per_cell=args["min-molecules-per-cell"], min_pixels_per_cell=args["min-pixels-per-cell"]
+            plot_transcripts=!no_ncv_estimation, gene_colors=:ncv_color,
+            min_molecules_per_cell=opts.data.min_molecules_per_cell,
+            min_pixels_per_cell=opts.plotting.min_pixels_per_cell
         )
     end
 
@@ -225,4 +152,63 @@ function run_cli_main(args::Union{Nothing, Array{String, 1}}=nothing)
     close(log_file)
 
     return 0
+end
+
+function fill_and_check_options!(opts::RunOptions, prior_segmentation::String, output::String)
+    fill_and_check_options!(opts.data)
+
+    if opts.segmentation.scale > 0
+        opts.segmentation.estimate_scale_from_centers = false
+    end
+
+    if (prior_segmentation == "") && (opts.segmentation.scale <= 0)
+        cmd_error("Either `prior_segmentation` or `scale` must be provided.")
+    end
+
+    if isdir(output) || isdirpath(output)
+        output = joinpath(output, "segmentation.csv")
+    end
+
+    if xor(isempty(opts.segmentation.nuclei_genes), isempty(opts.segmentation.cyto_genes))
+        cmd_error("Only one of `nuclei-genes` and `cyto-genes` is provided. It has to be either both or none.")
+    end
+
+    if (!isempty(opts.segmentation.nuclei_genes)) && (opts.segmentation.n_clusters > 1)
+        @warn "Setting n-clusters > 1 is not recommended with compartment-specific expression patterns (nuclei- and cyto-genes parameters)."
+    end
+
+    return opts, output
+end
+
+function dump_parameters(options::RunOptions, args_str::String, output::String)
+    open(append_suffix(output, "params.dump.toml"), "w") do f
+        println(f, "# CLI params: `$args_str`")
+        to_toml(f, options)
+    end
+end
+
+function load_prior_segmentation!(
+        df_spatial, prior_segmentation::String, opts::SegmentationOptions;
+        min_molecules_per_cell::Int, min_molecules_per_segment::Int, plot::Bool
+    )
+    prior_polygons = Matrix{Float64}[]
+    if prior_segmentation !== ""
+        prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation!(
+            prior_segmentation, df_spatial, BPR.position_data(df_spatial);
+            min_mols_per_cell=min_molecules_per_cell, min_molecules_per_segment=min_molecules_per_segment
+        )
+
+        if opts.estimate_scale_from_centers
+            opts.scale, opts.scale_std = scale, scale_std
+        end
+
+        if (prior_seg_labels !== nothing) && plot
+            @info "Estimating prior segmentation polygons..."
+            prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+            @info "Done"
+        end
+    end
+    GC.gc()
+
+    return prior_polygons
 end

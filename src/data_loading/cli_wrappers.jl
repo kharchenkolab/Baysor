@@ -94,13 +94,17 @@ function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vec
     end;
 end
 
-function load_df(args::Dict; kwargs...)
-    exc_genes = (args["exclude-genes"] === nothing) ? String[] : String.(strip.(Base.split(args["exclude-genes"], ",")))
+using ..Utils: DataOptions
 
+# function load_df(args::Dict; kwargs...)
+function load_df(coordinates::String, data_opts::DataOptions; kwargs...)
+    exclude_genes = split_string_list(data_opts.exclude_genes)
+
+    # TODO: fix Symbol when Configurations are fixed. Also replace this whole call with `to_dict(data_opts)...`
     df_spatial, gene_names = load_df(
-        args["coordinates"]; x_col=args["x-column"], y_col=args["y-column"], z_col=args["z-column"], gene_col=args["gene-column"],
-        min_molecules_per_gene=args["min-molecules-per-gene"], exclude_genes=exc_genes,
-        drop_z=(("force-2d" in keys(args)) && args["force-2d"]), kwargs...
+        coordinates; x_col=Symbol(data_opts.x), y_col=Symbol(data_opts.y), z_col=Symbol(data_opts.z), gene_col=Symbol(data_opts.gene),
+        min_molecules_per_gene=data_opts.min_molecules_per_gene, exclude_genes=exclude_genes,
+        drop_z=data_opts.force_2d, kwargs...
     )
 
     @info "Loaded $(size(df_spatial, 1)) transcripts"
@@ -109,18 +113,18 @@ function load_df(args::Dict; kwargs...)
         @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
     end
 
-    return df_spatial, gene_names
+    return df_spatial, gene_names, size(df_spatial, 1)
 end
 
 function save_segmentation_results(
         segmented_df::DataFrame, cell_stat_df::DataFrame, cm::DataFrame, polygons::Polygons,
-        out_paths::OutputPaths; poly_format::Union{String, Nothing}
+        out_paths::OutputPaths; poly_format::String
     )
     save_segmented_df(segmented_df, out_paths.segmented_df);
     save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
     save_molecule_counts(cm, out_paths.counts)
 
-    if poly_format !== nothing
+    if poly_format !== "false"
         save_polygons(polygons; format=poly_format, file=out_paths.polygons)
     end
 end

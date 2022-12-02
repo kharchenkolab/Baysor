@@ -112,7 +112,15 @@ function estimate_confidence(df_spatial::DataFrame, prior_assignment::Union{Vect
     return mean_dists, probs[:, 1], d1, d2
 end
 
-function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Nothing}=nothing; nn_id::Int, prior_confidence::Float64=0.5)
+function append_confidence!(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Symbol, Nothing}=:auto; nn_id::Int, prior_confidence::Float64=0.5)
+    if prior_assignment isa Symbol
+        if prior_assignment == :auto
+            prior_assignment = (:prior_segmentation in propertynames(df_spatial)) ? df_spatial.prior_segmentation : nothing
+        else
+            prior_assignment = df_spatial[!, prior_assignment]
+        end
+    end
+
     mean_dists, df_spatial[!,:confidence], d1, d2 = estimate_confidence(df_spatial, prior_assignment, nn_id=nn_id, prior_confidence=prior_confidence)
     return mean_dists, df_spatial[!,:confidence], d1, d2
 end

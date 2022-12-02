@@ -19,6 +19,7 @@ import Distributions.logpdf
 import Statistics.rand
 
 using ..Baysor.Utils
+using ..Baysor.Utils: SegmentationOptions, PlottingOptions
 
 include("utils/utils.jl")
 include("utils/convex_hull.jl")

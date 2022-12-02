@@ -3,67 +3,7 @@ using Statistics
 import Dates
 import LibGit2
 import Pkg
-import Pkg.TOML
 import UUIDs
-
-parse_toml_config(config::T where T <: AbstractString) =
-    parse_toml_config(TOML.parsefile(config))
-
-function get_default_config()
-    return deepcopy(Dict{String, Any}(
-        "Data" => Dict{String, Any}(
-            "x-column" => "x",
-            "y-column" => "y",
-            "z-column" => "z",
-            "gene-column" => "gene",
-            "min-molecules-per-gene" => 1,
-            "min-molecules-per-cell" => 3,
-            "estimate-scale-from-centers" => true,
-            "scale" => nothing,
-            "scale-std" => "25%",
-            "min-molecules-per-segment" => nothing
-        ),
-        "Sampling" => Dict{String, Any}(
-            "new-component-weight" => 0.2,
-            "new-component-fraction" => 0.3
-        ),
-        "Plotting" => Dict{String, Any}(
-            "gene-composition-neigborhood" => nothing,
-            "min-pixels-per-cell" => 15
-        )
-    ))
-end
-
-function parse_toml_config(config::Dict{AS, Any}) where AS <: AbstractString
-    res_config = get_default_config()
-    for (k,v) in config
-        if !(k in keys(res_config))
-            error("Unexpected value in the config: '$k'")
-        end
-
-        cur_def = res_config[k]
-
-        for (k2,v2) in v
-            if !(k2 in keys(cur_def))
-                error("Unexpected value in the config: '$k' -> '$k2'")
-            end
-
-            cur_def[k2] = v2
-        end
-    end
-
-    return res_config
-end
-
-function extend_params_with_config!(params::Dict, config::Dict)
-    for sub_cfg in values(config)
-        for (k, v) in sub_cfg
-            if !(k in keys(params)) || params[k] === nothing
-                params[k] = v
-            end
-        end
-    end
-end
 
 function default_param_value(param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
                              n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing)
@@ -121,47 +61,26 @@ function get_baysor_run_str()::String
     return "($(Dates.Date(Dates.now()))) Run Baysor $pkg_str"
 end
 
-run_cli(args::String) = run_cli(String.(Base.split(args)))
+function fill_and_check_options!(opts::DataOptions)
+    opts.min_molecules_per_cell > 0 || cmd_error("`min_molecules_per_cell` must be positive")
 
-function run_cli(args::Vector{String}=ARGS)::Cint
-    help_message = "Usage: baysor <command> [options]\n\nCommands:\n\trun\t\trun segmentation of the dataset\n\tpreview\t\tgenerate preview diagnostics of the dataset\n"
-
-    debug = false
-    if "--debug" in args
-        args = args[args .!= "--debug"]
-        debug = true
+    if opts.min_molecules_per_segment == 0
+        opts.min_molecules_per_segment = default_param_value(:min_molecules_per_segment, opts.min_molecules_per_cell)
     end
 
-    try
-        if (length(args) == 0) || (length(args) == 1) && (args[1] == "-h" || args[1] == "--help")
-            println(help_message)
-            return 0
-        end
-
-        if args[1] == "run"
-            return run_cli_main(args[2:end])
-        end
-
-        if args[1] == "preview"
-            return run_cli_preview(args[2:end])
-        end
-
-        if args[1] == "segfree"
-            return run_cli_segfree(args[2:end])
-        end
-
-        @error "Can't parse argument $(args[1])"
-        println(help_message)
-        return 1
-    catch err
-        if debug
-            rethrow()
-        else
-            @error("$err\n\n" * join(["$s" for s in stacktrace(catch_backtrace())], "\n"))
-        end
+    if opts.confidence_nn_id == 0
+        opts.confidence_nn_id = default_param_value(:confidence_nn_id, opts.min_molecules_per_cell)
     end
 
-    return 2
+    return opts
 end
 
-julia_main()::Cint = run_cli()
+function fill_and_check_options!(opts::PlottingOptions, min_molecules_per_cell::Int, n_genes::Int)
+    if opts.gene_composition_neigborhood <= 0
+        opts.gene_composition_neigborhood = default_param_value(
+            :composition_neighborhood, min_molecules_per_cell, n_genes=n_genes
+        )
+    end
+
+    return opts
+end

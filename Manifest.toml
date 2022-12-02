@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.8.2"
+julia_version = "1.8.3"
 manifest_format = "2.0"
-project_hash = "99e2bed236fd4133fc185b91659e434836a57747"
+project_hash = "51fd6be42e9dbaeb63e359dc68865adab4dcf058"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -179,6 +179,14 @@ git-tree-sha1 = "7b8a93dba8af7e3b42fecabf646260105ac373f7"
 uuid = "bbf7d656-a473-5ed7-a52c-81e309532950"
 version = "0.3.0"
 
+[[deps.Comonicon]]
+deps = ["Configurations", "ExproniconLite", "Libdl", "Logging", "Markdown", "OrderedCollections", "PackageCompiler", "Pkg", "Scratch", "TOML", "UUIDs"]
+git-tree-sha1 = "d017fe29d86bcd177fc677dc5fb4a9615eda61df"
+repo-rev = "dev"
+repo-url = "https://github.com/VPetukhov/Comonicon.jl.git"
+uuid = "863f3e99-da2a-4334-8734-de3dacbe5542"
+version = "1.0.0"
+
 [[deps.Compat]]
 deps = ["Base64", "Dates", "DelimitedFiles", "Distributed", "InteractiveUtils", "LibGit2", "Libdl", "LinearAlgebra", "Markdown", "Mmap", "Pkg", "Printf", "REPL", "Random", "SHA", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "Test", "UUIDs", "Unicode"]
 git-tree-sha1 = "9be8be1d8a6f44b96482c8af52238ea7987da3e3"
@@ -189,6 +197,12 @@ version = "3.45.0"
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "0.5.2+0"
+
+[[deps.Configurations]]
+deps = ["ExproniconLite", "OrderedCollections", "TOML"]
+git-tree-sha1 = "62a7c76dbad02fdfdaa53608104edf760938c4ca"
+uuid = "5218b696-f38b-4ac9-8b61-a12ec717816d"
+version = "0.17.4"
 
 [[deps.ConstructionBase]]
 deps = ["LinearAlgebra"]
@@ -305,6 +319,11 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "bad72f730e9e91c08d9427d5e8db95478a3c323d"
 uuid = "2e619515-83b5-522b-bb60-26c02a35a201"
 version = "2.4.8+0"
+
+[[deps.ExproniconLite]]
+git-tree-sha1 = "2321c9c5a07c2658484dacf8e68e3cd8e2470d5d"
+uuid = "55351af7-c7e9-48d6-89ff-24e801d99491"
+version = "0.7.6"
 
 [[deps.FFMPEG]]
 deps = ["FFMPEG_jll"]
@@ -974,6 +993,12 @@ deps = ["Base64", "CEnum", "ImageCore", "IndirectArrays", "OffsetArrays", "libpn
 git-tree-sha1 = "e925a64b8585aa9f4e3047b8d2cdc3f0e79fd4e4"
 uuid = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
 version = "0.3.16"
+
+[[deps.PackageCompiler]]
+deps = ["Artifacts", "LazyArtifacts", "Libdl", "Pkg", "Printf", "RelocatableFolders", "TOML", "UUIDs"]
+git-tree-sha1 = "4a34377fc0f0dd5ad63ed194fbac52aec1944de0"
+uuid = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
+version = "2.1.1"
 
 [[deps.Packing]]
 deps = ["GeometryBasics"]
