@@ -14,7 +14,7 @@ Run cell segmentation
 
 # Options
 
-- `-c, --config=<config.toml>`:         TOML file with config
+- `-c, --config=<config.toml>`:         TOML file with a config
 - `-x, --x-column=<x>`:                 Name of x column. Overrides the config value.
 - `-y, --y-column=<y>`:                 Name of y column. Overrides the config value.
 - `-z, --z-column=<z>`:                 Name of z column. Overrides the config value.

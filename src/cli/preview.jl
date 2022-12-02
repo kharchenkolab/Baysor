@@ -1,109 +1,78 @@
 using Statistics
 
-function parse_preview_commandline(args::Union{Nothing, Array{String, 1}}=nothing)
-    s = ArgParseSettings(prog="baysor preview")
-    @add_arg_table! s begin
-        "--config", "-c"
-            help = "TOML file with config"
-        "--x-column", "-x"
-            help = "Name of x column. Overrides the config value."
-        "--y-column", "-y"
-            help = "Name of gene column. Overrides the config value."
-        "--z-column", "-z"
-            help = "Name of gene column. Overrides the config value."
-        "--gene-column", "-g"
-            help = "Name of gene column. Overrides the config value."
-        "--min-molecules-per-cell", "-m"
-            help = "Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Overrides the config value."
-            arg_type = Int
-        "--min-pixels-per-cell"
-            help = "Minimal number of pixels per cell. Used to estimate size of the dataset plot."
-            arg_type = Int
-            default = 15
-        "--gene-composition-neigborhood"
-            help = "Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell"
-            arg_type = Int
-        "--exclude-genes"
-            help = "Comma-separated list of genes to ignore during segmentation"
-        "--output", "-o"
-            help = "Name of the output file or path to the output directory"
-            default = "preview.html"
-        "coordinates"
-            help = "CSV file with coordinates of transcripts and gene type"
-            required = true
-        # TODO: add verbosity level
+"""
+Plot an html with the dataset preview.
+
+# Args
+
+- `coordinates`:            CSV file with coordinates of molecules and gene type
+
+# Options
+
+- `-c, --config=<config.toml>`:         TOML file with a config. The function uses `[data]` and `[plotting]` sections.
+- `-x, --x-column=<x>`:                 Name of x column. Overrides the config value.
+- `-y, --y-column=<y>`:                 Name of y column. Overrides the config value.
+- `-z, --z-column=<z>`:                 Name of z column. Overrides the config value.
+- `-g, --gene-column=<gene>`:           Name of gene column. Overrides the config value.
+- `-m, --min-molecules-per-cell=<m>`:   Minimal number of molecules for a cell to be considered as real.
+                                        It's an important parameter, as it's used to infer several other parameters.
+                                        Overrides the config value.
+- `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "preview.html")
+"""
+@cast function preview(
+        coordinates::String; config::RunOptions=RunOptions(),
+        x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
+        gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
+        output::String="preview.html"
+    )
+    # Parse options
+
+    opts = config;
+    opts.data = from_dict(DataOptions,
+        merge(to_dict(opts.data), Dict(
+            "x" => x_column, "y" => y_column, "z" => z_column, "gene" => gene_column,
+            "min_molecules_per_cell" => min_molecules_per_cell
+        ))
+    )
+
+    fill_and_check_options!(opts.data)
+    if isdir(output) || isdirpath(output)
+        output = joinpath(output, "preview.html")
     end
 
-    return (args === nothing) ? parse_args(s) : parse_args(args, s)
-end
-
-function parse_preview_configs(args::Union{Nothing, Array{String, 1}}=nothing)
-    r = parse_preview_commandline(args)
-    if r === nothing
-        return nothing
-    end
-
-    if r["config"] !== nothing
-        extend_params_with_config!(r, parse_toml_config(r["config"]))
-    else
-        extend_params_with_config!(r, get_default_config())
-    end
-
-    for k in ["gene-column", "x-column", "y-column", "z-column"]
-        r[k] = Symbol(r[k])
-    end
-
-    if isdir(r["output"]) || isdirpath(r["output"])
-        r["output"] = joinpath(r["output"], "preview.html")
-    end
-
-    return r
-end
-
-function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     Random.seed!(1)
-    args_str = join(args, " ")
-    args = parse_preview_configs(args)
-    (args !== nothing) || return 1
+    log_file = setup_logger(output, "preview_log.log")
 
-    log_file = setup_logger(args["output"], "preview_log.log")
-
-    @info "# CLI params: `$args_str`"
+    @info "# CLI params: `$(join(ARGS[2:end], " "))`"
     @info get_baysor_run_str()
 
-    # Run preview
+    # Estimate preview
 
     @info "Loading data..."
-    args["min-molecules-per-gene"] = 0
-    df_spatial, gene_names = DAT.load_df(args)
+    df_spatial, gene_names = DAT.load_df(coordinates, opts.data)
 
     @info "Estimating noise level"
-    confidence_nn_id = default_param_value(:confidence_nn_id, args["min-molecules-per-cell"])
-    edge_lengths, confidences, d1, d2 = BPR.append_confidence!(df_spatial, nn_id=confidence_nn_id) # TODO: use segmentation mask if available here
+    # TODO: use segmentation mask if available here
+    edge_lengths, confidences, d1, d2 = BPR.append_confidence!(df_spatial, nn_id=opts.data.confidence_nn_id)
     @info "Done"
 
     @info "Estimating local colors"
 
-    if args["gene-composition-neigborhood"] === nothing
-        args["gene-composition-neigborhood"] = default_param_value(
-            :composition_neighborhood, args["min-molecules-per-cell"], n_genes=length(gene_names)
-        )
-    end
+    fill_and_check_options!(opts.plotting, opts.data.min_molecules_per_cell, length(gene_names))
+    gene_colors = BPR.gene_composition_colors(df_spatial, opts.plotting.gene_composition_neigborhood)
 
-    gene_colors = BPR.gene_composition_colors(df_spatial, args["gene-composition-neigborhood"])
-
-    ## Plot
+    # Prepare plots
 
     @info "Building transcript plots"
     gc_plot = REP.plot_dataset_colors(
-        df_spatial, gene_colors; min_molecules_per_cell=args["min-molecules-per-cell"],
-        min_pixels_per_cell=args["min-pixels-per-cell"], title="Local expression similarity"
+        df_spatial, gene_colors; min_molecules_per_cell=opts.data.min_molecules_per_cell,
+        min_pixels_per_cell=opts.plotting.min_pixels_per_cell, title="Local expression similarity"
     )
 
     conf_colors = REP.map_to_colors(confidences, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
     cc_plot = REP.plot_dataset_colors(
-        df_spatial, conf_colors[:colors]; min_molecules_per_cell=args["min-molecules-per-cell"],
-        min_pixels_per_cell=args["min-pixels-per-cell"], title="Transcript confidence"
+        df_spatial, conf_colors[:colors]; min_molecules_per_cell=opts.data.min_molecules_per_cell,
+        min_pixels_per_cell=opts.plotting.min_pixels_per_cell, title="Transcript confidence"
     )
 
     @info "Building gene structure plot"
@@ -112,11 +81,15 @@ function run_cli_preview(args::Union{Nothing, Array{String, 1}}=nothing)
     gene_emb = BPR.estimate_gene_structure_embedding(df_spatial, gene_names)
     vega_plots["vg_gene_structure"] = REP.plot_gene_structure(gene_emb)
     vega_plots["vg_num_trans"] = REP.plot_num_transcript_overview(df_spatial, confidences, gene_names)
-    vega_plots["vg_noise_dist"] = REP.plot_noise_estimation_diagnostics(edge_lengths, confidences, d1, d2, confidence_nn_id=confidence_nn_id)
+    vega_plots["vg_noise_dist"] = REP.plot_noise_estimation_diagnostics(
+        edge_lengths, confidences, d1, d2, confidence_nn_id=opts.data.confidence_nn_id
+    )
+
+    # Save plots
 
     @info "Plotting"
 
-    open(args["output"], "w") do io
+    open(output, "w") do io
         print(io, """
             <!DOCTYPE html>
             <html>
