@@ -19,8 +19,8 @@ include("logging.jl")
 
 include("common.jl")
 include("main.jl")
-# include("preview.jl")
-# include("segfree.jl")
+include("preview.jl")
+include("segfree.jl")
 
 @main
 
