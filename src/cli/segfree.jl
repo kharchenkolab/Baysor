@@ -1,4 +1,3 @@
-using ArgParse
 using Statistics
 
 """
@@ -24,7 +23,8 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "ncvs.loom")
 """
 @cast function segfree(
-        coordinates::String; config::RunOptions=RunOptions(),
+        coordinates::String;
+        config::RunOptions=RunOptions(),
         k_neighbors::Int=0,
         # ncvs_to_save::Int=0, # TODO: uncomment and use it in the code
         x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,

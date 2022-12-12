@@ -1,0 +1,11 @@
+name = "baysor"
+
+[install]
+completion = false # enabling it will break compilation, as completions don't support submodules
+quiet = false
+optimize = 2
+
+[sysimg]
+
+[sysimg.precompile]
+execution_file = ["deps/precompile.jl"]

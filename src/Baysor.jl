@@ -12,6 +12,7 @@ module Baysor
 
 include("LazySubmodules.jl")
 using .LazySubmodules
+Baysor.LazySubmodules.__init__() # Somehow without it __init__ is only called after all @lazy_submodule macroses
 
 # Utils: Minimal functions with zero compilation time shared across submodules
 include("utils/Utils.jl")
@@ -26,6 +27,8 @@ include("utils/Utils.jl")
 @lazy_submodule BPR = "processing/Processing.jl"
 
 # CLI: minimal CLI code required for fast responsive CLI
-CLI = include("cli/CLI.jl")
+@lazy_submodule CLI = "cli/CLI.jl"
+
+command_main(args...; kwargs...) = CLI.command_main(args...; kwargs...)
 
 end # module

@@ -20,7 +20,8 @@ Plot an html with the dataset preview.
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "preview.html")
 """
 @cast function preview(
-        coordinates::String; config::RunOptions=RunOptions(),
+        coordinates::String;
+        config::RunOptions=RunOptions(),
         x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
         gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
         output::String="preview.html"
