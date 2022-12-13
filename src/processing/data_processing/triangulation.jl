@@ -22,8 +22,11 @@ getx(p::IndexedPoint2D) = p._x
 gety(p::IndexedPoint2D) = p._y
 geti(p::IndexedPoint2D) = p._index
 
-function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float64=2.0, k_adj::Int=5,
-        adjacency_type::Symbol=:triangulation, distance::TD where TD <: Distances.SemiMetric = Euclidean())
+function adjacency_list(
+        points::Matrix{<:Real}; filter::Bool=true, n_mads::Float64=2.0, k_adj::Int=5,
+        adjacency_type::Symbol=:triangulation, distance::TD where TD <: Distances.SemiMetric = Euclidean(),
+        return_tesselation::Bool=false
+    )
     if size(points, 1) == 3
         (adjacency_type == :knn) || @warn "Only k-nn random field is supported for 3D data"
         adjacency_type = :knn
@@ -53,6 +56,8 @@ function adjacency_list(points::Matrix{<:Real}; filter::Bool=true, n_mads::Float
 
         tess = VD.DelaunayTessellation2D(length(points_g), IndexedPoint2D());
         push!(tess, points_g);
+
+        return_tesselation && return (tess, points_g)
 
         edge_list = hcat([geti.([VD.geta(v), VD.getb(v)]) for v in VD.delaunayedges(tess)]...);
     end

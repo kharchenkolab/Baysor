@@ -139,7 +139,7 @@ Run cell segmentation
         @info "Plotting results"
         REP.plot_segmentation_report(
             segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
-            prior_polygons=prior_polygons, polygons=poly_joint,
+            prior_polygons=prior_polygons, polygons=collect(values(poly_joint)),
             diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
             plot_transcripts=!no_ncv_estimation, gene_colors=:ncv_color,
             min_molecules_per_cell=opts.data.min_molecules_per_cell,
@@ -204,7 +204,7 @@ function load_prior_segmentation!(
 
         if (prior_seg_labels !== nothing) && plot
             @info "Estimating prior segmentation polygons..."
-            prior_polygons = BPR.extract_polygons_from_label_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+            prior_polygons = BPR.boundary_polygons_from_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
             @info "Done"
         end
     end

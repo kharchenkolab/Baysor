@@ -1,8 +1,13 @@
 ## [Upcoming]
 
+### Changed
+
 - Breaking changes in config file structure
 - Greatly improved responsiveness of the CLI
 - Major refactoring of the code
+- Faster and more precise algorithm for estimating boundary polygons. Now each cell has exactly one polygon in the output GeoJSON.
+    - *For method details see [Awrangjeb, 2015](https://doi.org/10.1109/IVCNZ.2015.7761536), it's pretty similar.*
+    - *Closes [#15](https://github.com/kharchenkolab/Baysor/issues/15) and [#41](https://github.com/kharchenkolab/Baysor/issues/41), potentially also [#32](https://github.com/kharchenkolab/Baysor/issues/32) and [#37](https://github.com/kharchenkolab/Baysor/issues/37).*
 
 ## [0.5.2] — 2022-06-29
 

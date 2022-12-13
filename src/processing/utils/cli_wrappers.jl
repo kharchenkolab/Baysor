@@ -80,8 +80,7 @@ function run_segmentation(
     poly_joint, polygons = nothing, nothing
     if save_polygons || (plot && estimate_ncvs)
         poly_joint, polygons = boundary_polygons_auto(
-            position_data(bm_data), bm_data.assignment; scale=opts.scale, min_pixels_per_cell=plot_opts.min_pixels_per_cell,
-            estimate_per_z=save_polygons
+            position_data(bm_data), bm_data.assignment; estimate_per_z=save_polygons
         )
     end
 

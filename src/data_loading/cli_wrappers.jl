@@ -1,7 +1,7 @@
 import HDF5
 import JSON
 
-Polygons = Union{Vector{Matrix{T}}, Dict{String, Vector{Matrix{T}}}} where T <: Real
+Polygons = Union{Dict{Int, Matrix{T}}, Dict{String, Dict{Int, Matrix{T}}}} where T <: Real
 
 function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int, min_mols_per_cell::Int)
     try
@@ -48,12 +48,12 @@ function save_molecule_counts(counts::DataFrame, file::String)
 end
 
 
-function polygons_to_geojson(polygons::Vector{Matrix{T}}) where T <:Real
-    geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))]) for p in polygons]
+function polygons_to_geojson(polygons::Dict{Int, Matrix{T}} where T <: Real)
+    geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))], "cell" => c) for (c,p) in polygons]
     return Dict("type" => "GeometryCollection", "geometries" => geoms);
 end
 
-polygons_to_geojson(polygons::Dict{String, Vector{Matrix{T}}}) where T <:Real =
+polygons_to_geojson(polygons::Dict{String, Dict{Int, Matrix{T}}}) where T <:Real =
     [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
 
 function save_polygons_to_geojson(polygons::Polygons, file::String)
