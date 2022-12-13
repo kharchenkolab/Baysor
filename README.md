@@ -10,13 +10,13 @@
 - [Installation](#installation)
   - [Binary download](#binary-download)
   - [Install as a Julia package](#install-as-a-julia-package)
-  - [Build CLI application from source](#build-cli-application-from-source)
   - [Docker](#docker)
 - [Run](#run)
   - [Dataset preview](#dataset-preview)
   - [Full run](#full-run)
     - [Normal run](#normal-run)
     - [Using a prior segmentation](#using-a-prior-segmentation)
+      - [Segmenting stains](#segmenting-stains)
     - [Segmenting cells with pronounced intracellular structure](#segmenting-cells-with-pronounced-intracellular-structure)
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
@@ -44,31 +44,15 @@ The easiest way to install Baysor on Linux or MacOS is to download a binary from
 
 ### Install as a Julia package
 
-To install Baysor as a Julia package run the following code:
+If you need to install julia, [`juliaup`](https://github.com/julialang/juliaup#installation) is a recommended way. It's cross-platform and doesn't require admin privileges. *TL;DR: `curl -fsSL https://install.julialang.org | sh`* .
 
-```julia
-using Pkg
-Pkg.add([PackageSpec(name="UMAP", rev="master"), PackageSpec(url="https://github.com/kharchenkolab/Baysor.git")])
-import Baysor
-```
-
-After that you can create Baysor executable by running
+To install Baysor as a Julia package run the following command from your CLI *(it requires `gcc` or `clang` installed)*:
 
 ```bash
-printf "#! /usr/bin/env julia\nimport Baysor: run_cli\nrun_cli()" >> baysor && chmod +x baysor
+julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git")); Pkg.build()'
 ```
 
-### Build CLI application from source
-
-This method requires a linux installation with `git`, `gcc`, `wget` and `make` tools installed. Then, to build the command-line tool without a julia installation, you need to clone this package and run the Makefile:
-
-```bash
-git clone https://github.com/kharchenkolab/Baysor.git
-cd Baysor/bin
-make
-```
-
-The command takes ~10 minutes to complete. It creates executable file `./Baysor/bin/baysor`, which can be used for spatial data segmentation.
+It will install all dependencies, compile the package and create an executable in `~/.julia/bin/baysor`. *This executable can be moved to any other place if you need it.*
 
 ### Docker
 
@@ -90,8 +74,6 @@ docker build .
 You can find more info about dockers at [Docker Cheat Sheet](https://github.com/wsargent/docker-cheat-sheet).
 
 ## Run
-
-**NOTE:** The tool is in the beta-version now, so some parameters and functionality can be changed in the future. Please, report any problems and suggestions to Issues.
 
 ### Dataset preview
 
@@ -205,7 +187,7 @@ Some other sensitive parameters (normally, shouldn't be changed):
 
 Run parameters:
 
-- `num-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
+- `n_cells_init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
 - `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
 
 
