@@ -109,6 +109,12 @@ end
             end
         end
 
+        @testset "boundary" begin
+            @test all(BPR.border_edges_to_poly([[1, 1]]) .== [1, 1])
+            @test all(BPR.border_edges_to_poly([[1, 2], [2, 1]]) .== [2, 1, 2])
+            @test all(BPR.border_edges_to_poly([[1, 2], [3, 1], [2, 3]]) .== [2, 3, 1, 2])
+        end
+
         @testset "parse_parameters" begin
             @test BPR.parse_scale_std("23.55%", 121.0) ≈ 121.0 * 0.2355
             @test BPR.parse_scale_std(33.87, 121.0) ≈ 33.87
