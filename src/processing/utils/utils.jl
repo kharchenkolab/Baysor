@@ -1,5 +1,17 @@
-estimate_density_kde(coords::Matrix{Float64}, points::Matrix{Float64}, bandwidth::T where T <: Real)::Vector{Float64} =
-    KDE.InterpKDE(KDE.kde((coords[1,:], coords[2,:]), bandwidth=(Float64(bandwidth), Float64(bandwidth)))).itp.(points[1,:], points[2,:])
+using SparseArrays
+using Base.Threads
+using NearestNeighbors: KDTree, knn
+
+function knn_parallel(nn_tree::KDTree, x::AbstractMatrix{<:Real}, nn_interpolate::Int)
+    indices = Vector{Vector{Int}}(undef, size(x, 2))
+    distances = Vector{Vector{eltype(eltype(nn_tree.data))}}(undef, size(x, 2))
+
+    @threads for i in axes(x, 2)
+        indices[i], distances[i] = knn(nn_tree, x[:, i], nn_interpolate)
+    end
+
+    return indices, distances
+end
 
 function prob_array(values::Union{Array{Int, 1}, SubArray{Int,1}}; max_value::Union{Int, Nothing}=nothing, smooth::Float64=0.0)
     if max_value === nothing
@@ -25,6 +37,56 @@ function prob_array!(counts::Union{Array{Float64, 1}, SubArray{Float64,1}}, valu
     return counts
 end
 
+struct PseudoWeight end;
+Base.getindex(::PseudoWeight, i::Int) = 1
+is_provided(::PseudoWeight) = false
+is_provided(::Vector) = true
+
+count_array_sparse(values::Vector{Int}, ::Nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
+count_array_sparse(values::Vector{Int}, weights::Vector{Float64}; kwargs...) =
+    count_array_sparse(Float64, values, weights; kwargs...)
+
+function count_array_sparse(
+        T::DataType, values::Vector{Int}, weights::Union{Vector{Float64}, PseudoWeight}=PseudoWeight();
+        total::Int=0, min_val::Float64=1e-5, normalize::Bool=false
+    )
+    !isempty(values) || return spzeros(T, total)
+
+    if total <= 0
+        total = maximum(values)
+    end
+
+    indices = Int[]
+    counts = T[]
+
+    last_id = values[1]
+    cnt = 0
+    id = 0
+    for i in sortperm(values)
+        id = values[i]
+        if id != last_id
+            if cnt > min_val
+                push!(counts, cnt)
+                push!(indices, last_id)
+            end
+            cnt = 0
+            last_id = id
+        end
+        cnt += weights[i]
+    end
+
+    if cnt > min_val
+        push!(counts, cnt)
+        push!(indices, id)
+    end
+
+    if normalize
+        counts = counts ./ sum(counts)
+    end
+
+    return SparseVector(total, indices, counts)
+end
+
 function split(vector::T where T <: AbstractVector; n_parts::Int)
     offset = ceil(Int, length(vector) / n_parts)
     return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]
@@ -37,7 +99,7 @@ function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: Ab
     end
 
     splitted = [TV[] for i in 1:max_factor]
-    for i in 1:length(array)
+    for i in eachindex(array)
         if drop_zero && factor[i] == 0
             continue
         end
@@ -102,7 +164,7 @@ end
 
 @inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
 
-function wmean(values::Vector{Float64}, weights::T where T <: AbstractVector{Float64}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
+function wmean(values::Vector{<:Real}, weights::T where T <: AbstractVector{<:Real}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
     s, ws = 0.0, 0.0
     for i in non_zero_ids
         s += values[i] * weights[i]

@@ -2,6 +2,7 @@ using Distances
 using UMAP
 using NearestNeighbors
 using Statistics
+using Base.Threads
 
 import MultivariateStats
 import MultivariateStats.transform
@@ -10,28 +11,29 @@ import MultivariateStats.fit
 struct UmapFit{TT <: NNTree}
     embedding::Matrix{<:Real};
     nn_tree::TT;
-    pca_transform::MultivariateStats.PCA;
     nn_interpolate::Int;
 end
 
-function fit(::Type{UmapFit}, x::Array{Float64, 2}, pca::MultivariateStats.PCA; n_components::Int=2, nn_interpolate::Int=5,
-        spread=2.0, min_dist=0.1, metric::MT where MT <: NearestNeighbors.MinkowskiMetric = Euclidean(), kwargs...)::UmapFit
-    x_pc = transform(pca, x)
-    nn_tree = KDTree(x_pc, metric)
-    embedding = umap(x_pc, n_components; spread=spread, min_dist=min_dist, metric=metric, kwargs...)
+function fit(
+        ::Type{UmapFit}, x::Matrix{<:Real}; n_components::Int=2, nn_interpolate::Int=5,
+        spread=2.0, min_dist=0.1, metric::MT where MT <: NearestNeighbors.MinkowskiMetric = Euclidean(), kwargs...
+    )
+    nn_tree = KDTree(x, metric)
+    embedding = umap(x, n_components; spread=spread, min_dist=min_dist, metric=metric, kwargs...)
 
-    return UmapFit(embedding, nn_tree, pca, nn_interpolate)
+    return UmapFit(embedding, nn_tree, nn_interpolate)
 end
 
-fit(::Type{UmapFit}, x::Matrix{Float64}; n_pcs::Int=15, kwargs...)::UmapFit =
-    fit(UmapFit, x, fit(MultivariateStats.PCA, x, maxoutdim=n_pcs); kwargs...)
-
-function transform(transformation::UmapFit, x::Matrix{Float64}; dist_offset::Float64=1e-10)::Matrix{Float64}
-    x_pc = transform(transformation.pca_transform, x)
-
+function transform(transformation::UmapFit, x::AbstractMatrix{<:Real}; dist_offset::Float64=1e-10)
     # This transformation is much faster than the implementation from UMAP.jl, even for input dimensionality = 50.
     # Probably, because of the slow NearestNeighborDescent package.
-    indices, distances = knn(transformation.nn_tree, x_pc, transformation.nn_interpolate)
-    res = [mapslices(v -> wmean(v, 1 ./ (dists .+ dist_offset)), transformation.embedding[:, ids], dims=2) for (ids, dists) in zip(indices, distances)]
-    return hcat(res...)
+    indices, distances = knn_parallel(transformation.nn_tree, x, transformation.nn_interpolate)
+    res = zeros(eltype(transformation.embedding), 3, size(indices, 1))
+    @threads for oi in axes(res, 2)
+        for di in axes(res, 1)
+            res[di,oi] = wmean(transformation.embedding[di, indices[oi]], 1 ./ (distances[oi] .+ dist_offset))
+        end
+    end
+
+    return res
 end

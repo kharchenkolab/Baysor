@@ -21,6 +21,9 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
                                         It's an important parameter, as it's used to infer several other parameters.
                                         Overrides the config value.
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "ncvs.loom")
+- `--ncv-method=<method>`:               Method for PCA estimation for NCV dimensionality reduction. Possible values: `dense`, `sparse`, `auto`.
+                                        `dense` method can provide better results, but takes much more memory.
+                                        (default: `auto`, i.e. `dense` for small datasets and `sparse` for large ones)
 """
 @cast function segfree(
         coordinates::String;
@@ -29,7 +32,7 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
         # ncvs_to_save::Int=0, # TODO: uncomment and use it in the code
         x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
         gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
-        output::String="ncvs.loom"
+        output::String="ncvs.loom", ncv_method::Symbol=:auto
     )
     opts = config.data;
     opts = from_dict(DataOptions,
@@ -69,14 +72,15 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
     confidences = BPR.estimate_confidence(df_spatial, nn_id=opts.confidence_nn_id)[2]
 
     @info "Estimating gene colors..."
-    transformation = BPR.gene_composition_transformation(neighb_cm, confidences)
-    gene_colors = BPR.gene_composition_colors(neighb_cm, transformation)
-    gene_colors = "#" .* Colors.hex.(gene_colors)
+
+    pca = BPR.gene_pca(neighb_cm, k; method=ncv_method)[1]
+    col_emb = BPR.gene_composition_color_embedding(pca, confidences)
+    gene_colors = BPR.embedding_to_hex(col_emb)
 
     @info "Saving results..."
     DAT.save_matrix_to_loom(
         neighb_cm; gene_names=gene_names, cell_names=["$run_id-$i" for i in 1:size(neighb_cm, 1)],
-        col_attrs=Dict("ncv_color" => gene_colors), file_path=output
+        col_attrs=Dict("ncv_color" => gene_colors, "confidence" => confidences), file_path=output
     )
 
     @info "Done!"

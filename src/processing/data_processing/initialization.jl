@@ -174,7 +174,11 @@ end
 # Utils
 
 # This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
-function select_ids_uniformly(vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}}, confidence::Union{Vector{Float64}, Nothing}=nothing; n::Int, confidence_threshold::Float64=0.95)::Vector{Int}
+function select_ids_uniformly(
+        vals::Union{Vector{<:Real}, <:AbstractMatrix{<:Real}},
+        confidence::Union{Vector{Float64}, Nothing}=nothing;
+        n::Int, confidence_threshold::Float64=0.95
+    )::Vector{Int}
     if n <= 1
         error("n must be > 1")
     end
