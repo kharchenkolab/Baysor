@@ -1,5 +1,7 @@
 import HDF5
 import JSON
+import LinearAlgebra: Adjoint
+using ProgressMeter
 
 Polygons = Union{Dict{Int, Matrix{T}}, Dict{String, Dict{Int, Matrix{T}}}} where T <: Real
 
@@ -70,16 +72,46 @@ function save_polygons(polygons::Polygons; format::String, file::String)
     end
 end
 
-function save_matrix_to_loom(matrix; gene_names::Vector{String}, cell_names::Vector{String}, file_path::String,
-        row_attrs::Union{Dict{String, T1}, Nothing} where T1=nothing, col_attrs::Union{Dict{String, T2}, Nothing} where T2=nothing)
+function save_matrix_to_loom!(matrix::AbstractMatrix{<:Real}, fid::HDF5.File; chunk=min.(size(matrix), 64), compress::Int=3)
+    fid["matrix", chunk=chunk, compress=compress] = matrix
+end
+
+function save_matrix_to_loom!(
+        matrix::Union{Adjoint{T, SparseMatrixCSC{T, T2}}, SparseMatrixCSC{T, T2}} where T<:Real where T2 <: Real, fid::HDF5.File;
+        chunk=min.(size(matrix), 64), compress::Int=3
+    )
+    HDF5.create_dataset(
+        fid,
+        "matrix",
+        eltype(matrix),
+        size(matrix);
+        chunk=chunk,
+        filters=[HDF5.Filters.Shuffle(), HDF5.Filters.Deflate(compress)]
+    )
+
+    # @showprogress for (r,c,v) in collect(zip(findnz(SparseMatrixCSC(matrix))...))
+    #     fid["matrix"][r, c] = v
+    # end
+    @showprogress for (i,c) in enumerate(eachcol(SparseMatrixCSC(matrix')))
+        fid["matrix"][i,:] = c
+    end
+end
+
+function save_matrix_to_loom(
+        matrix::AbstractMatrix{<:Real}; gene_names::Vector{String}, cell_names::Vector{String}, file_path::String,
+        row_attrs::Union{Dict{String, T1}, Nothing} where T1=nothing, col_attrs::Union{Dict{String, T2}, Nothing} where T2=nothing,
+        kwargs...
+    )
     # Specification: https://linnarssonlab.org/loompy/format/index.html
     HDF5.h5open(file_path, "w") do fid
-        fid["matrix", chunk=(64,64), compress=3] = matrix
+        save_matrix_to_loom!(matrix, fid; kwargs...)
         HDF5.create_group(fid, "row_attrs")
         HDF5.create_group(fid, "col_attrs")
         HDF5.create_group(fid, "attrs")
+        fid["attrs"]["LOOM_SPEC_VERSION"] = "3.0.0"
         fid["row_attrs"]["Name"] = gene_names
-        fid["col_attrs"]["CellID"] = cell_names
+        fid["col_attrs"]["CellID"] = Float64.(1:length(cell_names))
+        fid["col_attrs"]["Name"] = cell_names
         if row_attrs !== nothing
             for (k,v) in row_attrs
                 fid["row_attrs"][k] = v
