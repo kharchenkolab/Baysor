@@ -137,9 +137,9 @@ function gene_composition_colors!(embedding::AbstractMatrix{<:Real}; kwargs...)
 end
 
 # It's used in preview.jl:62 and cli_wrappers.jl:76
-function gene_composition_colors(df_spatial::DataFrame, k::Int; method::Symbol=:auto, kwargs...)
+function gene_composition_colors(df_spatial::DataFrame, k::Int; method::Symbol=:auto, n_pcs::Int=20, kwargs...)
     neighb_cm = neighborhood_count_matrix(df_spatial, k);
-    pca = gene_pca(neighb_cm, k; method)[1];
+    pca = gene_pca(neighb_cm, n_pcs; method)[1];
 
     confidence = (:confidence in propertynames(df_spatial)) ? df_spatial.confidence : ones(size(df_spatial, 1))
     col_emb = gene_composition_color_embedding(pca, confidence; kwargs...);

@@ -73,13 +73,13 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 
     @info "Estimating gene colors..."
 
-    pca = BPR.gene_pca(neighb_cm, k; method=ncv_method)[1]
+    pca = BPR.gene_pca(neighb_cm, 20; method=ncv_method)[1]
     col_emb = BPR.gene_composition_color_embedding(pca, confidences)
     gene_colors = BPR.embedding_to_hex(col_emb)
 
     @info "Saving results..."
     DAT.save_matrix_to_loom(
-        neighb_cm'; gene_names=gene_names, cell_names=["$run_id-$i" for i in 1:size(neighb_cm, 1)],
+        neighb_cm'; gene_names=gene_names, cell_names=["V$run_id-$i" for i in 1:size(neighb_cm, 2)],
         col_attrs=Dict("ncv_color" => gene_colors, "confidence" => confidences), file_path=output
     )
 
