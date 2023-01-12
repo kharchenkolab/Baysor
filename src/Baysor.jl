@@ -12,7 +12,7 @@ module Baysor
 
 include("LazySubmodules.jl")
 using .LazySubmodules
-Baysor.LazySubmodules.__init__() # Somehow without it __init__ is only called after all @lazy_submodule macroses
+LazySubmodules.__init__() # Somehow without it __init__ is only called after all @lazy_submodule macroses
 
 # Utils: Minimal functions with zero compilation time shared across submodules
 include("utils/Utils.jl")

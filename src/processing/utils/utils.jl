@@ -146,7 +146,7 @@ end
 
 ### Statistics
 
-@inline function fsample(w::Vector{Float64})::Int
+@inline function fsample(w::AbstractVector{Float64})::Int
     n = length(w)
     if n == 0
         error("Empty vector for sampling")
@@ -162,7 +162,7 @@ end
     return i
 end
 
-@inline @inbounds fsample(arr::Vector{Int}, w::Vector{Float64})::Int = arr[fsample(w)]
+@inline @inbounds fsample(arr::Vector{Int}, w::AbstractVector{Float64})::Int = arr[fsample(w)]
 
 function wmean(values::Vector{<:Real}, weights::T where T <: AbstractVector{<:Real}; non_zero_ids::Union{UnitRange{Int}, Vector{Int}}=1:length(values))
     s, ws = 0.0, 0.0

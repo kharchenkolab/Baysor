@@ -68,8 +68,10 @@ end
 @inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
         component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
-    bg_comp_weight = aggregate_adjacent_component_weights!(adj_classes, adj_weights, component_weights, data.assignment,
-        data.adjacent_points[mol_id], data.adjacent_weights[mol_id])
+    bg_comp_weight = aggregate_adjacent_component_weights!(
+        adj_classes, adj_weights, component_weights, data.assignment,
+        data.adjacent_points[mol_id], data.adjacent_weights[mol_id]
+    )
 
     if mol_id in keys(adj_classes_global)
         n1 = length(adj_classes)

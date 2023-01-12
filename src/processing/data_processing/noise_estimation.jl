@@ -8,7 +8,6 @@ function expect_noise_probabilities!(assignment_probs::Matrix{Float64}, d1::Norm
     n1 = sum(assignment_probs[:, 1])
     n2 = size(assignment_probs, 1) - n1
 
-    dists = (d1, d2)
     for i in updating_ids
         cur_weights = adjacent_weights[i]
         cur_points = adjacent_points[i]
