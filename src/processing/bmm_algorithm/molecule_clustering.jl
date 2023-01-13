@@ -108,10 +108,11 @@ function expect_molecule_clusters!(
         cell_type_exprs::Union{CatMixture, NormMixture},
         genes::Union{Vector{Int}, Matrix{Float64}},
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        mrf_weight::Float64=1.0
+        mrf_weight::Float64=1.0, only_mrf::Bool=false, is_fixed::Nullable{BitVector}=nothing
     )
     total_ll = Atomic{Float64}(0.0)
     @threads for i in eachindex(adjacent_points)
+        (is_fixed === nothing || !is_fixed[i]) || continue
         gene = get_gene_vec(genes, i)
         cur_weights = adjacent_weights[i]
         cur_points = adjacent_points[i]
@@ -126,7 +127,12 @@ function expect_molecule_clusters!(
                 c_d += cur_weights[j] * a_p
             end
 
-            assignment_probs[ri, i] = comp_pdf(cell_type_exprs, ri, gene) * exp(c_d * mrf_weight)
+            mrf_prior = exp(c_d * mrf_weight)
+            if only_mrf
+                assignment_probs[ri, i] = mrf_prior
+            else
+                assignment_probs[ri, i] = comp_pdf(cell_type_exprs, ri, gene) * mrf_prior
+            end
             dense_sum += assignment_probs[ri, i]
         end
 
