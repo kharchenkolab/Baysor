@@ -160,8 +160,10 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     adj_classes_global = get_global_adjacent_classes(data)
 
     for i in 1:size(data.x, 1)
-        bg_comp_weight = fill_adjacent_component_weights!(adj_classes, adj_weights, data, i;
-            component_weights=component_weights, adj_classes_global=adj_classes_global)
+        bg_comp_weight = fill_adjacent_component_weights!(
+            adj_classes, adj_weights, data, i;
+            component_weights=component_weights, adj_classes_global=adj_classes_global
+        )
 
         expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, bg_comp_weight=bg_comp_weight)
 
@@ -188,8 +190,10 @@ function maximize!(data::BmmData)
     @inbounds @views for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
-        maximize!(data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
-            nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac)
+        maximize!(
+            data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
+            nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac
+        )
     end
 
     data.noise_density = estimate_noise_density_level(data)
@@ -322,16 +326,10 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
     end
 end
 
-log_em_state(data::BmmData, iter_num::Int, time_start::DateTime) =
-    @info "BMM part done for $(now() - time_start) in $iter_num iterations. #Components: $(sum(num_of_molecules_per_cell(data) .> 0)). " *
-        "Noise level: $(round(mean(data.assignment .== 0) * 100, digits=3))%"
-
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
               assignment_history_depth::Int=0, trace_components::Bool=false, verbose::Union{Progress, Bool}=true,
               component_split_step::Int=3, refine::Bool=true)
-    time_start = now()
-
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))

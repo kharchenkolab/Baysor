@@ -92,6 +92,8 @@ Run cell segmentation
 
     log_file = setup_logger(output, "log.log")
 
+    run_id = get_run_id()
+    @info "Run $run_id"
     @info get_baysor_run_str()
 
     # Load data
@@ -154,7 +156,7 @@ Run cell segmentation
     return 0
 end
 
-function fill_and_check_options!(opts::RunOptions, prior_segmentation::String, output::String)
+function fill_and_check_options!(opts::RunOptions, prior_segmentation::String="", output::String="./")
     fill_and_check_options!(opts.data)
 
     if opts.segmentation.scale > 0

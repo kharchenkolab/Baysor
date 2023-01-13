@@ -17,14 +17,11 @@ function run_segmentation(
         df_spatial::DataFrame, gene_names::Vector{String}, opts::SegmentationOptions;
         plot_opts::PlottingOptions, min_molecules_per_cell::Int, estimate_ncvs::Bool, plot::Bool, save_polygons::Bool
     )
-    # run_id = get_run_id()
-    # @info "Run $run_id"
-    # TODO: add run_id to cell ids
-
     # Region-based segmentations
 
     comp_segs, comp_genes = nothing, Vector{Int}[]
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:triangulation)[1:2]
+    adj_type = (:z in propertynames(df_spatial)) ? :knn : :triangulation
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=adj_type)[1:2]
     if opts.nuclei_genes != ""
         comp_segs, comp_genes, df_spatial[!, :compartment] = estimate_molecule_compartments(
             df_spatial, gene_names; nuclei_genes=opts.nuclei_genes, cyto_genes=opts.cyto_genes, scale=opts.scale

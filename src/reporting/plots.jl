@@ -11,12 +11,12 @@ plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwarg
 function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
-        ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8,
+        ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8, ticksvisible::Bool=false,
         noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false,
         polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
-    axis_args_default = (xticklabelsize=12, yticklabelsize=12, xticksvisible=false, xticklabelsvisible=false, yticksvisible=false, yticklabelsvisible=false);
+    axis_args_default = (xticklabelsize=12, yticklabelsize=12, xticksvisible=ticksvisible, xticklabelsvisible=ticksvisible, yticksvisible=ticksvisible, yticklabelsvisible=ticksvisible);
     legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
     polygon_args_default = (strokecolor="black", color="transparent", strokewidth=poly_strokewidth, label="")
 

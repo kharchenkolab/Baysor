@@ -37,23 +37,6 @@ function pdf(comp::NormalComponent, vec::AbstractVector{Float64})
     return comp.n * exp(dens)
 end
 
-function test_pdf_perf2(gene_vecs::Matrix{Float64})
-    g = gene_vecs[1]
-    for _ in 1:1000000
-        normal_logpdf(g, 1.0)
-    end
-end
-
-function test_pdf_perf(comp::NormalComponent, gene_vecs::Matrix{Float64})
-    d = 0
-    for i in 1:10
-        for _ in 1:size(gene_vecs, 2)
-            d += pdf(comp, view(gene_vecs, :, i))
-        end
-    end
-    return d
-end
-
 @inline comp_pdf(cell_type_exprs::CatMixture, ci::Int, factor::Int) = cell_type_exprs[ci, factor]
 @inline comp_pdf(comps::NormMixture, ci::Int, vec::AbstractVector{Float64}) = pdf(comps[ci], vec)
 
@@ -161,8 +144,10 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
         @warn "ICA did not converge, fall back to random initialization"
     end
 
-    return cluster_molecules_on_mrf(df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
-        cell_type_exprs=ct_exprs_init, n_clusters=n_clusters, kwargs...)
+    return cluster_molecules_on_mrf(
+        df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
+        components=ct_exprs_init, n_clusters=n_clusters, kwargs...
+    )
 end
 
 
@@ -245,7 +230,7 @@ function cluster_molecules_on_mrf(
         components::Union{CatMixture, NormMixture, Nothing}=nothing,
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
         verbose::Bool=true, progress::Nullable{Progress}=nothing, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, init_mod::Int=10000,
-        method::Symbol=:normal, kwargs...
+        method::Symbol=:categorical, kwargs...
     )
     # Initialization
 
