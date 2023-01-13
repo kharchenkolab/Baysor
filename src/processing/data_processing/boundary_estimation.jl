@@ -49,13 +49,15 @@ function extract_border_edges(triangle_point_ids::Vector{Vector{Int}})
 end
 
 function border_edges_to_poly(border_edges::Vector{Vector{Int}})
-    border_edges = Dict(a => b for (a,b) in border_edges)
-    ce = start = first(keys(border_edges))
-    border_poly = [start]
-    for _ in 1:10000
-        ce = border_edges[ce]
-        push!(border_poly, ce)
-        (ce != start) || return border_poly
+    if !isempty(border_edges)
+        border_edges = Dict(a => b for (a,b) in border_edges)
+        ce = start = first(keys(border_edges))
+        border_poly = [start]
+        for _ in 1:10000
+            ce = border_edges[ce]
+            push!(border_poly, ce)
+            (ce != start) || return border_poly
+        end
     end
 
     @warn "Can't build border for a polygon of size $(length(border_edges))" # should never happen
@@ -95,20 +97,32 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
     for (cid,bids) in borders_per_cell
         if isempty(bids)
             vids = findall(cell_labels .== cid)
-            if length(vids) > 2
-                @warn "Can't estimate triangulation given $(length(vids)) vertices in cell $cid" # should never happen
-            else
+            if length(vids) <= 2
                 borders_per_cell[cid] = (length(vids) == 1) ? [[vids; vids]] : [vids, [vids[2], vids[1]]]
+                continue
             end
-            continue
+            # for :knn field, there is a chance that a cell will not have a single inner triangle
+        else
+            any(length(unique(getindex.(bids, d))) != length(bids) for d in 1:2) || continue
         end
-        any(length(unique(getindex.(bids, d))) != length(bids) for d in 1:2) || continue
 
         cpoints = points_g[cell_labels .== cid]
+
+        if length(cpoints) == 3
+            # Triangulation sometimes fails for this case
+            cpoints = geti.(cpoints)
+            borders_per_cell[cid] = [[cpoints[1], cpoints[2]], [cpoints[2], cpoints[3]], [cpoints[3], cpoints[1]]]
+            continue
+        end
+
         c_tess = VD.DelaunayTessellation2D(length(cpoints), IndexedPoint2D());
         push!(c_tess, cpoints);
 
         borders_per_cell[cid] = extract_triangle_verts(c_tess) |> extract_border_edges
+        if isempty(borders_per_cell[cid])
+            @warn "Can't find border for cell $cid" # should never happen
+            continue
+        end
     end
 
     return Dict(k => Matrix(pos_data[:, border_edges_to_poly(bes)]') for (k,bes) in borders_per_cell);
