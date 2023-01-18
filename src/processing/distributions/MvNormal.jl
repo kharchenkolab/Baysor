@@ -7,6 +7,37 @@ import LinearAlgebra.isposdef
 CovMat = (MMatrix{T, T, Float64, T2} where T2 where T)
 MeanVec = (MVector{T, Float64} where T)
 
+struct ShapePrior{N}
+    std_values::MeanVec{N};
+    std_value_stds::MeanVec{N};
+    n_samples::Int;
+end
+
+distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
+rand(prior::ShapePrior) = rand.(distributions(prior))
+
+var_posterior(prior::ShapePrior{N}, eigen_values::T where T <: Union{MeanVec{N}, StaticArray{Tuple{N},Float64,1}}; n_samples::TR where TR <: Real) where N =
+    var_posterior.(prior.std_values, prior.std_value_stds, eigen_values; n_samples=n_samples, prior_n_samples=prior.n_samples)
+
+# f(dx) = sign(dx) * sqrt(|dx/std|) * std
+function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::Float64; n_samples::TR1 where TR1 <: Real, prior_n_samples::TR2 where TR2 <: Real)
+    d_std = (sqrt(eigen_value) - prior_std)
+    std_adj = (prior_std + sign(d_std) * (sqrt(abs(d_std) / prior_std_std + 1) - 1) * prior_std_std)
+
+    return ((prior_n_samples * prior_std + n_samples * std_adj) / (prior_n_samples + n_samples)) ^ 2
+end
+
+function sample_var(d::Normal)
+    @assert d.μ > 0
+    while true
+        v = rand(d)
+        if v > 0
+            return v.^2
+        end
+    end
+end
+sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
+
 mutable struct MvNormalF{L, L2}
     μ::MeanVec{L};
     Σ::CovMat{L, L2};
@@ -82,7 +113,17 @@ function estimate_sample_cov!(Σ::CovMat{N, N2} where N2, x::T where T <: Abstra
     return Σ
 end
 
-function maximize!(dist::MvNormalF, x::T; center_probs::T2 where T2 <: Union{AbstractVector{<:Real}, Nothing}=nothing)::MvNormalF where T <: AbstractMatrix{Float64}
+function update_cache!(dist::MvNormalF)
+    dist.Σ_inv .= inv(dist.Σ)
+    dist.pdf_divider = norm_pdf_divider(dist.Σ)
+end
+
+function maximize!(
+        dist::MvNormalF{N}, x::T;
+        center_probs::T2 where T2 <: Union{AbstractVector{<:Real}, Nothing}=nothing,
+        shape_prior::Union{Nothing, ShapePrior{N}}=nothing,
+        n_samples::Int=-1
+    ) where T <: AbstractMatrix{Float64} where N
     if size(x, 2) == 0
         return dist
     end
@@ -97,10 +138,12 @@ function maximize!(dist::MvNormalF, x::T; center_probs::T2 where T2 <: Union{Abs
     end
 
     estimate_sample_cov!(dist.Σ, x; μ=dist.μ)
+    if shape_prior !== nothing
+        @assert n_samples >= 0
+        adjust_cov_by_prior!(dist.Σ, shape_prior; n_samples=n_samples)
+    end
 
-    dist.Σ_inv .= inv(dist.Σ) # TODO: make it consistent with mutability of MvNormal
-    dist.pdf_divider = norm_pdf_divider(dist.Σ)
-
+    update_cache!(dist)
     return dist
 end
 

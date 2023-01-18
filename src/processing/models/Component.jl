@@ -1,37 +1,6 @@
 using Distributions
 using StaticArrays
 
-struct ShapePrior{N}
-    std_values::MeanVec{N};
-    std_value_stds::MeanVec{N};
-    n_samples::Int;
-end
-
-distributions(prior::ShapePrior) = Normal.(prior.std_values, prior.std_value_stds)
-rand(prior::ShapePrior) = rand.(distributions(prior))
-
-var_posterior(prior::ShapePrior{N}, eigen_values::T where T <: Union{MeanVec{N}, StaticArray{Tuple{N},Float64,1}}; n_samples::TR where TR <: Real) where N =
-    var_posterior.(prior.std_values, prior.std_value_stds, eigen_values; n_samples=n_samples, prior_n_samples=prior.n_samples)
-
-# f(dx) = sign(dx) * sqrt(|dx/std|) * std
-function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::Float64; n_samples::TR1 where TR1 <: Real, prior_n_samples::TR2 where TR2 <: Real)
-    d_std = (sqrt(eigen_value) - prior_std)
-    std_adj = (prior_std + sign(d_std) * (sqrt(abs(d_std) / prior_std_std + 1) - 1) * prior_std_std)
-
-    return ((prior_n_samples * prior_std + n_samples * std_adj) / (prior_n_samples + n_samples)) ^ 2
-end
-
-function sample_var(d::Normal)
-    @assert d.μ > 0
-    while true
-        v = rand(d)
-        if v > 0
-            return v.^2
-        end
-    end
-end
-sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
-
 mutable struct Component{N}
     position_params::MvNormalF{N};
     composition_params::CategoricalSmoothed;
@@ -53,20 +22,10 @@ function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMat
         nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1)
     c.n_samples = size(pos_data, 2)
     maximize!(c.composition_params, comp_data)
-    if nuclei_probs === nothing
-        maximize!(c.position_params, pos_data)
-    else
-        maximize!(c.position_params, pos_data; center_probs=nuclei_probs)
-        if length(nuclei_probs) > 1
-            c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
-        end
+    maximize!(c.position_params, pos_data; center_probs=nuclei_probs, c.shape_prior, c.n_samples)
+    if (nuclei_probs !== nothing) && (length(nuclei_probs) > 1)
+        c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
     end
-
-    if c.shape_prior !== nothing
-        adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=c.n_samples)
-    end
-
-    c.position_params = MvNormalF(c.position_params.μ, c.position_params.Σ) # TODO: make it consistent with immutability
 
     return c
 end
