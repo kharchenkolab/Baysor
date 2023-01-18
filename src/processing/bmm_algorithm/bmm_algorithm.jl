@@ -107,7 +107,7 @@ end
 
 function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int;
         bg_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
-    x = SVector{N}(position_data(data)[:,mol_id]...)
+    @views x = position_data(data)[:,mol_id]
     gene::Union{Int, Missing} = composition_data(data)[mol_id]
     confidence::Float64 = data.confidence[mol_id]
     mol_cluster::Int = get(data.cluster_per_molecule, mol_id, 0)

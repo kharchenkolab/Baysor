@@ -56,10 +56,10 @@ function cell_centers_uniformly(pos_data::Matrix{Float64}, n_clusters::Int,
         covs = covs_from_assignment(pos_data, cluster_labels)
     elseif size(pos_data, 1) == 2
         scale = scale ^ 2
-        covs = [CovMat{2}(diagm(0 => (ones(2) .* scale))) for i in 1:size(cluster_centers, 2)]
+        covs = [CovMat{2, 4}(diagm(0 => (ones(2) .* scale))) for _ in 1:size(cluster_centers, 2)]
     elseif size(pos_data, 1) == 3
         scale = scale ^ 2
-        covs = [CovMat{3}(diagm(0 => (ones(3) .* scale))) for i in 1:size(cluster_centers, 2)]
+        covs = [CovMat{3, 9}(diagm(0 => (ones(3) .* scale))) for _ in 1:size(cluster_centers, 2)]
     else
         error("Unexpected number of dimensions: $(size(pos_data, 1))")
     end

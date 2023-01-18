@@ -66,13 +66,15 @@ function maximize!(c::Component{N} where N, pos_data::T1 where T1 <: AbstractMat
         adjust_cov_by_prior!(c.position_params.Σ, c.shape_prior; n_samples=c.n_samples)
     end
 
+    c.position_params = MvNormalF(c.position_params.μ, c.position_params.Σ) # TODO: make it consistent with immutability
+
     return c
 end
 
-pdf(comp::Component{N}, x::SVector{N, Float64}, gene::Missing; use_smoothing::Bool=true) where N =
+pdf(comp::Component{N}, x::AbstractVector{Float64}, gene::Missing; use_smoothing::Bool=true) where N =
     comp.prior_probability * comp.confidence * pdf(comp.position_params, x)
 
-pdf(comp::Component{N}, x::SVector{N, Float64}, gene::Int64; use_smoothing::Bool=true) where N =
+pdf(comp::Component{N}, x::AbstractVector{Float64}, gene::Int64; use_smoothing::Bool=true) where N =
     comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene; use_smoothing=use_smoothing)
 
 function adjust_cov_by_prior!(Σ::CovMat{N}, prior::ShapePrior{N}; n_samples::TR where TR <: Real) where N
@@ -86,11 +88,4 @@ function adjust_cov_by_prior!(Σ::CovMat{N}, prior::ShapePrior{N}; n_samples::TR
     Σ .= fmax.(Σ, Σ')
 
     return adjust_cov_matrix!(Σ)
-end
-
-function normal_posterior!(μ::MeanVec{N}, Σ::CovMat{N}, μ_prior::MeanVec{N}, Σ_prior::CovMat{N}; n::TR1 where TR1 <: Real, n_prior::TR2 where TR2 <: Real) where N
-    Σ = (n .* Σ .+ n_prior .* Σ_prior .+ (n * n_prior / (n + n_prior)) .* ((μ .- μ_prior) * (μ .- μ_prior)')) ./ (n + n_prior)
-    μ .= (n .* μ .+ n_prior .* μ_prior) ./ (n + n_prior)
-    adjust_cov_matrix!(Σ)
-    return nothing
 end
