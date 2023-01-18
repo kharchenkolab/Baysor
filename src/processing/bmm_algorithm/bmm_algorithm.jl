@@ -39,8 +39,10 @@ end
 - `adjacent_points::Array{Int, 1}`:
 - `adjacent_weights::Array{Float64, 1}`: weights here mean `1 / distance` between two adjacent points
 """
-@inline function aggregate_adjacent_component_weights!(comp_ids::Vector{Int}, comp_weights::Vector{Float64}, component_weights::Dict{Int, Float64},
-        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64})
+function aggregate_adjacent_component_weights!(
+        comp_ids::Vector{Int}, comp_weights::Vector{Float64}, component_weights::Dict{Int, Float64},
+        assignment::Vector{Int}, adjacent_points::Vector{Int}, adjacent_weights::Vector{Float64}
+    )
     empty!(component_weights)
     empty!(comp_weights)
     empty!(comp_ids)
@@ -65,8 +67,10 @@ end
     return bg_comp_weight
 end
 
-@inline function fill_adjacent_component_weights!(adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
-        component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}})
+@inline function fill_adjacent_component_weights!(
+        adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
+        component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}}
+    )
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
     bg_comp_weight = aggregate_adjacent_component_weights!(
         adj_classes, adj_weights, component_weights, data.assignment,
@@ -161,13 +165,12 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
 
     for i in 1:size(data.x, 1)
         bg_comp_weight = fill_adjacent_component_weights!(
-            adj_classes, adj_weights, data, i;
-            component_weights=component_weights, adj_classes_global=adj_classes_global
+            adj_classes, adj_weights, data, i; component_weights, adj_classes_global
         )
 
-        expect_density_for_molecule!(denses, data, i; adj_classes=adj_classes, adj_weights=adj_weights, bg_comp_weight=bg_comp_weight)
+        expect_density_for_molecule!(denses, data, i; adj_classes, adj_weights, bg_comp_weight)
 
-        assign_molecule!(data, i; denses=denses, adj_classes=adj_classes, stochastic=stochastic)
+        assign_molecule!(data, i; denses, adj_classes, stochastic)
     end
 end
 
