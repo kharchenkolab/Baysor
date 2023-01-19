@@ -20,8 +20,7 @@ function run_segmentation(
     # Region-based segmentations
 
     comp_segs, comp_genes = nothing, Vector{Int}[]
-    adj_type = (:z in propertynames(df_spatial)) ? :knn : :triangulation
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=adj_type)[1:2]
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:auto)[1:2]
     if opts.nuclei_genes != ""
         comp_segs, comp_genes, df_spatial[!, :compartment] = estimate_molecule_compartments(
             df_spatial, gene_names; nuclei_genes=opts.nuclei_genes, cyto_genes=opts.cyto_genes, scale=opts.scale

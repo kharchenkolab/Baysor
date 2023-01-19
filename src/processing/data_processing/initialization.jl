@@ -70,15 +70,19 @@ end
 # Build MRF
 
 function convert_edge_list_to_adj_list(edge_list::Matrix{Int}, edge_weights::Union{Vector{Float64}, Nothing}=nothing; n_verts::Int=maximum(edge_list))
-    res_ids = [vcat(v...) for v in zip(split(edge_list[2,:], edge_list[1,:], max_factor=n_verts),
-                                       split(edge_list[1,:], edge_list[2,:], max_factor=n_verts))];
+    res_ids = map(vcat,
+        split(edge_list[2,:], edge_list[1,:], max_factor=n_verts),
+        split(edge_list[1,:], edge_list[2,:], max_factor=n_verts)
+    )
 
     if edge_weights === nothing
         return res_ids
     end
 
-    res_weights = [vcat(v...) for v in zip(split(edge_weights, edge_list[1,:], max_factor=n_verts),
-                                           split(edge_weights, edge_list[2,:], max_factor=n_verts))];
+    res_weights = map(vcat,
+        split(edge_weights, edge_list[1,:], max_factor=n_verts),
+        split(edge_weights, edge_list[2,:], max_factor=n_verts)
+    );
 
     return res_ids, res_weights
 end
@@ -90,7 +94,10 @@ function estimate_local_composition_similarities(df_spatial::DataFrame, edge_lis
     return max.(map(i -> cor(neighb_cm[:, edge_list[1,i]], neighb_cm[:, edge_list[2,i]]), 1:size(edge_list, 2)), min_similarity);
 end
 
-function build_molecule_graph(df_spatial::DataFrame; min_edge_quant::Float64=0.3, use_local_gene_similarities::Bool=false, n_gene_pcs::Int=0, composition_neighborhood::Int=0, kwargs...)
+function build_molecule_graph(
+        df_spatial::DataFrame; min_edge_quant::Float64=0.3, use_local_gene_similarities::Bool=false,
+        n_gene_pcs::Int=0, composition_neighborhood::Int=0, kwargs...
+    )
     if use_local_gene_similarities && ((composition_neighborhood == 0) || (n_gene_pcs == 0))
         @warn "composition_neighborhood=$composition_neighborhood and n_gene_pcs=$n_gene_pcs, while use_local_gene_similarities=true. Force use_local_gene_similarities=false."
         use_local_gene_similarities = false

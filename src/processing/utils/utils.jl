@@ -2,12 +2,12 @@ using SparseArrays
 using Base.Threads
 using NearestNeighbors: KDTree, knn
 
-function knn_parallel(nn_tree::KDTree, x::AbstractMatrix{<:Real}, nn_interpolate::Int)
+function knn_parallel(nn_tree::KDTree, x::AbstractMatrix{<:Real}, nn_interpolate::Int; sorted::Bool=false)
     indices = Vector{Vector{Int}}(undef, size(x, 2))
     distances = Vector{Vector{eltype(eltype(nn_tree.data))}}(undef, size(x, 2))
 
     @threads for i in axes(x, 2)
-        indices[i], distances[i] = knn(nn_tree, x[:, i], nn_interpolate)
+        indices[i], distances[i] = knn(nn_tree, x[:, i], nn_interpolate, sorted)
     end
 
     return indices, distances
@@ -98,7 +98,7 @@ function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: Ab
         max_factor = maximum(factor)
     end
 
-    splitted = [TV[] for i in 1:max_factor]
+    splitted = [TV[] for _ in 1:max_factor]
     for i in eachindex(array)
         if drop_zero && factor[i] == 0
             continue

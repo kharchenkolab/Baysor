@@ -101,7 +101,7 @@ end
 
 function estimate_confidence(df_spatial::DataFrame, prior_assignment::Union{Vector{Int}, Nothing}=nothing; nn_id::Int, prior_confidence::Float64=0.5)
     pos_data = position_data(df_spatial);
-    mean_dists = getindex.(knn(KDTree(pos_data), pos_data, nn_id + 1, true)[2], nn_id + 1)
+    mean_dists = getindex.(knn_parallel(KDTree(pos_data), pos_data, nn_id + 1; sorted=true)[2], nn_id + 1)
 
     min_confidence = (prior_assignment !== nothing) ? (prior_confidence^2 .* (prior_assignment .> 0)) : nothing
 
