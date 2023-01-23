@@ -68,7 +68,7 @@ function adjacency_list(
     end
 
     points = normalize_points(points)
-    edge_list = Matrix{Int}(undef, 0, 2)
+    edge_list = Matrix{Int}(undef, 2, 0)
     if (adjacency_type == :triangulation) || (adjacency_type == :both)
         points_g = [IndexedPoint2D(p[1], p[2], i) for (i,p) in enumerate(eachcol(points))];
 
@@ -78,17 +78,21 @@ function adjacency_list(
         return_tesselation && return (tess, points_g)
 
         edge_list = hcat([geti.([VD.geta(v), VD.getb(v)]) for v in VD.delaunayedges(tess)]...);
+        edge_list = Matrix(hcat(
+            fmin.(edge_list[1,:], edge_list[2,:]),
+            fmax.(edge_list[1,:], edge_list[2,:])
+        )');
     end
 
     if (adjacency_type == :knn) || (adjacency_type == :both)
         nns = knn_parallel(KDTree(points), points, k_adj + 1; sorted=true)[1];
         e_start = repeat(1:length(nns), inner=k_adj)
         e_end = vcat([es[2:end] for es in nns]...)
-        edge_list = vcat(
-            hcat(fmin.(e_start, e_end), fmax.(e_start, e_end)),
+        edge_list = hcat(
+            hcat(fmin.(e_start, e_end), fmax.(e_start, e_end))',
             edge_list
         );
-        edge_list = unique(edge_list'; dims=2)
+        edge_list = unique(edge_list; dims=2)
     end
 
     adj_dists = Distances.colwise(distance, points[:, edge_list[1,:]], points[:, edge_list[2,:]])
