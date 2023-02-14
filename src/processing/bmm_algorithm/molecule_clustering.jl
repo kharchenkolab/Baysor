@@ -68,7 +68,8 @@ function maximize_molecule_clusters!(
 end
 
 function maximize_molecule_clusters!(
-        components::NormMixture, gene_vecs::Matrix{Float64}, confidence::Vector{Float64}, assignment_probs::Matrix{Float64}
+        components::NormMixture, gene_vecs::Matrix{Float64}, confidence::Vector{Float64}, assignment_probs::Matrix{Float64};
+        add_pseudocount::Bool=false # a compatibility argument, which is never used
     )
     @threads for ci in eachindex(components)
         c_weights = assignment_probs[ci, :] .* confidence
