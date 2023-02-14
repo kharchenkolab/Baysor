@@ -2,7 +2,7 @@ module LazySubmodules
 
 # TODO: use include_dependency for Revise.jl (see https://docs.julialang.org/en/v1/base/base/)
 
-export @lazy_submodule
+export @lazy_submodule, load_module
 
 const _LAZYMODE = Ref(true)
 const _LOAD_LOCKER = Threads.ReentrantLock()
@@ -27,7 +27,7 @@ macro lazy_submodule(ex)
     end
 end
 
-function load_module(m::LazySubmodule)
+function load(m::LazySubmodule)
     lock(_LOAD_LOCKER) do
         if m._module_name === nothing
             mod = Core.eval(m._parent_module, :(include($(m._include_path))))
@@ -40,8 +40,9 @@ function load_module(m::LazySubmodule)
     end
 end
 
-function initialize(m::LazySubmodule)
-    load_module(m)
+load_module(m::Module) = m
+function load_module(m::LazySubmodule)
+    load(m)
     lock(_LOAD_LOCKER) do
         Core.eval(m._parent_module, :($(m._alias) = $(m._module_name)))
     end
@@ -58,7 +59,7 @@ function Base.getproperty(m::LazySubmodule, s::Symbol)
         return () -> initialize(m)
     end
 
-    mod = load_module(m)
+    mod = load(m)
     f = getfield(mod, s)
 
     if !(f isa Function)
