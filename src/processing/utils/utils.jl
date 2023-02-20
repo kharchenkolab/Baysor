@@ -42,6 +42,12 @@ Base.getindex(::PseudoWeight, i::Int) = 1
 is_provided(::PseudoWeight) = false
 is_provided(::Vector) = true
 
+count_array_sparse(values::Vector{Union{Missing, Int}}, args...; kwargs...) =
+    count_array_sparse(collect(skipmissing(values)), args...; kwargs...)
+
+count_array_sparse(T::DataType, values::Vector{Union{Missing, Int}}, args...; kwargs...) =
+    count_array_sparse(T, collect(skipmissing(values)), args...; kwargs...)
+
 count_array_sparse(values::Vector{Int}, ::Nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
 count_array_sparse(values::Vector{Int}, weights::Vector{Float64}; kwargs...) =
     count_array_sparse(Float64, values, weights; kwargs...)

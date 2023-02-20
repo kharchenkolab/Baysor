@@ -5,9 +5,9 @@ neighborhood_count_matrix(data::Union{BmmData, DataFrame}, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
 function neighborhood_count_matrix(
-        pos_data::Matrix{Float64}, genes::Vector{Int}, k::Int;
+        pos_data::Matrix{Float64}, genes::Vector{<:Union{Int, Missing}}, k::Int;
         confidences::Union{Vector{Float64}, Nothing}=nothing,
-        n_genes::Int=maximum(genes), normalize_by_dist::Bool=true, normalize::Bool=true
+        n_genes::Int=maximum(skipmissing(genes)), normalize_by_dist::Bool=true, normalize::Bool=true
     )
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
@@ -37,8 +37,15 @@ function neighborhood_count_matrix(
         ]...);
     end
 
+    if !normalize
+        return hcat([
+            count_array_sparse(Float32, genes[nns]; total=n_genes, normalize=false)
+            for nns in neighbors
+        ]...);
+    end
+
     return hcat([
-        count_array_sparse(Float32, genes[nns], confidences[nns]; total=n_genes, normalize=normalize)
+        count_array_sparse(Float32, genes[nns], confidences[nns]; total=n_genes, normalize=true)
         for nns in neighbors
     ]...);
 end
