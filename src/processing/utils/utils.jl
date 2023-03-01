@@ -98,27 +98,27 @@ function split(vector::T where T <: AbstractVector; n_parts::Int)
     return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]
 end
 
-function split(array::T where T <: AbstractVector{TV}, factor::T2 where T2 <: AbstractVector{<:Integer}; max_factor::Union{Int, Nothing}=nothing, drop_zero::Bool=false)::Array{Vector{TV}, 1} where TV
+function split(
+        array::AbstractVector{TV}, factor::AbstractVector{<:Union{<:Integer, Missing}};
+        max_factor::Union{Int, Nothing}=nothing, drop_zero::Bool=false
+    )::Array{Vector{TV}, 1} where TV
     @assert length(array) == length(factor)
     if max_factor === nothing
-        max_factor = maximum(factor)
+        max_factor = maximum(skipmissing(factor))
     end
 
     splitted = [TV[] for _ in 1:max_factor]
     for i in eachindex(array)
-        if drop_zero && factor[i] == 0
-            continue
-        end
-
+        (ismissing(factor[i]) || (drop_zero && factor[i] == 0)) && continue
         push!(splitted[factor[i]], array[i])
     end
 
     return splitted
 end
 
-split(array::UnitRange{Int64}, factor::Array{Int64,1}; kwargs...) = split(collect(array), factor; kwargs...)
+split(array::UnitRange{Int64}, factor::Vector{Int}; kwargs...) = split(collect(array), factor; kwargs...)
 
-split_ids(factor::Array{Int, 1}; kwargs...) = split(1:length(factor), factor; kwargs...)
+split_ids(factor::Vector{Int}; kwargs...) = split(1:length(factor), factor; kwargs...)
 
 split(df::DataFrame, factor::Symbol; kwargs...) = split(df, Array(df[!, factor]); kwargs...)
 split(df::DataFrame, factor::Vector{Int}; kwargs...) = [df[ids, :] for ids in split(1:size(df, 1), factor; kwargs...)]
