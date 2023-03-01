@@ -1,5 +1,9 @@
 ## [Upcoming]
 
+### Added
+
+- New output QC parameters `avg_assignment_confidence` and `max_cluster_frac`
+
 ### Changed
 
 - Breaking changes in config file structure

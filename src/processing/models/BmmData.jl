@@ -69,6 +69,8 @@ mutable struct BmmData{L}
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
 
+        metadata_used = Symbol[];
+
         if !all(s in propertynames(x) for s in [:x, :y, :gene])
             error("`x` data frame must have columns 'x', 'y' and 'gene'")
         end
@@ -129,6 +131,14 @@ mutable struct BmmData{L}
             update_n_mols_per_segment!(self);
         end
 
+        for c in [:confidence, :nuclei_probs, :cluster, :prior_segmentation]
+            if c in propertynames(x)
+                push!(metadata_used, c)
+            end
+        end
+
+        @info "Using the following additional information about molecules: $(metadata_used)"
+
         return self
     end
 end
@@ -174,29 +184,26 @@ function estimate_assignment_by_history(data::BmmData)
     # TODO: it doesn't guarantee connectivity. Can try to run deterministic EM, or use some better estimate here
     if !(:assignment_history in keys(data.tracer)) || (length(data.tracer[:assignment_history]) == 0)
         @warn "Data has no saved history of assignments. Fall back to the basic assignment"
-        return data.assignment, ones(length(data.assignment)) / 2
+        return data.assignment, ones(length(data.assignment)) ./ 2
     end
 
+    assignment_history::Vector{Vector{eltype(data.assignment)}} = data.tracer[:assignment_history]
     guid_map = Dict(c.guid => i for (i,c) in enumerate(data.components))
     current_guids = Set(vcat(collect(keys(guid_map)), [0]));
-    assignment_mat = hcat(data.tracer[:assignment_history]...);
+    assignment_mat::Matrix{eltype(data.assignment)} = hcat(assignment_history...);
 
-    reassignment = mapslices(assignment_mat, dims=2) do row
-        c_row = row[in.(row, Ref(current_guids))]
-        if length(c_row) == 0
-            return 0
-        end
-
-        c_counts = countmap(c_row);
-        count_vals = collect(values(c_counts))
-        return maximum(collect(keys(c_counts))[count_vals .== maximum(count_vals)])
+    reassignment = Vector{eltype(data.assignment)}(undef, size(assignment_mat, 1))
+    for i in 1:size(assignment_mat, 1)
+        # Find the most frequent value in the row, but only among the current components
+        c_row = filter!(x -> (x in current_guids), assignment_mat[i, :])
+        reassignment[i] = (length(c_row) == 0) ? 0 : mode(c_row)
     end
 
-    return get.(Ref(guid_map), vec(reassignment), 0), vec(mean(assignment_mat .== reassignment, dims=2))
+    return get.(Ref(guid_map), reassignment, 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
 function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=segmented_df.cell; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment), dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
-    seg_df_per_cell = split(segmented_df, cell_assignment .+ 1; max_factor=max_cell+1)[2:end];
+    seg_df_per_cell = split(segmented_df, cell_assignment; max_factor=max_cell, drop_zero=true);
     pos_data_per_cell = [position_data(df)[1:2,:] for df in seg_df_per_cell];
 
     df = DataFrame(:n_transcripts => size.(pos_data_per_cell, 2));
@@ -213,16 +220,27 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=se
         df[!,:avg_confidence] = round.([mean(df.confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
     end
 
+    if :assignment_confidence in propertynames(segmented_df)
+        df[!,:avg_assignment_confidence] = round.([mean(df.assignment_confidence) for df in seg_df_per_cell], sigdigits=sigdigits)
+    end
+
+    if :cluster in propertynames(segmented_df)
+        df[!,:max_cluster_frac] = [isempty(df) ? NaN : (maximum(values(countmap(df.cluster))) / length(df.cluster)) for df in seg_df_per_cell]
+    end
+
     return df
 end
 
-function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing; add_qc::Bool=true, sigdigits::Int=4)
+function get_cell_stat_df(
+        data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing, assignment::Vector{<:Integer}=data.assignment;
+        add_qc::Bool=true, sigdigits::Int=4
+    )
     df = DataFrame(:cell => 1:length(data.components))
 
     centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
 
     for s in [:x, :y]
-        df[!,s] = mean.(split(data.x[!,s], data.assignment .+ 1, max_factor=length(data.components) + 1)[2:end])
+        df[!,s] = mean.(split(data.x[!,s], assignment, max_factor=length(data.components), drop_zero=true))
     end
 
     if !isempty(data.cluster_per_cell)
@@ -240,13 +258,14 @@ function get_cell_stat_df(data::BmmData, segmented_df::Union{DataFrame, Nothing}
     return df[num_of_molecules_per_cell(data) .> 0,:]
 end
 
-function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing; use_assignment_history::Bool=true)
+function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
     df = deepcopy(data.x)
     df[!,:cell] = deepcopy(data.assignment);
 
-    if use_assignment_history && (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
-        df[!,:cell], df[!,:assignment_confidence] = estimate_assignment_by_history(data)
-        df.assignment_confidence .= round.(df.assignment_confidence, digits=5)
+    if (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
+        # data.assignment is already adjusted based on the history if `refine=true` in `bmm` (default)
+        assignment_mat::Matrix{eltype(data.assignment)} = hcat(data.tracer[:assignment_history]...)
+        df[!,:assignment_confidence] = round.(mean(assignment_mat .== data.assignment, dims=2)[:], digits=5)
     end
 
     if :confidence in propertynames(df)
@@ -266,7 +285,10 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     return df
 end
 
-function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vector{Int}; drop_empty_labels::Bool=false, gene_names::Union{Vector{String}, Nothing}=nothing)
+function convert_segmentation_to_counts(
+        genes::Vector{Int}, cell_assignment::Vector{Int};
+        drop_empty_labels::Bool=false, gene_names::Union{Vector{String}, Nothing}=nothing
+    )
     if drop_empty_labels
         if minimum(cell_assignment) == 0
             cell_assignment = denserank(cell_assignment) .- 1
@@ -292,7 +314,7 @@ function convert_segmentation_to_counts(genes::Vector{Int}, cell_assignment::Vec
     return cm
 end
 
-function get_segmentation_results(data::BmmData, gene_names::Vector{String})
+function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing)
     segmented_df = get_segmentation_df(data, gene_names)
     cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true)
     cm = convert_segmentation_to_counts(data.x.gene, data.assignment; gene_names=gene_names)
