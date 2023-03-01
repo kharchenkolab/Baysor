@@ -181,6 +181,9 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
 end
 
 function estimate_assignment_by_history(data::BmmData)
+    """
+    Estimate the assignment by the history of assignments. Returns the new assignment (local ids) and its confidence.
+    """
     # TODO: it doesn't guarantee connectivity. Can try to run deterministic EM, or use some better estimate here
     if !(:assignment_history in keys(data.tracer)) || (length(data.tracer[:assignment_history]) == 0)
         @warn "Data has no saved history of assignments. Fall back to the basic assignment"
@@ -237,9 +240,7 @@ function get_cell_stat_df(
     )
     df = DataFrame(:cell => 1:length(data.components))
 
-    centers = hcat([Vector(c.position_params.μ) for c in data.components]...)
-
-    for s in [:x, :y]
+    for s in intersect([:x, :y, :z], propertynames(data.x))
         df[!,s] = mean.(split(data.x[!,s], assignment, max_factor=length(data.components), drop_zero=true))
     end
 
@@ -265,7 +266,7 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
     if (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
         # data.assignment is already adjusted based on the history if `refine=true` in `bmm` (default)
         assignment_mat::Matrix{eltype(data.assignment)} = hcat(data.tracer[:assignment_history]...)
-        df[!,:assignment_confidence] = round.(mean(assignment_mat .== data.assignment, dims=2)[:], digits=5)
+        df[!,:assignment_confidence] = round.(mean(assignment_mat .== global_assignment_ids(data), dims=2)[:], digits=5)
     end
 
     if :confidence in propertynames(df)
