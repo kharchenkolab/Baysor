@@ -19,17 +19,18 @@ function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String}
 end
 
 function encode_genes(genes::Vector)
-    gene_names = sort(unique(genes));
+    gene_names = sort(unique(skipmissing(genes)));
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
-    return [gene_ids[g] for g in genes], gene_names
+    return [(ismissing(g) ? missing : gene_ids[g]) for g in genes], gene_names
 end
 
 function read_spatial_df(
         data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Symbol=:z,
         gene_col::Symbol=:gene, filter_cols::Bool=false, drop_z::Bool=false
     )
-    # df_spatial = DataFrame(CSV.File(data_path), copycols=false);
-    df_spatial = CSV.read(data_path, DataFrame);
+    # threaded code produces SentinelVector in some cases, which causes type failures later
+    df_spatial = CSV.read(data_path, DataFrame, ntasks=1);
+
 
     for (cn, co) in zip((:x, :y, :z, :gene), (x_col, y_col, z_col, gene_col))
         if (co === nothing) || ((co == :z) && !(co in propertynames(df_spatial)))
