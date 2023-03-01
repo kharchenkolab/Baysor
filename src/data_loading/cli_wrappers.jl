@@ -103,6 +103,15 @@ function save_matrix_to_loom(
         kwargs...
     )
     # Specification: https://linnarssonlab.org/loompy/format/index.html
+
+    if length(gene_names) != size(matrix, 2)
+        error("Row attribute gene_names has wrong length ($(length(gene_names)) != $(size(matrix, 2)))")
+    end
+
+    if length(cell_names) != size(matrix, 1)
+        error("Col attribute cell_names has wrong length ($(length(gene_names)) != $(size(matrix, 1)))")
+    end
+
     HDF5.h5open(file_path, "w") do fid
         save_matrix_to_loom!(matrix, fid; kwargs...)
         HDF5.create_group(fid, "row_attrs")
@@ -114,12 +123,18 @@ function save_matrix_to_loom(
         fid["col_attrs"]["Name"] = cell_names
         if row_attrs !== nothing
             for (k,v) in row_attrs
+                if length(v) == size(matrix, 1)
+                    error("Row attribute $(k) has wrong length ($(length(v)) != $(size(matrix, 1)))")
+                end
                 fid["row_attrs"][k] = v
             end
         end
 
         if col_attrs !== nothing
             for (k,v) in col_attrs
+                if length(v) == size(matrix, 2)
+                    error("Row attribute $(k) has wrong length ($(length(v)) != $(size(matrix, 2)))")
+                end
                 fid["col_attrs"][k] = v
             end
         end
