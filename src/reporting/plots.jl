@@ -8,6 +8,9 @@ import Base64
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
+plot_molecules(df_spatial::DataFrame, polygons::Dict{Int, Matrix{Float64}}; kwargs...) =
+    plot_molecules(df_spatial, collect(values(polygons)); kwargs...)
+
 function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
