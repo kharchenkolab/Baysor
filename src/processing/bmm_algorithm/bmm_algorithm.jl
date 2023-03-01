@@ -114,7 +114,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     @views x = position_data(data)[:,mol_id]
     gene::Union{Int, Missing} = composition_data(data)[mol_id]
     confidence::Float64 = data.confidence[mol_id]
-    mol_cluster::Int = get(data.cluster_per_molecule, mol_id, 0)
+    mol_cluster::Union{Int, Missing} = get(data.cluster_per_molecule, mol_id, 0)
     segment_id::Int = get(data.segment_per_molecule, mol_id, 0)
 
     empty!(denses)
@@ -127,7 +127,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
 
         ## Only if molecule clustering is provided
 
-        if (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
+        if !ismissing(mol_cluster) && (c_adj > 0) && (c_adj < length(data.cluster_per_cell)) && (data.cluster_per_cell[c_adj] != mol_cluster)
             c_dens *= data.cluster_penalty_mult
         end
 
@@ -331,16 +331,12 @@ end
 
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
-              assignment_history_depth::Int=0, trace_components::Bool=false, verbose::Union{Progress, Bool}=true,
+              assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
               component_split_step::Int=3, refine::Bool=true)
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
         data.tracer[:assignment_history] = Vector{Int}[]
-    end
-
-    if trace_components && !(:component_history in keys(data.tracer))
-        data.tracer[:component_history] = Vector{typeof(data.components[1])}[]
     end
 
     trace_n_components!(data, min_molecules_per_cell);
@@ -362,10 +358,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
         maximize!(data)
 
         trace_n_components!(data, min_molecules_per_cell);
-        trace_assignment_history!(data, assignment_history_depth; use_guids=!trace_components)
-        if trace_components
-            trace_component_history!(data)
-        end
+        trace_assignment_history!(data, assignment_history_depth)
 
         if progress !== nothing
             n_components = sum(num_of_molecules_per_cell(data) .>= min_molecules_per_cell)

@@ -8,23 +8,13 @@ function trace_n_components!(data::BmmData, min_molecules_per_cell::Int)
     push!(data.tracer[:n_components], Dict(tn => sum(n_mols_per_cell .>= tn) for tn in trace_nums));
 end
 
-function trace_assignment_history!(data::BmmData, assignment_history_depth::Int; use_guids::Bool=true)
-    if assignment_history_depth == 0
-        return
-    end
+function trace_assignment_history!(data::BmmData, assignment_history_depth::Int)
+    (assignment_history_depth > 0) || return
 
-    if use_guids
-        push!(data.tracer[:assignment_history], global_assignment_ids(data))
-    else
-        push!(data.tracer[:assignment_history], deepcopy(data.assignment))
-    end
+    push!(data.tracer[:assignment_history], global_assignment_ids(data))
     if length(data.tracer[:assignment_history]) > assignment_history_depth
         data.tracer[:assignment_history] = data.tracer[:assignment_history][(end - assignment_history_depth + 1):end]
     end
-end
-
-function trace_component_history!(data::BmmData) # TODO: remove it
-    push!(data.tracer[:component_history], deepcopy(data.components))
 end
 
 function merge_tracers(tracers::Array{Dict{Symbol, Any}, 1})::Dict{Symbol, Any}
