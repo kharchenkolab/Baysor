@@ -181,9 +181,16 @@ end
 
 init_assignment_probs_inner(genes::Vector{Int}, cell_type_exprs::CatMixture) = cell_type_exprs[:, genes]
 
-function init_assignment_probs(assignment::Vector{Int})
-    assignment_probs = zeros(maximum(assignment), length(assignment));
-    assignment_probs[CartesianIndex.(assignment, 1:length(assignment))] .= 1.0;
+function init_assignment_probs(assignment::Vector{<:Union{Missing, Int}})
+    assignment_probs = zeros(maximum(skipmissing(assignment)), length(assignment));
+    for (i, a) in enumerate(assignment)
+        if ismissing(a)
+            assignment_probs[:, i] .= 1 / size(assignment_probs, 1)
+        else
+            assignment_probs[a, i] = 1.0
+        end
+    end
+
     return assignment_probs
 end
 
@@ -214,16 +221,17 @@ function init_categorical_mixture(
 end
 
 function init_normal_cluster_mixture(
-        gene_vectors::Matrix{Float64}, assignment::Vector{Int}
+        gene_vectors::Matrix{Float64}, confidences::Vector{Float64}, assignment::Nothing, assignment_probs::Matrix{<:Real}
     )
-
-    # TODO: move clustering here, add all optional parameters
-    n_clusters = maximum(assignment)
-    components = [NormalComponent([FNormal(0.0, 1.0) for _ in 1:size(gene_vectors, 1)], 1) for _ in 1:n_clusters];
-    assignment_probs = init_assignment_probs(assignment);
+    components = [NormalComponent([FNormal(0.0, 1.0) for _ in 1:size(gene_vectors, 1)], 1) for _ in 1:size(assignment_probs, 1)];
+    maximize_molecule_clusters!(components, gene_vectors, confidences, assignment_probs)
 
     return components, assignment_probs
 end
+
+init_normal_cluster_mixture(
+    gene_vectors::Matrix{Float64}, confidences::Vector{Float64}, assignment::Vector{<:Union{Int, Missing}}, assignment_probs::Nothing=nothing
+) = init_normal_cluster_mixture(gene_vectors, confidences, nothing, init_assignment_probs(assignment))
 
 function cluster_molecules_on_mrf(
         genes::Union{Vector{Int}, Matrix{Float64}}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
@@ -240,7 +248,15 @@ function cluster_molecules_on_mrf(
     end
 
     if method == :normal
-        components, assignment_probs = init_normal_cluster_mixture(genes, assignment)
+        # TODO: refactor this
+        if components === nothing
+            components, assignment_probs = init_normal_cluster_mixture(genes, confidences, assignment, assignment_probs)
+        else
+            (assignment_probs === nothing) && (assignment === nothing) && error("Either assignment or assignment_probs must be provided for method=:normal")
+            if assignment_probs === nothing
+                assignment_probs = init_assignment_probs(assignment)
+            end
+        end
     elseif method == :categorical
         components, assignment_probs = init_categorical_mixture(genes, components, assignment, assignment_probs; n_clusters, init_mod)
     else
