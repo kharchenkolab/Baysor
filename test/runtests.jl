@@ -51,6 +51,18 @@ end
             @test all(chull .== [0 0 2 2 0; 0 2 2 0 0])
             @test BPR.area(chull) ≈ 4.0
         end
+
+        @testset begin
+            genes = ["1", "2", "3"]
+            gene_ids, gene_names = DAT.encode_genes(genes)
+            @test all(gene_ids .== [1, 2, 3])
+            @test all(gene_names .== genes)
+
+            genes = ["1", "2", missing, "3", missing]
+            gene_ids, gene_names = DAT.encode_genes(genes)
+            @test all(skipmissing(gene_ids) .== [1, 2, 3])
+            @test ismissing(gene_ids[3]) && ismissing(gene_ids[5])
+        end
     end
 
     @testset "distributions" begin
