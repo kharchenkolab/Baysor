@@ -238,13 +238,14 @@ function cluster_molecules_on_mrf(
         n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         components::Union{CatMixture, NormMixture, Nothing}=nothing,
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
-        verbose::Bool=true, progress::Nullable{Progress}=nothing, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, init_mod::Int=10000,
+        verbose::Bool=true, progress::Nullable{Progress}=nothing, weights_pre_adjusted::Bool=false, mrf_weight::Float64=1.0, init_mod::Int=10000,
         method::Symbol=:categorical, kwargs...
     )
     # Initialization
 
     if !weights_pre_adjusted
-        adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
+        # TODO: should I have mrf_weight here?
+        adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
     end
 
     if method == :normal
@@ -279,7 +280,7 @@ function cluster_molecules_on_mrf(
 
         expect_molecule_clusters!(
             assignment_probs, assignment_probs_prev, components, genes,
-            adjacent_points, adjacent_weights
+            adjacent_points, adjacent_weights; mrf_weight=mrf_weight
         )
 
         if do_maximize
@@ -290,7 +291,11 @@ function cluster_molecules_on_mrf(
         push!(max_diffs, md)
         push!(change_fracs, cf)
 
-        prog_vals = [("Iteration", i), ("Max. difference", md), ("Fraction of probs changed", cf)]
+        prog_vals = [
+            ("Iteration", i),
+            ("Max. difference", round(md, sigdigits=3)),
+            ("Fraction of probs changed", round(cf, sigdigits=3))
+        ]
         if verbose
             next!(progress, showvalues=prog_vals)
         end
