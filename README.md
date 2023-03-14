@@ -162,6 +162,8 @@ Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule
   - `density`: cell area divided by the number of molecules in cell
   - `elongation`: ration of the two eigenvalues of the cell covariance matrix
   - `n_transcripts`: number of molecules per cell
+  - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have much higher chance of being an artifact.
+  - `max_cluster_frac` *(only if `n-clusters > 1`)*: fraction of the molecules coming from the most popular cluster. Cells with low `max_cluster_frac` are often doublets.
 - *segmentation_config.toml*: copy of the config to improve reproducibility
 - *segmentation_diagnostics.html*: visualization of the algoritm QC. *Shown only when `-p` is set.*
 - *segmentation_params.dump*: aggregated parameters from the config and CLI
