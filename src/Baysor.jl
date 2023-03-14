@@ -1,5 +1,8 @@
 module Baysor
 
+include("LazySubmodules.jl")
+using .LazySubmodules
+
 # export
 #     BmmData, bmm!,
 #     build_molecule_graph, load_df, initialize_bmm_data,
@@ -9,9 +12,8 @@ module Baysor
 #     plot_molecules, plot_molecules!, plot_expression_vectors,
 #     cluster_molecules_on_mrf
 
+export load_module
 
-include("LazySubmodules.jl")
-using .LazySubmodules
 LazySubmodules.__init__() # Somehow without it __init__ is only called after all @lazy_submodule macroses
 
 # Utils: Minimal functions with zero compilation time shared across submodules
