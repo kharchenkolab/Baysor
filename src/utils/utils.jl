@@ -55,6 +55,34 @@ end
     v1 < v2 ? v1 : v2
 end
 
+function split(vector::T where T <: AbstractVector; n_parts::Int)
+    offset = ceil(Int, length(vector) / n_parts)
+    return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]
+end
+
+function split(
+        array::AbstractVector{TV}, factor::AbstractVector{<:Union{<:Integer, Missing}};
+        max_factor::Union{Int, Nothing}=nothing, drop_zero::Bool=false
+    )::Array{Vector{TV}, 1} where TV
+    @assert length(array) == length(factor)
+    if max_factor === nothing
+        max_factor = maximum(skipmissing(factor))
+    end
+
+    splitted = [TV[] for _ in 1:max_factor]
+    for i in eachindex(array)
+        (ismissing(factor[i]) || (drop_zero && factor[i] == 0)) && continue
+        push!(splitted[factor[i]], array[i])
+    end
+
+    return splitted
+end
+
+split(array::UnitRange{Int64}, factor::Vector{Int}; kwargs...) = split(collect(array), factor; kwargs...)
+
+split_ids(factor::Vector{Int}; kwargs...) = split(1:length(factor), factor; kwargs...)
+
+
 function default_param_value(
         param::Symbol, min_molecules_per_cell::Union{Int, Nothing};
         n_molecules::Union{Int, Nothing}=nothing, n_genes::Union{Int, Nothing}=nothing
@@ -94,3 +122,4 @@ end
 
 split_string_list(list::String, sep::Char=',') =
     Base.split(list, sep) .|> strip .|> String |> (x -> x[length.(x) .> 0])
+

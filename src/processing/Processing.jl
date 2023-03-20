@@ -17,7 +17,8 @@ import Distributions.logpdf
 import Statistics.rand
 
 using ..Baysor.Utils
-using ..Baysor.Utils: SegmentationOptions, PlottingOptions
+using ..Baysor.Utils: SegmentationOptions, PlottingOptions, split_ids
+import ..Baysor.Utils.split
 
 include("utils/utils.jl")
 include("utils/convex_hull.jl")

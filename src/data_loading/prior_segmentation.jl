@@ -84,7 +84,7 @@ function estimate_scale_from_centers(seg_labels::SparseMatrixCSC{<:Integer})
 end
 
 function estimate_scale_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}; min_mols_per_cell::Int)
-    pd_per_cell = [pos_data[:,ids] for ids in split_ids(assignment, drop_zero=true) if length(ids) >= min_mols_per_cell];
+    pd_per_cell = [pos_data[:,ids] for ids in Utils.split_ids(assignment, drop_zero=true) if length(ids) >= min_mols_per_cell];
     if length(pd_per_cell) < 3
         error("Not enough prior cells pass the min_mols_per_cell=$(min_mols_per_cell) threshold. Please, specify scale manually.")
     end
