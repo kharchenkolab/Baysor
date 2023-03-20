@@ -121,23 +121,6 @@ function build_molecule_graph(
     return adjacent_points, adjacent_weights, adjacent_dists
 end
 
-function build_molecule_graph_normalized(df_spatial::DataFrame, vertex_weights::Union{Vector{Float64}, Symbol}; kwargs...)
-    if typeof(vertex_weights) <: Symbol
-        vertex_weights = df_spatial[!, vertex_weights]
-    end
-
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; kwargs...)
-    for i in eachindex(adjacent_weights)
-        cur_points = adjacent_points[i]
-        cur_weights = adjacent_weights[i]
-        for j in eachindex(cur_weights)
-            cur_weights[j] *= vertex_weights[cur_points[j]]
-        end
-    end
-
-    return adjacent_points, adjacent_weights
-end
-
 # Initialize BmmData
 
 """

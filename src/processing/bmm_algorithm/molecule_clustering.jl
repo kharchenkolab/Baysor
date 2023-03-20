@@ -238,15 +238,12 @@ function cluster_molecules_on_mrf(
         n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         components::Union{CatMixture, NormMixture, Nothing}=nothing,
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
-        verbose::Bool=true, progress::Nullable{Progress}=nothing, weights_pre_adjusted::Bool=false, mrf_weight::Float64=1.0, init_mod::Int=10000,
-        method::Symbol=:categorical, kwargs...
+        verbose::Bool=true, progress::Nullable{Progress}=nothing, mrf_weight::Float64=1.0, init_mod::Int=10000, method::Symbol=:categorical, kwargs...
     )
     # Initialization
 
-    if !weights_pre_adjusted
-        # TODO: should I have mrf_weight here?
-        adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
-    end
+    # TODO: should I have mrf_weight here?
+    adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
 
     if method == :normal
         # TODO: refactor this
@@ -407,9 +404,8 @@ end
 function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
     @info "Clustering molecules..."
     # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
-    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
-
-    mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=n_clusters, weights_pre_adjusted=false)
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
+    mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=n_clusters)
 
     @info "Done"
     return mol_clusts

@@ -72,12 +72,10 @@ end
 
 function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_locked::BitVector,
         adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
-        n_iters_without_update=20, weights_pre_adjusted::Bool=false, weight_mult::Float64=1.0, tol::Float64=0.01,
-        max_iter::Int=500, verbose::Bool=true)
+        n_iters_without_update=20, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500, verbose::Bool=true
+    )
 
-    if !weights_pre_adjusted
-        adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
-    end
+    adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
 
     max_diffs, change_fracs = Float64[], Float64[]
     assignment_probs_prev = deepcopy(assignment_probs)
@@ -150,14 +148,16 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     end
 
     # Run segmentation
-    adjacent_points, adjacent_weights = build_molecule_graph_normalized(df_spatial, :confidence, filter=false);
+    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
 
     init_probs, is_locked = init_nuclei_cyto_compartments(
         position_data(df_spatial), df_spatial.gene; gene_names=gene_names, scale=scale,
         nuclei_genes=nuclei_genes, cyto_genes=cyto_genes
     );
 
-    comp_segs = segment_molecule_compartments(init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence);
+    comp_segs = segment_molecule_compartments(
+        init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence
+    );
     # TODO: comp_genes is always empty now
 
     @info "Done"
