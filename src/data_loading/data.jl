@@ -55,7 +55,7 @@ function read_spatial_df(
     if filter_cols
         df_spatial = df_spatial[:, [:x, :y, :gene]]
     end
-    df_spatial[!, :gene] = ["$g" for g in df_spatial.gene]
+    df_spatial[!, :gene] = String["$g" for g in df_spatial.gene]
 
     if (:z in propertynames(df_spatial)) && (drop_z || (length(unique(df_spatial.z)) < 2))
         DataFrames.select!(df_spatial, DataFrames.Not(:z))
@@ -88,5 +88,5 @@ function load_df(data_path::String; min_molecules_per_gene::Int=0, exclude_genes
     df_spatial[!, :gene], gene_names = encode_genes(df_spatial[!, :gene]);
     df_spatial[!, :molecule_id] = 1:size(df_spatial, 1)
 
-    return df_spatial, gene_names;
+    return df_spatial, String.(gene_names);
 end
