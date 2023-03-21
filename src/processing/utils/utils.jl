@@ -42,18 +42,18 @@ Base.getindex(::PseudoWeight, i::Int) = 1
 is_provided(::PseudoWeight) = false
 is_provided(::Vector) = true
 
-count_array_sparse(values::Vector{Union{Missing, Int}}, args...; kwargs...) =
+count_array_sparse(values::AbstractVector{Union{Missing, Int}}, args...; kwargs...) =
     count_array_sparse(collect(skipmissing(values)), args...; kwargs...)
 
-count_array_sparse(T::DataType, values::Vector{Union{Missing, Int}}, args...; kwargs...) =
+count_array_sparse(T::DataType, values::AbstractVector{Union{Missing, Int}}, args...; kwargs...) =
     count_array_sparse(T, collect(skipmissing(values)), args...; kwargs...)
 
-count_array_sparse(values::Vector{Int}, ::Nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
-count_array_sparse(values::Vector{Int}, weights::Vector{Float64}; kwargs...) =
+count_array_sparse(values::AbstractVector{Int}, ::Nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
+count_array_sparse(values::AbstractVector{Int}, weights::AbstractVector{Float64}; kwargs...) =
     count_array_sparse(Float64, values, weights; kwargs...)
 
 function count_array_sparse(
-        T::DataType, values::Vector{Int}, weights::Union{Vector{Float64}, PseudoWeight}=PseudoWeight();
+        T::DataType, values::AbstractVector{Int}, weights::Union{AbstractVector{Float64}, PseudoWeight}=PseudoWeight();
         total::Int=0, min_val::Float64=1e-5, normalize::Bool=false
     )
     !isempty(values) || return spzeros(T, total)
