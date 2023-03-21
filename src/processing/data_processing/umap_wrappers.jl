@@ -15,7 +15,7 @@ struct UmapFit{TT <: NNTree}
 end
 
 function fit(
-        ::Type{UmapFit}, x::Matrix{<:Real}; n_components::Int=2, nn_interpolate::Int=5,
+        ::Type{UmapFit}, x::AbstractMatrix{<:Real}; n_components::Int=2, nn_interpolate::Int=5,
         spread=2.0, min_dist=0.1, metric::MT where MT <: NearestNeighbors.MinkowskiMetric = Euclidean(), kwargs...
     )
     nn_tree = KDTree(x, metric)
@@ -28,7 +28,7 @@ function transform(transformation::UmapFit, x::AbstractMatrix{<:Real}; dist_offs
     # This transformation is much faster than the implementation from UMAP.jl, even for input dimensionality = 50.
     # Probably, because of the slow NearestNeighborDescent package.
     indices, distances = knn_parallel(transformation.nn_tree, x, transformation.nn_interpolate)
-    res = zeros(eltype(transformation.embedding), 3, size(indices, 1))
+    res = zeros(eltype(transformation.embedding), size(transformation.embedding, 1), size(indices, 1))
     @threads for oi in axes(res, 2)
         for di in axes(res, 1)
             res[di,oi] = wmean(transformation.embedding[di, indices[oi]], 1 ./ (distances[oi] .+ dist_offset))
