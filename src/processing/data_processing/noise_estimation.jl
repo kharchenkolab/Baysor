@@ -1,5 +1,5 @@
-@views maximize_noise_distributions(edge_lengths::Vector{Float64}, assignment_probs::Matrix{Float64}; updating_ids::Vector{Int}) =
-    (Normal(wmean_std(edge_lengths, assignment_probs[:,i], non_zero_ids=updating_ids)...) for i in 1:2)
+@views maximize_noise_distributions(edge_lengths::Vector{Float64}, assignment_probs::Matrix{Float64}) =
+    (Normal(wmean_std(edge_lengths, assignment_probs[:,i])...) for i in 1:2)
 
 function expect_noise_probabilities!(
         assignment_probs::Matrix{Float64}, d1::Normal, d2::Normal, edge_lengths::Vector{Float64}, adj_list::AdjList;
@@ -61,7 +61,7 @@ function fit_noise_probabilities(
         expect_noise_probabilities!(
             assignment_probs, d1, d2, edge_lengths, adj_list; updating_ids, min_confidence
         )
-        d1n, d2n = maximize_noise_distributions(edge_lengths, assignment_probs; updating_ids)
+        d1n, d2n = maximize_noise_distributions(edge_lengths, assignment_probs)
 
         ## Estimate parameter differences as convergence criteria
         param_diff = max(abs(d1n.μ - d1.μ) / d1.μ, abs(d2n.μ - d2.μ) / d2.μ, abs(d1n.σ - d1.σ) / d1.σ, abs(d2n.σ - d2.σ) / d2.σ)
