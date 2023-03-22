@@ -233,18 +233,12 @@ init_normal_cluster_mixture(
     gene_vectors::Matrix{Float64}, confidence::Vector{Float64}, assignment::Vector{<:Union{Int, Missing}}, assignment_probs::Nothing=nothing
 ) = init_normal_cluster_mixture(gene_vectors, confidence, nothing, init_assignment_probs(assignment))
 
-function cluster_molecules_on_mrf(
-        genes::Union{Vector{Int}, Matrix{Float64}}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
-        n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
-        components::Union{CatMixture, NormMixture, Nothing}=nothing,
+function init_cluster_mixture(
+        genes::Union{Vector{Int}, Matrix{Float64}}, confidence::Vector{Float64};
+        n_clusters::Int=1, components::Union{CatMixture, NormMixture, Nothing}=nothing,
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
-        verbose::Bool=true, progress::Nullable{Progress}=nothing, mrf_weight::Float64=1.0, init_mod::Int=10000, method::Symbol=:categorical, kwargs...
+        init_mod::Int=10000, method::Symbol=:categorical
     )
-    # Initialization
-
-    # TODO: should I have mrf_weight here?
-    adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
-
     if method == :normal
         # TODO: refactor this
         if components === nothing
@@ -260,6 +254,24 @@ function cluster_molecules_on_mrf(
     else
         error("Unknown method: $method")
     end
+
+    return components, assignment_probs
+end
+
+function cluster_molecules_on_mrf(
+        genes::Union{Vector{Int}, Matrix{Float64}}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
+        n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
+        components::Union{CatMixture, NormMixture, Nothing}=nothing,
+        assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
+        verbose::Bool=true, progress::Nullable{Progress}=nothing, mrf_weight::Float64=1.0, init_mod::Int=10000, method::Symbol=:categorical, kwargs...
+    )
+    # Initialization
+
+    # TODO: should I have mrf_weight here?
+    adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
+    components, assignment_probs = init_cluster_mixture(
+        genes, confidence; n_clusters, components, assignment, assignment_probs, init_mod, method
+    )
 
     assignment_probs_prev = deepcopy(assignment_probs)
     max_diffs = Float64[]
