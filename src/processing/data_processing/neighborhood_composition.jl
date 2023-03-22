@@ -25,29 +25,30 @@ function neighborhood_count_matrix(
 
     k = min(k, size(pos_data, 2))
 
-    neighbors, dists = knn(KDTree(pos_data), pos_data, k, true);
+    neighbors, dists = knn_parallel(KDTree(pos_data), pos_data, k; sorted=true);
 
     if normalize_by_dist
         # account for problems with points with duplicating coordinates
         med_closest_dist = median(d[findfirst(d .> 1e-15)] for d in dists if any(d .> 1e-15));
 
-        return hcat([ # TODO: make parallel?
+        return hcat([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
             count_array_sparse(Float32, genes[nns], 1 ./ max.(ds, med_closest_dist); total=n_genes, normalize=normalize)
             for (nns,ds) in zip(neighbors, dists)
         ]...);
     end
 
+    s_vecs = Vector{SparseArrays.SparseVector{Float32, Int64}}(undef, length(neighbors))
     if !normalize
-        return hcat([
-            count_array_sparse(Float32, genes[nns]; total=n_genes, normalize=false)
-            for nns in neighbors
-        ]...);
+        @threads for i in eachindex(neighbors)
+            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]); total=n_genes, normalize=true)
+        end
+    else
+        @threads for i in eachindex(neighbors)
+            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]), view(confidences, neighbors[i]); total=n_genes, normalize=true)
+        end
     end
 
-    return hcat([
-        count_array_sparse(Float32, genes[nns], confidences[nns]; total=n_genes, normalize=true)
-        for nns in neighbors
-    ]...);
+    return hcat(s_vecs...);
 end
 
 function gene_pca(count_matrix::AbstractMatrix{<:Real}, n_pcs::Int; method::Symbol=:auto)::Tuple{Matrix{<:Real}, Matrix{<:Real}}
@@ -69,6 +70,18 @@ function gene_pca(count_matrix::AbstractMatrix{<:Real}, n_pcs::Int; method::Symb
     end
 
     error("Unknown method: $method. Only :dense, :sparse or :auto are supported")
+end
+
+function generate_randomized_gene_vectors(
+        neighb_cm::SparseArrays.SparseMatrixCSC{<:Real, Int64}, gene_ids::Vector{Int};
+        n_components::Int=50, seed::Int=42
+    )::Matrix{Float64}
+    Random.seed!(seed)
+    random_vectors_init = randn(size(neighb_cm, 1), n_components);
+
+    ids_by_gene = Utils.split_ids(gene_ids)
+    rnm_mat = (neighb_cm' * random_vectors_init) ./ sum(neighb_cm, dims=1)'
+    return vcat([mean(rnm_mat[ids,:], dims=1) for ids in ids_by_gene]...);
 end
 
 normalize_embedding_to_lab_range(embedding::AbstractMatrix{<:Real}; kwargs...) =
