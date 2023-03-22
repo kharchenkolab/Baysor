@@ -27,6 +27,7 @@ include("utils/cli_wrappers.jl")
 include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
 
+include("models/AdjList.jl")
 include("models/InitialParams.jl")
 include("models/Component.jl")
 include("models/BmmData.jl")

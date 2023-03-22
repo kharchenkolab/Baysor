@@ -1,16 +1,17 @@
 @views maximize_noise_distributions(edge_lengths::Vector{Float64}, assignment_probs::Matrix{Float64}; updating_ids::Vector{Int}) =
     (Normal(wmean_std(edge_lengths, assignment_probs[:,i], non_zero_ids=updating_ids)...) for i in 1:2)
 
-function expect_noise_probabilities!(assignment_probs::Matrix{Float64}, d1::Normal, d2::Normal, edge_lengths::Vector{Float64},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}; updating_ids::Vector{Int},
-        min_confidence::Union{Vector{Float64}, Nothing}=nothing)
+function expect_noise_probabilities!(
+        assignment_probs::Matrix{Float64}, d1::Normal, d2::Normal, edge_lengths::Vector{Float64}, adj_list::AdjList;
+        updating_ids::Vector{Int}, min_confidence::Union{Vector{Float64}, Nothing}=nothing
+    )
     norm_denses = (pdf.(d1, edge_lengths), pdf.(d2, edge_lengths));
     n1 = sum(assignment_probs[:, 1])
     n2 = size(assignment_probs, 1) - n1
 
     for i in updating_ids
-        cur_weights = adjacent_weights[i]
-        cur_points = adjacent_points[i]
+        cur_points = adj_list.ids[i]
+        cur_weights = adj_list.weights[i]
 
         c_d1 = c_d2 = 0.0
         for j in 1:length(cur_points)
@@ -31,8 +32,11 @@ function expect_noise_probabilities!(assignment_probs::Matrix{Float64}, d1::Norm
     end
 end
 
-function fit_noise_probabilities(edge_lengths::Vector{Float64}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
-        min_confidence::Union{Vector{Float64}, Nothing}=nothing, max_iters::Int=10000, tol::Float64=0.005, verbose::Bool=false, progress::Union{Progress, Nothing}=nothing)
+function fit_noise_probabilities(
+        edge_lengths::Vector{Float64}, adj_list::AdjList;
+        min_confidence::Union{Vector{Float64}, Nothing}=nothing, max_iters::Int=10000, tol::Float64=0.005,
+        verbose::Bool=false, progress::Union{Progress, Nothing}=nothing
+    )
     # Initialization
     init_means = quantile(edge_lengths, (0.1, 0.9))
     init_std = (init_means[2] - init_means[1]) / 4.0
@@ -54,8 +58,10 @@ function fit_noise_probabilities(edge_lengths::Vector{Float64}, adjacent_points:
     # EM iterations
     n_iters = max_iters
     for i in 1:max_iters
-        expect_noise_probabilities!(assignment_probs, d1, d2, edge_lengths, adjacent_points, adjacent_weights, updating_ids=updating_ids, min_confidence=min_confidence)
-        d1n, d2n = maximize_noise_distributions(edge_lengths, assignment_probs, updating_ids=updating_ids)
+        expect_noise_probabilities!(
+            assignment_probs, d1, d2, edge_lengths, adj_list; updating_ids, min_confidence
+        )
+        d1n, d2n = maximize_noise_distributions(edge_lengths, assignment_probs; updating_ids)
 
         ## Estimate parameter differences as convergence criteria
         param_diff = max(abs(d1n.μ - d1.μ) / d1.μ, abs(d2n.μ - d2.μ) / d2.μ, abs(d1n.σ - d1.σ) / d1.σ, abs(d2n.σ - d2.σ) / d2.σ)
@@ -105,8 +111,8 @@ function estimate_confidence(df_spatial::DataFrame, prior_assignment::Union{Vect
 
     min_confidence = (prior_assignment !== nothing) ? (prior_confidence^2 .* (prior_assignment .> 0)) : nothing
 
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2]; # TODO: can be optimized as we already have kNNs
-    probs, (d1, d2) = fit_noise_probabilities(mean_dists, adjacent_points, adjacent_weights, min_confidence=min_confidence)[[1, 3]]
+    adj_list = build_molecule_graph(df_spatial, filter=false); # TODO: can be optimized as we already have kNNs
+    probs, (d1, d2) = fit_noise_probabilities(mean_dists, adj_list; min_confidence)[[1, 3]]
 
     return mean_dists, probs[:, 1], d1, d2
 end

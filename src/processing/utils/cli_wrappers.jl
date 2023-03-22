@@ -1,6 +1,6 @@
 function estimate_gene_structure_embedding(df_spatial::DataFrame, gene_names::Vector{String}, confidence::Vector{Float64}=df_spatial.confidence)
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false)[1:2];
-    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, confidence, adjacent_points, adjacent_weights);
+    adj_list = build_molecule_graph(df_spatial, filter=false)
+    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, confidence, adj_list);
     cor_vals = vec(cor_mat)
     min_cor = quantile(cor_vals[cor_vals .> 0], 0.001) ./ 5;
     max_cor = quantile(cor_vals, 0.99);
@@ -20,16 +20,15 @@ function run_segmentation(
     # Region-based segmentations
 
     comp_segs, comp_genes = nothing, Vector{Int}[]
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:auto)[1:2]
+    adj_list = build_molecule_graph(df_spatial; use_local_gene_similarities=false, adjacency_type=:auto)
     if opts.nuclei_genes != ""
         comp_segs, comp_genes, df_spatial[!, :compartment] = estimate_molecule_compartments(
             df_spatial, gene_names; nuclei_genes=opts.nuclei_genes, cyto_genes=opts.cyto_genes, scale=opts.scale
         )
         df_spatial[!, :nuclei_probs] = 1 .- comp_segs.assignment_probs[2,:];
 
-        adjacent_points, adjacent_weights = adjust_mrf_with_compartments(
-            adjacent_points, adjacent_weights,
-            comp_segs.assignment_probs[1,:], comp_segs.assignment_probs[2,:]
+        adjust_mrf_with_compartments!(
+            adj_list, comp_segs.assignment_probs[1,:], comp_segs.assignment_probs[2,:]
         );
     end
 
@@ -47,9 +46,9 @@ function run_segmentation(
     )
 
     bm_data = initialize_bmm_data(
-        df_spatial; scale=opts.scale, scale_std=opts.scale_std, n_cells_init=n_cells_init,
-        prior_seg_confidence=opts.prior_segmentation_confidence, min_molecules_per_cell=min_molecules_per_cell,
-        adjacent_points=adjacent_points, adjacent_weights=adjacent_weights, na_genes=Vector{Int}(vcat(comp_genes...))
+        df_spatial; scale=opts.scale, scale_std=opts.scale_std, n_cells_init,
+        prior_seg_confidence=opts.prior_segmentation_confidence, min_molecules_per_cell,
+        adj_list, na_genes=Vector{Int}(vcat(comp_genes...))
     );
 
     @info "Using $(size(position_data(bm_data), 1))D coordinates"

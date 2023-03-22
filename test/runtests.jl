@@ -19,13 +19,11 @@ function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64
         :gene => rand(1:10, n_mols),
         :confidence => confidence ? ones(n_mols) : rand(n_mols)
     )
-    adjacent_points, adjacent_weights = BPR.build_molecule_graph(
+    adj_list = BPR.build_molecule_graph(
         df; use_local_gene_similarities=false, adjacency_type=:triangulation
-    )[1:2]
+    )
     bmd = BPR.initialize_bmm_data(
-        df, scale=scale, min_molecules_per_cell=min_molecules_per_cell, n_cells_init=(n_mols ÷ 5),
-        adjacent_points=adjacent_points, adjacent_weights=adjacent_weights,
-        kwargs...
+        df; scale, min_molecules_per_cell, n_cells_init=(n_mols ÷ 5), adj_list, kwargs...
     );
     if do_maximize
         BPR.maximize!(bmd)
@@ -98,19 +96,18 @@ end
             df[!, :cluster] = rand(1:5, n_mols)
             df[!, :prior_segmentation] = rand(1:100, n_mols)
 
-            adjacent_points, adjacent_weights = BPR.build_molecule_graph(
+            adj_list = BPR.build_molecule_graph(
                 df; use_local_gene_similarities=false, adjacency_type=:triangulation
-            )[1:2]
+            )
 
             bm_data = BPR.initialize_bmm_data(
-                df, scale=6.0, min_molecules_per_cell=30, n_cells_init=200,
-                adjacent_points=adjacent_points, adjacent_weights=adjacent_weights
+                df; scale=6.0, min_molecules_per_cell=30, n_cells_init=200, adj_list
             );
             @test all(bm_data.cluster_per_molecule .== df.cluster)
             @test all(bm_data.segment_per_molecule .== df.prior_segmentation)
 
-            @test all(length(bm_data.adjacent_points[i]) == length(bm_data.adjacent_weights[i]) for i in 1:length(bm_data.adjacent_points))
-            @test !any(i in bm_data.adjacent_points[i] for i in 1:length(bm_data.adjacent_points))
+            @test all(length(bm_data.adj_list.ids[i]) == length(bm_data.adj_list.weights[i]) for i in eachindex(bm_data.adj_list))
+            @test !any(i in bm_data.adj_list.ids[i] for i in eachindex(bm_data.adj_list))
 
             for i in 5:10:55
                 init_params = BPR.cell_centers_uniformly(df, i; scale=10.0)
@@ -135,9 +132,9 @@ end
 
         @testset "molecule_graph" begin
             for adj_type in [:triangulation, :knn, :both]
-                adj_points, adj_weights = BPR.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30)[1:2];
-                @test all(length.(adj_points) .== length.(adj_weights))
-                @test all(length.(adj_points) .== length.(unique.(adj_points)))
+                adj_list = BPR.build_molecule_graph(DataFrame(rand(1000, 2), [:x, :y]); adjacency_type=adj_type, k_adj=30);
+                @test all(length.(adj_list.ids) .== length.(adj_list.weights))
+                @test all(length.(adj_list.ids) .== length.(unique.(adj_list.ids)))
             end
         end
 
@@ -238,10 +235,10 @@ end
                     df_spatial[!, :cluster] = df_spatial.cell .+ 1
                 end
 
-                adjacent_points, adjacent_weights = BPR.build_molecule_graph(df_spatial)[1:2]
+                adj_list = BPR.build_molecule_graph(df_spatial)
                 bm_data = BPR.initialize_bmm_data(
-                    df_spatial; scale=scale, scale_std="5%", min_molecules_per_cell=10, n_cells_init=size(df_spatial, 1) ÷ 3,
-                    adjacent_points, adjacent_weights
+                    df_spatial; scale_std="5%", min_molecules_per_cell=10, n_cells_init=size(df_spatial, 1) ÷ 3,
+                    adj_list, scale
                 );
                 BPR.bmm!(bm_data; n_iters=350, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=100, verbose=false);
 

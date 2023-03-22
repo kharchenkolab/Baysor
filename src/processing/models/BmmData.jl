@@ -17,8 +17,7 @@ mutable struct BmmData{L}
     nuclei_prob_per_molecule::Vector{Float64}
 
     ## MRF
-    adjacent_points::Array{Vector{Int}, 1};
-    adjacent_weights::Array{Vector{Float64}, 1};
+    adj_list::AdjList;
     real_edge_weight::Float64;
     position_knn_tree::KDTree;
     knn_neighbors::Array{Vector{Int}, 1};
@@ -55,13 +54,13 @@ mutable struct BmmData{L}
     # Arguments
     - `components::Array{Component, 1}`:
     - `x::DataFrame`:
-    - `adjacent_points::Array{Array{Int, 1}, 1}`:
+    - `adj_list::AdjList`:
     - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
     - `distribution_sampler::Component`:
     - `assignment::Array{Int, 1}`:
     """
-    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1},
+    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adj_list::AdjList,
                      assignment::Vector{Int}, distribution_sampler::Component{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20,
                      cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
                      min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where N
@@ -82,7 +81,6 @@ mutable struct BmmData{L}
         knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
 
         comp_data = [ifelse(g in na_genes, missing, g) for g in composition_data(x)]
-        n_genes = maximum(skipmissing(composition_data(x)))
 
         x = deepcopy(x)
         if !(:confidence in propertynames(x))
@@ -93,7 +91,7 @@ mutable struct BmmData{L}
         cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
         self = new{N}(
             x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
-            adjacent_points, adjacent_weights, real_edge_weight, position_knn_tree, knn_neighbors,
+            adj_list, real_edge_weight, position_knn_tree, knn_neighbors,
             components, deepcopy(distribution_sampler), assignment, length(components), 0.0,
             Int[],
             Int[], Int[], # prior segmentation info

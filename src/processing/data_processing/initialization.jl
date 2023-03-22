@@ -118,7 +118,7 @@ function build_molecule_graph(
     end
 
     adjacent_points, adjacent_weights = convert_edge_list_to_adj_list(edge_list, adjacent_weights; n_verts=size(df_spatial, 1));
-    return adjacent_points, adjacent_weights, adjacent_dists
+    return AdjList(adjacent_points, adjacent_weights)
 end
 
 # Initialize BmmData
@@ -127,7 +127,7 @@ end
     main function for initialization of bm_data
 """
 function initialize_bmm_data(
-        df_spatial::DataFrame; min_molecules_per_cell::Int, adjacent_points::Vector{Vector{Int64}}, adjacent_weights::Vector{Vector{Float64}},
+        df_spatial::DataFrame; min_molecules_per_cell::Int, adj_list::AdjList,
         n_cells_init::Int, scale::T where T<: Real, scale_std::Union{<:Real, String, Nothing}=nothing,
         prior_seg_confidence::Float64=0.5, verbose::Bool=true, kwargs...
     )::BmmData
@@ -144,8 +144,10 @@ function initialize_bmm_data(
 
     components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
 
-    return BmmData(components, df_spatial, adjacent_points, adjacent_weights, assignment, sampler;
-        prior_seg_confidence=prior_seg_confidence, kwargs...)
+    return BmmData(
+        components, df_spatial, adj_list, assignment, sampler;
+        prior_seg_confidence, kwargs...
+    )
 end
 
 function initial_distributions(df_spatial::DataFrame, initial_params::InitialParams; size_prior::ShapePrior{N},

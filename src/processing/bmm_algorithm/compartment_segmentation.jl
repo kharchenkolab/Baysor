@@ -1,10 +1,10 @@
-function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, is_locked::BitVector)
-    for i in 1:length(adjacent_points)
+function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adj_list::AdjList, is_locked::BitVector)
+    for i in eachindex(adj_list.ids)
         if is_locked[i]
             continue
         end
-        cur_weights = adjacent_weights[i]
-        cur_points = adjacent_points[i]
+        cur_points = adj_list.ids[i]
+        cur_weights = adj_list.weights[i]
 
         if length(cur_points) == 0
             continue
@@ -13,7 +13,7 @@ function expect_molecule_compartments!(assignment_probs::Matrix{Float64}, adjace
         dense_sum = 0.0
         for ri in 1:size(assignment_probs, 1)
             c_d = 0.0
-            for j in 1:length(cur_points)
+            for j in eachindex(cur_points)
                 c_d += cur_weights[j] * assignment_probs[ri, cur_points[j]]
             end
 
@@ -70,12 +70,13 @@ function init_molecule_compartments(pos_data::Matrix{Float64}, genes::Vector{Int
     return assignment_probs, is_locked
 end
 
-function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_locked::BitVector,
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
+function segment_molecule_compartments(
+        assignment_probs::Matrix{Float64}, is_locked::BitVector, adj_list::AdjList, confidence::Vector{Float64};
         n_iters_without_update=20, weight_mult::Float64=1.0, tol::Float64=0.01, max_iter::Int=500, verbose::Bool=true
     )
 
-    adjacent_weights = [weight_mult .* adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
+    adj_weights = [weight_mult .* adj_list.weights[i] .* confidence[adj_list.ids[i]] for i in eachindex(adj_list.ids)] # instead of multiplying each time in expect
+    adj_list = AdjList(adj_list.ids, adj_weights)
 
     max_diffs, change_fracs = Float64[], Float64[]
     assignment_probs_prev = deepcopy(assignment_probs)
@@ -85,7 +86,7 @@ function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_loc
     for i in 1:max_iter
         assignment_probs_prev .= assignment_probs
         # Iteration
-        expect_molecule_compartments!(assignment_probs, adjacent_points, adjacent_weights, is_locked)
+        expect_molecule_compartments!(assignment_probs, adj_list, is_locked)
 
         # Stop criterion
         md, cf = estimate_difference_l0(assignment_probs, assignment_probs_prev, col_weights=confidence)
@@ -109,14 +110,17 @@ function segment_molecule_compartments(assignment_probs::Matrix{Float64}, is_loc
     return (assignment=assignment, diffs=max_diffs, assignment_probs=assignment_probs, change_fracs=change_fracs)
 end
 
-adjust_mrf_with_compartments(adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, args...; kwargs...) =
-    adjust_mrf_with_compartments!(deepcopy(adjacent_points), deepcopy(adjacent_weights), args...; kwargs...)
+adjust_mrf_with_compartments(adj_list::AdjList, args...; kwargs...) =
+    adjust_mrf_with_compartments!(deepcopy(adj_list), args...; kwargs...)
 
-function adjust_mrf_with_compartments!(adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, nuclei_probs::Vector{Float64}, cyto_probs::Vector{Float64}; min_nuc_prob::Float64=0.25, min_weight::Float64=0.01)
-    for (m1,ids) in enumerate(adjacent_points)
+function adjust_mrf_with_compartments!(
+        adj_list::AdjList, nuclei_probs::Vector{Float64}, cyto_probs::Vector{Float64};
+        min_nuc_prob::Float64=0.25, min_weight::Float64=0.01
+    )
+    for (m1,ids) in enumerate(adj_list.ids)
         nuc_prob = nuclei_probs[m1]
         (min_nuc_prob > 0.25) || continue
-        weights = adjacent_weights[m1]
+        weights = adj_list.weights[m1]
         for (i2,m2) in enumerate(ids)
             weights[i2] *= 1 - cyto_probs[m2] * nuc_prob
         end
@@ -124,10 +128,10 @@ function adjust_mrf_with_compartments!(adjacent_points::Vector{Vector{Int}}, adj
         mask = (weights .> min_weight)
         any(mask) || continue
 
-        adjacent_points[m1] = adjacent_points[m1][mask]
-        adjacent_weights[m1] = adjacent_weights[m1][mask]
+        adj_list.ids[m1] = adj_list.ids[m1][mask]
+        adj_list.weights[m1] = adj_list.weights[m1][mask]
     end
-    return adjacent_points, adjacent_weights
+    return adj_list
 end
 
 ## Wrappers
@@ -148,16 +152,14 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     end
 
     # Run segmentation
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
+    adj_list = build_molecule_graph(df_spatial, filter=false);
 
     init_probs, is_locked = init_nuclei_cyto_compartments(
         position_data(df_spatial), df_spatial.gene; gene_names=gene_names, scale=scale,
         nuclei_genes=nuclei_genes, cyto_genes=cyto_genes
     );
 
-    comp_segs = segment_molecule_compartments(
-        init_probs, is_locked, adjacent_points, adjacent_weights, df_spatial.confidence
-    );
+    comp_segs = segment_molecule_compartments(init_probs, is_locked, adj_list, df_spatial.confidence);
     # TODO: comp_genes is always empty now
 
     @info "Done"

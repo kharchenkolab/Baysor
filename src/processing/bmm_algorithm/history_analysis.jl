@@ -55,7 +55,7 @@ function reassign_molecules_with_history(bm_data, assignment_history::Array{Arra
         prev_assignment = copy(assignment)
 
         for mol_id in sortperm(mean.(freq_per_current_neighbors))
-            assignment[mol_id] = get_best_molecule_assignment(bm_data.adjacent_points[mol_id], adj_freqs[mol_id], assignment)
+            assignment[mol_id] = get_best_molecule_assignment(bm_data.adj_list.ids[mol_id], adj_freqs[mol_id], assignment)
         end
 
         if all(prev_assignment .== assignment)

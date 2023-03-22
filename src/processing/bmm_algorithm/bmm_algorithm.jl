@@ -19,7 +19,7 @@ function drop_unused_components!(data::BmmData; min_n_samples::Int=2)
     data.components = data.components[existed_ids]
 end
 
-adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Array{Int, 1})::Array{Int, 1} =
+adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Vector{Int})::Vector{Int} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
 function assign_molecule!(data::BmmData, mol_id::Int; denses::Vector{Float64}, adj_classes::Vector{Int}, stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
@@ -74,7 +74,7 @@ end
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
     bg_comp_weight = aggregate_adjacent_component_weights!(
         adj_classes, adj_weights, component_weights, data.assignment,
-        data.adjacent_points[mol_id], data.adjacent_weights[mol_id]
+        data.adj_list.ids[mol_id], data.adj_list.weights[mol_id]
     )
 
     if mol_id in keys(adj_classes_global)
@@ -256,7 +256,7 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
         end
 
         nearest_id = knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]
-        for t_id in data.adjacent_points[nearest_id]
+        for t_id in data.adj_list.ids[nearest_id]
             if t_id in keys(adj_classes_global)
                 push!(adj_classes_global[t_id], cur_id)
             else
@@ -303,8 +303,9 @@ function get_connected_components_per_label(assignment::Vector{Int}, adjacent_po
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
-    conn_comps_per_cell, real_cell_ids, mol_ids_per_cell = get_connected_components_per_label(data.assignment, data.adjacent_points,
-        min_molecules_per_cell; confidence=data.confidence)
+    conn_comps_per_cell, real_cell_ids, mol_ids_per_cell = get_connected_components_per_label(
+        data.assignment, data.adj_list.ids, min_molecules_per_cell; confidence=data.confidence
+    )
 
     for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
         if length(conn_comps) < 2

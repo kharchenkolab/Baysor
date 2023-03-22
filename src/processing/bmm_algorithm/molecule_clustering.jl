@@ -85,21 +85,20 @@ end
 
 """
 Params:
-- adjacent_weights: must be multiplied by confidence of the corresponding adjacent_point
+- adj_list.weights: must be multiplied by confidence of the corresponding adj_list.ids
 """
 function expect_molecule_clusters!(
         assignment_probs::Matrix{Float64}, assignment_probs_prev::Matrix{Float64},
-        cell_type_exprs::Union{CatMixture, NormMixture},
-        genes::Union{Vector{Int}, Matrix{Float64}},
-        adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
+        cell_type_exprs::Union{CatMixture, NormMixture}, genes::Union{Vector{Int}, Matrix{Float64}},
+        adj_list::AdjList;
         mrf_weight::Float64=1.0, only_mrf::Bool=false, is_fixed::Nullable{BitVector}=nothing
     )
     total_ll = Atomic{Float64}(0.0)
-    @threads for i in eachindex(adjacent_points)
+    @threads for i in eachindex(adj_list.ids)
         (is_fixed === nothing || !is_fixed[i]) || continue
         gene = get_gene_vec(genes, i)
-        cur_weights = adjacent_weights[i]
-        cur_points = adjacent_points[i]
+        cur_weights = adj_list.weights[i]
+        cur_points = adj_list.ids[i]
 
         dense_sum = 0.0
         for ri in 1:size(assignment_probs, 1)
@@ -133,10 +132,12 @@ function expect_molecule_clusters!(
 end
 
 
-function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}};
+function cluster_molecules_on_mrf(df_spatial::DataFrame, adj_list::AdjList;
         n_clusters::Int, confidence_threshold::Float64=0.95, kwargs...)
 
-    cor_mat = pairwise_gene_spatial_cor(df_spatial.gene, df_spatial.confidence, adjacent_points, adjacent_weights; confidence_threshold=confidence_threshold);
+    cor_mat = pairwise_gene_spatial_cor(
+        df_spatial.gene, df_spatial.confidence, adj_list; confidence_threshold=confidence_threshold
+    );
     ct_exprs_init = nothing
     try
         ica_fit = fit(MultivariateStats.ICA, cor_mat, n_clusters, maxiter=10000);
@@ -146,7 +147,7 @@ function cluster_molecules_on_mrf(df_spatial::DataFrame, adjacent_points::Vector
     end
 
     return cluster_molecules_on_mrf(
-        df_spatial.gene, adjacent_points, adjacent_weights, df_spatial.confidence;
+        df_spatial.gene, adj_list, df_spatial.confidence;
         components=ct_exprs_init, n_clusters=n_clusters, kwargs...
     )
 end
@@ -259,7 +260,7 @@ function init_cluster_mixture(
 end
 
 function cluster_molecules_on_mrf(
-        genes::Union{Vector{Int}, Matrix{Float64}}, adjacent_points::Vector{Vector{Int}}, adjacent_weights::Vector{Vector{Float64}}, confidence::Vector{Float64};
+        genes::Union{Vector{Int}, Matrix{Float64}}, adj_list::AdjList, confidence::Vector{Float64};
         n_clusters::Int=1, tol::Float64=0.01, do_maximize::Bool=true, max_iters::Int=max(10000, div(length(genes), 200)), n_iters_without_update::Int=20,
         components::Union{CatMixture, NormMixture, Nothing}=nothing,
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
@@ -268,7 +269,9 @@ function cluster_molecules_on_mrf(
     # Initialization
 
     # TODO: should I have mrf_weight here?
-    adjacent_weights = [adjacent_weights[i] .* confidence[adjacent_points[i]] for i in 1:length(adjacent_weights)] # instead of multiplying each time in expect
+    adj_weights = [adj_list.weights[i] .* confidence[adj_list.ids[i]] for i in eachindex(adj_list.ids)] # instead of multiplying each time in expect
+    adj_list = AdjList(adj_list.ids, adj_weights)
+
     components, assignment_probs = init_cluster_mixture(
         genes, confidence; n_clusters, components, assignment, assignment_probs, init_mod, method
     )
@@ -288,8 +291,7 @@ function cluster_molecules_on_mrf(
         assignment_probs_prev .= assignment_probs
 
         expect_molecule_clusters!(
-            assignment_probs, assignment_probs_prev, components, genes,
-            adjacent_points, adjacent_weights; mrf_weight=mrf_weight
+            assignment_probs, assignment_probs_prev, components, genes, adj_list; mrf_weight=mrf_weight
         )
 
         if do_maximize
@@ -330,12 +332,15 @@ function cluster_molecules_on_mrf(
     return (exprs=components, assignment=assignment, diffs=max_diffs, assignment_probs=assignment_probs, change_fracs=change_fracs)
 end
 
-function filter_small_molecule_clusters(genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Vector{Vector{Int}},
-        assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}; min_mols_per_cell::Int, confidence_threshold::Float64=0.95)
-
+function filter_small_molecule_clusters(
+        genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Vector{Vector{Int}},
+        assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}; min_mols_per_cell::Int, confidence_threshold::Float64=0.95
+    )
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
-    conn_comps_per_clust = get_connected_components_per_label(assignment, adjacent_points, 1;
-        confidence=confidence, confidence_threshold=confidence_threshold)[1];
+    conn_comps_per_clust = get_connected_components_per_label(
+        assignment, adjacent_points, 1;
+        confidence=confidence, confidence_threshold=confidence_threshold
+    )[1];
     n_mols_per_comp_per_clust = [length.(c) for c in conn_comps_per_clust];
 
     real_clust_ids = findall(maximum.(n_mols_per_comp_per_clust) .>= min_mols_per_cell)
@@ -376,14 +381,14 @@ end
 end
 
 function pairwise_gene_spatial_cor(
-        genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Array{Vector{Int}, 1}, adjacent_weights::Array{Vector{Float64}, 1};
+        genes::Vector{Int}, confidence::Vector{Float64}, adj_list::AdjList;
         confidence_threshold::Float64=0.95
     )::Matrix{Float64}
     gene_cors = zeros(maximum(genes), maximum(genes))
     sum_weight_per_gene = zeros(maximum(genes))
     for gi in 1:length(genes)
-        cur_adj_points = adjacent_points[gi]
-        cur_adj_weights = adjacent_weights[gi]
+        cur_adj_points = adj_list.ids[gi]
+        cur_adj_weights = adj_list.weights[gi]
         g2 = genes[gi]
         if confidence[gi] < confidence_threshold
             continue
@@ -416,8 +421,8 @@ end
 function estimate_molecule_clusters(df_spatial::DataFrame, n_clusters::Int)
     @info "Clustering molecules..."
     # , adjacency_type=:both, k_adj=fmax(1, div(args["min-molecules-per-cell"], 2))
-    adjacent_points, adjacent_weights = build_molecule_graph(df_spatial, filter=false);
-    mol_clusts = cluster_molecules_on_mrf(df_spatial, adjacent_points, adjacent_weights; n_clusters=n_clusters)
+    adj_list = build_molecule_graph(df_spatial, filter=false);
+    mol_clusts = cluster_molecules_on_mrf(df_spatial, adj_list; n_clusters=n_clusters)
 
     @info "Done"
     return mol_clusts
