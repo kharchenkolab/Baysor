@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.7.3'
+          - '1.8.5'
         os: [macos-latest, ubuntu-latest]
         arch:
           - x64
@@ -28,27 +28,27 @@ jobs:
 
       - name: Prepare environment and install dependecies
         run: |
-          julia -e 'using Pkg; Pkg.add(Pkg.PackageSpec(;name="PackageCompiler", version="2.0.6")); Pkg.activate("."); Pkg.instantiate();'
+          julia -e 'using Pkg; Pkg.activate("."); Pkg.instantiate();'
 
-      - name: Cache dependencies
-        uses: actions/cache@v1
-        env:
-          cache-name: cache-artifacts
-        with:
-          path: ~/.julia/artifacts
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/Project.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
+      # - name: Cache dependencies
+      #   uses: actions/cache@v1
+      #   env:
+      #     cache-name: cache-artifacts
+      #   with:
+      #     path: ~/.julia/artifacts
+      #     key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/Project.toml') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-build-${{ env.cache-name }}-
+      #       ${{ runner.os }}-build-
+      #       ${{ runner.os }}-
 
       - name: Build binary
         run: |
-          julia ./bin/build.jl
+          julia --project ./deps/build.jl app
 
       - name: Prepare distribution archives
         run: |
-          zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip LICENSE README.MD ./Baysor/*
+          zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip LICENSE README.MD ./bin/baysor/*
 
       - name: Release
         uses: softprops/action-gh-release@v1
