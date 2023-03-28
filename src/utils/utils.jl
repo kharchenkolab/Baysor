@@ -69,10 +69,17 @@ function split(
         max_factor = maximum(skipmissing(factor))
     end
 
-    splitted = [TV[] for _ in 1:max_factor]
+    counts = count_array(factor; max_value=max_factor, drop_zero=drop_zero)
+    splitted = [Vector{TV}(undef, c) for c in counts]
+    last_id = zeros(Int, max_factor)
+
     for i in eachindex(array)
-        (ismissing(factor[i]) || (drop_zero && factor[i] == 0)) && continue
-        push!(splitted[factor[i]], array[i])
+        fac = factor[i]
+        (ismissing(fac) || (drop_zero && fac == 0)) && continue
+
+        # push!(splitted[fac], array[i])
+        li = (last_id[fac] += 1)
+        splitted[fac][li] = array[i]
     end
 
     return splitted
