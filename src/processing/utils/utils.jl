@@ -155,16 +155,33 @@ function wmean(
     return s / ws
 end
 
-function wmean_std(
-        values::AbstractVector{<:Real}, weights::T where T <: AbstractVector{Float64}
-    )
-    m = wmean(values, weights)
-    s, ws = 0.0, 0.0
+function wmean_std(values::AbstractVector{T}, weights::AbstractVector{T}) where T<:Real
+    # Somehow, for views to work fast, we need to estimate everything in a single pass
+    # So I use an incremental algorithm here.
+
+    # Initialize variables
+    w = zero(T)
+    w_sq = zero(T)
+    w_x = zero(T)
+    w_x_sq = zero(T)
+
+    # Calculate weighted sums
     for i in eachindex(values)
-        dv = (values[i] - m)
-        s += dv * dv * weights[i]
-        ws += weights[i]
+        w_i = weights[i]
+        x_i = values[i]
+
+        w += w_i
+        w_sq += w_i^2
+        w_x += w_i*x_i
+        w_x_sq += w_i*x_i^2
     end
 
-    return m, sqrt(s / ws)
+    # Calculate weighted mean and variance
+    m = w_x/w
+    s2 = (w_x_sq/w) - m^2
+
+    # Calculate weighted standard deviation
+    s = sqrt(s2)
+
+    return m,s
 end
