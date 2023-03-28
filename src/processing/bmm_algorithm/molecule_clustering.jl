@@ -68,27 +68,28 @@ function maximize_molecule_clusters!(
 end
 
 function maximize_molecule_clusters!(
-        components::NormMixture, gene_vecs::Matrix{Float64}, confidence::Vector{Float64}, assignment_probs::Matrix{Float64};
+        components::NormMixture, gene_vecs::AbstractMatrix{Float64}, confidence::AbstractVector{Float64}, assignment_probs::AbstractMatrix{Float64};
         add_pseudocount::Bool=false # a compatibility argument, which is never used
     )
     @threads for ci in eachindex(components)
-        c_weights = assignment_probs[ci, :] .* confidence
-        components[ci] = NormalComponent(
-            [FNormal(wmean_std(view(gene_vecs, i, :), c_weights)...) for i in 1:size(gene_vecs, 1)],
-            sum(c_weights)
-        )
+        c_weights = view(assignment_probs, ci, :) .* confidence
+        dists = components[ci].dists
+        for di in eachindex(dists)
+            dists[di] = FNormal(wmean_std(view(gene_vecs, :, di), c_weights)...)
+        end
+        components[ci] = NormalComponent(dists, sum(c_weights))
     end
 end
 
 @inline get_gene_vec(genes::Vector{Int}, i::Int) = genes[i]
-@inline get_gene_vec(genes::Matrix{Float64}, i::Int) = view(genes, :, i)
+@inline get_gene_vec(genes::Matrix{Float64}, i::Int) = view(genes, i, :)
 
 """
 Params:
 - adj_list.weights: must be multiplied by confidence of the corresponding adj_list.ids
 """
 function expect_molecule_clusters!(
-        assignment_probs::Matrix{Float64}, assignment_probs_prev::Matrix{Float64},
+        assignment_probs::AbstractMatrix{Float64}, assignment_probs_prev::AbstractMatrix{Float64},
         cell_type_exprs::Union{CatMixture, NormMixture}, genes::Union{Vector{Int}, Matrix{Float64}},
         adj_list::AdjList;
         mrf_weight::Float64=1.0, only_mrf::Bool=false, is_fixed::Nullable{BitVector}=nothing
@@ -101,7 +102,7 @@ function expect_molecule_clusters!(
         cur_points = adj_list.ids[i]
 
         dense_sum = 0.0
-        for ri in 1:size(assignment_probs, 1)
+        for ri in axes(assignment_probs, 1)
             c_d = 0.0
             for j in eachindex(cur_points)
                 a_p = assignment_probs_prev[ri, cur_points[j]]
@@ -224,7 +225,7 @@ end
 function init_normal_cluster_mixture(
         gene_vectors::Matrix{Float64}, confidence::Vector{Float64}, assignment::Nothing, assignment_probs::Matrix{<:Real}
     )
-    components = [NormalComponent([FNormal(0.0, 1.0) for _ in 1:size(gene_vectors, 1)], 1) for _ in 1:size(assignment_probs, 1)];
+    components = [NormalComponent([FNormal(0.0, 1.0) for _ in 1:size(gene_vectors, 2)], 1) for _ in 1:size(assignment_probs, 1)];
     maximize_molecule_clusters!(components, gene_vectors, confidence, assignment_probs)
 
     return components, assignment_probs
@@ -240,6 +241,11 @@ function init_cluster_mixture(
         assignment::Nullable{Vector{Int}}=nothing, assignment_probs::Nullable{Matrix{Float64}}=nothing,
         init_mod::Int=10000, method::Symbol=:categorical
     )
+
+    if (components !== nothing) && (assignment_probs !== nothing)
+        return components, assignment_probs
+    end
+
     if method == :normal
         # TODO: refactor this
         if components === nothing
@@ -269,7 +275,7 @@ function cluster_molecules_on_mrf(
     # Initialization
 
     # TODO: should I have mrf_weight here?
-    adj_weights = [adj_list.weights[i] .* confidence[adj_list.ids[i]] for i in eachindex(adj_list.ids)] # instead of multiplying each time in expect
+    adj_weights = [adj_list.weights[i] .* confidence[adj_list.ids[i]] for i in eachindex(adj_list)] # instead of multiplying each time in expect
     adj_list = AdjList(adj_list.ids, adj_weights)
 
     components, assignment_probs = init_cluster_mixture(
