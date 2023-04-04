@@ -32,5 +32,6 @@ include("utils/Utils.jl")
 @lazy_submodule CLI = "cli/CLI.jl"
 
 command_main(args...; kwargs...) = CLI.command_main(args...; kwargs...)
+julia_main(args...; kwargs...) = CLI.julia_main(args...; kwargs...)
 
 end # module
