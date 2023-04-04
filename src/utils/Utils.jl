@@ -8,6 +8,6 @@ export
 
 include("options.jl")
 include("cli.jl")
-include("utils.jl")
+include("general.jl")
 
 end
