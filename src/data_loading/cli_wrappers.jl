@@ -164,14 +164,14 @@ function load_df(coordinates::String, data_opts::DataOptions; kwargs...)
 end
 
 function save_segmentation_results(
-        segmented_df::DataFrame, cell_stat_df::DataFrame, cm::DataFrame, polygons::Polygons,
+        segmented_df::DataFrame, cell_stat_df::DataFrame, cm::DataFrame, polygons::Union{Polygons, Nothing},
         out_paths::OutputPaths; poly_format::String
     )
     save_segmented_df(segmented_df, out_paths.segmented_df);
     save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
     save_molecule_counts(cm, out_paths.counts)
 
-    if poly_format !== "false"
+    if (poly_format !== "false") && (polygons !== nothing)
         save_polygons(polygons; format=poly_format, file=out_paths.polygons)
     end
 end
