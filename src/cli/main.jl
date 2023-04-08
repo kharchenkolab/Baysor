@@ -124,8 +124,8 @@ Run cell segmentation
 
     (segmented_df, tracer, mol_clusts, comp_segs, poly_joint, cell_stat_df, cm, polygons) = BPR.run_segmentation(
         df_spatial, gene_names, opts.segmentation; plot_opts=opts.plotting,
-        min_molecules_per_cell=opts.data.min_molecules_per_cell, estimate_ncvs=!no_ncv_estimation, plot=plot,
-        save_polygons=(save_polygons != "false")
+        min_molecules_per_cell=opts.data.min_molecules_per_cell, estimate_ncvs=!no_ncv_estimation,
+        save_polygons=(save_polygons != "false"), run_id, plot
     )
 
     # Save and plot results

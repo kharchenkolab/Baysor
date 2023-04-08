@@ -2,7 +2,7 @@
 
 ### Added
 
-- New output QC parameters `avg_assignment_confidence` and `max_cluster_frac`
+- New output cell QC parameters `avg_assignment_confidence` and `max_cluster_frac`
 
 ### Changed
 
@@ -14,6 +14,7 @@
     - *Closes [#15](https://github.com/kharchenkolab/Baysor/issues/15) and [#41](https://github.com/kharchenkolab/Baysor/issues/41), potentially also [#32](https://github.com/kharchenkolab/Baysor/issues/32) and [#37](https://github.com/kharchenkolab/Baysor/issues/37).*
 - Using sparse PCA for NCV estimation on large datasets
 - `baysor segfree` output is now fully compatible with loom v3 format
+- Cells and NCVs now have IDs in the format `{type}{run_id}-{cell_id}`, where `type` is `C` for cells and `V` for NCVs, and `run_id` is a unique ID of Baysor run
 
 ## [0.5.2] — 2022-06-29
 

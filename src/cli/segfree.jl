@@ -79,7 +79,7 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 
     @info "Saving results..."
     DAT.save_matrix_to_loom(
-        neighb_cm'; gene_names=gene_names, cell_names=["V$run_id-$i" for i in 1:size(neighb_cm, 2)],
+        neighb_cm'; gene_names=gene_names, cell_names=get_cell_name.(1:size(neighb_cm, 2); type=:ncv, run_id),
         col_attrs=Dict("ncv_color" => gene_colors, "confidence" => confidences), file_path=output
     )
 

@@ -252,7 +252,7 @@ end
                 seg_df = BPR.get_segmentation_df(bm_data, gene_names)
                 df_res = BPR.get_cell_stat_df(bm_data, seg_df)
                 cm1 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment)
-                cm2 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
+                cm2 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment, gene_names)
                 @test all((size(cm2[:, 2:end]) .== size(cm1)))
             end
         end

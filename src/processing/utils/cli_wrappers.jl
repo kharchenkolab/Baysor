@@ -15,7 +15,8 @@ end
 
 function run_segmentation(
         df_spatial::DataFrame, gene_names::Vector{String}, opts::SegmentationOptions;
-        plot_opts::PlottingOptions, min_molecules_per_cell::Int, estimate_ncvs::Bool, plot::Bool, save_polygons::Bool
+        plot_opts::PlottingOptions, min_molecules_per_cell::Int, estimate_ncvs::Bool, plot::Bool, save_polygons::Bool,
+        run_id::String
     )
     # Region-based segmentations
 
@@ -64,7 +65,7 @@ function run_segmentation(
 
     # Extract results
 
-    segmented_df, cell_stat_df, cm = get_segmentation_results(bm_data, gene_names)
+    segmented_df, cell_stat_df, cm = get_segmentation_results(bm_data, gene_names; run_id)
     gene_colors = nothing
     if estimate_ncvs
         @info "Estimating local colors"

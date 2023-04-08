@@ -48,7 +48,7 @@ count_array_sparse(values::AbstractVector{Union{Missing, Int}}, args...; kwargs.
 count_array_sparse(T::DataType, values::AbstractVector{Union{Missing, Int}}, args...; kwargs...) =
     count_array_sparse(T, collect(skipmissing(values)), args...; kwargs...)
 
-count_array_sparse(values::AbstractVector{Int}, ::Nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
+count_array_sparse(values::AbstractVector{Int}, ::Nothing=nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
 count_array_sparse(values::AbstractVector{Int}, weights::AbstractVector{Float64}; kwargs...) =
     count_array_sparse(Float64, values, weights; kwargs...)
 

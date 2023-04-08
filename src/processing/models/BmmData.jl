@@ -203,7 +203,7 @@ function estimate_assignment_by_history(data::BmmData)
     return get.(Ref(guid_map), reassignment, 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
-function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}=segmented_df.cell; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment), dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
+function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment), dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
     seg_df_per_cell = split(segmented_df, cell_assignment; max_factor=max_cell, drop_zero=true);
     pos_data_per_cell = [position_data(df)[1:2,:] for df in seg_df_per_cell];
 
@@ -234,9 +234,9 @@ end
 
 function get_cell_stat_df(
         data::BmmData, segmented_df::Union{DataFrame, Nothing}=nothing, assignment::Vector{<:Integer}=data.assignment;
-        add_qc::Bool=true, sigdigits::Int=4
+        add_qc::Bool=true, sigdigits::Int=4, run_id::String=""
     )
-    df = DataFrame(:cell => 1:length(data.components))
+    df = DataFrame(:cell => get_cell_name.(1:length(data.components); type=:cell, run_id))
 
     for s in intersect([:x, :y, :z], propertynames(data.x))
         df[!,s] = mean.(split(data.x[!,s], assignment, max_factor=length(data.components), drop_zero=true))
@@ -248,18 +248,18 @@ function get_cell_stat_df(
 
     if add_qc
         if segmented_df === nothing
-            segmented_df = get_segmentation_df(data);
+            segmented_df = get_segmentation_df(data; run_id);
         end
 
-        df = hcat(df, get_cell_qc_df(segmented_df; sigdigits=sigdigits, max_cell=length(data.components)))
+        df = hcat(df, get_cell_qc_df(segmented_df, assignment; sigdigits=sigdigits, max_cell=length(data.components)))
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
 end
 
-function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing)
+function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{String, 1}}=nothing; run_id::String="")
     df = deepcopy(data.x)
-    df[!,:cell] = deepcopy(data.assignment);
+    df[!,:cell] = get_cell_name.(data.assignment; type=:cell, run_id);
 
     if (:assignment_history in keys(data.tracer)) && (length(data.tracer[:assignment_history]) > 1)
         # data.assignment is already adjusted based on the history if `refine=true` in `bmm` (default)
@@ -271,7 +271,7 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
         df.confidence = round.(df.confidence, digits=5)
     end
 
-    df[!,:is_noise] = (df.cell .== 0);
+    df[!,:is_noise] = (data.assignment .== 0);
 
     if gene_names !== nothing
         df[!,:gene] = gene_names[df[!,:gene]]
@@ -285,8 +285,8 @@ function get_segmentation_df(data::BmmData, gene_names::Union{Nothing, Array{Str
 end
 
 function convert_segmentation_to_counts(
-        genes::Vector{Int}, cell_assignment::Vector{Int};
-        drop_empty_labels::Bool=false, gene_names::Union{Vector{String}, Nothing}=nothing
+        genes::Vector{Int}, cell_assignment::Vector{Int}, gene_names::Nothing=nothing;
+        drop_empty_labels::Bool=false, n_genes::Int=maximum(genes)
     )
     if drop_empty_labels
         if minimum(cell_assignment) == 0
@@ -296,27 +296,30 @@ function convert_segmentation_to_counts(
         end
     end
 
-    cm = zeros(Int, maximum(genes), maximum(cell_assignment))
-    for i in 1:length(genes)
-        if cell_assignment[i] == 0
-            continue
-        end
-        cm[genes[i], cell_assignment[i]] += 1
-    end
-
-    if gene_names !== nothing
-        cm = DataFrame(cm, [Symbol("$c") for c in 1:size(cm, 2)])
-        cm[!, :gene] = gene_names
-        cm = cm[:, vcat(end, 1:end-1)]
-    end
+    cm = hcat(
+        count_array_sparse.(split(genes, cell_assignment, drop_zero=true), total=n_genes)...
+    )
 
     return cm
 end
 
-function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing)
-    segmented_df = get_segmentation_df(data, gene_names)
-    cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true)
-    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; gene_names=gene_names)
+function convert_segmentation_to_counts(
+        genes::Vector{Int}, cell_assignment::Vector{Int}, gene_names::Vector{String};
+        run_id::String="", kwargs...
+    )
+    cm = convert_segmentation_to_counts(genes, cell_assignment; n_genes=length(gene_names), kwargs...) |> Matrix
+
+    cm = DataFrame(cm, get_cell_name.(1:size(cm, 2); type=:cell, run_id))
+    cm[!, :gene] = gene_names
+    cm = cm[:, vcat(end, 1:end-1)]
+
+    return cm
+end
+
+function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing; run_id::String="")
+    segmented_df = get_segmentation_df(data, gene_names; run_id)
+    cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true, run_id)
+    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; gene_names, run_id)
 
     return segmented_df, cell_stat_df, cm
 end
