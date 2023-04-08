@@ -11,12 +11,14 @@ plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwarg
 plot_molecules(df_spatial::DataFrame, polygons::Dict{Int, Matrix{Float64}}; kwargs...) =
     plot_molecules(df_spatial, collect(values(polygons)); kwargs...)
 
-function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
+function plot_molecules(
+        df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8, ticksvisible::Bool=false,
         noise_ann = nothing, shuffle_colors::Bool=false, append::Bool=false,
-        polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...)
+        polygon_kwargs::KWArgT=nothing, axis_kwargs::KWArgT=nothing, noise_kwargs::KWArgT=nothing, legend_kwargs::KWArgT=nothing, kwargs...
+    )
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
     axis_args_default = (xticklabelsize=12, yticklabelsize=12, xticksvisible=ticksvisible, xticklabelsvisible=ticksvisible, yticksvisible=ticksvisible, yticklabelsvisible=ticksvisible);
@@ -68,8 +70,10 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
     end
 
     if annotation === nothing
-        MK.scatter!(df_spatial.x .+ offset[1], df_spatial.y .+ offset[2]; color=color,
-            strokewidth=0, markersize=markersize, kwargs...)
+        MK.scatter!(
+            df_spatial.x .+ offset[1], df_spatial.y .+ offset[2];
+            color=color, strokewidth=0, markersize=markersize, kwargs...
+        )
     else
         ann_vals = annotation[annotation .!= noise_ann] |> unique |> sort
         c_map = Colors.distinguishable_colors(length(ann_vals), Colors.colorant"#007a10", lchoices=range(20, stop=70, length=15))
@@ -95,6 +99,7 @@ function plot_molecules(df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 
 
     if length(polygons) > 0
         MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons]; polygon_kwargs...)
+        # We can also do `for p in polygons MK.lines!(p[:,1], p[:,2], color="black") end`, but this is 10+ times slower
     end
 
     MK.xlims!(MK.current_axis(), xlims .+ offset[1])
@@ -135,8 +140,10 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     labels = sort(labels)
 
     fig = MK.Figure(resolution=(600, 400));
-    axis_args = (xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14, xlabel="Iteration", ylabel="Num. cells",
-        xlabelpadding=0, ylabelpadding=0, font="Helvetica")
+    axis_args = (
+        xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14,
+        xlabel="Iteration", ylabel="Num. cells", xlabelpadding=0, ylabelpadding=0
+    )
     fig[1, 1] = MK.Axis(fig; title="Convergence", axis_args...);
 
     for i in 1:size(n_components_per_iter, 1)

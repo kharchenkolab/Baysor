@@ -6,7 +6,7 @@ using Statistics
 using StatsBase
 
 import Random: seed!
-import Baysor: BPR, DAT
+import Baysor: BPR, DAT, REP
 
 module DataWrappers
 
@@ -255,6 +255,26 @@ end
                 cm2 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment; gene_names=gene_names)
                 @test all((size(cm2[:, 2:end]) .== size(cm1)))
             end
+        end
+    end
+
+    @testset "reports" begin
+        @testset "plot_molecules" begin
+            # Just test that it works. Also needed for pre-compilation derectives
+            n_obs = 100
+            n_cells = 10
+            p_df = DataFrame(
+                :x => (1:n_obs) ./ 10, :y => rand(n_obs),
+                :gene => rand(1:10, n_obs),
+                :cell => repeat(1:n_cells, inner=(n_obs ÷ n_cells))
+            );
+
+            polygons = BPR.boundary_polygons(BPR.position_data(p_df), p_df.cell)
+            @test length(polygons) == 10
+
+            fig = REP.plot_molecules(p_df);
+            fig = REP.plot_molecules(p_df, polygons, annotation=:cell);
+            REP.makie_to_base64(fig);
         end
     end
 end

@@ -62,8 +62,12 @@ end
 plot_dataset_colors(df_spatial::DataFrame, colors::Symbol; kwargs...) =
     plot_dataset_colors(df_spatial, df_spatial[!, colors]; kwargs...)
 
-function plot_dataset_colors(df_spatial::DataFrame, color::Union{Vector, Symbol, String}; min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, markersize::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.5,
-        prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], ticks::Bool=true, axis_kwargs::KWArgT=nothing, kwargs...)
+function plot_dataset_colors(
+        df_spatial::DataFrame, color::Union{Vector, Symbol, String};
+        min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, markersize::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.5,
+        prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[],
+        ticks::Bool=true, axis_kwargs::KWArgT=nothing, kwargs...
+    )
 
     axis_kwargs = update_args((xticklabelsize=12, yticklabelsize=12), axis_kwargs)
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
