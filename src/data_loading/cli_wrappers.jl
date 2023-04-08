@@ -44,9 +44,17 @@ save_segmented_df(segmented_df::DataFrame, file::String) =
 save_cell_stat_df(cell_stat_df::DataFrame, file::String) =
     CSV.write(file, cell_stat_df)
 
-function save_molecule_counts(counts::DataFrame, file::String)
-    count_str = join(names(counts), "\t") * "\n" * join([join(["$v" for v in r], '\t') for r in eachrow(counts)], '\n');
+function save_molecule_counts(counts::DataFrame, file::Union{String, Nothing})::String
+    # TODO: memory usage here can be optimized looping over rows of a sparse matrix
+    count_str = join(names(counts), "\t") * "\n" *
+        join(
+            [join(["$v" for v in r], '\t') for r in eachrow(counts)], '\n'
+        );
+
+    (file == nothing) && return count_str
+
     open(file, "w") do f; print(f, count_str) end
+    return file
 end
 
 
