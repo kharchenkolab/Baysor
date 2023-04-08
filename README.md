@@ -36,6 +36,8 @@ Baysor is a tool for performing cell segmentation on imaging-based spatial trans
 
 See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow!
 
+**Do you have any question? Start [a discussion](https://github.com/kharchenkolab/Baysor/discussions)!**
+
 ## Installation
 
 ### Binary download
