@@ -307,6 +307,7 @@ function convert_segmentation_to_counts(
         genes::Vector{Int}, cell_assignment::Vector{Int}, gene_names::Vector{String};
         run_id::String="", kwargs...
     )
+    # DEPRECATED?
     cm = convert_segmentation_to_counts(genes, cell_assignment; n_genes=length(gene_names), kwargs...) |> Matrix
 
     cm = DataFrame(cm, get_cell_name.(1:size(cm, 2); type=:cell, run_id))
@@ -319,7 +320,7 @@ end
 function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing; run_id::String="")
     segmented_df = get_segmentation_df(data, gene_names; run_id)
     cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true, run_id)
-    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; gene_names, run_id)
+    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; run_id) # We don't pass gene_names here to keep the matrix sparse
 
     return segmented_df, cell_stat_df, cm
 end

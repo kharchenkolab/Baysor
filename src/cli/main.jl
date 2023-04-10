@@ -134,7 +134,8 @@ Run cell segmentation
 
     out_paths = get_output_paths(output)
     DAT.save_segmentation_results(
-        segmented_df, cell_stat_df, cm, polygons, out_paths; poly_format=save_polygons
+        segmented_df, cell_stat_df, cm, polygons, out_paths;
+        poly_format=save_polygons, gene_names
     )
 
     if plot
