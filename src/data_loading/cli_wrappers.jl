@@ -44,16 +44,20 @@ save_segmented_df(segmented_df::DataFrame, file::String) =
 save_cell_stat_df(cell_stat_df::DataFrame, file::String) =
     CSV.write(file, cell_stat_df)
 
-function save_molecule_counts(counts::DataFrame, file::Union{String, Nothing})::String
-    # TODO: memory usage here can be optimized looping over rows of a sparse matrix
-    count_str = join(names(counts), "\t") * "\n" *
-        join(
-            [join(["$v" for v in r], '\t') for r in eachrow(counts)], '\n'
-        );
+save_molecule_counts(counts::DataFrame, file::Union{String, Nothing}) =
+    save_molecule_counts(counts, names(counts), file)
 
-    (file == nothing) && return count_str
+function save_molecule_counts(counts::Union{AbstractDataFrame, AbstractMatrix}, gene_names::Vector{String}, file::Union{String, Nothing})::String
+    st = isnothing(file) ? IOBuffer() : open(file, "w")
 
-    open(file, "w") do f; print(f, count_str) end
+    println(st, join(gene_names, "\t"))
+    for r in eachrow(counts)
+        println(st, join(["$v" for v in r], '\t'))
+    end
+
+    (file === nothing) && return String(take!(st))
+
+    close(st)
     return file
 end
 
