@@ -177,11 +177,22 @@ end
 
 function save_segmentation_results(
         segmented_df::DataFrame, cell_stat_df::DataFrame, cm::SparseMatrixCSC{<:Real, Int}, polygons::Union{Polygons, Nothing},
-        out_paths::OutputPaths; poly_format::String, gene_names::Vector{String}
+        out_paths::OutputPaths; poly_format::String, gene_names::Vector{String}, matrix_format::Symbol=:loom
     )
-    save_segmented_df(segmented_df, out_paths.segmented_df);
-    save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
-    save_molecule_counts(cm, gene_names, out_paths.counts)
+    isempty(out_paths.segmented_df) || save_segmented_df(segmented_df, out_paths.segmented_df);
+    isempty(out_paths.cell_stats) || save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
+
+    if matrix_format == :loom
+        save_matrix_to_loom(
+            cm'; gene_names=gene_names, cell_names=cell_stat_df.cell,
+            col_attrs=Dict(String(cn) => cell_stat_df[!,cn] for cn in propertynames(cell_stat_df) if cn != :cell),
+            file_path=out_paths.counts
+        )
+    elseif matrix_format == :tsv
+        save_molecule_counts(cm, gene_names, out_paths.counts)
+    else
+        error("Unknown matrix format: $(matrix_format). Only :loom and :tsv are supported.")
+    end
 
     if (poly_format !== "false") && (polygons !== nothing)
         save_polygons(polygons; format=poly_format, file=out_paths.polygons)

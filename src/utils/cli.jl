@@ -10,11 +10,11 @@ Base.@kwdef struct OutputPaths
     polygons::String;
 end
 
-get_output_paths(segmented_df_path::String) = OutputPaths(;
+get_output_paths(segmented_df_path::String; count_matrix_format::String) = OutputPaths(;
     segmented_df=segmented_df_path,
     Dict(k => append_suffix(segmented_df_path, v) for (k,v) in [
         :cell_stats => "cell_stats.csv",
-        :counts => "counts.tsv",
+        :counts => "counts." * count_matrix_format,
         :diagnostic_report => "diagnostics.html",
         :molecule_plot => "borders.html",
         :polygons => "polygons.json"

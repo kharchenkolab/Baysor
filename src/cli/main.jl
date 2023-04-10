@@ -132,7 +132,7 @@ Run cell segmentation
 
     @info "Saving results to $output"
 
-    out_paths = get_output_paths(output)
+    out_paths = get_output_paths(output; count_matrix_format="loom")
     DAT.save_segmentation_results(
         segmented_df, cell_stat_df, cm, polygons, out_paths;
         poly_format=save_polygons, gene_names
