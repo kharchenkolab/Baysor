@@ -34,6 +34,11 @@ end
 @option mutable struct PlottingOptions
     gene_composition_neigborhood::Int = 0
     min_pixels_per_cell::Int = 15
+
+    # Method for gene vector estimation for NCV dimensionality reduction. Possible values: `hash`, `dense`, `sparse`.
+    # `dense` and `sparse` method are based on PCA and will likely be removed in further versions.
+    # (default: `hash`)
+    ncv_method::String = "hash"
 end
 
 @option mutable struct RunOptions

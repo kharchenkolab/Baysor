@@ -60,7 +60,9 @@ Plot an html with the dataset preview.
     @info "Estimating local colors"
 
     fill_and_check_options!(opts.plotting, opts.data.min_molecules_per_cell, length(gene_names))
-    gene_colors = BPR.gene_composition_colors(df_spatial, opts.plotting.gene_composition_neigborhood)
+    gene_colors = BPR.gene_composition_colors(
+        df_spatial, opts.plotting.gene_composition_neigborhood; method=Symbol(opts.plotting.ncv_method)
+    )
 
     # Prepare plots
 

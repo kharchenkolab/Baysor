@@ -69,7 +69,9 @@ function run_segmentation(
     gene_colors = nothing
     if estimate_ncvs
         @info "Estimating local colors"
-        gene_colors = gene_composition_colors(bm_data.x, plot_opts.gene_composition_neigborhood)
+        gene_colors = gene_composition_colors(
+            bm_data.x, plot_opts.gene_composition_neigborhood; method=Symbol(plot_opts.ncv_method)
+        )
         segmented_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
     end
 
