@@ -131,6 +131,7 @@ split_string_list(list::String, sep::Char=',') =
     Base.split(list, sep) .|> strip .|> String |> (x -> x[length.(x) .> 0])
 
 function get_cell_name(cell_id::Int; run_id::String="", type=:cell)
+    (cell_id > 0) || return ""
     @assert type in (:cell, :ncv)
     isempty(run_id) && return "$(cell_id)"
 

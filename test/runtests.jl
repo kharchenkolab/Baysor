@@ -6,31 +6,31 @@ using Statistics
 using StatsBase
 
 import Random: seed!
-import Baysor: BPR, DAT, REP
+import Baysor: BPR, DAT, REP, Utils
 
 module DataWrappers
 
-using DataFrames
-import Baysor: BPR
+    using DataFrames
+    import Baysor: BPR
 
-function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
-    df = DataFrame(
-        :x => rand(n_mols), :y => rand(n_mols),
-        :gene => rand(1:10, n_mols),
-        :confidence => confidence ? ones(n_mols) : rand(n_mols)
-    )
-    adj_list = BPR.build_molecule_graph(
-        df; use_local_gene_similarities=false, adjacency_type=:triangulation
-    )
-    bmd = BPR.initialize_bmm_data(
-        df; scale, min_molecules_per_cell, n_cells_init=(n_mols ÷ 5), adj_list, kwargs...
-    );
-    if do_maximize
-        BPR.maximize!(bmd)
+    function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
+        df = DataFrame(
+            :x => rand(n_mols), :y => rand(n_mols),
+            :gene => rand(1:10, n_mols),
+            :confidence => confidence ? ones(n_mols) : rand(n_mols)
+        )
+        adj_list = BPR.build_molecule_graph(
+            df; use_local_gene_similarities=false, adjacency_type=:triangulation
+        )
+        bmd = BPR.initialize_bmm_data(
+            df; scale, min_molecules_per_cell, n_cells_init=(n_mols ÷ 5), adj_list, kwargs...
+        );
+        if do_maximize
+            BPR.maximize!(bmd)
+        end
+
+        return bmd
     end
-
-    return bmd
-end
 
 end
 
@@ -50,7 +50,7 @@ end
             @test BPR.area(chull) ≈ 4.0
         end
 
-        @testset begin
+        @testset "encode_genes" begin
             genes = ["1", "2", "3"]
             gene_ids, gene_names = DAT.encode_genes(genes)
             @test all(gene_ids .== [1, 2, 3])
@@ -60,6 +60,12 @@ end
             gene_ids, gene_names = DAT.encode_genes(genes)
             @test all(skipmissing(gene_ids) .== [1, 2, 3])
             @test ismissing(gene_ids[3]) && ismissing(gene_ids[5])
+        end
+
+        @testset "other" begin
+            @test Utils.get_cell_name(0) == ""
+            @test Utils.get_cell_name(1; run_id="") == "1"
+            @test Utils.get_cell_name(2; run_id="RI") == "CRI-2"
         end
     end
 
@@ -254,6 +260,16 @@ end
                 cm1 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment)
                 cm2 = BPR.convert_segmentation_to_counts(BPR.composition_data(bm_data), bm_data.assignment, gene_names)
                 @test all((size(cm2[:, 2:end]) .== size(cm1)))
+
+                segmented_df, cell_stat_df, cm = BPR.get_segmentation_results(bm_data, gene_names; run_id="test")
+                @test length(unique(cell_stat_df.cell)) == size(cm, 2)
+                @test length(cell_stat_df.cell) .== length(unique(cell_stat_df.cell))
+
+                cs1,cs2 = (sort(unique(vs)) for vs in (segmented_df.cell, cell_stat_df.cell));
+                cs1 = cs1[cs1 .!= ""]
+
+                @test length(cs1) == length(cs2)
+                @test all(cs1 .== cs2)
             end
         end
     end
