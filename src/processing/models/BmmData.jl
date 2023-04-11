@@ -334,7 +334,7 @@ end
 function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing; run_id::String="")
     segmented_df = get_segmentation_df(data, gene_names; run_id)
     cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true, run_id)
-    cm = convert_segmentation_to_counts(data.x.gene, data.assignment; run_id) # We don't pass gene_names here to keep the matrix sparse
+    cm = convert_segmentation_to_counts(data.x.gene, data.assignment) # We don't pass gene_names here to keep the matrix sparse
 
     return segmented_df, cell_stat_df, cm
 end
