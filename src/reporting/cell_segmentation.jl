@@ -1,58 +1,94 @@
-function plot_diagnostics_panel(df_res::DataFrame, assignment::Vector{Int}, tracer::Dict{Symbol};
-        file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing)
+using StatsBase: countmap
+
+get_diagnostic_report_template(main_conv_plot::String, vega_plot_js::String) = """
+<!DOCTYPE html>
+<html>
+$(vega_header("Report"))
+$(vega_style())
+<style>
+figure {
+    display: flex;
+    flex-flow: column;
+    padding: 5px;
+    max-width: 720px;
+    margin: auto;
+}
+
+figcaption {
+    font: italic smaller sans-serif;
+    padding: 3px;
+    text-align: center;
+}
+</style>
+<body>
+    <section>
+        <h1>Algorithm convergence</h1>
+        <div id='vg_clust_conv'></div>
+        <div id='vg_compart_conv'></div>
+        <div id='main_conv'>
+            $(main_conv_plot)
+        </div>
+    </section>
+    <section>
+        <h1>Molecule confidence</h1>
+        <div id='vg_mol_confidence'></div>
+        <div id='vg_assignment_confidence'></div>
+    </section>
+    <section>
+        <h1>Number of molecules per cell</h1>
+        <div id='vg_num_transcripts'></div>
+    </section>
+</body>
+$(vega_plot_js)
+</html>
+"""
+
+function plot_diagnostics_panel(
+        df_res::DataFrame, assignment::Vector{<:Union{Int, String}}, tracer::Dict{Symbol};
+        file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing
+    )
     @info "Plot diagnostics"
-    open(file, "w") do io
-        vega_plots = Dict{String, VL.VLSpec}()
-        println(io, "<html>")
-        println(io, vega_header("Report"))
-        println(io, vega_style())
-        println(io, "<body>")
-        # Molecule clustering convergence
-        if clust_res !== nothing
-            println(io, "<div id='vg_clust_conv'></div>")
-            vega_plots["vg_clust_conv"] = plot_clustering_convergence(clust_res, "Molecule clustering convergence")
-        end
+    vega_plots = Dict{String, VL.VLSpec}()
 
-        if comp_segs !== nothing
-            println(io, "<div id='vg_compart_conv'></div>")
-            vega_plots["vg_compart_conv"] = plot_clustering_convergence(comp_segs, "Compartment segmentation convergence")
-        end
+    if clust_res !== nothing
+        vega_plots["vg_clust_conv"] = plot_clustering_convergence(clust_res, "Molecule clustering convergence")
+    end
 
-        println(io, "<br><br>")
+    if comp_segs !== nothing
+        vega_plots["vg_compart_conv"] = plot_clustering_convergence(comp_segs, "Compartment segmentation convergence")
+    end
+
+    main_conf_plot = ""
+    if (:n_components in keys(tracer)) && length(tracer[:n_components]) != 0
         # Main algorithm convergence
-        if (:n_components in keys(tracer)) && length(tracer[:n_components]) != 0
-            p_conv = plot_num_of_cells_per_iterarion(tracer);
-            show(io, MIME("text/html"), p_conv)
-        end
+        p_conv = plot_num_of_cells_per_iterarion(tracer[:n_components]);
+        io = IOBuffer()
+        show(io, MIME("text/html"), p_conv)
+        main_conf_plot = String(take!(io))
+    end
 
-        println(io, "<br><br>")
-
+    is_noise = Utils.isnoise.(assignment)
+    if :confidence in propertynames(df_res)
         # Confidence per molecule
-        if :confidence in propertynames(df_res)
-            println(io, "<div id='vg_mol_confidence'></div>")
-            vega_plots["vg_mol_confidence"] = plot_confidence_distribution(df_res.confidence, assignment, size=(500, 250))
-        end
+        vega_plots["vg_mol_confidence"] = plot_confidence_distribution(df_res.confidence, is_noise, size=(500, 250))
+    end
 
+    if :assignment_confidence in propertynames(df_res)
         # Assignment confidence
-        if :assignment_confidence in propertynames(df_res)
-            println(io, "<div id='vg_assignment_confidence'></div>")
-            vega_plots["vg_assignment_confidence"] = plot_assignment_confidence_distribution(df_res.assignment_confidence[assignment .> 0])
-        end
+        vega_plots["vg_assignment_confidence"] = plot_assignment_confidence_distribution(df_res.assignment_confidence[.!is_noise])
+    end
 
-        println(io, "<br><br>")
+    # Num. of molecules per cell
+    n_mols_per_cell = countmap(assignment[.!is_noise]) |> values |> collect
+    n_mols_per_cell = n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)]
+    vega_plots["vg_num_transcripts"] = plot_n_molecules_per_cell(n_mols_per_cell)
 
-        # Num. of molecules per cell
-        n_mols_per_cell = count_array(assignment, drop_zero=true)
-        n_mols_per_cell = n_mols_per_cell[(n_mols_per_cell .> 1) .& (n_mols_per_cell .< quantile(n_mols_per_cell, 0.99) / 0.99)]
+    vega_str = (length(vega_plots) > 0) ? vega_plot_html(vega_plots) : ""
 
-        println(io, "<div id='vg_num_transcripts'></div>")
-        vega_plots["vg_num_transcripts"] = plot_n_molecules_per_cell(n_mols_per_cell)
-
-        println(io, "</body>")
-        if length(vega_plots) > 0
-            println(io, vega_plot_html(vega_plots))
-        end
-        println(io, "</html>")
+    # Write to file
+    report_str = get_diagnostic_report_template(main_conf_plot, vega_str)
+    open(file, "w") do io
+        println(io, report_str)
     end
 end
 

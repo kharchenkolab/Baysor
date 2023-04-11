@@ -219,6 +219,7 @@ end
             frame_size = (100, 200)
             cell_size = 50
             noise_size = 100
+            report_file = tempname()
 
             for it in 1:6
                 centers = hcat(rand(n_components) * frame_size[1], rand(n_components) * frame_size[2]);
@@ -278,7 +279,7 @@ end
                 @test all(cs1 .== cs2)
 
                 # Test that reports work
-                REP.plot_diagnostics_panel(segmented_df, segmented_df.cell, bm_data.tracer; file=tempname())
+                REP.plot_diagnostics_panel(segmented_df, segmented_df.cell, bm_data.tracer; file=report_file)
             end
         end
     end

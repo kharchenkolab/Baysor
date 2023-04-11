@@ -92,7 +92,7 @@ function plot_confidence_distribution(confidence::Vector{Float64}, is_noise::Abs
     p_df[!, :h2] = estimate_hist(v2, bins=bins).h;
 
     return p_df |>
-        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title={text="Confidence per molecule", subtitle="test"}) +
+        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title={text="Confidence per molecule"}) +
         VL.@vlplot(:bar, y={:h, title="Num. molecules"}, color={datum="Assigned molecules"}) +
         VL.@vlplot({:bar, opacity=0.5}, y=:h2, color={datum="Noise molecules"})
 end
