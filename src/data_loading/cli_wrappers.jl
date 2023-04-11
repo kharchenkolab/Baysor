@@ -166,7 +166,7 @@ function load_df(coordinates::String, data_opts::DataOptions; kwargs...)
         drop_z=data_opts.force_2d, kwargs...
     )
 
-    @info "Loaded $(size(df_spatial, 1)) transcripts"
+    @info "Loaded $(size(df_spatial, 1)) transcripts, $(length(gene_names)) genes."
 
     if size(df_spatial, 1) != size(unique(df_spatial), 1)
         @warn "$(size(df_spatial, 1) - size(unique(df_spatial), 1)) records are duplicates. You may need to filter them beforehand."
@@ -219,5 +219,5 @@ function load_prior_segmentation!(
     end
 
     df_spatial[!, :prior_segmentation] = prior_seg
-
+    return prior_seg_labels, scale, scale_std
 end
