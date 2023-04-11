@@ -49,7 +49,6 @@ Run cell segmentation
 # Flags
 
 - `-p, --plot`:             Save pdf with plot of the segmentation
-- `--no-ncv-estimation`:    Turns off neighborhood composition vectors estimation
 
 """
 @cast function run(
@@ -63,7 +62,7 @@ Run cell segmentation
         prior_segmentation_confidence::Float64=config.segmentation.prior_segmentation_confidence,
 
         # TODO: update the part on `nuclei_genes` and `cyto_genes` in the help and in the tutorial
-        output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false", no_ncv_estimation::Bool=false,
+        output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false",
         count_matrix_format::String="loom"
     )
 
@@ -127,7 +126,7 @@ Run cell segmentation
 
     (segmented_df, tracer, mol_clusts, comp_segs, poly_joint, cell_stat_df, cm, polygons) = BPR.run_segmentation(
         df_spatial, gene_names, opts.segmentation; plot_opts=opts.plotting,
-        min_molecules_per_cell=opts.data.min_molecules_per_cell, estimate_ncvs=!no_ncv_estimation,
+        min_molecules_per_cell=opts.data.min_molecules_per_cell,
         save_polygons=(save_polygons != "false"), run_id, plot
     )
 
@@ -147,8 +146,7 @@ Run cell segmentation
             segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
             prior_polygons=prior_polygons, polygons=collect(values(poly_joint)),
             diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
-            plot_transcripts=!no_ncv_estimation, gene_colors=:ncv_color,
-            min_molecules_per_cell=opts.data.min_molecules_per_cell,
+            gene_colors=:ncv_color, min_molecules_per_cell=opts.data.min_molecules_per_cell,
             min_pixels_per_cell=opts.plotting.min_pixels_per_cell
         )
     end

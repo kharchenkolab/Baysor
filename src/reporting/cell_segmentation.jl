@@ -80,7 +80,7 @@ end
 function plot_segmentation_report(
         segmented_df::DataFrame; tracer::Dict{Symbol}, gene_colors::Symbol=:ncv_color,
         clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing,
-        plot_transcripts::Bool, diagnostic_file::String, molecule_file::String, kwargs...
+        plot_transcripts::Bool=true, diagnostic_file::String, molecule_file::String, kwargs...
     )
     plot_diagnostics_panel(
         segmented_df, segmented_df.cell, tracer;
