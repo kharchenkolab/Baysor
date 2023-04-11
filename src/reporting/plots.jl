@@ -128,13 +128,11 @@ end
 
 ### Tracing
 
-function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
-    if !(:n_components in keys(tracer)) || length(tracer[:n_components]) == 0
-        error("No data about #components per iteration was stored")
-    end
+function plot_num_of_cells_per_iterarion(n_comps_dict::Vector{Dict{Int64, Int64}})
+    (length(n_comps_dict) > 0) || error("No data about #components per iteration was stored")
 
-    n_components_per_iter = hcat(collect.(values.(tracer[:n_components]))...);
-    labels = collect(keys(tracer[:n_components][1]));
+    n_components_per_iter = hcat(collect.(values.(n_comps_dict))...);
+    labels = collect(keys(n_comps_dict[1]));
 
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
@@ -149,7 +147,7 @@ function plot_num_of_cells_per_iterarion(tracer::Dict{Symbol, Any})
     for i in 1:size(n_components_per_iter, 1)
         MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
-    MK.axislegend("Min #molecules"; position=(0.01, 1), nbanks = 2, titlesize=16, labelsize=14)
+    MK.axislegend("Min #molecules"; position=:lt, nbanks = 2, titlesize=16, labelsize=14)
     MK.xlims!(MK.current_axis(), 0, size(n_components_per_iter, 2))
     MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter))
 

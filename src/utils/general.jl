@@ -138,3 +138,8 @@ function get_cell_name(cell_id::Int; run_id::String="", type=:cell)
     prefix = type == :cell ? "C" : "V"
     return "$(prefix)$(run_id)-$(cell_id)"
 end
+
+isnoise(x::String) = (x == "")
+isnoise(x::Union{Missing, Nothing}) = true
+isnoise(x::Int) = (x == 0)
+isnoise(x) = false

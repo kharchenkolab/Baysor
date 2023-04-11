@@ -66,6 +66,12 @@ end
             @test Utils.get_cell_name(0) == ""
             @test Utils.get_cell_name(1; run_id="") == "1"
             @test Utils.get_cell_name(2; run_id="RI") == "CRI-2"
+
+            @test Utils.isnoise(Utils.get_cell_name(0))
+            @test Utils.isnoise(Utils.get_cell_name(0; run_id="RI"))
+
+            @test all(Utils.isnoise.([0, 1, 2, 1]) .== [true, false, false, false])
+            @test all(Utils.isnoise.(["", "0", "2", "1"]) .== [true, false, false, false])
         end
     end
 
@@ -270,6 +276,9 @@ end
 
                 @test length(cs1) == length(cs2)
                 @test all(cs1 .== cs2)
+
+                # Test that reports work
+                REP.plot_diagnostics_panel(segmented_df, segmented_df.cell, bm_data.tracer; file=tempname())
             end
         end
     end
