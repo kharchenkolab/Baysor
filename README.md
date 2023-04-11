@@ -166,6 +166,7 @@ Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule
   - `n_transcripts`: number of molecules per cell
   - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have much higher chance of being an artifact.
   - `max_cluster_frac` *(only if `n-clusters > 1`)*: fraction of the molecules coming from the most popular cluster. Cells with low `max_cluster_frac` are often doublets.
+  - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with short lifespan likely correspond to noise.
 - *segmentation_config.toml*: copy of the config to improve reproducibility
 - *segmentation_diagnostics.html*: visualization of the algoritm QC. *Shown only when `-p` is set.*
 - *segmentation_params.dump*: aggregated parameters from the config and CLI

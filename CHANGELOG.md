@@ -2,7 +2,8 @@
 
 ### Added
 
-- New output cell QC parameters `avg_assignment_confidence` and `max_cluster_frac`
+- New output cell QC parameters `avg_assignment_confidence`, `max_cluster_frac` and `lifespan`
+- Segmented cells are now saved to loom instead of TSV. To return an old behavior, use `count-matrix-format="tsv"`
 
 ### Changed
 
@@ -15,6 +16,7 @@
 - Using sparse PCA for NCV estimation on large datasets
 - `baysor segfree` output is now fully compatible with loom v3 format
 - Cells and NCVs now have IDs in the format `{type}{run_id}-{cell_id}`, where `type` is `C` for cells and `V` for NCVs, and `run_id` is a unique ID of Baysor run
+- `--save-polygons` now works regardless of `-p`
 
 ## [0.5.2] — 2022-06-29
 

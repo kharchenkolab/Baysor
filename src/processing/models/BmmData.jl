@@ -181,6 +181,7 @@ end
 function estimate_assignment_by_history(data::BmmData)
     """
     Estimate the assignment by the history of assignments. Returns the new assignment (local ids) and its confidence.
+    Only the components present in the final assignment are considered.
     """
     # TODO: it doesn't guarantee connectivity. Can try to run deterministic EM, or use some better estimate here
     if !(:assignment_history in keys(data.tracer)) || (length(data.tracer[:assignment_history]) == 0)
@@ -189,7 +190,7 @@ function estimate_assignment_by_history(data::BmmData)
     end
 
     assignment_history::Vector{Vector{eltype(data.assignment)}} = data.tracer[:assignment_history]
-    guid_map = Dict(c.guid => i for (i,c) in enumerate(data.components))
+    guid_map = get_component_guid_map(data)
     current_guids = Set(vcat(collect(keys(guid_map)), [0]));
     assignment_mat::Matrix{eltype(data.assignment)} = hcat(assignment_history...);
 
@@ -203,7 +204,12 @@ function estimate_assignment_by_history(data::BmmData)
     return get.(Ref(guid_map), reassignment, 0), vec(mean(assignment_mat .== reassignment, dims=2))
 end
 
-function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}; sigdigits::Int=4, max_cell::Int=maximum(cell_assignment), dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing)
+function get_cell_qc_df(
+        segmented_df::DataFrame, cell_assignment::Vector{Int};
+        component_lifespan::Union{Nothing, Dict{Int, Int}}=nothing,
+        sigdigits::Int=4, max_cell::Int=maximum(cell_assignment),
+        dapi_arr::Union{Matrix{<:Real}, Nothing}=nothing # TODO: use it
+    )
     seg_df_per_cell = split(segmented_df, cell_assignment; max_factor=max_cell, drop_zero=true);
     pos_data_per_cell = [position_data(df)[1:2,:] for df in seg_df_per_cell];
 
@@ -229,6 +235,10 @@ function get_cell_qc_df(segmented_df::DataFrame, cell_assignment::Vector{Int}; s
         df[!,:max_cluster_frac] = [isempty(df) ? NaN : (maximum(values(countmap(df.cluster))) / length(df.cluster)) for df in seg_df_per_cell]
     end
 
+    if component_lifespan !== nothing
+        df[!, :lifespan] = get.(Ref(component_lifespan), 1:max_cell, -1)
+    end
+
     return df
 end
 
@@ -251,7 +261,11 @@ function get_cell_stat_df(
             segmented_df = get_segmentation_df(data; run_id);
         end
 
-        df = hcat(df, get_cell_qc_df(segmented_df, assignment; sigdigits=sigdigits, max_cell=length(data.components)))
+        df = hcat(df, get_cell_qc_df(
+            segmented_df, assignment;
+            component_lifespan=estimate_component_lifespan(data),
+            sigdigits=sigdigits, max_cell=length(data.components)
+        ))
     end
 
     return df[num_of_molecules_per_cell(data) .> 0,:]
@@ -375,3 +389,27 @@ function update_n_mols_per_segment!(bm_data::BmmData)
         bm_data.main_segment_per_cell[ci] = i_max
     end
 end
+
+function estimate_component_lifespan(data::BmmData; use_guids::Bool=false)
+    comp_lifespans = estimate_component_lifespan(data.tracer[:assignment_history])
+    use_guids && return comp_lifespans
+
+    guid_map = get_component_guid_map(data)
+    comp_lifespans = Dict(guid_map[k] => v for (k,v) in comp_lifespans if k in keys(guid_map));
+    return comp_lifespans
+end
+
+function estimate_component_lifespan(assignment_history::Vector{Vector{Int}})
+    comp_lifespans = Dict{eltype(assignment_history[1]), Int}()
+    for it in reverse(eachindex(assignment_history))
+        for cmp in assignment_history[it]
+            (cmp > 0) || continue
+            comp_lifespans[cmp] = length(assignment_history) - it + 1
+        end
+    end
+
+    return comp_lifespans
+end
+
+get_component_guid_map(data::BmmData) =
+    Dict(c.guid => i for (i,c) in enumerate(data.components))

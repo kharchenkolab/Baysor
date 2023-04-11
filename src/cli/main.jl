@@ -29,7 +29,7 @@ Run cell segmentation
 - `--num-cells-init=<nci>`:             Initial number of cells
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
 - `--save-polygons=<format>`:           Save estimated cell boundary polygons to a file with a specified `format`.
-                                        Only 'GeoJSON' format is currently supported. The option requires setting `-p` to work.
+                                        Only 'GeoJSON' format is currently supported.
 - `--exclude-genes=<genes>`:            Comma-separated list of genes or regular expressions to ignore during segmentation.
                                         Example: `--exclude-genes='Blank*,MALAT1'`
 - `--nuclei-genes=<genes>`:             Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
@@ -43,6 +43,7 @@ Run cell segmentation
                                             If you want the final segmentation not contradicting to `prior_segmentation`, set it to 1.
                                             Otherwise, if you assume errors in prior_segmentation, values in [0.2-0.7] allow
                                             flexibility for the algorithm. (default: 0.2)
+- `--count-matrix-format=<format>`:     Storage format of the segmentec cell count matrix. Either 'loom' or 'tsv' (default: 'loom')
 
 
 # Flags
@@ -61,9 +62,9 @@ Run cell segmentation
         n_clusters::Int=config.segmentation.n_clusters,
         prior_segmentation_confidence::Float64=config.segmentation.prior_segmentation_confidence,
 
-        # TODO: add save_polygons to the help
-        # TODO: update the part on `nuclei_genes` and `cyto_genes` in the tutorial
+        # TODO: update the part on `nuclei_genes` and `cyto_genes` in the help and in the tutorial
         output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false", no_ncv_estimation::Bool=false,
+        count_matrix_format::String="loom"
     )
 
     # Parse options
@@ -82,6 +83,8 @@ Run cell segmentation
             "prior_segmentation_confidence" => prior_segmentation_confidence
         ))
     )
+
+    @assert count_matrix_format in ["loom", "tsv"] "count_matrix_format must be either 'loom' or 'tsv'"
 
     opts, output = fill_and_check_options!(opts, prior_segmentation, output)
 
@@ -132,10 +135,10 @@ Run cell segmentation
 
     @info "Saving results to $output"
 
-    out_paths = get_output_paths(output; count_matrix_format="loom")
+    out_paths = get_output_paths(output; count_matrix_format=count_matrix_format)
     DAT.save_segmentation_results(
         segmented_df, cell_stat_df, cm, polygons, out_paths;
-        poly_format=save_polygons, gene_names
+        poly_format=save_polygons, matrix_format=Symbol(count_matrix_format), gene_names
     )
 
     if plot
