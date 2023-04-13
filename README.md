@@ -5,7 +5,7 @@
 
 **Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
 
-- [News (\[0.5.1\] — 2021-12-01)](#news-051--2021-12-01)
+- [News (\[0.6.0\] — 2023-04-13)](#news-060--2023-04-13)
 - [Overview](#overview)
 - [Installation](#installation)
   - [Binary download](#binary-download)
@@ -21,12 +21,18 @@
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
   - [Extract NCVs (neighborhood composition vectors)](#extract-ncvs-neighborhood-composition-vectors)
+- [Advanced configuration](#advanced-configuration)
 - [Citation](#citation)
 
-## News ([0.5.1] — 2021-12-01)
+## News ([0.6.0] — 2023-04-13)
 
-- CLI parameter `no-ncv-estimation` to disable estimation of NCVs
-- We have MacOS binaries now!
+**A major update!**
+
+- Simplified installation
+- Fixed various issues: memory usage of NCVs, polygon output
+- Finished loom support
+- Updated CLI and configuration *(breaking changes in the config file structure!)*
+- *And more*
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 
