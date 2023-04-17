@@ -21,6 +21,7 @@
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
   - [Extract NCVs (neighborhood composition vectors)](#extract-ncvs-neighborhood-composition-vectors)
+  - [Multi-threading](#multi-threading)
 - [Advanced configuration](#advanced-configuration)
 - [Citation](#citation)
 
@@ -216,6 +217,14 @@ baysor segfree [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH]
 ```
 
 The results will be stored in [loom format](https://linnarssonlab.org/loompy/format/index.html) with `/matrix` corresponding to the NCV matrix and `/col_attrs/ncv_color` showing the NCV color.
+
+### Multi-threading
+
+All running options support some basic multi-threading. To enable it, set `JULIA_NUM_THREADS` environment variable before running the script You can either do it globally by running `export JULIA_NUM_THREADS=13` or for an individual command:
+
+```bash
+JULIA_NUM_THREADS=13 baysor run -m 30 -s 30 ./molecules.csv
+```
 
 ## Advanced configuration
 
