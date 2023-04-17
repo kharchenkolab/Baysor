@@ -16,18 +16,14 @@ RUN julia -e 'using Pkg; Pkg.add("IJulia"); Pkg.build(); using IJulia;'
 
 ## Julia Baysor envitonment
 
-RUN julia -e 'using Pkg; Pkg.add(Pkg.PackageSpec(;name="PackageCompiler", version="2.0.6"))'
-RUN julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/hms-dbmi/Baysor.git")); Pkg.build();'
+RUN julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git"));'
 
-RUN julia -e 'import Baysor, Pkg; Pkg.activate(dirname(dirname(pathof(Baysor)))); Pkg.instantiate();'
-RUN julia -e 'using PackageCompiler; import Baysor, Pkg; Pkg.activate(dirname(dirname(pathof(Baysor)))); \
-    create_sysimage(:Baysor; precompile_execution_file="$(dirname(pathof(Baysor)))/../bin/precompile.jl", sysimage_path="/root/BaysorSysimage.so")'
+ENV LazyModules_lazyload false
 
-RUN \
-      printf "#!/usr/local/julia/bin/julia --sysimage=/root/BaysorSysimage.so\n\nimport Baysor\nBaysor.run_cli()" >> /bin/baysor && \
-    chmod +x /bin/baysor
+RUN julia -e 'import Baysor, Pkg; Pkg.activate(dirname(dirname(pathof(Baysor)))); Pkg.instantiate(); Pkg.build();'
+RUN echo "export PATH=/root/.julia/bin/:$PATH" >> ~/.bashrc
 
-RUN baysor --help
+RUN /root/.julia/bin/baysor --help
 
 ENTRYPOINT ["/bin/bash"]
 WORKDIR /root/
