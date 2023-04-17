@@ -4,6 +4,12 @@ using Baysor
 using Comonicon: Builder
 using Pkg
 
+# Just to make sure they're initialized. Failsafe for `LazyModules_lazyload`.
+Baysor.load_module(Baysor.DAT)
+Baysor.load_module(Baysor.REP)
+Baysor.load_module(Baysor.BPR)
+Baysor.load_module(Baysor.CLI)
+
 Pkg.activate(pkgdir(Baysor))
 Pkg.instantiate() # Comonicon doesn't pull non-registered dependencies, such as VegaLite.jl
 
