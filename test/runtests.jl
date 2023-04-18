@@ -253,10 +253,15 @@ end
                     df_spatial; scale_std="5%", min_molecules_per_cell=10, n_cells_init=size(df_spatial, 1) ÷ 3,
                     adj_list, scale
                 );
-                BPR.bmm!(bm_data; n_iters=350, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=100, verbose=false);
+                BPR.bmm!(bm_data; n_iters=500, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=100, verbose=false);
 
                 conj_table = counts(BPR.estimate_assignment_by_history(bm_data)[1], df_spatial.cell)
-                @test all([all(vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.8) for d in 1:2])
+                match_masks = [vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.9 for d in 1:2]
+
+                @test all(match_masks[2]) # We expect no new cells from multiple sources
+                @test (mean(match_masks[1]) .> 0.8) # But in rare cases, we allow one cell to be split into two
+                # This splitting behaviour gets rarer as we increase `n_iters`. So, we can use its frequency as a benchmark when improving the algorithm
+
                 @test maximum(conj_table[2:end,1]) <= 3 # If there are new cells consisting of noise, they should be very small
 
                 # Test that it works
