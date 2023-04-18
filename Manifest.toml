@@ -2,7 +2,7 @@
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "1dd3a690934659cc2e906f3ca477c6cd5fd96dd8"
+project_hash = "3a87a44c5fdbf111b7d93621acf5f26753cff7db"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -941,11 +941,11 @@ version = "1.1.0"
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
 
-[[deps.NodeJS]]
-deps = ["Pkg"]
-git-tree-sha1 = "905224bbdd4b555c69bb964514cfa387616f0d3a"
-uuid = "2bd173c7-0d6d-553b-b6af-13a54713934c"
-version = "1.3.0"
+[[deps.NodeJS_16_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "dde03ab3f22e2d7cfbc414a02b50617406346cf1"
+uuid = "a4b94fbf-73f5-58ff-888d-48a8396e17f6"
+version = "16.15.0+0"
 
 [[deps.Observables]]
 git-tree-sha1 = "6862738f9796b3edc1c09d0890afce4eca9e7e93"
@@ -1448,20 +1448,16 @@ uuid = "1cfade01-22cf-5700-b092-accc4b62d6e1"
 version = "0.4.1"
 
 [[deps.Vega]]
-deps = ["DataStructures", "DataValues", "Dates", "FileIO", "FilePaths", "IteratorInterfaceExtensions", "JSON", "JSONSchema", "MacroTools", "NodeJS", "Pkg", "REPL", "Random", "Setfield", "TableTraits", "TableTraitsUtils", "URIParser"]
-git-tree-sha1 = "289fe8d92038dc82290fd387d541d7b865fcc46f"
-repo-rev = "master"
-repo-url = "https://github.com/VPetukhov/Vega.jl"
+deps = ["DataStructures", "DataValues", "Dates", "FileIO", "FilePaths", "IteratorInterfaceExtensions", "JSON", "JSONSchema", "MacroTools", "NodeJS_16_jll", "Pkg", "REPL", "Random", "Setfield", "TableTraits", "TableTraitsUtils", "URIParser"]
+git-tree-sha1 = "5469708f0e2c487be7959e7e74f56925699cdc6d"
 uuid = "239c3e63-733f-47ad-beb7-a12fde22c578"
-version = "2.3.2-DEV"
+version = "2.4.0"
 
 [[deps.VegaLite]]
-deps = ["Base64", "DataStructures", "DataValues", "Dates", "FileIO", "FilePaths", "IteratorInterfaceExtensions", "JSON", "MacroTools", "NodeJS", "Pkg", "REPL", "Random", "TableTraits", "TableTraitsUtils", "URIParser", "Vega"]
-git-tree-sha1 = "38ddca6b4d77fdbbe2353482e85335bfd1c75721"
-repo-rev = "master"
-repo-url = "https://github.com/queryverse/VegaLite.jl.git"
+deps = ["Base64", "DataStructures", "DataValues", "Dates", "FileIO", "FilePaths", "IteratorInterfaceExtensions", "JSON", "MacroTools", "NodeJS_16_jll", "Pkg", "REPL", "Random", "TableTraits", "TableTraitsUtils", "URIParser", "Vega"]
+git-tree-sha1 = "928417beaea3b1dcc08db568d7371439e86e1000"
 uuid = "112f6efa-9a02-5b7d-90c0-432ed331239a"
-version = "2.6.1-DEV"
+version = "3.0.0"
 
 [[deps.VoronoiDelaunay]]
 deps = ["Colors", "GeometricalPredicates", "Random"]
