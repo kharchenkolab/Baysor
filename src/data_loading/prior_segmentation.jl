@@ -2,8 +2,11 @@ using NearestNeighbors
 using SparseArrays
 using StatsBase
 
+using FileIO: load # reqiored for `load` to work properly
+import ImageIO
+
 @lazy import ImageCore = "a09fc81d-aa75-5fe9-8630-4744c3626534"
-@lazy import ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
+@lazy import ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
 @lazy import MAT = "23992714-dd62-5051-b70f-ba57cb901cac"
 
 
@@ -54,9 +57,9 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
-    labels = ImageMagick.load(path) |> ImageCore.channelview |> ImageCore.rawview |> sparse |> dropzeros!
+    labels = load(path) |> ImageCore.channelview |> ImageCore.rawview |> sparse |> dropzeros!
     if length(unique(nonzeros(labels))) == 1
-        return BitMatrix(labels) |> ImageMorphology.label_components |> sparse
+        return BitMatrix(labels .> 0) |> ImageMorphology.label_components |> sparse
     end
 
     return labels

@@ -1,47 +1,32 @@
-[Data]
+[data]
+x = "x" # Name of the x column in the input data. Default: "x"
+y = "y" # Name of the y column in the input data. Default: "y"
+z = "z" # Name of the y column in the input data. Default: "z"
+gene = "gene" # Name of gene column in the input data. Default: "gene"
+force_2d = false # Ignores z-column in the data if it is provided
+min_molecules_per_gene = 1 # Minimal number of molecules per gene. Default: 1
+exclude_genes = "" # Comma-separated list of genes or regular expressions to ignore during segmentation. Example: 'Blank*,MALAT1'
+min_molecules_per_cell = 0 # Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Default: 3
+min_molecules_per_segment = 0 # Minimal number of molecules in a segmented region, required for this region to be considered as a possible cell. Default: min-molecules-per-cell / 4
+confidence_nn_id = 0 # Number of nearest neighbors to use for confidence estimation. Default: min-molecules-per-cell / 2 + 1
 
-# Name of the x column in the input data. Default: "x"
-x-column = "x"
+[segmentation]
+scale = -1.0 # Negative values mean it must be estimated from `min_molecules_per_cell`
+scale_std = "25%" # Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
+estimate_scale_from_centers = true # Use scale estimate from DAPI if provided. Default: true
 
-# Name of the y column in the input data. Default: "y"
-y-column = "y"
+n_clusters = 4 # Number of clusters to use for cell type segmentation. Default: 4
+prior_segmentation_confidence = 0.2 # Confidence of the prior segmentation. Default: 0.2
+iters = 500 # Number of iterations for the cell segmentation algorithm. Default: 500
+n_cells_init = 0 # Initial number of cells
 
-# Name of the y column in the input data. Default: "z"
-z-column = "z"
+nuclei_genes = "" # Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
+cyto_genes = "" # Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
 
-# Name of gene column in the input data. Default: "gene"
-gene-column = "gene"
+# The parameters below are not supposed to be changed normally
+new_component_weight = 0.2 # Prior weight of assignment a molecule to new component. Default: 0.2
+new_component_fraction = 0.3 # Fraction of distributions, sampled at each stage. Default: 0.3
 
-# Minimal number of molecules per gene. Default: 1
-min-molecules-per-gene = 1
-
-# Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Default: 3
-min-molecules-per-cell = 3
-
-# Scale parameter, which suggest approximate cell radius for the algorithm. This parameter is required.
-scale = 50
-
-# Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
-scale-std = "25%"
-
-# Use scale estimate from DAPI if provided. Default: true
-estimate-scale-from-centers = true
-
-# Minimal number of molecules in a segmented region, required for this region to be considered as a possible cell. Default: min-molecules-per-cell / 4
-min-molecules-per-segment = 2
-
-[Sampling] # These parameters shouldn't normally be changed
-
-# Prior weight of assignment a molecule to new component. Default: 0.2
-new-component-weight = 0.2
-
-# Fraction of distributions, sampled at each stage. Default: 0.3
-new-component-fraction = 0.3
-
-[Plotting]
-
-# Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
-gene-composition-neigborhood = 20
-
-# Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
-min-pixels-per-cell = 15
+[plotting]
+gene_composition_neigborhood = 0 # Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
+min_pixels_per_cell = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15

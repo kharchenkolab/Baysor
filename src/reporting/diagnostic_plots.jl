@@ -85,14 +85,14 @@ function plot_dataset_colors(
     return plot_molecules!(df_spatial, polygons; color=color, markersize=markersize, alpha=alpha, kwargs...)
 end
 
-function plot_confidence_distribution(confidence::Vector{Float64}, assignment::Vector{<:Integer}; bins::AbstractVector{Float64}=0.0:0.025:1.025, size=(500, 250))
-    v1 = confidence[assignment .!= 0]
-    v2 = confidence[assignment .== 0]
+function plot_confidence_distribution(confidence::Vector{Float64}, is_noise::AbstractVector{Bool}; bins::AbstractVector{Float64}=0.0:0.025:1.025, size=(500, 250))
+    v1 = confidence[.!is_noise]
+    v2 = confidence[is_noise]
     p_df = estimate_hist(v1, bins=bins)
     p_df[!, :h2] = estimate_hist(v2, bins=bins).h;
 
     return p_df |>
-        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title="Confidence per molecule") +
+        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title={text="Confidence per molecule"}) +
         VL.@vlplot(:bar, y={:h, title="Num. molecules"}, color={datum="Assigned molecules"}) +
         VL.@vlplot({:bar, opacity=0.5}, y=:h2, color={datum="Noise molecules"})
 end

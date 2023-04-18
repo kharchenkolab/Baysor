@@ -5,7 +5,7 @@
 
 **Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
 
-- [News (\[0.5.1\] — 2021-12-01)](#news-051--2021-12-01)
+- [News (\[0.6.0\] — 2023-04-13)](#news-060--2023-04-13)
 - [Overview](#overview)
 - [Installation](#installation)
   - [Binary download](#binary-download)
@@ -21,12 +21,19 @@
     - [Outputs](#outputs)
     - [Choice of parameters](#choice-of-parameters)
   - [Extract NCVs (neighborhood composition vectors)](#extract-ncvs-neighborhood-composition-vectors)
+  - [Multi-threading](#multi-threading)
+- [Advanced configuration](#advanced-configuration)
 - [Citation](#citation)
 
-## News ([0.5.1] — 2021-12-01)
+## News ([0.6.0] — 2023-04-13)
 
-- CLI parameter `no-ncv-estimation` to disable estimation of NCVs
-- We have MacOS binaries now!
+**A major update!**
+
+- Simplified installation
+- Fixed various issues: memory usage of NCVs, polygon output
+- Finished loom support
+- Updated CLI and configuration *(breaking changes in the config file structure!)*
+- *And more*
 
 *See the [changelog](CHANGELOG.md) for more detalis.*
 
@@ -145,10 +152,10 @@ Another promising tool is [CellPose](https://github.com/mouseland/cellpose), how
 
 #### Segmenting cells with pronounced intracellular structure
 
-High-resolution protocols, such as MERFISH or seq-FISH, can capture intracellular structure. Most often, it would mean pronounced difference between nuclear and citoplasmic gene composition. By default, such differences would push Baysor to recognize compartments as different cells. However, if some compartment-specific genes are known, they may be used to mitigate the situation. These genes can be specified through `--nuclei-genes` and `--cyto-genes` options, *e.g.*:
+High-resolution protocols, such as MERFISH or seq-FISH, can capture intracellular structure. Most often, it would mean pronounced difference between nuclear and citoplasmic gene composition. By default, such differences would push Baysor to recognize compartments as different cells. However, if some compartment-specific genes are known, they may be used to mitigate the situation. These genes can be specified through `--config.segmentation.nuclei-genes` and `--config.segmentation.cyto-genes` options, *e.g.*:
 
 ```julia
-baysor run -m 30 --n-clusters=1 -s 30 --scale-std=50% --nuclei-genes=Neat1 --cyto-genes=Apob,Net1,Slc5a1,Mptx2 --exclude-genes='Blank*' ./molecules.csv
+baysor run -m 30 --n-clusters=1 -s 30 --scale-std=50% --config.segmentation.nuclei-genes=Neat1 --config.segmentation.cyto-genes=Apob,Net1,Slc5a1,Mptx2 --config.data.exclude-genes='Blank*' ./molecules.csv
 ```
 
 Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule clustering would not be affected by compartment differences.
@@ -157,8 +164,16 @@ Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule
 
 #### Outputs
 
-- *segmentation_borders.html*: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
-- *segmentation_cell_stats.csv*: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
+Segmentation results:
+- ***segmentation_counts.loom*** or ***segmentation_counts.tsv*** (depends on `--count-matrix-format`): count matrix with segmented stats. In case of loom format, column attributes also contain the same info as ***segmentation_cell_stats.csv***.
+- ***segmentation.csv***: segmentation info per molecule:
+  - `confidence`: probability of a molecule to be real (i.e. not noise)
+  - `cell`: id of the assigned cell. Value "" corresponds to noise.
+  - `cluster`: id of molecule cluster
+  - `assignment_confidence`: confidence that the molecule is assigned to a correct cell
+  - `is_noise`: shows whether molecule was assigned to noise *(it's equal `true` if and only if `cell` == "")*
+  - `ncv_color`: RGB code of the neighborhood composition coloring
+- ***segmentation_cell_stats.csv***: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
   - `area`: area of the convex hull around the cell molecules
   - `avg_confidence`: average confidence of the cell molecules
   - `density`: cell area divided by the number of molecules in cell
@@ -167,17 +182,14 @@ Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule
   - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have much higher chance of being an artifact.
   - `max_cluster_frac` *(only if `n-clusters > 1`)*: fraction of the molecules coming from the most popular cluster. Cells with low `max_cluster_frac` are often doublets.
   - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with short lifespan likely correspond to noise.
-- *segmentation_config.toml*: copy of the config to improve reproducibility
-- *segmentation_diagnostics.html*: visualization of the algoritm QC. *Shown only when `-p` is set.*
-- *segmentation_params.dump*: aggregated parameters from the config and CLI
-- *segmentation_polygons.json*: polygons used for visualization in GeoJSON format. In case of 3D segmentation, it is an array of with GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
-- *segmentation.csv*: segmentation info per molecule:
-  - `confidence`: probability of a molecule to be real (i.e. not noise)
-  - `cell`: id of the assigned cell. Value "" corresponds to noise.
-  - `cluster`: id of molecule cluster
-  - `assignment_confidence`: confidence that the molecule is assigned to a correct cell
-  - `is_noise`: shows whether molecule was assigned to noise *(it's equal `true` if and only if `cell` == "")*
-  - `ncv_color`: RGB code of the neighborhood composition coloring
+
+Visualization:
+- ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In case of 3D segmentation, it is an array of with GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
+- ***segmentation_diagnostics.html***: visualization of the algoritm QC. *Shown only when `-p` is set.*
+- ***segmentation_borders.html***: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
+
+Other:
+- ***segmentation_params.dump.toml***: aggregated parameters from the config and CLI
 
 #### Choice of parameters
 
@@ -192,8 +204,8 @@ Some other sensitive parameters (normally, shouldn't be changed):
 
 Run parameters:
 
-- `n_cells_init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
-- `iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
+- `--config.segmentation.n-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
+- `--config.segmentation.iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
 
 
 ### Extract NCVs (neighborhood composition vectors)
@@ -205,6 +217,20 @@ baysor segfree [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH]
 ```
 
 The results will be stored in [loom format](https://linnarssonlab.org/loompy/format/index.html) with `/matrix` corresponding to the NCV matrix and `/col_attrs/ncv_color` showing the NCV color.
+
+### Multi-threading
+
+All running options support some basic multi-threading. To enable it, set `JULIA_NUM_THREADS` environment variable before running the script You can either do it globally by running `export JULIA_NUM_THREADS=13` or for an individual command:
+
+```bash
+JULIA_NUM_THREADS=13 baysor run -m 30 -s 30 ./molecules.csv
+```
+
+## Advanced configuration
+
+The pipeline options are described in the CLI help. Run `baysor --help` or the corresponding command like `baysor run --help` for the list of main options.
+
+However, there are additional parameters that can be spericied through the TOML config. See [example_config.toml](./configs/example_config.toml) for their description. All parameters from the config can also be passed through command line. For example, to set `exclude_genes` from the `data` section you need to pass `--config.data.exclude_genes='Blank*,MALAT1'` parameter.
 
 ## Citation
 

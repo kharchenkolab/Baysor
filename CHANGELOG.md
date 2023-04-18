@@ -1,15 +1,21 @@
-## [Upcoming]
+## [0.6.0] — 2023-04-13
 
 ### Added
 
 - New output cell QC parameters `avg_assignment_confidence`, `max_cluster_frac` and `lifespan`
 - Segmented cells are now saved to loom instead of TSV. To return an old behavior, use `count-matrix-format="tsv"`
+- Minimal multi-threading (see README)
+
+### Removed
+
+- `iters` and `n-cells-init` parameters were removed from the CLI shortcuts. To change them, use the config or `--config.segmentation.iters` and `--config.segmentation.n_cells_init` parameters *(see 'Advanced configuration section in the readme')*.
 
 ### Changed
 
-- Breaking changes in config file structure
+- Breaking changes in config file structure and CLI
 - Greatly improved responsiveness of the CLI and simplified installation process
 - Major refactoring of the code
+- Various performance improvements
 - Faster and more precise algorithm for estimating boundary polygons. Now each cell has exactly one polygon in the output GeoJSON.
     - *For method details see [Awrangjeb, 2015](https://doi.org/10.1109/IVCNZ.2015.7761536), it's pretty similar.*
     - *Closes [#15](https://github.com/kharchenkolab/Baysor/issues/15) and [#41](https://github.com/kharchenkolab/Baysor/issues/41), potentially also [#32](https://github.com/kharchenkolab/Baysor/issues/32) and [#37](https://github.com/kharchenkolab/Baysor/issues/37).*

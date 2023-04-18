@@ -30,10 +30,6 @@ Run cell segmentation
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
 - `--save-polygons=<format>`:           Save estimated cell boundary polygons to a file with a specified `format`.
                                         Only 'GeoJSON' format is currently supported.
-- `--exclude-genes=<genes>`:            Comma-separated list of genes or regular expressions to ignore during segmentation.
-                                        Example: `--exclude-genes='Blank*,MALAT1'`
-- `--nuclei-genes=<genes>`:             Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
-- `--cyto-genes=<genes>`:               Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
 - `--scale-std=<ss>`:                   Standard deviation of scale across cells. Can be either number, which means absolute value of
                                         the std, or string ended with '%' to set it relative to scale (default: "25%")
 - `-s, --scale=<s>`:                    Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same
@@ -61,7 +57,6 @@ Run cell segmentation
         n_clusters::Int=config.segmentation.n_clusters,
         prior_segmentation_confidence::Float64=config.segmentation.prior_segmentation_confidence,
 
-        # TODO: update the part on `nuclei_genes` and `cyto_genes` in the help and in the tutorial
         output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false",
         count_matrix_format::String="loom"
     )
