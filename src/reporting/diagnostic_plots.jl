@@ -7,13 +7,13 @@ function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confid
         n1 = sum(confidences);
         n2 = length(confidences) - n1;
 
-        p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins)
+        p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins, type=:bar)
         p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
         p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
 
         return p_df |>
             VL.@vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
-            VL.@vlplot(:bar, x2=:e, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
+            VL.@vlplot(:bar, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
             VL.@vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
             VL.@vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
 end
@@ -92,25 +92,33 @@ function plot_confidence_distribution(confidence::Vector{Float64}, is_noise::Abs
     p_df[!, :h2] = estimate_hist(v2, bins=bins).h;
 
     return p_df |>
-        VL.@vlplot(x={:s, title="Confidence"}, x2=:e, width=size[1], height=size[2], title={text="Confidence per molecule"}) +
-        VL.@vlplot(:bar, y={:h, title="Num. molecules"}, color={datum="Assigned molecules"}) +
-        VL.@vlplot({:bar, opacity=0.5}, y=:h2, color={datum="Noise molecules"})
+        VL.@vlplot(
+            x={:s, title="Confidence", scale={domain=[minimum(p_df.s), maximum(p_df.e)]}}, x2=:e, y=:hs,
+            width=size[1], height=size[2], title={text="Confidence per molecule"}
+        ) +
+        VL.@vlplot(:bar, y2={:h, title="Num. molecules"}, color={datum="Assigned molecules"}, tooltip={:h}) +
+        VL.@vlplot({:bar, opacity=0.5}, y2=:h2, color={datum="Noise molecules"}, tooltip={:h2})
 end
 
 function plot_assignment_confidence_distribution(assignment_confidence::Vector{Float64}, nbins::Int=30, width::Int=500, height::Int=250)
     return estimate_hist(assignment_confidence; nbins=nbins) |>
         VL.@vlplot() +
-        VL.@vlplot(:bar, x={:s, title="Assignment confidence"}, x2=:e, y={:h, title="Num. molecules"},
-            title="Assignment confidence", width=width, height=height) +
+        VL.@vlplot(
+            :rect, x={:s, title="Assignment confidence"}, y={:hs, title="Num. molecules"},
+            x2={:e}, y2={:h}, tooltip={:h},
+            title="Assignment confidence", width=width, height=height
+        ) +
         VL.@vlplot(:rule, x={datum=0.95})
 end
 
 function plot_n_molecules_per_cell(n_mols_per_cell::Vector{Int}, nbins::Int=50, width::Int=500, height::Int=250)
-    return estimate_hist(n_mols_per_cell, nbins=nbins, center=false) |>
-        VL.@vlplot(
-            :bar,
-            x={:s, scale={domain=[1, maximum(n_mols_per_cell) + 1]}, title="Num. molecules per cell"},
-            x2=:e, y={:h, title="Num. cells"},
-            width=width, height=height, title="Num. molecules per cell"
-        )
+    p_df = estimate_hist(n_mols_per_cell, nbins=nbins)
+    return p_df |> VL.@vlplot(
+        mark={:rect},
+        x={:s, scale={domain=[minimum(p_df.s), maximum(p_df.e)]}, title="Num. molecules per cell"},
+        x2={:e},
+        y={:hs},
+        y2={:h, title="Num. cells"},
+        width=width, height=height, title="Num. molecules per cell", tooltip={:h}
+    )
 end

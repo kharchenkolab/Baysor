@@ -1,8 +1,11 @@
 using Statistics
 using StatsBase
 
-function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length(vec)));
-        ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Union{Bool, Symbol}=false, center=true, bins=nothing, kwargs...)
+function estimate_hist(
+        vec::Vector{<:Real}, weights=FrequencyWeights(ones(length(vec)));
+        ext_cols::NamedTuple=NamedTuple(), rel_width::Float64=0.9, normalize::Union{Bool, Symbol}=false,
+        center=false, bins=nothing, sigdigits::Int=4, type::Symbol=:rect, kwargs...
+    )
     hf = (bins === nothing) ? fit(Histogram, vec, weights; kwargs...) : fit(Histogram, vec, weights, bins; kwargs...)
     diffs = rel_width * diff(hf.edges[1])[1]
     df = DataFrame(:s => hf.edges[1][1:end-1], :e => hf.edges[1][1:end-1] .+ diffs, :h => hf.weights)
@@ -24,6 +27,20 @@ function estimate_hist(vec::Vector{<:Real}, weights=FrequencyWeights(ones(length
         df[!, :h] = df.h ./ sum(df.h)
     elseif normalize != :none
         error("Unknown normalize")
+    end
+
+    if sigdigits > 0
+        for c in [:s, :e, :h]
+            df[!, c] = round.(df[!, c], sigdigits=sigdigits)
+        end
+    end
+
+    if type == :rect
+        df[!, :hs] .= 0.0
+    elseif type == :bar
+        select!(df, Not(:e))
+    else
+        error("Unknown type: $type. Only :rect and :bar are supported.")
     end
 
     return df
