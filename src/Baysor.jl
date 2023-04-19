@@ -16,6 +16,13 @@ export load_module
 
 LazySubmodules.__init__() # Somehow without it __init__ is only called after all @lazy_submodule macroses
 
+if (get(ENV, "LazyModules_lazyload", "") == "false")
+    # During compilation, it is the only way to disable lazy loading
+    # I don't know why `init` doesn't work
+    @info "Disabling lazy loading of submodules"
+    LazySubmodules._LAZYMODE[] = false
+end
+
 # Utils: Minimal functions with zero compilation time shared across submodules
 include("utils/Utils.jl")
 

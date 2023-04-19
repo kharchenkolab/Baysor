@@ -44,7 +44,7 @@ jobs:
 
       - name: Build binary
         run: |
-          julia --project ./deps/build.jl app
+          LazyModules_lazyload=false julia --project ./deps/build.jl app
 
       - name: Prepare distribution archives
         run: |
