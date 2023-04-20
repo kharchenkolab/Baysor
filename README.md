@@ -69,7 +69,7 @@ Alternatively, you can use Docker. It contains executable `baysor` to run Baysor
 The [repo](https://hub.docker.com/r/vpetukhov/baysor) also has images for older versions.
 
 ```bash
-docker run -it --rm vpetukhov/baysor:master
+docker run -it --rm vpetukhov/baysor:latest
 ```
 
 Build by hands:
@@ -231,6 +231,17 @@ JULIA_NUM_THREADS=13 baysor run -m 30 -s 30 ./molecules.csv
 The pipeline options are described in the CLI help. Run `baysor --help` or the corresponding command like `baysor run --help` for the list of main options.
 
 However, there are additional parameters that can be spericied through the TOML config. See [example_config.toml](./configs/example_config.toml) for their description. All parameters from the config can also be passed through command line. For example, to set `exclude_genes` from the `data` section you need to pass `--config.data.exclude_genes='Blank*,MALAT1'` parameter.
+
+## Preparing a release
+
+```
+export BAYSOR_VERSION=v0.6.0
+docker build -t vpetukhov/baysor:latest -t "vpetukhov/baysor:$BAYSOR_VERSION" --build-arg CACHEBUST=$(date +%s) .
+docker push vpetukhov/baysor
+
+LazyModules_lazyload=false julia --project ./deps/build.jl app
+zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
+```
 
 ## Citation
 
