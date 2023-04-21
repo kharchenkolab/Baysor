@@ -49,7 +49,8 @@ See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an ove
 
 ### Binary download
 
-The easiest way to install Baysor on Linux or MacOS is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets* for your platform). There, you can use *bin/baysor* executable.
+The easiest way to install Baysor on Linux is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets*). There, you can use *bin/baysor* executable. For other platforms, "Install as a Julia package" is a recommended way.
+*If you know how to reliably compile binaries for MacOS or Windows, please, let me know in issues or over email!*
 
 ### Install as a Julia package
 
