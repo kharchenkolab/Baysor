@@ -220,4 +220,5 @@ function load_prior_segmentation!(
 
     df_spatial[!, :prior_segmentation] = prior_seg
 
+    return prior_seg_labels, scale, scale_std
 end
