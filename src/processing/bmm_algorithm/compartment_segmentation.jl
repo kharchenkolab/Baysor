@@ -141,7 +141,7 @@ function estimate_molecule_compartments(df_spatial::DataFrame, gene_names::Vecto
     comp_genes = Dict{String, Vector{String}}()
 
     # Parse genes from CLI
-    nuclei_genes, cyto_genes = map((nuclei => nuclei_genes, "cyto" => cyto_genes)) do (k,g)
+    nuclei_genes, cyto_genes = map(("nuclei" => nuclei_genes, "cyto" => cyto_genes)) do (k,g)
         c_genes = split_string_list(g)
 
         missing_genes = c_genes[.!in.(c_genes, Ref(Set(gene_names)))]
