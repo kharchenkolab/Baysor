@@ -200,7 +200,7 @@ function load_prior_segmentation!(
         )
 
         if opts.estimate_scale_from_centers
-            opts.scale, opts.scale_std = scale, scale_std
+            opts.scale, opts.scale_std = scale, string(scale_std)
         end
 
         if (prior_seg_labels !== nothing) && plot
