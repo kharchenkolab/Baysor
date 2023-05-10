@@ -238,13 +238,16 @@ For more details on the syntax for CLI arguments, see the [Comonicon documentati
 
 ## Preparing a release
 
+Update the version in the Project.toml, then:
+
 ```
 export BAYSOR_VERSION=v0.6.0
+LazyModules_lazyload=false julia --project ./deps/build.jl app
+# ...test transferability...
+zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
+
 docker build -t vpetukhov/baysor:latest -t "vpetukhov/baysor:$BAYSOR_VERSION" --build-arg CACHEBUST=$(date +%s) .
 docker push vpetukhov/baysor
-
-LazyModules_lazyload=false julia --project ./deps/build.jl app
-zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
 ```
 
 ## Citation
