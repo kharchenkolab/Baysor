@@ -1,3 +1,10 @@
+## [0.6.1] — 2023-05-11
+
+### Fixed
+
+- Fixed a bug with prior segmentation loading
+- Fixed a bug with compartment genes
+
 ## [0.6.0] — 2023-04-20
 
 ### Added
