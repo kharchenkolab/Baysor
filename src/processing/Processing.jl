@@ -1,6 +1,7 @@
 module Processing
 
 using LazyModules
+using Compat
 
 using DataFrames
 

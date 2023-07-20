@@ -1,3 +1,10 @@
+## [Upcoming]
+
+### Fixed
+
+- Fixed wrong parameter interpretation in `neighborhood_count_matrix()`
+- Fixed incompatibility with `julia-1.9`
+
 ## [0.6.1] — 2023-05-11
 
 ### Fixed
