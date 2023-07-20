@@ -205,7 +205,7 @@ function load_prior_segmentation!(
 
         if (prior_seg_labels !== nothing) && plot
             @info "Estimating prior segmentation polygons..."
-            prior_polygons = BPR.boundary_polygons_from_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5.0) # subset to save memory and time
+            prior_polygons = BPR.boundary_polygons_from_grid(Matrix{UInt32}(prior_seg_labels[1:5:end, 1:5:end]); grid_step=5) # subset to save memory and time
             @info "Done"
         end
     end

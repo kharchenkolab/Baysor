@@ -3,7 +3,8 @@
 ### Fixed
 
 - Fixed wrong parameter interpretation in `neighborhood_count_matrix()`
-- Fixed incompatibility with `julia-1.9`
+- Fixed incompatibility with `julia-1.9` ([#78](https://github.com/kharchenkolab/Baysor/issues/78))
+- Fixed `boundary_polygons_from_grid` error ([#82](https://github.com/kharchenkolab/Baysor/issues/82))
 
 ## [0.6.1] — 2023-05-11
 
