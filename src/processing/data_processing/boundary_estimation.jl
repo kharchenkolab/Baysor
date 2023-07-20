@@ -64,7 +64,7 @@ function border_edges_to_poly(border_edges::Vector{Vector{Int}})
     return Int[]
 end
 
-function boundary_polygons_from_grid(grid_labels::Matrix{<:Unsigned}, grid_step::Int=1)
+function boundary_polygons_from_grid(grid_labels::Matrix{<:Unsigned}; grid_step::Int=1)
     borders_per_label = grid_borders_per_label(grid_labels);
     polys = Matrix{Float64}[]
     for bords in borders_per_label
