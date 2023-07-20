@@ -13,12 +13,36 @@ module DataWrappers
     using DataFrames
     import Baysor: BPR
 
-    function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
-        df = DataFrame(
-            :x => rand(n_mols), :y => rand(n_mols),
-            :gene => rand(1:10, n_mols),
-            :confidence => confidence ? ones(n_mols) : rand(n_mols)
+    function get_spatial_df(;
+            n_mols::Int=5000, confidence::Bool=false, cluster::Bool=false, prior_segmentation::Bool=false, cell::Bool=false,
+            n_cells=100
         )
+        df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
+        if confidence
+            df[!, :confidence] = rand(n_mols)
+        end
+
+        if cluster
+            df[!, :cluster] = rand(1:5, n_mols)
+        end
+
+        if prior_segmentation
+            df[!, :prior_segmentation] = rand(1:100, n_mols)
+        end
+
+        if cell
+            df[!, :cell] = rand(1:n_cells, n_mols)
+        end
+
+        return df
+    end
+
+    function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
+        df = get_spatial_df(; n_mols, confidence=confidence)
+        if !confidence
+            df[!, :confidence] = ones(n_mols)
+        end
+
         adj_list = BPR.build_molecule_graph(
             df; use_local_gene_similarities=false, adjacency_type=:triangulation
         )
@@ -100,13 +124,19 @@ end
         end
     end
 
+    @testset "data_loading" begin
+        @testset "prior" begin
+            df = DataWrappers.get_spatial_df(; n_mols=1000000, n_cells=10000, confidence=false, cell=true)
+            pos_data = BPR.position_data(df)
+            scale, std = DAT.estimate_scale_from_assignment(pos_data, df.cell, min_mols_per_cell=1);
+            @test (scale - 0.00026) < 0.00002
+            @test (std - 0.00017) < 0.00002
+        end
+    end
+
     @testset "data_processing" begin
         @testset "initialization" begin
-            n_mols = 1000
-            df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
-
-            df[!, :cluster] = rand(1:5, n_mols)
-            df[!, :prior_segmentation] = rand(1:100, n_mols)
+            df = DataWrappers.get_spatial_df(; n_mols=1000, confidence=false, cluster=true, prior_segmentation=true)
 
             adj_list = BPR.build_molecule_graph(
                 df; use_local_gene_similarities=false, adjacency_type=:triangulation
@@ -170,6 +200,21 @@ end
                 a = DAT.filter_segmentation_labels!(deepcopy(assignment), min_molecules_per_segment=m)
                 @test all(a .== DAT.staining_value_per_transcript(df_spatial, l))
                 @test all(a .== ta)
+            end
+        end
+
+        @testset "neighborhood_composition" begin
+            df = DataWrappers.get_spatial_df(; n_mols=100000, confidence=true)
+            pos_data = BPR.position_data(df)
+            k = 10
+
+            for conf in [nothing, df.confidence]
+                for nbd in [false, true]
+                    for (norm, s) in [(true, 1.0), (false, k)]
+                        cm = BPR.neighborhood_count_matrix(pos_data, df.gene, k; confidences=conf, normalize_by_dist=nbd, normalize=norm)
+                        @test all(sum(cm, dims=1) .≈ s)
+                    end
+                end
             end
         end
     end
