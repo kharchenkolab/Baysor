@@ -2,6 +2,7 @@ import HDF5
 import JSON
 import LinearAlgebra: Adjoint
 using ProgressMeter
+using StatsBase: denserank
 
 Polygons = Union{Dict{Int, Matrix{T}}, Dict{String, Dict{Int, Matrix{T}}}} where T <: Real
 
@@ -15,6 +16,7 @@ function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::V
         error("The prior segmentation column '$col_name' must not contain negative numbers")
     end
 
+    prior_segmentation = denserank(prior_segmentation) .- 1
     filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=min_molecules_per_segment)
     scale, scale_std = estimate_scale_from_assignment(pos_data, prior_segmentation; min_mols_per_cell=min_mols_per_cell)
 
