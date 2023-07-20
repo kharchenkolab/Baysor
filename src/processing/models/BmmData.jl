@@ -310,8 +310,9 @@ function convert_segmentation_to_counts(
         end
     end
 
-    cm = hcat(
-        count_array_sparse.(split(genes, cell_assignment, drop_zero=true), total=n_genes)...
+    cm = stack(
+        count_array_sparse.(split(genes, cell_assignment, drop_zero=true), total=n_genes),
+        dims=2
     )
 
     return cm
