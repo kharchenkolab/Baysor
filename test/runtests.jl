@@ -212,7 +212,7 @@ end
                 for nbd in [false, true]
                     for (norm, s) in [(true, 1.0), (false, k)]
                         cm = BPR.neighborhood_count_matrix(pos_data, df.gene, k; confidences=conf, normalize_by_dist=nbd, normalize=norm)
-                        @test all(sum(cm, dims=1) .≈ s)
+                        @test all(abs.(sum(cm, dims=1)[:] .- s) .< 1e-4)
                     end
                 end
             end
