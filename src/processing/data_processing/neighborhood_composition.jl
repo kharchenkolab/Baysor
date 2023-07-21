@@ -31,10 +31,10 @@ function neighborhood_count_matrix(
         # account for problems with points with duplicating coordinates
         med_closest_dist = median(d[findfirst(d .> 1e-15)] for d in dists if any(d .> 1e-15));
 
-        return stack([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
+        return sphstack([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
             count_array_sparse(Float32, genes[nns], 1 ./ max.(ds, med_closest_dist); total=n_genes, normalize=normalize)
             for (nns,ds) in zip(neighbors, dists)
-        ], dims=2);
+        ]);
     end
 
     s_vecs = Vector{SparseArrays.SparseVector{Float32, Int64}}(undef, length(neighbors))
@@ -48,7 +48,7 @@ function neighborhood_count_matrix(
         end
     end
 
-    return stack(s_vecs, dims=2);
+    return sphstack(s_vecs);
 end
 
 function gene_pca(count_matrix::AbstractMatrix{<:Real}, n_pcs::Int; method::Symbol=:auto)::Tuple{Matrix{<:Real}, Matrix{<:Real}}
