@@ -247,6 +247,7 @@ LazyModules_lazyload=false julia --project ./deps/build.jl app
 # ...test transferability...
 zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
 
+git push origin master
 docker build -t vpetukhov/baysor:latest -t "vpetukhov/baysor:$BAYSOR_VERSION" --build-arg CACHEBUST=$(date +%s) .
 git tag -a $BAYSOR_VERSION -m $BAYSOR_VERSION
 git push origin master --tags
