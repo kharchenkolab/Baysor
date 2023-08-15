@@ -148,11 +148,11 @@ function position_data(df::AbstractDataFrame)::Matrix{Float64}
 
     return copy(Matrix{Float64}(df[:, [:x, :y]])')
 end
-position_data(data::BmmData)::Matrix{Float64} = data.position_data
-composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
-composition_data(data::BmmData) = data.composition_data
-confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
-confidence(data::BmmData)::Vector{Float64} = data.confidence
+@inline position_data(data::BmmData)::Matrix{Float64} = data.position_data
+@inline composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
+@inline composition_data(data::BmmData) = data.composition_data
+@inline confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
+@inline confidence(data::BmmData)::Vector{Float64} = data.confidence
 
 num_of_molecules_per_cell(data::BmmData) = count_array(data.assignment, max_value=length(data.components), drop_zero=true)
 
@@ -167,7 +167,8 @@ function assign!(data::BmmData, point_ind::Int, component_id::Int)
     segment_id = isempty(data.segment_per_molecule) ? 0 : data.segment_per_molecule[point_ind]
     if segment_id > 0
         if component_id > 0
-            data.components[component_id].n_molecules_per_segment[segment_id] = get(data.components[component_id].n_molecules_per_segment, segment_id, 0) + 1
+            data.components[component_id].n_molecules_per_segment[segment_id] =
+                get(data.components[component_id].n_molecules_per_segment, segment_id, 0) + 1
         end
 
         if old_id > 0

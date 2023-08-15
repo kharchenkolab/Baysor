@@ -22,14 +22,12 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Vector{Int})::Vector{Int} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
-function assign_molecule!(data::BmmData, mol_id::Int; denses::Vector{Float64}, adj_classes::Vector{Int}, stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
-    if sum(denses) < noise_density_threshold
-        assign!(data, mol_id, 0) # Noise class
-    elseif !stochastic
-        assign!(data, mol_id, adj_classes[findmax(denses)[2]])
-    else
-        assign!(data, mol_id, fsample(adj_classes, denses))
-    end
+function estimate_molecule_cell_assignment(denses::Vector{Float64}, adj_classes::Vector{Int}; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+    (sum(denses) < noise_density_threshold) && return 0
+
+    !stochastic && return adj_classes[findmax(denses)[2]]
+
+    return fsample(adj_classes, denses)
 end
 
 """
@@ -117,12 +115,14 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     mol_cluster::Union{Int, Missing} = get(data.cluster_per_molecule, mol_id, 0)
     segment_id::Int = get(data.segment_per_molecule, mol_id, 0)
 
-    empty!(denses)
+    # empty!(denses)
+    resize!(denses, length(adj_weights))
     largest_cell_id = 0
     largest_cell_size = 0
     for j in eachindex(adj_weights)
         c_adj = adj_classes[j]
         cc = data.components[c_adj]
+        # The main bottleneck here is `pdf`. Indexing takes a bit, but the rest is negligible.
         c_dens = confidence * exp(data.mrf_strength * adj_weights[j]) * pdf(cc, x, gene, use_smoothing=data.use_gene_smoothing)
 
         ## Only if molecule clustering is provided
@@ -140,7 +140,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
             end
         end
 
-        push!(denses, c_dens)
+        denses[j] = c_dens
     end
 
     if (segment_id > 0) & (largest_cell_id > 0)
@@ -156,21 +156,28 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
 end
 
 function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
-    component_weights = Dict{Int, Float64}();
-    adj_classes = Int[]
-    adj_weights = Float64[]
-    denses = Float64[]
+    n_threads = Threads.nthreads()
+    component_weights = [Dict{Int, Float64}() for _ in 1:n_threads];
+    adj_classes = [Int[] for _ in 1:n_threads];
+    adj_weights = [Float64[] for _ in 1:n_threads];
+    denses = [Float64[] for _ in 1:n_threads]
 
     adj_classes_global = get_global_adjacent_classes(data)
+    assignment = deepcopy(data.assignment)
 
-    for i in 1:size(data.x, 1)
+    @threads for i in 1:size(data.x, 1)
+        ti = Threads.threadid()
         bg_comp_weight = fill_adjacent_component_weights!(
-            adj_classes, adj_weights, data, i; component_weights, adj_classes_global
+            adj_classes[ti], adj_weights[ti], data, i; component_weights=component_weights[ti], adj_classes_global
         )
 
-        expect_density_for_molecule!(denses, data, i; adj_classes, adj_weights, bg_comp_weight)
+        expect_density_for_molecule!(denses[ti], data, i; adj_classes=adj_classes[ti], adj_weights=adj_weights[ti], bg_comp_weight)
 
-        assign_molecule!(data, i; denses, adj_classes, stochastic)
+        assignment[i] = estimate_molecule_cell_assignment(denses[ti], adj_classes[ti]; stochastic)
+    end
+
+    for i in 1:size(data.x, 1)
+        assign!(data, i, assignment[i])
     end
 end
 
@@ -190,10 +197,10 @@ end
 function maximize!(data::BmmData)
     ids_by_assignment = split_ids(data.assignment .+ 1, max_factor=length(data.components)+1)[2:end]
 
-    @inbounds @views for i in 1:length(data.components)
+    @inbounds for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
-        maximize!(
+        @views maximize!(
             data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac
         )
@@ -210,20 +217,13 @@ function maximize!(data::BmmData)
 end
 
 function noise_composition_density(data::BmmData)::Float64
-#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
+    # mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
     acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
     n_comps = 0.0
-    for (ci, c) in enumerate(data.components)
-        if c.composition_params.sum_counts < 1e-3
-            continue
-        end
+    for c in data.components
+        (c.composition_params.sum_counts > 1e-3) || continue
 
-        inn_acc = 0
-        for v in c.composition_params.counts
-            inn_acc += (v > 0)
-        end
-
-        acc += 1.0 / inn_acc
+        acc += 1.0 / c.composition_params.n_genes
         n_comps += 1.0
     end
 
@@ -345,6 +345,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
     maximize!(data)
 
     for i in 1:n_iters
+        # TODO: second slowest place
         append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components, new_component_weight)
         update_n_mols_per_segment!(data)
@@ -352,6 +353,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
         expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
+            # TODO: Slowest place
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
         end
 

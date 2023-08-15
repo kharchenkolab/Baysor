@@ -121,6 +121,7 @@ end
             BPR.maximize!(dist, [missing, 1, 2], [0.5, 0.5, 0.5])
             @test all(dist.counts .≈ [0.5, 0.5, 0.0])
             @test dist.sum_counts ≈ 1.0
+            @test dist.n_genes == 2
         end
     end
 
