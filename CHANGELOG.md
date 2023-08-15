@@ -1,10 +1,11 @@
-## [Upcoming]
+## [0.6.2] — 2023-08-15
 
 ### Fixed
 
 - Fixed wrong parameter interpretation in `neighborhood_count_matrix()`
 - Fixed incompatibility with `julia-1.9` ([#78](https://github.com/kharchenkolab/Baysor/issues/78))
 - Fixed `boundary_polygons_from_grid` error ([#82](https://github.com/kharchenkolab/Baysor/issues/82))
+- Fixed a problem with huge integers in cell ids ([#83](https://github.com/kharchenkolab/Baysor/issues/83))
 
 ## [0.6.1] — 2023-05-11
 
