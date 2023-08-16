@@ -195,9 +195,9 @@ function update_prior_probabilities!(components::Array{<:Component, 1}, new_comp
 end
 
 function maximize!(data::BmmData)
-    ids_by_assignment = split_ids(data.assignment .+ 1, max_factor=length(data.components)+1)[2:end]
+    ids_by_assignment = split_ids(data.assignment, max_factor=length(data.components), drop_zero=true)
 
-    @inbounds for i in 1:length(data.components)
+    @inbounds @threads for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
         @views maximize!(
@@ -242,10 +242,20 @@ end
 append_empty_component!(data::BmmData) =
     push!(data.components, sample_distribution!(data))[end]
 
-function append_empty_components!(data::BmmData, new_component_frac::Float64)
-    for i in 1:round(Int, new_component_frac * length(data.components))
+append_empty_components!(data::BmmData, new_component_frac::Float64) =
+    append_empty_components!(data, round(Int, new_component_frac * length(data.components)))
+
+function append_empty_components!(data::BmmData, n::Int)
+    (n > 0) || return
+
+    if n == 1
         append_empty_component!(data)
+        return
     end
+
+    comps = sample_distributions!(data, n)
+    append!(data.components, comps)
+    return
 end
 
 function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
@@ -296,10 +306,20 @@ function build_cell_graph(assignment::Vector{Int}, adjacent_points::Array{Vector
 end
 
 function get_connected_components_per_label(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, min_molecules_per_cell::Int; kwargs...)
-    mol_ids_per_cell = split(1:length(assignment), assignment .+ 1)[2:end]
+    mol_ids_per_cell = split(1:length(assignment), assignment; drop_zero=true)
     real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
-    graph_per_cell = [build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1] for ci in real_cell_ids];
-    return Graphs.connected_components.(graph_per_cell), real_cell_ids, mol_ids_per_cell
+    graph_per_cell = map(real_cell_ids) do ci
+        @spawn build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1]
+    end
+
+    graph_per_cell = fetch.(graph_per_cell)
+    conn_comps = map(graph_per_cell) do g
+        @spawn Graphs.connected_components(g)
+    end
+
+    conn_comps = fetch.(conn_comps)
+
+    return conn_comps, real_cell_ids, mol_ids_per_cell
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
@@ -307,25 +327,29 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
         data.assignment, data.adj_list.ids, min_molecules_per_cell; confidence=data.confidence
     )
 
+    new_comp_id = 0
+    if add_new_components
+        new_comp_id = length(data.components)
+        n_comps_per_cell = length.(conn_comps_per_cell)
+        n_new_comps = sum(n_comps_per_cell) - sum(n_comps_per_cell .> 0)
+        append_empty_components!(data, n_new_comps)
+    end
+
+
     for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
-        if length(conn_comps) < 2
-            continue
-        end
+        (length(conn_comps) > 1) || continue
 
         largest_cc_id = findmax(length.(conn_comps))[2]
         for (ci, c_ids) in enumerate(conn_comps)
-            if ci == largest_cc_id
-                continue
-            end
+            (ci != largest_cc_id) && continue
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
             if add_new_components
-                append_empty_component!(data)
-                data.assignment[mol_ids] .= length(data.components)
-            else
-                data.assignment[mol_ids] .= 0
+                new_comp_id += 1
             end
+
+            data.assignment[mol_ids] .= new_comp_id
         end
     end
 end
@@ -333,7 +357,7 @@ end
 function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
               assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
-              component_split_step::Int=3, refine::Bool=true)
+              component_split_step::Int=5, refine::Bool=true)
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
