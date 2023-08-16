@@ -24,6 +24,7 @@ end
 function maximize!(dist::CategoricalSmoothed, x::T where T <: Union{AbstractArray{Int, 1}, AbstractArray{Union{Missing, Int}, 1}}, confidences::T2 where T2 <: AbstractVector{Float64})
     dist.counts .= 0
     dist.sum_counts = 0.0
+    dist.n_genes = 0
     for i in 1:length(x)
         c = confidences[i]
         v = x[i]
@@ -42,8 +43,13 @@ end
 function maximize!(dist::CategoricalSmoothed, x::T where T <: Union{AbstractArray{Int, 1}, AbstractArray{Union{Missing, Int}, 1}})
     dist.counts .= 0
     dist.sum_counts = 0.0
+    dist.n_genes = 0
     for v in x
         ismissing(v) && continue
+        if dist.counts[v] ≈ 0
+            dist.n_genes += 1
+        end
+
         dist.counts[v] += 1
         dist.sum_counts += 1
     end
