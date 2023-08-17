@@ -91,10 +91,14 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         push!(triangles_per_cell[cids[1]], pids)
     end
 
-    borders_per_cell = Dict(k => extract_border_edges(trs) for (k,trs) in triangles_per_cell);
+    bords = map(values(triangles_per_cell)) do trs
+        @spawn extract_border_edges(trs)
+    end
+    borders_per_cell = Dict(k => v for (k,v) in zip(keys(triangles_per_cell), fetch.(bords)));
 
     # fall back to independent triangulagion for cells with loops in the border
-    for (cid,bids) in borders_per_cell
+    @threads for cid in collect(keys(borders_per_cell))
+        bids = borders_per_cell[cid]
         if isempty(bids)
             vids = findall(cell_labels .== cid)
             if length(vids) <= 2
