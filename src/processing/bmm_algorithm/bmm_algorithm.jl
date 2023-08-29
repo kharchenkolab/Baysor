@@ -107,10 +107,10 @@ function adjust_densities_by_prior_segmentation!(denses::Vector{Float64}, segmen
     end
 end
 
-function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N}, mol_id::Int;
+function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N, CT} where CT, mol_id::Int;
         bg_comp_weight::Float64, adj_classes::Vector{Int}, adj_weights::Vector{Float64}) where N
     @views x = position_data(data)[:,mol_id]
-    gene::Union{Int, Missing} = composition_data(data)[mol_id]
+    gene::Union{Int, Missing, AbstractVector{<:Real}} = composition_data(data, mol_id)
     confidence::Float64 = data.confidence[mol_id]
     mol_cluster::Union{Int, Missing} = get(data.cluster_per_molecule, mol_id, 0)
     segment_id::Int = get(data.segment_per_molecule, mol_id, 0)
@@ -194,16 +194,22 @@ function update_prior_probabilities!(components::Array{<:Component, 1}, new_comp
     end
 end
 
-function maximize!(data::BmmData)
+function maximize!(data::BmmData{N, CT} where N) where CT
     ids_by_assignment = split_ids(data.assignment, max_factor=length(data.components), drop_zero=true)
 
     @inbounds @threads for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
         @views maximize!(
-            data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
+            data.components[i], position_data(data)[:, p_ids], composition_data(data, p_ids);
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac
         )
+
+        if CT <: MvNormalF # TODO: move to MvNormalF or Component
+            c = data.components[i]
+            adjust_cov_by_prior!(c.composition_params.Σ, data.misc[:composition_shape_prior]; n_samples=c.n_samples)
+            update_cache!(c.composition_params)
+        end
     end
 
     data.noise_density = estimate_noise_density_level(data)
@@ -216,7 +222,7 @@ function maximize!(data::BmmData)
     end
 end
 
-function noise_composition_density(data::BmmData)::Float64
+function noise_composition_density(data::BmmData{T, CategoricalSmoothed{FT}} where {T, FT})::Float64
     # mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
     acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
     n_comps = 0.0
@@ -230,14 +236,19 @@ function noise_composition_density(data::BmmData)::Float64
     return acc / fmax(n_comps, 1.0)
 end
 
-function estimate_noise_density_level(data::BmmData)::Float64
-    composition_density = noise_composition_density(data)
-
-    std_vals = data.distribution_sampler.shape_prior.std_values;
-    position_density = pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 3 .* std_vals)
-
-    return position_density * composition_density
+function noise_composition_density(data::BmmData{T, MvNormalF{M, N}} where {T, M, N})::Float64
+    # std_vals::Vector{Float64} = data.misc[:std_vals] .* 0.25; # TODO: fix this
+    # return pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 2 .* std_vals)
+    return 1e-2
 end
+
+function noise_position_density(data::BmmData)::Float64
+    std_vals = data.distribution_sampler.shape_prior.std_values;
+    return pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 3 .* std_vals)
+end
+
+estimate_noise_density_level(data::BmmData) =
+    noise_position_density(data) * noise_composition_density(data)
 
 append_empty_component!(data::BmmData) =
     push!(data.components, sample_distribution!(data))[end]

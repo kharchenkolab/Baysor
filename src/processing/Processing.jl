@@ -29,6 +29,7 @@ include("distributions/MvNormal.jl")
 include("distributions/CategoricalSmoothed.jl")
 
 include("models/AdjList.jl")
+include("models/DistributionSampler.jl")
 include("models/InitialParams.jl")
 include("models/Component.jl")
 include("models/BmmData.jl")

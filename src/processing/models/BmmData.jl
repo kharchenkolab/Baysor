@@ -3,7 +3,7 @@ using NearestNeighbors
 using Statistics
 using StatsBase: countmap
 
-mutable struct BmmData{L}
+mutable struct BmmData{L, CT}
 
     # Static data
     ## Segmentation data
@@ -23,8 +23,8 @@ mutable struct BmmData{L}
     knn_neighbors::Array{Vector{Int}, 1};
 
     # Distribution-related
-    components::Array{Component{L}, 1};
-    distribution_sampler::Component{L};
+    components::Array{Component{L, CT}, 1};
+    distribution_sampler::DistributionSampler{L};
     assignment::Vector{Int};
     max_component_guid::Int;
 
@@ -57,13 +57,13 @@ mutable struct BmmData{L}
     - `adj_list::AdjList`:
     - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
-    - `distribution_sampler::Component`:
+    - `distribution_sampler::DistributionSampler`:
     - `assignment::Array{Int, 1}`:
     """
-    function BmmData(components::Array{Component{N}, 1}, x::DataFrame, adj_list::AdjList,
-                     assignment::Vector{Int}, distribution_sampler::Component{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20,
+    function BmmData(components::Array{Component{N, CT}, 1}, x::DataFrame, adj_list::AdjList,
+                     assignment::Vector{Int}, distribution_sampler::DistributionSampler{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20,
                      cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
-                     min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where N
+                     min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where {N, CT}
         @assert maximum(assignment) <= length(components)
         @assert minimum(assignment) >= 0
         @assert length(assignment) == size(x, 1)
@@ -89,10 +89,10 @@ mutable struct BmmData{L}
 
         nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
         cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
-        self = new{N}(
+        self = new{N, CT}(
             x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
             adj_list, real_edge_weight, position_knn_tree, knn_neighbors,
-            components, deepcopy(distribution_sampler), assignment, length(components), 0.0,
+            components, distribution_sampler, assignment, length(components), 0.0,
             Int[],
             Int[], Int[], # prior segmentation info
             Dict{Symbol, Any}(), Dict{Symbol, Any}(), Int[],
@@ -149,8 +149,20 @@ function position_data(df::AbstractDataFrame)::Matrix{Float64}
     return copy(Matrix{Float64}(df[:, [:x, :y]])')
 end
 @inline position_data(data::BmmData)::Matrix{Float64} = data.position_data
+
 @inline composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
-@inline composition_data(data::BmmData) = data.composition_data
+@inline composition_data(data::BmmData{T, CategoricalSmoothed{FT}} where {T, FT}) = data.composition_data
+
+# TODO: fix this
+@inline composition_data(data::BmmData{T, MvNormalF{M, N}} where {T, M, N})::Matrix{Float64} = data.misc[:composition_data_norm]
+
+@inline composition_data(data::T where T <: Union{AbstractDataFrame, BmmData{BT, CategoricalSmoothed{FT}}} where {BT, FT}, ids::AbstractVector{Int}) =
+    view(composition_data(data), ids)
+@inline composition_data(data::BmmData{T, MvNormalF{M, N}} where {T, M, N}, ids::Union{AbstractVector{Int}, Int}) =
+    view(composition_data(data), :, ids)
+@inline composition_data(data::BmmData{T, CategoricalSmoothed{FN}} where {T, FN}, id::Int) =
+    composition_data(data)[id]
+
 @inline confidence(df::AbstractDataFrame)::Vector{Float64} = df.confidence
 @inline confidence(data::BmmData)::Vector{Float64} = data.confidence
 

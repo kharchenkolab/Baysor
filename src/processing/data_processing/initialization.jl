@@ -31,7 +31,7 @@ function covs_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
     CM, MV = (size(pos_data, 1) == 2) ? (CovMat{2}, MeanVec{2}) : (CovMat{3}, MeanVec{3})
 
-    covs = [estimate_sample_cov!(zeros(CM), pd) for pd in pos_data_by_assignment];
+    covs = [estimate_sample_cov!(zeros(CM), pd; μ=MV(mean(pd, dims=2)[:])) for pd in pos_data_by_assignment];
     mean_covs = MV(vec(median(hcat(Vector.(eigvals.(covs[size.(pos_data_by_assignment, 2) .>= min_size]))...), dims=2)))
 
     for i in findall(size.(pos_data_by_assignment, 2) .<= min_size)
@@ -44,8 +44,10 @@ end
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
     cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in propertynames(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
 
-function cell_centers_uniformly(pos_data::Matrix{Float64}, n_clusters::Int,
-        confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{Float64, Nothing})
+function cell_centers_uniformly(
+        pos_data::Matrix{Float64}, n_clusters::Int,
+        confidences::Union{Vector{Float64}, Nothing}=nothing; scale::Union{Float64, Nothing}
+    )
     n_clusters = min(n_clusters, size(pos_data, 2))
 
     cluster_centers = pos_data[:, select_ids_uniformly(pos_data', confidences; n=n_clusters, confidence_threshold=0.25)]
@@ -158,7 +160,7 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior)) for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
     gene_sampler = CategoricalSmoothed(ones(Float64, gene_num))
-    sampler = Component(MvNormalF(zeros(N)), gene_sampler, shape_prior=deepcopy(size_prior)) # position_params are never used
+    sampler = DistributionSampler(deepcopy(size_prior), gene_smooth)
 
     return components, sampler, initial_params.assignment
 end
