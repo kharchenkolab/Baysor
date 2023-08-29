@@ -98,7 +98,12 @@ pdf(d::MvNormalF, x::AbstractVector{Float64}) = exp(log_pdf(d, x))
 
 shape(d::MvNormalF) = Matrix(d.Σ)
 
-function estimate_sample_cov!(Σ::CovMat{N, N2} where N2, x::T where T <: AbstractMatrix{Float64}; μ::MeanVec{N}) where N
+function estimate_sample_cov(x::AbstractMatrix{<:Real})
+    CM, MV = (size(x, 1) == 2) ? (CovMat{2}, MeanVec{2}) : (CovMat{3}, MeanVec{3})
+    return estimate_sample_cov!(zeros(CM), x; μ=MV(mean(x, dims=2)[:]))
+end
+
+function estimate_sample_cov!(Σ::CovMat{N, N2} where N2, x::T where T <: AbstractMatrix{<:Real}; μ::MeanVec{N}) where N
     # https://en.wikipedia.org/wiki/Estimation_of_covariance_matrices#Intrinsic_expectation
     Σ .= 0.0
     for i in 1:size(x, 2)
@@ -123,7 +128,7 @@ function maximize!(
         center_probs::T2 where T2 <: Union{AbstractVector{<:Real}, Nothing}=nothing,
         shape_prior::Union{Nothing, ShapePrior{N}}=nothing,
         n_samples::Int=-1
-    ) where T <: AbstractMatrix{Float64} where N
+    ) where T <: AbstractMatrix{<:Real} where N
     if size(x, 2) == 0
         return dist
     end
@@ -147,7 +152,9 @@ function maximize!(
     return dist
 end
 
-isposdef(A::StaticMatrix) = LinearAlgebra.isposdef(cholesky(A))
+# Copied from LinearAlgebra implementation
+isposdef(A::StaticMatrix) =
+    LinearAlgebra.ishermitian(A) && LinearAlgebra.isposdef(LinearAlgebra.cholesky(LinearAlgebra.Hermitian(A); check = false))
 
 function adjust_cov_matrix!(Σ::T; max_iter::Int=100, cov_modifier::Float64=1e-4, tol=1e-10)::T where T <: Union{CovMat{2}, CovMat{3}, Matrix{Float64}}
     if !issymmetric(Σ)
