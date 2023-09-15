@@ -105,6 +105,13 @@ function extract_cell_border(
     edges_per_tri = [[fsort(ps[i1], ps[i2]) for (i1, i2) in [(1, 2), (2, 3), (3, 1)]] for ps in c_triangles];
     edge_counts = countmap(vcat(edges_per_tri...));
 
+    n_borders_per_node = Dict{Int, Int}() # Used to avoid loops after triangle filtering
+    for ((s,e), n) in edge_counts
+        n == 1 || continue
+        n_borders_per_node[s] = get(n_borders_per_node, s, 0) + 1
+        n_borders_per_node[e] = get(n_borders_per_node, e, 0) + 1
+    end
+
     border_triangles = Int[]
     is_excluded = falses(length(edges_per_tri))
 
@@ -123,13 +130,34 @@ function extract_cell_border(
             if (n_borders == 1)
                 @views n_inner_points = get_n_points_in_triangle(c_other_pos, SMatrix{2, 3, Float64}(pos_data[:,tri]))
                 if n_inner_points > 0
+                    skip = false
+                    for e in es
+                        edge_counts[e] == 2 || continue
+                        if sum((get(n_borders_per_node, k, 0) == 2) for k in e) == 2
+                            # The condition shows that both nodes of an internal edge are already have other border edges
+                            # It means that if we exclude the triangle, we'd have a loop in our polygon
+                            push!(border_triangles, i)
+                            skip = true
+                        end
+                    end
+                    skip && continue
+
                     converged = false
                     is_excluded[i] = true
                     for e in es
                         edge_counts[e] -= 1
+                        ne = edge_counts[e]
+
+                        for k in e
+                            if ne == 0
+                                n_borders_per_node[k] -= 1
+                            elseif ne == 1
+                                n_borders_per_node[k] = get(n_borders_per_node, k, 0) + 1
+                            end
+                        end
                     end
                 end
-            elseif (n_borders == 2)
+            else
                 push!(border_triangles, i)
             end
         end
@@ -140,12 +168,8 @@ function extract_cell_border(
         end
     end
 
-    @show edge_counts
     border_edges = [e for (e,n) in edge_counts if n == 1];
 
-    if (length(border_edges) == 12) && all(border_edges[1] .== (1, 2)) && all(border_edges[2] .== (42, 45))
-        @show cell_id
-    end
     !isempty(border_edges) || return Int[]
     return border_edges_to_poly(border_edges)
 end
