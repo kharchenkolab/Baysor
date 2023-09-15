@@ -55,6 +55,22 @@ end
     v1 < v2 ? v1 : v2
 end
 
+@inline @fastmath function fsort(v1::T, v2::T) where T <: Real
+    v1 < v2 ? (v1, v2) : (v2, v1)
+end
+
+function val_range(arr::AT where AT <: AbstractArray{<:Real})
+    length(arr) > 0 || error("The array must be non-empty")
+
+    min_val, max_val = arr[1], arr[1]
+    for v in arr
+        min_val = fmin(min_val, v)
+        max_val = fmax(max_val, v)
+    end
+
+    return (min_val, max_val)
+end
+
 function split(vector::T where T <: AbstractVector; n_parts::Int)
     offset = ceil(Int, length(vector) / n_parts)
     return [vector[n:min(n + offset - 1, length(vector))] for n in 1:offset:length(vector)]

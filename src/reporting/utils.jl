@@ -64,17 +64,3 @@ function shuffle_colors(colors::Vector)
     col_ord = Dict(Pair.(uniq_cols, shuffle(1:length(uniq_cols))));
     return [uniq_cols[col_ord[tc]] for tc in colors]
 end
-
-function val_range(arr::AT where AT <: AbstractArray{<:Real})
-    if length(arr) == 0
-        return (nothing, nothing)
-    end
-
-    min_val, max_val = arr[1], arr[1]
-    for v in arr
-        min_val = fmin(min_val, v)
-        max_val = fmax(max_val, v)
-    end
-
-    return min_val, max_val
-end
