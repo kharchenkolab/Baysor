@@ -165,11 +165,17 @@ end
 
 ### Diagnostics
 
-function plot_clustering_convergence(clust_res::NamedTuple, title::String="")
-    DataFrame(:x => 1:length(clust_res.diffs), :diff => 100 .* clust_res.diffs, :change_frac => 100 .* clust_res.change_fracs) |>
+function plot_clustering_convergence(clust_res::NamedTuple, title::String=""; digits::Int=2)
+    p_df = DataFrame(
+        :x => 1:length(clust_res.diffs),
+        :diff => round.(100 .* clust_res.diffs; digits=digits),
+        :change_frac => round.(100 .* clust_res.change_fracs; digits=digits)
+    )
+
+    return p_df |>
         VL.@vlplot(x={:x, title="Iteration"}, title=title, width=300, height=250) +
-        VL.@vlplot(:line, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
-        VL.@vlplot(:line, y={:change_frac}, color={datum="Molecules changed"})
+        VL.@vlplot({:line, tooltip=true}, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
+        VL.@vlplot({:line, tooltip=true}, y={:change_frac, title="Change, %"}, color={datum="Molecules changed"})
 end
 
 ### Colormaps

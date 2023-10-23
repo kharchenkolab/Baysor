@@ -31,24 +31,24 @@ function neighborhood_count_matrix(
         # account for problems with points with duplicating coordinates
         med_closest_dist = median(d[findfirst(d .> 1e-15)] for d in dists if any(d .> 1e-15));
 
-        return hcat([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
+        return sphstack([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
             count_array_sparse(Float32, genes[nns], 1 ./ max.(ds, med_closest_dist); total=n_genes, normalize=normalize)
             for (nns,ds) in zip(neighbors, dists)
-        ]...);
+        ]);
     end
 
     s_vecs = Vector{SparseArrays.SparseVector{Float32, Int64}}(undef, length(neighbors))
-    if !normalize
+    if !normalize || (confidences === nothing)
         @threads for i in eachindex(neighbors)
-            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]); total=n_genes, normalize=true)
+            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]); total=n_genes, normalize=normalize)
         end
     else
         @threads for i in eachindex(neighbors)
-            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]), view(confidences, neighbors[i]); total=n_genes, normalize=true)
+            s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]), view(confidences, neighbors[i]); total=n_genes, normalize=normalize)
         end
     end
 
-    return hcat(s_vecs...);
+    return sphstack(s_vecs);
 end
 
 function estimate_gene_vectors(

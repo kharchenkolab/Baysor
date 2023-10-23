@@ -23,6 +23,7 @@
   - [Extract NCVs (neighborhood composition vectors)](#extract-ncvs-neighborhood-composition-vectors)
   - [Multi-threading](#multi-threading)
 - [Advanced configuration](#advanced-configuration)
+- [Preparing a release](#preparing-a-release)
 - [Citation](#citation)
 
 ## News ([0.6.0] — 2023-04-13)
@@ -39,7 +40,7 @@
 
 ## Overview
 
-Baysor is a tool for performing cell segmentation on imaging-based spatial transcriptomics data. It optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The approach can take into account nuclear or cytoplasm staining, however can also perform segmentation based on the detected molecules alone. The details of the method are described in the [paper](https://www.nature.com/articles/s41587-021-01044-w), or [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1) (old version of the text). To reproduce analysis from the paper see [BaysorAnalysis](https://github.com/kharchenkolab/BaysorAnalysis) repo.
+Baysor is a tool for performing cell segmentation on imaging-based spatial transcriptomics data. It optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The approach can take into account nuclear or cytoplasm staining, however, can also perform segmentation based on the detected molecules alone. The details of the method are described in the [paper](https://www.nature.com/articles/s41587-021-01044-w), or [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1) (old version of the text). To reproduce the analysis from the paper see [BaysorAnalysis](https://github.com/kharchenkolab/BaysorAnalysis) repo.
 
 See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow!
 
@@ -49,7 +50,8 @@ See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an ove
 
 ### Binary download
 
-The easiest way to install Baysor on Linux or MacOS is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets* for your platform). There, you can use *bin/baysor* executable.
+The easiest way to install Baysor on Linux is to download a binary from the [release section](https://github.com/kharchenkolab/Baysor/releases) (see *Assets*). There, you can use *bin/baysor* executable. For other platforms, "Install as a Julia package" is a recommended way.
+*If you know how to reliably compile binaries for MacOS or Windows, please, let me know in issues or over email!*
 
 ### Install as a Julia package
 
@@ -69,7 +71,7 @@ Alternatively, you can use Docker. It contains executable `baysor` to run Baysor
 The [repo](https://hub.docker.com/r/vpetukhov/baysor) also has images for older versions.
 
 ```bash
-docker run -it --rm vpetukhov/baysor:master
+docker run -it --rm vpetukhov/baysor:latest
 ```
 
 Build by hands:
@@ -86,7 +88,7 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 
 ### Dataset preview
 
-As full run takes some time, it can be useful to run a quick preview to get meaning from the data and to get some guesses about parameters of the full run.
+As a full run takes some time, it can be useful to run a quick preview to get meaning from the data and to get some guesses about the parameters of the full run.
 
 ```bash
 baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_CSV
@@ -94,9 +96,9 @@ baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH]
 
 Here:
 
-- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each molecule
-- Parameters X_COL, Y_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
-- OUTPUT_PATH determines path to the output html file with the diagnostic plots
+- `MOLECULES_CSV` must contain information about *x* and *y* positions and gene assignment for each molecule
+- Parameters `X_COL`, `Y_COL` and `GENE_COL` must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
+- `OUTPUT_PATH` determines the path to the output html file with the diagnostic plots
 
 ### Full run
 
@@ -110,12 +112,12 @@ baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL] -c config.toml 
 
 Here:
 
-- MOLECULES_CSV must contain information about *x* and *y* positions and gene assignment for each molecule
-- PRIOR_SEGMENTATION is optional molecule segmentation obtrained from other method (see [Using prior segmentation](#using-prior-segmentation))
+- `MOLECULES_CSV` must contain information about *x* and *y* positions and gene assignment for each molecule
+- `PRIOR_SEGMENTATION` is optional molecule segmentation obtained from another method (see [Using prior segmentation](#using-prior-segmentation))
 - Parameters X_COL, Y_COL, Z_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y", "z" and "gene" correspondingly.
-- SCALE is a crutial parameter and must be approximately equal to the expected cell radius in the same units as "x", "y" and "z". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eyes, for now).
+- `SCALE` is a crucial parameter and must be approximately equal to the expected cell radius in the same units as "x", "y" and "z". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eye, for now).
 
-To see full list of command-line options run
+To see the full list of command-line options run
 
 ```bash
 baysor run --help
@@ -127,15 +129,15 @@ For the description of all config parameters, see [example_config.toml](https://
 
 #### Using a prior segmentation
 
-In some cases, you may want to use another segmentation as a prior for Baysor. The most popular case is having a segmentation based on DAPI/poly-A stainings: such information helps to understand where nucleis are positioned, but it's often quite imprecise. To take this segmentation into account you can pass it as the second positional arguments to Baysor:
+In some cases, you may want to use another segmentation as a prior for Baysor. The most popular case is having a segmentation based on DAPI/poly-A stainings: such information helps to understand where nuclei are positioned, but it's often quite imprecise. To take this segmentation into account you can pass it as the second positional argument to Baysor:
 
 ```bash
 baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
 ```
 
-Here, `PRIOR_SEGMENTATION` can be a path to a binary image with segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule. In the later case, column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`. **Note:** only CSV column prior is currently supported for 3D segmentation.
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with a segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule (`0` value means no assignment). In the latter case, the column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`. **Note:** only CSV column prior is currently supported for 3D segmentation.
 
-To specify expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential usecase is high-quality data with visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
+To specify the expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential use case is high-quality data with a visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
 
 ##### Segmenting stains
 
@@ -148,11 +150,11 @@ If you have a non-segmented DAPI image, the simplest way to segment it would go 
 5. Run Process -> Binary -> Watershed
 6. Save the resulting image in the .tif
 
-Another promising tool is [CellPose](https://github.com/mouseland/cellpose), however it may require some manual labeling to fine-tune the network.
+Another promising tool is [CellPose](https://github.com/mouseland/cellpose), however, it may require some manual labeling to fine-tune the network.
 
 #### Segmenting cells with pronounced intracellular structure
 
-High-resolution protocols, such as MERFISH or seq-FISH, can capture intracellular structure. Most often, it would mean pronounced difference between nuclear and citoplasmic gene composition. By default, such differences would push Baysor to recognize compartments as different cells. However, if some compartment-specific genes are known, they may be used to mitigate the situation. These genes can be specified through `--config.segmentation.nuclei-genes` and `--config.segmentation.cyto-genes` options, *e.g.*:
+High-resolution protocols, such as MERFISH or seq-FISH, can capture the intracellular structure. Most often, it would mean a pronounced difference between nuclear and cytoplasmic gene composition. By default, such differences would push Baysor to recognize compartments as different cells. However, if some compartment-specific genes are known, they may be used to mitigate the situation. These genes can be specified through `--config.segmentation.nuclei-genes` and `--config.segmentation.cyto-genes` options, *e.g.*:
 
 ```julia
 baysor run -m 30 --n-clusters=1 -s 30 --scale-std=50% --config.segmentation.nuclei-genes=Neat1 --config.segmentation.cyto-genes=Apob,Net1,Slc5a1,Mptx2 --config.data.exclude-genes='Blank*' ./molecules.csv
@@ -160,32 +162,32 @@ baysor run -m 30 --n-clusters=1 -s 30 --scale-std=50% --config.segmentation.nucl
 
 Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule clustering would not be affected by compartment differences.
 
-**Note.** Currently, there is no automated way to determine such compartment-specific genes. So, the only way we can suggest is interactive explaration of data. In theory, it should be straightforward to infer such information from DAPI and poly-A stains, however it is not implemented yet. If you have particular need for such functionality, please submit an issue with description of your experimental set up.
+**Note.** Currently, there is no automated way to determine such compartment-specific genes. So, the only way we can suggest is interactive explaration of data. In theory, it should be straightforward to infer such information from DAPI and poly-A stains, however, it is not implemented yet. If you have a particular need for such functionality, please submit an issue with the description of your experimental setup.
 
 #### Outputs
 
 Segmentation results:
-- ***segmentation_counts.loom*** or ***segmentation_counts.tsv*** (depends on `--count-matrix-format`): count matrix with segmented stats. In case of loom format, column attributes also contain the same info as ***segmentation_cell_stats.csv***.
+- ***segmentation_counts.loom*** or ***segmentation_counts.tsv*** (depends on `--count-matrix-format`): count matrix with segmented stats. In the case of loom format, column attributes also contain the same info as ***segmentation_cell_stats.csv***.
 - ***segmentation.csv***: segmentation info per molecule:
   - `confidence`: probability of a molecule to be real (i.e. not noise)
   - `cell`: id of the assigned cell. Value "" corresponds to noise.
-  - `cluster`: id of molecule cluster
+  - `cluster`: id of the molecule cluster
   - `assignment_confidence`: confidence that the molecule is assigned to a correct cell
-  - `is_noise`: shows whether molecule was assigned to noise *(it's equal `true` if and only if `cell` == "")*
+  - `is_noise`: shows whether molecule was assigned to noise *(it equals `true` if and only if `cell` == "")*
   - `ncv_color`: RGB code of the neighborhood composition coloring
 - ***segmentation_cell_stats.csv***: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
   - `area`: area of the convex hull around the cell molecules
   - `avg_confidence`: average confidence of the cell molecules
-  - `density`: cell area divided by the number of molecules in cell
-  - `elongation`: ration of the two eigenvalues of the cell covariance matrix
+  - `density`: cell area divided by the number of molecules in a cell
+  - `elongation`: ratio of the two eigenvalues of the cell covariance matrix
   - `n_transcripts`: number of molecules per cell
-  - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have much higher chance of being an artifact.
+  - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have a much higher chance of being an artifact.
   - `max_cluster_frac` *(only if `n-clusters > 1`)*: fraction of the molecules coming from the most popular cluster. Cells with low `max_cluster_frac` are often doublets.
-  - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with short lifespan likely correspond to noise.
+  - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with a short lifespan likely correspond to noise.
 
 Visualization:
-- ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In case of 3D segmentation, it is an array of with GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
-- ***segmentation_diagnostics.html***: visualization of the algoritm QC. *Shown only when `-p` is set.*
+- ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In the case of 3D segmentation, it is an array of GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
+- ***segmentation_diagnostics.html***: visualization of the algorithm QC. *Shown only when `-p` is set.*
 - ***segmentation_borders.html***: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
 
 Other:
@@ -195,17 +197,17 @@ Other:
 
 Most important parameters:
 
-- `scale` is the most sensitive parameter, which specifies expected radius of a cell. It doesn't have to be precise, but wrong set-up can lead to over- or under-segmentation. This parameter is inferred automatically if cell centers are provided.
-- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on a protocol. For instance, for ISS it's fine to set it to 3, while for MERFISH it can require hundreds of molecule.
+- `scale` is the most sensitive parameter, which specifies the expected radius of a cell. It doesn't have to be precise, but the wrong setup can lead to over- or under-segmentation. This parameter is inferred automatically if cell centers are provided.
+- `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on the protocol. For instance, for ISS it's fine to set it to 3, while for MERFISH it can require hundreds of molecules.
 
 Some other sensitive parameters (normally, shouldn't be changed):
 
-- `new-component-weight` is proportional to probability of generating new cell for a molecule, instead of assigning it to one of existing cells. More precisely, probability to assign a molecule to a particular cell linearly depends on number of molecules, already assigned to this cell. And this parameter is used as number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in range 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force emergence of large number of small cells on each iteration, which can produce noise in the result. In general, default value should work well.
+- `new-component-weight` is proportional to the probability of generating a new cell for a molecule, instead of assigning it to one of the existing cells. More precisely, the probability to assign a molecule to a particular cell linearly depends on the number of molecules, already assigned to this cell. And this parameter is used as the number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in the range of 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force the emergence of a large number of small cells on each iteration, which can produce noise in the result. In general, the default value should work well.
 
 Run parameters:
 
-- `--config.segmentation.n-cells-init` expected number of cells in data. This parameter influence only convergence speed of the algorithm. It's better to set larger values than smaller ones.
-- `--config.segmentation.iters` number of iterations for the algorithm. **At the moment, no convergence criteria is implemented, so it will work exactly `iters` iterations**. Thus, to small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
+- `--config.segmentation.n-cells-init` expected number of cells in data. This parameter influence only the convergence speed of the algorithm. It's better to set larger values than smaller ones.
+- `--config.segmentation.iters` number of iterations for the algorithm. **At the moment, no convergence criteria are implemented, so it will work exactly `iters` iterations**. Thus, too small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
 
 
 ### Extract NCVs (neighborhood composition vectors)
@@ -230,7 +232,28 @@ JULIA_NUM_THREADS=13 baysor run -m 30 -s 30 ./molecules.csv
 
 The pipeline options are described in the CLI help. Run `baysor --help` or the corresponding command like `baysor run --help` for the list of main options.
 
-However, there are additional parameters that can be spericied through the TOML config. See [example_config.toml](./configs/example_config.toml) for their description. All parameters from the config can also be passed through command line. For example, to set `exclude_genes` from the `data` section you need to pass `--config.data.exclude_genes='Blank*,MALAT1'` parameter.
+However, there are additional parameters that can be specified through the TOML config. See [example_config.toml](./configs/example_config.toml) for their description. All parameters from the config can also be passed through the command line. For example, to set `exclude_genes` from the `data` section you need to pass `--config.data.exclude-genes='Blank*,MALAT1'` parameter. Please, keep in mind that the CLI parameters require replacing all underscores (`_`) with `-`.
+
+For more details on the syntax for CLI arguments, see the [Comonicon documentation](https://comonicon.org/stable/conventions/#Syntax-and-Conventions). TL;DR, possible spelling options are: `--x-column X` or `-x X`, also `--x-column=X` or `-nX`. And if you're using strings with unusual symbols like `*` or `?`, it's better to have them in quotes: `--config.data.exclude-genes='Blank*'`.
+
+## Preparing a release
+
+Update the version in the Project.toml, then:
+
+```
+export BAYSOR_VERSION=v0.6.0
+# ...change the version in the Project.toml...
+LazyModules_lazyload=false julia --project ./deps/build.jl app
+# ...test transferability...
+zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
+
+git push origin master
+docker build -t vpetukhov/baysor:latest -t "vpetukhov/baysor:$BAYSOR_VERSION" --build-arg CACHEBUST=$(date +%s) .
+git tag -a $BAYSOR_VERSION -m $BAYSOR_VERSION
+git push origin master --tags
+
+docker push -a vpetukhov/baysor
+```
 
 ## Citation
 

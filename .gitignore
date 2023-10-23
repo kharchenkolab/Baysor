@@ -2,8 +2,9 @@
 .idea/
 builddir
 
-bin/*julia*
-bin/baysor
+bin
+build.log
+*.zip
 
 *.DS_Store
 .vscode

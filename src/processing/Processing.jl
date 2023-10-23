@@ -1,6 +1,7 @@
 module Processing
 
 using LazyModules
+using Compat
 
 using DataFrames
 
@@ -17,7 +18,7 @@ import Distributions.logpdf
 import Statistics.rand
 
 using ..Baysor.Utils
-using ..Baysor.Utils: SegmentationOptions, PlottingOptions, split_ids
+using ..Baysor.Utils: SegmentationOptions, PlottingOptions, split_ids, fsort
 import ..Baysor.Utils.split
 
 include("utils/utils.jl")

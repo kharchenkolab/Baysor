@@ -22,14 +22,12 @@ end
 adjacent_component_ids(assignment::Array{Int, 1}, adjacent_points::Vector{Int})::Vector{Int} =
     [x for x in Set(assignment[adjacent_points]) if x > 0]
 
-function assign_molecule!(data::BmmData, mol_id::Int; denses::Vector{Float64}, adj_classes::Vector{Int}, stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
-    if sum(denses) < noise_density_threshold
-        assign!(data, mol_id, 0) # Noise class
-    elseif !stochastic
-        assign!(data, mol_id, adj_classes[findmax(denses)[2]])
-    else
-        assign!(data, mol_id, fsample(adj_classes, denses))
-    end
+function estimate_molecule_cell_assignment(denses::Vector{Float64}, adj_classes::Vector{Int}; stochastic::Bool=true, noise_density_threshold::Float64=1e-100)
+    (sum(denses) < noise_density_threshold) && return 0
+
+    !stochastic && return adj_classes[findmax(denses)[2]]
+
+    return fsample(adj_classes, denses)
 end
 
 """
@@ -117,12 +115,14 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
     mol_cluster::Union{Int, Missing} = get(data.cluster_per_molecule, mol_id, 0)
     segment_id::Int = get(data.segment_per_molecule, mol_id, 0)
 
-    empty!(denses)
+    # empty!(denses)
+    resize!(denses, length(adj_weights))
     largest_cell_id = 0
     largest_cell_size = 0
     for j in eachindex(adj_weights)
         c_adj = adj_classes[j]
         cc = data.components[c_adj]
+        # The main bottleneck here is `pdf`. Indexing takes a bit, but the rest is negligible.
         c_dens = confidence * exp(data.mrf_strength * adj_weights[j]) * pdf(cc, x, gene, use_smoothing=data.use_gene_smoothing)
 
         ## Only if molecule clustering is provided
@@ -140,7 +140,7 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
             end
         end
 
-        push!(denses, c_dens)
+        denses[j] = c_dens
     end
 
     if (segment_id > 0) & (largest_cell_id > 0)
@@ -156,21 +156,28 @@ function expect_density_for_molecule!(denses::Vector{Float64}, data::BmmData{N},
 end
 
 function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
-    component_weights = Dict{Int, Float64}();
-    adj_classes = Int[]
-    adj_weights = Float64[]
-    denses = Float64[]
+    n_threads = Threads.nthreads()
+    component_weights = [Dict{Int, Float64}() for _ in 1:n_threads];
+    adj_classes = [Int[] for _ in 1:n_threads];
+    adj_weights = [Float64[] for _ in 1:n_threads];
+    denses = [Float64[] for _ in 1:n_threads]
 
     adj_classes_global = get_global_adjacent_classes(data)
+    assignment = deepcopy(data.assignment)
 
-    for i in 1:size(data.x, 1)
+    @threads for i in 1:size(data.x, 1)
+        ti = Threads.threadid()
         bg_comp_weight = fill_adjacent_component_weights!(
-            adj_classes, adj_weights, data, i; component_weights, adj_classes_global
+            adj_classes[ti], adj_weights[ti], data, i; component_weights=component_weights[ti], adj_classes_global
         )
 
-        expect_density_for_molecule!(denses, data, i; adj_classes, adj_weights, bg_comp_weight)
+        expect_density_for_molecule!(denses[ti], data, i; adj_classes=adj_classes[ti], adj_weights=adj_weights[ti], bg_comp_weight)
 
-        assign_molecule!(data, i; denses, adj_classes, stochastic)
+        assignment[i] = estimate_molecule_cell_assignment(denses[ti], adj_classes[ti]; stochastic)
+    end
+
+    for i in 1:size(data.x, 1)
+        assign!(data, i, assignment[i])
     end
 end
 
@@ -188,12 +195,12 @@ function update_prior_probabilities!(components::Array{<:Component, 1}, new_comp
 end
 
 function maximize!(data::BmmData)
-    ids_by_assignment = split_ids(data.assignment .+ 1, max_factor=length(data.components)+1)[2:end]
+    ids_by_assignment = split_ids(data.assignment, max_factor=length(data.components), drop_zero=true)
 
-    @inbounds @views for i in 1:length(data.components)
+    @inbounds @threads for i in 1:length(data.components)
         p_ids = ids_by_assignment[i]
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
-        maximize!(
+        @views maximize!(
             data.components[i], position_data(data)[:, p_ids], composition_data(data)[p_ids];
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac
         )
@@ -210,20 +217,13 @@ function maximize!(data::BmmData)
 end
 
 function noise_composition_density(data::BmmData)::Float64
-#     mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
+    # mean([mean(c.composition_params.counts[c.composition_params.counts .> 0] ./ c.composition_params.sum_counts) for c in data.components]);
     acc = 0.0 # Equivalent to the above commented expression if sum_counts == sum(counts)
     n_comps = 0.0
-    for (ci, c) in enumerate(data.components)
-        if c.composition_params.sum_counts < 1e-3
-            continue
-        end
+    for c in data.components
+        (c.composition_params.sum_counts > 1e-3) || continue
 
-        inn_acc = 0
-        for v in c.composition_params.counts
-            inn_acc += (v > 0)
-        end
-
-        acc += 1.0 / inn_acc
+        acc += 1.0 / c.composition_params.n_genes
         n_comps += 1.0
     end
 
@@ -242,10 +242,20 @@ end
 append_empty_component!(data::BmmData) =
     push!(data.components, sample_distribution!(data))[end]
 
-function append_empty_components!(data::BmmData, new_component_frac::Float64)
-    for i in 1:round(Int, new_component_frac * length(data.components))
+append_empty_components!(data::BmmData, new_component_frac::Float64) =
+    append_empty_components!(data, round(Int, new_component_frac * length(data.components)))
+
+function append_empty_components!(data::BmmData, n::Int)
+    (n > 0) || return
+
+    if n == 1
         append_empty_component!(data)
+        return
     end
+
+    comps = sample_distributions!(data, n)
+    append!(data.components, comps)
+    return
 end
 
 function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
@@ -274,63 +284,108 @@ function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
     return adj_classes_global
 end
 
-function build_cell_graph(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, mol_ids::Vector{Int}, cell_id::Int; confidence::Union{Vector{Float64}, Nothing}=nothing, confidence_threshold::Float64=0.5)
-    cur_adj_point = Vector{Int}[]
-    if confidence === nothing
-        cur_adj_point = filter.(p -> assignment[p] == cell_id, adjacent_points[mol_ids])
-    else
-        mol_ids = mol_ids[confidence[mol_ids] .> confidence_threshold]
-        cur_adj_point = filter.(p -> (assignment[p] == cell_id) & (confidence[p] .> confidence_threshold), view(adjacent_points, mol_ids))
+function split_nonempty_ids(array::AbstractVector{Int})
+    counts = count_array(array)
+    splitted = [Vector{Int}(undef, c) for c in counts]
+    last_id = zeros(Int, maximum(array))
+
+    for i in eachindex(array)
+        fac = array[i]
+        li = (last_id[fac] += 1)
+        splitted[fac][li] = i
     end
 
-    vert_id_per_mol_id = Dict(mi => vi for (vi, mi) in enumerate(mol_ids))
+    return filter(x -> !isempty(x), splitted)
+end
 
-    for points in cur_adj_point
-        for j in 1:length(points)
-            points[j] = vert_id_per_mol_id[points[j]]
+function connected_components(
+        mol_ids::Vector{Int}, adj_ids::Vector{Vector{Int}}, assignment::Vector{Int}, vert_id_per_mol_id::Vector{Int}
+    )
+    # `adj_ids` has to be undirectional here!
+    (length(mol_ids) > 1) || return ones(Int, length(mol_ids))
+
+    cell_id = assignment[mol_ids[1]]
+    labels = zeros(Int, length(mol_ids))
+
+    queue = Int[]
+    for u in mol_ids
+        ui = vert_id_per_mol_id[u]
+        (labels[ui] == 0) || continue
+        labels[ui] = ui
+        empty!(queue)
+        push!(queue, u)
+
+        while !isempty(queue)
+            src = popfirst!(queue)
+            for vertex in adj_ids[src]
+                (assignment[vertex] == cell_id) || continue
+
+                vi = vert_id_per_mol_id[vertex]
+                if labels[vi] == 0
+                    push!(queue, vertex)
+                    labels[vi] = ui
+                end
+            end
         end
     end
 
-    neg = Graphs.SimpleGraphs.cleanupedges!(cur_adj_point)
-    return Graphs.SimpleGraph(neg, cur_adj_point), mol_ids
+    return labels
 end
 
-function get_connected_components_per_label(assignment::Vector{Int}, adjacent_points::Array{Vector{Int}, 1}, min_molecules_per_cell::Int; kwargs...)
-    mol_ids_per_cell = split(1:length(assignment), assignment .+ 1)[2:end]
-    real_cell_ids = findall(length.(mol_ids_per_cell) .>= min_molecules_per_cell)
-    graph_per_cell = [build_cell_graph(assignment, adjacent_points, mol_ids_per_cell[ci], ci; kwargs...)[1] for ci in real_cell_ids];
-    return Graphs.connected_components.(graph_per_cell), real_cell_ids, mol_ids_per_cell
+function get_connected_components_per_label(assignment::Vector{Int}, adj_ids::Vector{Vector{Int}})
+    mol_ids_per_cell = split_ids(assignment; drop_zero=true);
+    vert_id_per_mol_id = Vector{Int}(undef, length(assignment))
+
+    for mol_ids in mol_ids_per_cell
+        for (i,a) in enumerate(mol_ids)
+            vert_id_per_mol_id[a] = i
+        end
+    end
+
+    cc_per_cell = map(mol_ids_per_cell) do mids
+        !isempty(mids) || return Vector{Int}[]
+
+        @spawn split_nonempty_ids(
+            connected_components(mids, adj_ids, assignment, vert_id_per_mol_id)
+        )
+    end
+
+    cc_per_cell = fetch.(cc_per_cell)
+
+    return cc_per_cell, mol_ids_per_cell
 end
 
 function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
-    conn_comps_per_cell, real_cell_ids, mol_ids_per_cell = get_connected_components_per_label(
-        data.assignment, data.adj_list.ids, min_molecules_per_cell; confidence=data.confidence
-    )
+    cc_per_cell, mol_ids_per_cell = get_connected_components_per_label(data.assignment, data.adj_list.ids)
+    !isempty(cc_per_cell) || return
 
-    for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
-        if length(conn_comps) < 2
-            continue
-        end
+    new_comp_id = 0
+    if add_new_components
+        new_comp_id = length(data.components)
+        n_comps_per_cell = length.(cc_per_cell)
+        n_new_comps = sum(n_comps_per_cell) - sum(n_comps_per_cell .> 0)
+        append_empty_components!(data, n_new_comps)
+    end
+
+    for (cell_id, conn_comps) in enumerate(cc_per_cell)
+        (length(conn_comps) > 1) || continue
 
         largest_cc_id = findmax(length.(conn_comps))[2]
         for (ci, c_ids) in enumerate(conn_comps)
-            if ci == largest_cc_id
-                continue
-            end
+            (ci != largest_cc_id) || continue
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
             if add_new_components
-                append_empty_component!(data)
-                data.assignment[mol_ids] .= length(data.components)
-            else
-                data.assignment[mol_ids] .= 0
+                new_comp_id += 1
             end
+
+            data.assignment[mol_ids] .= new_comp_id
         end
     end
 end
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
+function bmm!(data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
               new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
               assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
               component_split_step::Int=3, refine::Bool=true)
@@ -345,6 +400,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
     maximize!(data)
 
     for i in 1:n_iters
+        # TODO: second slowest place
         append_empty_components!(data, new_component_frac)
         update_prior_probabilities!(data.components, new_component_weight)
         update_n_mols_per_segment!(data)
@@ -352,7 +408,8 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int, n_iters::Int=500,
         expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
-            split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10), min_molecules_per_cell=(i == n_iters ? 0 : min_molecules_per_cell))
+            # TODO: Slowest place
+            split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10))
         end
 
         drop_unused_components!(data)

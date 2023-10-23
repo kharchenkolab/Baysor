@@ -1,60 +1,63 @@
-name: platforms_build
+# name: platforms_build
 
-on:
-  push:
-    tags:
-      - v*
-jobs:
-  build_and_release:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        version:
-          - '1.8.5'
-        os: [macos-latest, ubuntu-20.04]
-        arch:
-          - x64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+# on:
+#   push:
+#     tags:
+#       - v*
+# jobs:
+#   build_and_release:
+#     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+#     runs-on: ${{ matrix.os }}
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         version:
+#           - '1.8.5'
+#         os: [ubuntu-20.04]
+#         arch:
+#           - x64
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v2
 
-      - name: Julia setup
-        uses: julia-actions/setup-julia@v1
-        with:
-          version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
+#       - name: Julia setup
+#         uses: julia-actions/setup-julia@v1
+#         with:
+#           version: ${{ matrix.version }}
+#           arch: ${{ matrix.arch }}
 
-      - name: Prepare environment and install dependecies
-        run: |
-          julia -e 'using Pkg; Pkg.activate("."); Pkg.instantiate();'
+#       - name: Install Baysor
+#         run: |
+#           echo ${{ env.RELEASE_VERSION }} && julia -e 'using Pkg; Pkg.add(PackageSpec(path="."));'
 
-      # - name: Cache dependencies
-      #   uses: actions/cache@v1
-      #   env:
-      #     cache-name: cache-artifacts
-      #   with:
-      #     path: ~/.julia/artifacts
-      #     key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/Project.toml') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-build-${{ env.cache-name }}-
-      #       ${{ runner.os }}-build-
-      #       ${{ runner.os }}-
+#       - name: Install dependencies
+#         run: |
+#           julia -e 'import Baysor, Pkg; Pkg.activate(dirname(dirname(pathof(Baysor)))); Pkg.instantiate();'
 
-      - name: Build binary
-        run: |
-          julia --project ./deps/build.jl app
+#       # - name: Build binary
+#       #   run: |
+#       #     LazyModules_lazyload=false julia --project ./deps/build.jl app
 
-      - name: Prepare distribution archives
-        run: |
-          zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip LICENSE README.MD ./bin/baysor/*
+#       # - name: Prepare distribution archives
+#       #   run: |
+#       #     zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip LICENSE README.MD ./bin/baysor/*
 
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            LICENSE
-            README.MD
-            baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip
+#       - name: Prepare distribution archives
+#         run: |
+#           zip -r baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip ./src/*
+
+#       - name: 'Upload Artifact'
+#         uses: actions/upload-artifact@v3
+#         with:
+#           name: my-artifact
+#           path: baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip
+#           retention-days: 5
+
+#       # - name: Release
+#       #   uses: softprops/action-gh-release@v1
+#       #   if: startsWith(github.ref, 'refs/tags/')
+#       #   with:
+#       #     files: |
+#       #       LICENSE
+#       #       README.MD
+#       #       baysor_${{ matrix.os }}_${{ matrix.arch }}_build.zip

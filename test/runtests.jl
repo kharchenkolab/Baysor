@@ -13,12 +13,36 @@ module DataWrappers
     using DataFrames
     import Baysor: BPR
 
-    function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
-        df = DataFrame(
-            :x => rand(n_mols), :y => rand(n_mols),
-            :gene => rand(1:10, n_mols),
-            :confidence => confidence ? ones(n_mols) : rand(n_mols)
+    function get_spatial_df(;
+            n_mols::Int=5000, confidence::Bool=false, cluster::Bool=false, prior_segmentation::Bool=false, cell::Bool=false,
+            n_cells=100
         )
+        df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
+        if confidence
+            df[!, :confidence] = rand(n_mols)
+        end
+
+        if cluster
+            df[!, :cluster] = rand(1:5, n_mols)
+        end
+
+        if prior_segmentation
+            df[!, :prior_segmentation] = rand(1:100, n_mols)
+        end
+
+        if cell
+            df[!, :cell] = rand(1:n_cells, n_mols)
+        end
+
+        return df
+    end
+
+    function get_bmm_data(; n_mols::Int=5000, confidence::Bool=false, scale::Float64=0.1, min_molecules_per_cell::Int=10, do_maximize::Bool=false, kwargs...)
+        df = get_spatial_df(; n_mols, confidence=confidence)
+        if !confidence
+            df[!, :confidence] = ones(n_mols)
+        end
+
         adj_list = BPR.build_molecule_graph(
             df; use_local_gene_similarities=false, adjacency_type=:triangulation
         )
@@ -97,16 +121,23 @@ end
             BPR.maximize!(dist, [missing, 1, 2], [0.5, 0.5, 0.5])
             @test all(dist.counts .≈ [0.5, 0.5, 0.0])
             @test dist.sum_counts ≈ 1.0
+            @test dist.n_genes == 2
+        end
+    end
+
+    @testset "data_loading" begin
+        @testset "prior" begin
+            df = DataWrappers.get_spatial_df(; n_mols=1000000, n_cells=10000, confidence=false, cell=true)
+            pos_data = BPR.position_data(df)
+            scale, std = DAT.estimate_scale_from_assignment(pos_data, df.cell, min_mols_per_cell=1);
+            @test (scale - 0.00026) < 0.00002
+            @test (std - 0.00017) < 0.00002
         end
     end
 
     @testset "data_processing" begin
         @testset "initialization" begin
-            n_mols = 1000
-            df = DataFrame(:x => rand(n_mols), :y => rand(n_mols), :gene => rand(1:10, n_mols))
-
-            df[!, :cluster] = rand(1:5, n_mols)
-            df[!, :prior_segmentation] = rand(1:100, n_mols)
+            df = DataWrappers.get_spatial_df(; n_mols=1000, confidence=false, cluster=true, prior_segmentation=true)
 
             adj_list = BPR.build_molecule_graph(
                 df; use_local_gene_similarities=false, adjacency_type=:triangulation
@@ -131,9 +162,52 @@ end
         end
 
         @testset "boundary" begin
-            @test all(BPR.border_edges_to_poly([[1, 1]]) .== [1, 1])
-            @test all(BPR.border_edges_to_poly([[1, 2], [2, 1]]) .== [2, 1, 2])
-            @test all(BPR.border_edges_to_poly([[1, 2], [3, 1], [2, 3]]) .== [2, 3, 1, 2])
+            @testset "get_n_points_in_triangle" begin
+                tri = SMatrix{2, 3, Float64}([0.0 0.0; 20.0 0.0; 0.0 20.0]')
+
+                for np in [1, 5, 10, 20]
+                    cp = hcat(rand(np), rand(np))'
+                    @test BPR.get_n_points_in_triangle(cp, tri) == np
+                end
+
+                @test BPR.get_n_points_in_triangle([100.; 100.;;], tri) == 0
+            end
+
+            @testset "border_edges_to_poly" begin
+                @test isempty(BPR.border_edges_to_poly([(1, 1)]))
+                @test isempty(BPR.border_edges_to_poly([(1, 2), (2, 1)]))
+                @test all(BPR.border_edges_to_poly([(1, 2), (3, 1), (2, 3)]) .== [2, 1, 3, 2])
+
+                cb = BPR.border_edges_to_poly([(313, 353), (353, 416), (232, 313), (232, 416)])
+                @test all(cb .== [313, 353, 416, 232, 313])
+
+                cb = BPR.border_edges_to_poly([(11, 61), (259, 264), (63, 264), (61, 63), (11, 259)])
+                @test all(cb .== [61, 11, 259, 264, 63, 61])
+            end
+
+            @testset "extract_ids_per_bbox" begin
+                tx, ty = [rand(10000) for _ in 1:2];
+                dvals = 0.1:0.1:0.5
+                bbs = [[rand() * (1 - d), rand() * (1 - d)] for d in dvals];
+                bbs = [[(tx, tx + d), (ty, ty + d)] for ((tx,ty),d) in zip(bbs, dvals)];
+
+                tids_per_bb = BPR.extract_ids_per_bbox(tx, ty, bbs)
+                for (((bxs, bxe), (bys, bye)), tids) in zip(bbs, tids_per_bb)
+                    @test all((tx[tids] .< bxe) .& (tx[tids] .> bxs))
+                    @test all((ty[tids] .< bye) .& (ty[tids] .> bys))
+                end
+            end
+
+            @testset "bounding_boxes" begin
+                df_spatial = DataWrappers.get_spatial_df(; n_mols=100000, cell=true)
+                pos_data = BPR.position_data(df_spatial)
+                bbox_per_cell = BPR.get_boundary_box_per_cell(pos_data, df_spatial.cell)
+                ids_per_bbox = BPR.extract_ids_per_bbox(df_spatial.x, df_spatial.y, bbox_per_cell)
+                for (ci,ids) in enumerate(ids_per_bbox)
+                    cids = findall(df_spatial.cell .== ci)
+                    @test length(intersect(ids, cids)) == length(cids)
+                end
+            end
         end
 
         @testset "parse_parameters" begin
@@ -172,6 +246,21 @@ end
                 @test all(a .== ta)
             end
         end
+
+        @testset "neighborhood_composition" begin
+            df = DataWrappers.get_spatial_df(; n_mols=100000, confidence=true)
+            pos_data = BPR.position_data(df)
+            k = 10
+
+            for conf in [nothing, df.confidence]
+                for nbd in [false, true]
+                    for (norm, s) in [(true, 1.0), (false, k)]
+                        cm = BPR.neighborhood_count_matrix(pos_data, df.gene, k; confidences=conf, normalize_by_dist=nbd, normalize=norm)
+                        @test all(abs.(sum(cm, dims=1)[:] .- s) .< 1e-4)
+                    end
+                end
+            end
+        end
     end
 
     @testset "bmm_algorithm" begin
@@ -189,6 +278,19 @@ end
             @test_nowarn for i in 1:1000
                 BPR.sample_distribution!(bm_data)
             end
+        end
+
+        @testset "append_empty_components" begin
+            bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true);
+
+            nc_start = length(bm_data.components)
+            for n in 1:10
+                nc_si = length(bm_data.components)
+                BPR.append_empty_components!(bm_data, n)
+                @test length(bm_data.components) == nc_si + n
+            end
+
+            @test maximum(bm_data.assignment) == nc_start
         end
 
         @testset "drop_unused_components" begin
