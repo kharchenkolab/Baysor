@@ -1,7 +1,14 @@
 count_array(values::VT where VT<: AbstractVector{<:Integer}, args...; max_value::Union{<:Integer, Nothing}=nothing, kwargs...) =
-    count_array!(zeros(Int, max_value !== nothing ? max_value : maximum(values)), values, args...; erase_counts=false, kwargs...)
+    count_array!(
+        zeros(Int, max_value !== nothing ? max_value : (isempty(values) ? 0 : maximum(values))),
+        values, args...;
+        erase_counts=false, kwargs...
+    )
 
-function count_array!(counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer}; drop_zero::Bool=false, erase_counts::Bool=true)
+function count_array!(
+        counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer};
+        drop_zero::Bool=false, erase_counts::Bool=true
+    )
     if erase_counts
         counts .= 0
     end
