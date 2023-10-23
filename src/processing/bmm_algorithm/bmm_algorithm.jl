@@ -326,6 +326,7 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
     conn_comps_per_cell, real_cell_ids, mol_ids_per_cell = get_connected_components_per_label(
         data.assignment, data.adj_list.ids, min_molecules_per_cell; confidence=data.confidence
     )
+    !isempty(real_cell_ids) || return
 
     new_comp_id = 0
     if add_new_components
@@ -335,13 +336,12 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
         append_empty_components!(data, n_new_comps)
     end
 
-
     for (cell_id, conn_comps) in zip(real_cell_ids, conn_comps_per_cell)
         (length(conn_comps) > 1) || continue
 
         largest_cc_id = findmax(length.(conn_comps))[2]
         for (ci, c_ids) in enumerate(conn_comps)
-            (ci != largest_cc_id) && continue
+            (ci != largest_cc_id) || continue
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
 
