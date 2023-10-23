@@ -4,6 +4,7 @@ using Distributions
 using LinearAlgebra
 using Statistics
 using StatsBase
+using StaticArrays
 
 import Random: seed!
 import Baysor: BPR, DAT, REP, Utils
@@ -162,9 +163,52 @@ end
         end
 
         @testset "boundary" begin
-            @test all(BPR.border_edges_to_poly([[1, 1]]) .== [1, 1])
-            @test all(BPR.border_edges_to_poly([[1, 2], [2, 1]]) .== [2, 1, 2])
-            @test all(BPR.border_edges_to_poly([[1, 2], [3, 1], [2, 3]]) .== [2, 3, 1, 2])
+            @testset "get_n_points_in_triangle" begin
+                tri = SMatrix{2, 3, Float64}([0.0 0.0; 20.0 0.0; 0.0 20.0]')
+
+                for np in [1, 5, 10, 20]
+                    cp = hcat(rand(np), rand(np))'
+                    @test BPR.get_n_points_in_triangle(cp, tri) == np
+                end
+
+                @test BPR.get_n_points_in_triangle([100.; 100.;;], tri) == 0
+            end
+
+            @testset "border_edges_to_poly" begin
+                @test isempty(BPR.border_edges_to_poly([(1, 1)]))
+                @test isempty(BPR.border_edges_to_poly([(1, 2), (2, 1)]))
+                @test all(BPR.border_edges_to_poly([(1, 2), (3, 1), (2, 3)]) .== [2, 1, 3, 2])
+
+                cb = BPR.border_edges_to_poly([(313, 353), (353, 416), (232, 313), (232, 416)])
+                @test all(cb .== [313, 353, 416, 232, 313])
+
+                cb = BPR.border_edges_to_poly([(11, 61), (259, 264), (63, 264), (61, 63), (11, 259)])
+                @test all(cb .== [61, 11, 259, 264, 63, 61])
+            end
+
+            @testset "extract_ids_per_bbox" begin
+                tx, ty = [rand(10000) for _ in 1:2];
+                dvals = 0.1:0.1:0.5
+                bbs = [[rand() * (1 - d), rand() * (1 - d)] for d in dvals];
+                bbs = [[(tx, tx + d), (ty, ty + d)] for ((tx,ty),d) in zip(bbs, dvals)];
+
+                tids_per_bb = BPR.extract_ids_per_bbox(tx, ty, bbs)
+                for (((bxs, bxe), (bys, bye)), tids) in zip(bbs, tids_per_bb)
+                    @test all((tx[tids] .< bxe) .& (tx[tids] .> bxs))
+                    @test all((ty[tids] .< bye) .& (ty[tids] .> bys))
+                end
+            end
+
+            @testset "bounding_boxes" begin
+                df_spatial = DataWrappers.get_spatial_df(; n_mols=100000, cell=true)
+                pos_data = BPR.position_data(df_spatial)
+                bbox_per_cell = BPR.get_boundary_box_per_cell(pos_data, df_spatial.cell)
+                ids_per_bbox = BPR.extract_ids_per_bbox(df_spatial.x, df_spatial.y, bbox_per_cell)
+                for (ci,ids) in enumerate(ids_per_bbox)
+                    cids = findall(df_spatial.cell .== ci)
+                    @test length(intersect(ids, cids)) == length(cids)
+                end
+            end
         end
 
         @testset "parse_parameters" begin
@@ -257,6 +301,29 @@ end
             BPR.drop_unused_components!(bm_data)
 
             @test all(BPR.num_of_molecules_per_cell(bm_data) .== [c.n_samples for c in bm_data.components])
+        end
+
+        @testset "split_connected_components" begin
+            tbd = DataWrappers.get_bmm_data(n_mols=20000);
+            tbd.assignment[5001:end] .= mod.(rand(Int, length(tbd.assignment) - 5000), length(tbd.components)) .+ 1;
+            tbd.assignment[1:1000] .= 0
+            as1 = deepcopy(tbd.assignment);
+
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            as2 = deepcopy(tbd.assignment);
+
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            as3 = deepcopy(tbd.assignment);
+
+            @test length(unique(as1)) < length(unique(as2))
+            @test all(sort(unique(as2)) .== sort(unique(as3)))
+
+            tbd.assignment .= as1
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=false)
+            as4 = deepcopy(tbd.assignment);
+
+            @test any(as4 .!= as1)
+            @test all(sort(unique(as1)) .== sort(unique(as4)))
         end
 
         @testset "maximize_mvnormal" begin

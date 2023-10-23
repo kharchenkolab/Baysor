@@ -1,7 +1,14 @@
 count_array(values::VT where VT<: AbstractVector{<:Integer}, args...; max_value::Union{<:Integer, Nothing}=nothing, kwargs...) =
-    count_array!(zeros(Int, max_value !== nothing ? max_value : maximum(values)), values, args...; erase_counts=false, kwargs...)
+    count_array!(
+        zeros(Int, max_value !== nothing ? max_value : (isempty(values) ? 0 : maximum(values))),
+        values, args...;
+        erase_counts=false, kwargs...
+    )
 
-function count_array!(counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer}; drop_zero::Bool=false, erase_counts::Bool=true)
+function count_array!(
+        counts::VT1 where VT1 <: AbstractVector{<:Integer}, values::VT2 where VT2 <: AbstractVector{<:Integer};
+        drop_zero::Bool=false, erase_counts::Bool=true
+    )
     if erase_counts
         counts .= 0
     end
@@ -53,6 +60,22 @@ end
 
 @inline @fastmath function fmin(v1::T, v2::T) where T <: Real
     v1 < v2 ? v1 : v2
+end
+
+@inline @fastmath function fsort(v1::T, v2::T) where T <: Real
+    v1 < v2 ? (v1, v2) : (v2, v1)
+end
+
+function val_range(arr::AT where AT <: AbstractArray{<:Real})
+    length(arr) > 0 || error("The array must be non-empty")
+
+    min_val, max_val = arr[1], arr[1]
+    for v in arr
+        min_val = fmin(min_val, v)
+        max_val = fmax(max_val, v)
+    end
+
+    return (min_val, max_val)
 end
 
 function split(vector::T where T <: AbstractVector; n_parts::Int)
