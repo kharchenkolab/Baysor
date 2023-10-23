@@ -4,6 +4,7 @@ using Distributions
 using LinearAlgebra
 using Statistics
 using StatsBase
+using StaticArrays
 
 import Random: seed!
 import Baysor: BPR, DAT, REP, Utils
@@ -300,6 +301,29 @@ end
             BPR.drop_unused_components!(bm_data)
 
             @test all(BPR.num_of_molecules_per_cell(bm_data) .== [c.n_samples for c in bm_data.components])
+        end
+
+        @testset "split_connected_components" begin
+            tbd = DataWrappers.get_bmm_data(n_mols=20000);
+            tbd.assignment[5001:end] .= mod.(rand(Int, length(tbd.assignment) - 5000), length(tbd.components)) .+ 1;
+            tbd.assignment[1:1000] .= 0
+            as1 = deepcopy(tbd.assignment);
+
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            as2 = deepcopy(tbd.assignment);
+
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            as3 = deepcopy(tbd.assignment);
+
+            @test length(unique(as1)) < length(unique(as2))
+            @test all(sort(unique(as2)) .== sort(unique(as3)))
+
+            tbd.assignment .= as1
+            BPR.split_cells_by_connected_components!(tbd; add_new_components=false)
+            as4 = deepcopy(tbd.assignment);
+
+            @test any(as4 .!= as1)
+            @test all(sort(unique(as1)) .== sort(unique(as4)))
         end
 
         @testset "maximize_mvnormal" begin
