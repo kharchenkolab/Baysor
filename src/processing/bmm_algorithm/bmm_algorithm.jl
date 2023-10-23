@@ -355,7 +355,7 @@ function get_connected_components_per_label(assignment::Vector{Int}, adj_ids::Ve
     return cc_per_cell, mol_ids_per_cell
 end
 
-function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool, min_molecules_per_cell::Int)
+function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool)
     cc_per_cell, mol_ids_per_cell = get_connected_components_per_label(data.assignment, data.adj_list.ids)
     !isempty(cc_per_cell) || return
 
