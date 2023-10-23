@@ -1,5 +1,14 @@
 ## [Upcoming]
 
+### Added
+
+- New algorithm for NCV estimation based on Random Indexing. It is used by default now.
+
+### Removed
+
+- `no-ncv-estimation` was removed, as the NCV algorithm is fast and memory-efficient now
+
+
 ### Fixed
 
 - Parallelized the algorithm
