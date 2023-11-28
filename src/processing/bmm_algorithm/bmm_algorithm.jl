@@ -194,7 +194,7 @@ function update_prior_probabilities!(components::Array{<:Component, 1}, new_comp
     end
 end
 
-function maximize!(data::BmmData{N, CT} where N) where CT
+function maximize!(data::BmmData{N, CT} where N; kwargs...) where CT
     ids_by_assignment = split_ids(data.assignment, max_factor=length(data.components), drop_zero=true)
 
     @inbounds @threads for i in 1:length(data.components)
@@ -202,7 +202,7 @@ function maximize!(data::BmmData{N, CT} where N) where CT
         nuc_probs = isempty(data.nuclei_prob_per_molecule) ? nothing : data.nuclei_prob_per_molecule[p_ids]
         @views maximize!(
             data.components[i], position_data(data)[:, p_ids], composition_data(data, p_ids);
-            nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac
+            nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac, kwargs...
         )
 
         if CT <: MvNormalF # TODO: move to MvNormalF or Component
@@ -396,10 +396,18 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
     end
 end
 
-function bmm!(data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
-              new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
-              assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
-              component_split_step::Int=3, refine::Bool=true)
+function bmm!(
+        data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
+        new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
+        assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
+        component_split_step::Int=3, refine::Bool=true,
+        freeze_composition::Bool=false, freeze_position::Bool=false, freeze_components::Bool=false
+    )
+
+    if freeze_components
+        new_component_frac = 0.0
+    end
+
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
     if (assignment_history_depth > 0) && !(:assignment_history in keys(data.tracer))
@@ -408,7 +416,7 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
 
     trace_n_components!(data, min_molecules_per_cell);
 
-    maximize!(data)
+    maximize!(data; freeze_composition, freeze_position)
 
     for i in 1:n_iters
         # TODO: second slowest place
@@ -423,8 +431,11 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
             split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10))
         end
 
-        drop_unused_components!(data)
-        maximize!(data)
+        if !freeze_components
+            drop_unused_components!(data)
+        end
+
+        maximize!(data; freeze_composition, freeze_position)
 
         trace_n_components!(data, min_molecules_per_cell);
         trace_assignment_history!(data, assignment_history_depth)
@@ -442,7 +453,9 @@ function bmm!(data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
             maximize!(data)
         end
 
-        drop_unused_components!(data; min_n_samples=1)
+        if !freeze_components
+            drop_unused_components!(data; min_n_samples=1)
+        end
         maximize!(data)
     end
 

@@ -23,11 +23,19 @@ end
 function maximize!(
         c::Component{N, CT} where {N, CT}, pos_data::T1 where T1 <: AbstractMatrix{Float64},
         comp_data::T2 where T2 <: Union{AbstractVector{Int}, AbstractVector{Union{Int, Missing}}, AbstractMatrix{Float64}};
-        nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1
+        nuclei_probs::Union{<:AbstractVector{Float64}, Nothing}=nothing, min_nuclei_frac::Float64=0.1,
+        freeze_position::Bool=false, freeze_composition::Bool=false
     )
     c.n_samples = size(pos_data, 2)
-    maximize!(c.composition_params, comp_data)
-    maximize!(c.position_params, pos_data; center_probs=nuclei_probs, c.shape_prior, c.n_samples)
+
+    if !freeze_composition
+        maximize!(c.composition_params, comp_data)
+    end
+
+    if !freeze_position
+        maximize!(c.position_params, pos_data; center_probs=nuclei_probs, c.shape_prior, c.n_samples)
+    end
+
     if (nuclei_probs !== nothing) && (length(nuclei_probs) > 1)
         c.confidence = quantile(nuclei_probs, 1 - min_nuclei_frac)
     end
