@@ -22,10 +22,8 @@ end
 
 # Initialize cell positions
 
-function position_data_by_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int})
-    filt_ids = findall(assignment .> 0)
-    return [pos_data[:, ids] for ids in split(filt_ids, assignment[filt_ids])]
-end
+position_data_by_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}) =
+    [pos_data[:, ids] for ids in split_ids(assignment, drop_zero=true)]
 
 function covs_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}; min_size::Int=1)::Array{<:CovMat, 1}
     pos_data_by_assignment = position_data_by_assignment(pos_data, assignment)
@@ -40,6 +38,9 @@ function covs_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}
 
     return covs
 end
+
+cell_centers_from_assignment(pos_data::Matrix{Float64}, assignment::Vector{Int}; min_size::Int=1)::Array{<:MeanVec, 1} =
+    [MeanVec{length(x)}(vec(x)) for x in mean.(position_data_by_assignment(pos_data, assignment), dims=2)]
 
 cell_centers_uniformly(spatial_df::DataFrame, args...; kwargs...) =
     cell_centers_uniformly(position_data(spatial_df), args..., (:confidence in propertynames(spatial_df)) ? spatial_df.confidence : nothing; kwargs...)
@@ -125,6 +126,11 @@ end
 
 # Initialize BmmData
 
+function initialize_shape_prior(scale::Float64, scale_std::Float64; min_molecules_per_cell::Int, is_3d::Bool)
+    is_3d || return ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
+    return ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell)
+end
+
 """
     main function for initialization of bm_data
 """
@@ -138,10 +144,7 @@ function initialize_bmm_data(
 
     ## Initialize BmmData array
     verbose && @info "Initializing algorithm. Scale: $scale, scale std: $scale_std, initial #components: $n_cells_init, #molecules: $(size(df_spatial, 1))."
-    size_prior = (:z in propertynames(df_spatial)) ?
-        ShapePrior{3}(Float64[scale, scale, scale], Float64[scale_std, scale_std, scale_std], min_molecules_per_cell) :
-        ShapePrior{2}(Float64[scale, scale], Float64[scale_std, scale_std], min_molecules_per_cell)
-
+    size_prior = initialize_shape_prior(Float64(scale), scale_std; min_molecules_per_cell, is_3d=(:z in propertynames(df_spatial)))
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
 
     components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
