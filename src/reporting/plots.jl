@@ -128,7 +128,10 @@ end
 
 ### Tracing
 
-function plot_num_of_cells_per_iterarion(n_comps_dict::Vector{Dict{Int64, Int64}})
+function plot_num_of_cells_per_iterarion(
+        n_comps_dict::Vector{Dict{Int64, Int64}}; legend_position::Symbol=:lt,
+        inset_bbox::Tuple{Int, Int, Int, Int}=(370, 550, 180, 330)
+    )
     (length(n_comps_dict) > 0) || error("No data about #components per iteration was stored")
 
     n_components_per_iter = hcat(collect.(values.(n_comps_dict))...);
@@ -147,11 +150,11 @@ function plot_num_of_cells_per_iterarion(n_comps_dict::Vector{Dict{Int64, Int64}
     for i in 1:size(n_components_per_iter, 1)
         MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
-    MK.axislegend("Min #molecules"; position=:lt, nbanks = 2, titlesize=16, labelsize=14)
+    MK.axislegend("Min #molecules"; position=legend_position, nbanks = 2, titlesize=16, labelsize=14)
     MK.xlims!(MK.current_axis(), 0, size(n_components_per_iter, 2))
     MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter))
 
-    ax2 = MK.Axis(fig; bbox=MK.BBox(370, 550, 180, 330), axis_args...)
+    ax2 = MK.Axis(fig; bbox=MK.BBox(inset_bbox...), axis_args...)
     subplot_start = ceil(Int, 0.75 * size(n_components_per_iter, 2))
     iter_vals = subplot_start:size(n_components_per_iter, 2)
     for i in 1:size(n_components_per_iter, 1)
