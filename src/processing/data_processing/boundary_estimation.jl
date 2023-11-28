@@ -266,6 +266,12 @@ end
 boundary_polygons(bm_data::BmmData) = boundary_polygons(position_data(bm_data), bm_data.assignment)
 
 function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer})
+    if size(pos_data, 1) == 3
+        pos_data = pos_data[1:2,:]
+    elseif size(pos_data, 1) != 2
+        @error "Only 2D and 3D data is supported"
+    end
+
     points = normalize_points(pos_data)
     points = [IndexedPoint2D(p[1], p[2], i) for (i,p) in enumerate(eachcol(points))];
 
