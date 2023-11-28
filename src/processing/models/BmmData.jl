@@ -274,9 +274,10 @@ function get_cell_stat_df(
             segmented_df = get_segmentation_df(data; run_id);
         end
 
+        component_lifespan = :assignment_history in keys(data.tracer) ? estimate_component_lifespan(data) : nothing
         df = hcat(df, get_cell_qc_df(
             segmented_df, assignment;
-            component_lifespan=estimate_component_lifespan(data),
+            component_lifespan=component_lifespan,
             sigdigits=sigdigits, max_cell=length(data.components)
         ))
     end
@@ -344,9 +345,9 @@ function convert_segmentation_to_counts(
     return cm
 end
 
-function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing; run_id::String="")
+function get_segmentation_results(data::BmmData, gene_names::Union{Vector{String}, Nothing}=nothing; run_id::String="", add_qc::Bool=true)
     segmented_df = get_segmentation_df(data, gene_names; run_id)
-    cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=true, run_id)
+    cell_stat_df = get_cell_stat_df(data, segmented_df; add_qc=add_qc, run_id)
     cm = convert_segmentation_to_counts(data.x.gene, data.assignment) # We don't pass gene_names here to keep the matrix sparse
 
     return segmented_df, cell_stat_df, cm
