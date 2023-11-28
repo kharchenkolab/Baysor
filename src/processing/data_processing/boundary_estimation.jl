@@ -265,7 +265,7 @@ end
 
 boundary_polygons(bm_data::BmmData) = boundary_polygons(position_data(bm_data), bm_data.assignment)
 
-function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer})
+function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; cell_names::Union{Vector{String}, Nothing}=nothing)
     if size(pos_data, 1) == 3
         pos_data = pos_data[1:2,:]
     elseif size(pos_data, 1) != 2
@@ -294,13 +294,19 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         cell_borders[cid] = Matrix(cpd[:,cbord]')
     end
 
-    return Dict(cid => cb for (cid,cb) in enumerate(cell_borders) if !isempty(cb))
+    if cell_names == nothing
+        cell_names = 1:length(cell_borders)
+    else
+        cell_names = get.(Ref(cell_names), cell_labels, "")
+    end
+
+    return Dict(cid => cb for (cid,cb) in zip(cell_names, cell_borders) if !isempty(cb))
 end
 
-function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool)
+function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing)
     @info "Estimating boundary polygons"
 
-    poly_joint = boundary_polygons(pos_data, assignment);
+    poly_joint = boundary_polygons(pos_data, assignment; cell_names);
 
     if !estimate_per_z || size(pos_data, 1) == 2
         return poly_joint, poly_joint
@@ -308,14 +314,14 @@ function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:
 
     z_coords = @view pos_data[3,:]
     z_vals = sort(unique(z_coords))
-    if length(z_vals) > (size(pos_data, 1) / 100)
-        @warn "To many values of z. Using 2D polygons"
+    if length(z_vals) > (size(pos_data, 2) / 100)
+        @warn "To many values of z ($(length(z_vals))). Using 2D polygons"
         return poly_joint, poly_joint
     end
 
     mask_per_z = [(z_coords .≈ z) for z in z_vals]
     poly_per_z = progress_map(
-        mask -> boundary_polygons(pos_data[mask,:], assignment[mask]),
+        mask -> boundary_polygons(pos_data[:, mask], assignment[mask]; cell_names),
         mask_per_z
     );
     poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))

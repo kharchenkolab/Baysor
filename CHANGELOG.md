@@ -7,6 +7,10 @@
 - Improved algorithm for polygon estimation: fixed bugs and reduced overlaps
 - Fixed a bug in the `split` step, improved cell continuity
 
+### Changed
+
+- Cell IDs in polygon GeoJSON are now strings to match segmentation.csv
+
 ## [0.6.2] — 2023-08-15
 
 ### Fixed

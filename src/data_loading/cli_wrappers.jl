@@ -4,7 +4,9 @@ import LinearAlgebra: Adjoint
 using ProgressMeter
 using StatsBase: denserank
 
-Polygons = Union{Dict{Int, Matrix{T}}, Dict{String, Dict{Int, Matrix{T}}}} where T <: Real
+PolygonCollection = Dict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{String, Integer}}
+PolygonStack = Dict{String, Dict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
+Polygons = Union{PolygonCollection, PolygonStack}
 
 function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int, min_mols_per_cell::Int)
     try
@@ -64,12 +66,12 @@ function save_molecule_counts(counts::Union{AbstractDataFrame, AbstractMatrix}, 
 end
 
 
-function polygons_to_geojson(polygons::Dict{Int, Matrix{T}} where T <: Real)
+function polygons_to_geojson(polygons::PolygonCollection)
     geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))], "cell" => c) for (c,p) in polygons]
     return Dict("type" => "GeometryCollection", "geometries" => geoms);
 end
 
-polygons_to_geojson(polygons::Dict{String, Dict{Int, Matrix{T}}}) where T <:Real =
+polygons_to_geojson(polygons::PolygonStack) =
     [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
 
 function save_polygons_to_geojson(polygons::Polygons, file::String)
