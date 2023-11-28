@@ -123,7 +123,7 @@ function save_matrix_to_loom(
     end
 
     if length(cell_names) != size(matrix, 1)
-        error("Col attribute cell_names has wrong length ($(length(gene_names)) != $(size(matrix, 1)))")
+        error("Col attribute cell_names has wrong length ($(length(cell_names)) != $(size(matrix, 1)))")
     end
 
     HDF5.h5open(file_path, "w") do fid
@@ -155,6 +155,13 @@ function save_matrix_to_loom(
     end;
 end
 
+save_matrix_to_loom(cm::AbstractMatrix{<:Real}, gene_names::Vector{String}, cell_stat_df::DataFrame, file_path::String) =
+    save_matrix_to_loom(
+        cm'; gene_names=gene_names, cell_names=cell_stat_df.cell,
+        col_attrs=Dict(String(cn) => cell_stat_df[!,cn] for cn in propertynames(cell_stat_df) if cn != :cell),
+        file_path=file_path
+    )
+
 using ..Utils: DataOptions
 
 # function load_df(args::Dict; kwargs...)
@@ -185,11 +192,7 @@ function save_segmentation_results(
     isempty(out_paths.cell_stats) || save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
 
     if matrix_format == :loom
-        save_matrix_to_loom(
-            cm'; gene_names=gene_names, cell_names=cell_stat_df.cell,
-            col_attrs=Dict(String(cn) => cell_stat_df[!,cn] for cn in propertynames(cell_stat_df) if cn != :cell),
-            file_path=out_paths.counts
-        )
+        save_matrix_to_loom(cm, gene_names, cell_stat_df, out_paths.counts)
     elseif matrix_format == :tsv
         save_molecule_counts(cm, gene_names, out_paths.counts)
     else
