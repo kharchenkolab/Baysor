@@ -178,7 +178,7 @@ Segmentation results:
 - ***segmentation_cell_stats.csv***: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
   - `area`: area of the convex hull around the cell molecules
   - `avg_confidence`: average confidence of the cell molecules
-  - `density`: cell area divided by the number of molecules in a cell
+  - `density`: the number of molecules in a cell divided by the cell area
   - `elongation`: ratio of the two eigenvalues of the cell covariance matrix
   - `n_transcripts`: number of molecules per cell
   - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have a much higher chance of being an artifact.
