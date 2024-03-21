@@ -187,6 +187,9 @@ Segmentation results:
 
 Visualization:
 - ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In the case of 3D segmentation, it is an array of GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
+    - In details, the file contains an array of dictionaries (one per z-slice), each of which representing a `GeometryCollection`. For 2D data it's just a single dictionary with a `GeometryCollection`.
+    - Each `GeometryCollection` has its z-level specified in `z`, and the one with `z` set to `joint` has polygons for all molecules projected to 2D.
+    - Each `GeometryCollection` has a field `geometries`, which is an array of polygons with `cell` field set to cell ids and `coordinates` set to its coordinates.
 - ***segmentation_diagnostics.html***: visualization of the algorithm QC. *Shown only when `-p` is set.*
 - ***segmentation_borders.html***: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
 
