@@ -40,7 +40,7 @@ end
 function grid_borders_per_label(grid_labels::Matrix{<:Unsigned})
     d_cols = [-1 0 1 0]
     d_rows = [0 1 0 -1]
-    borders_per_label = [Array{UInt32, 1}[] for _ in 1:maximum(grid_labels)]
+    borders_per_label = [Vector{UInt32}[] for _ in 1:maximum(grid_labels)]
 
     for row in 1:size(grid_labels, 1)
         for col in 1:size(grid_labels, 2)
@@ -254,6 +254,10 @@ function boundary_polygons_from_grid(grid_labels::Matrix{<:Unsigned}; grid_step:
     borders_per_label = grid_borders_per_label(grid_labels);
     polys = Matrix{Float64}[]
     for bords in borders_per_label
+        if size(bords, 1) == 0
+            push!(polys, Float64[;;])
+            continue
+        end
         c_coords =Float64.(hcat(bords...));
         tess = adjacency_list(c_coords, adjacency_type=:triangulation, filter=false, return_tesselation=true)[1];
         poly_ids = extract_triangle_verts(tess) |> extract_border_edges |> border_edges_to_poly;
@@ -266,6 +270,14 @@ end
 boundary_polygons(bm_data::BmmData) = boundary_polygons(position_data(bm_data), bm_data.assignment)
 
 function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer})
+    if size(pos_data, 1) > 2
+        pos_data = pos_data[1:2,:]
+    end
+
+    if size(pos_data, 2) < 3
+        return Dict{Int, Matrix{Float64}}()
+    end
+
     points = normalize_points(pos_data)
     points = [IndexedPoint2D(p[1], p[2], i) for (i,p) in enumerate(eachcol(points))];
 
@@ -291,8 +303,8 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
     return Dict(cid => cb for (cid,cb) in enumerate(cell_borders) if !isempty(cb))
 end
 
-function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool)
-    @info "Estimating boundary polygons"
+function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool, verbose=true)
+    verbose && @info "Estimating boundary polygons"
 
     poly_joint = boundary_polygons(pos_data, assignment);
 
@@ -302,14 +314,16 @@ function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:
 
     z_coords = @view pos_data[3,:]
     z_vals = sort(unique(z_coords))
-    if length(z_vals) > (size(pos_data, 1) / 100)
+    if length(z_vals) > (size(pos_data, 2) / 100)
         @warn "To many values of z. Using 2D polygons"
         return poly_joint, poly_joint
     end
 
     mask_per_z = [(z_coords .≈ z) for z in z_vals]
-    poly_per_z = progress_map(
-        mask -> boundary_polygons(pos_data[mask,:], assignment[mask]),
+
+    pmap = verbose ? progress_map : map
+    poly_per_z = pmap(
+        mask -> boundary_polygons(pos_data[:,mask], assignment[mask]),
         mask_per_z
     );
     poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
