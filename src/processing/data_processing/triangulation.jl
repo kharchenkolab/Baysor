@@ -52,6 +52,11 @@ function adjacency_list(
         adjacency_type::Symbol=:auto, distance::TD where TD <: Distances.SemiMetric = Euclidean(),
         return_tesselation::Bool=false
     )
+    if size(points, 2) <= 1
+        !return_tesselation || error("Tesselation is not possible for less than 2 points")
+        return Matrix{Int}(undef, 2, 0), Vector{Float64}(undef, 0)
+    end
+
     if adjacency_type == :auto
         adjacency_type = (size(points, 1) == 3) ? :knn : :triangulation
     end

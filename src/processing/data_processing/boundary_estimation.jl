@@ -254,7 +254,7 @@ function boundary_polygons_from_grid(grid_labels::Matrix{<:Unsigned}; grid_step:
     borders_per_label = grid_borders_per_label(grid_labels);
     polys = Matrix{Float64}[]
     for bords in borders_per_label
-        if size(bords, 1) == 0
+        if size(bords, 1) < 2
             push!(polys, Float64[;;])
             continue
         end
