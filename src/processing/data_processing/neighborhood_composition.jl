@@ -89,14 +89,28 @@ end
 
 function generate_randomized_gene_vectors(
         neighb_cm::SparseArrays.SparseMatrixCSC{<:Real, Int64}, gene_ids::Vector{Int};
-        n_components::Int=50, seed::Int=42
+        n_components::Int=50, seed::Int=42, var_clip::Float64=0.05
     )::Matrix{Float64}
     Random.seed!(seed)
     random_vectors_init = randn(size(neighb_cm, 1), n_components);
 
-    ids_by_gene = Utils.split_ids(gene_ids)
-    rnm_mat = (neighb_cm' * random_vectors_init) ./ sum(neighb_cm, dims=1)'
-    return vcat([mean(rnm_mat[ids,:], dims=1) for ids in ids_by_gene]...);
+    coexpr_mat = neighb_cm * neighb_cm'
+
+    if var_clip > 0
+        # Genes that mostly co-variate with themselves don't get updated by other genes
+        # Som we clip their covariance, which greatly improves convergence
+        diag_vals = diag(coexpr_mat)
+        total_var = sum(coexpr_mat, dims=1)[:]
+        diag_frac = diag_vals ./ total_var
+
+        coexpr_mat[diagind(coexpr_mat)] .= min.(
+            (quantile(diag_frac, 1 - var_clip) .* total_var),
+            diag_vals
+        )
+    end
+
+    gene_emb = (coexpr_mat * random_vectors_init) ./ sum(coexpr_mat, dims=2)
+    return gene_emb
 end
 
 normalize_embedding_to_lab_range(embedding::AbstractMatrix{<:Real}; kwargs...) =
