@@ -40,7 +40,7 @@ end
 function grid_borders_per_label(grid_labels::Matrix{<:Unsigned})
     d_cols = [-1 0 1 0]
     d_rows = [0 1 0 -1]
-    borders_per_label = [Array{UInt32, 1}[] for _ in 1:maximum(grid_labels)]
+    borders_per_label = [Vector{UInt32}[] for _ in 1:maximum(grid_labels)]
 
     for row in 1:size(grid_labels, 1)
         for col in 1:size(grid_labels, 2)
@@ -254,6 +254,10 @@ function boundary_polygons_from_grid(grid_labels::Matrix{<:Unsigned}; grid_step:
     borders_per_label = grid_borders_per_label(grid_labels);
     polys = Matrix{Float64}[]
     for bords in borders_per_label
+        if size(bords, 1) < 2
+            push!(polys, Float64[;;])
+            continue
+        end
         c_coords =Float64.(hcat(bords...));
         tess = adjacency_list(c_coords, adjacency_type=:triangulation, filter=false, return_tesselation=true)[1];
         poly_ids = extract_triangle_verts(tess) |> extract_border_edges |> border_edges_to_poly;
@@ -270,6 +274,10 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
         pos_data = pos_data[1:2,:]
     elseif size(pos_data, 1) != 2
         @error "Only 2D and 3D data is supported"
+    end
+
+    if size(pos_data, 2) < 3
+        return Dict{Int, Matrix{Float64}}()
     end
 
     points = normalize_points(pos_data)
@@ -304,7 +312,7 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
 end
 
 function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing)
-    @info "Estimating boundary polygons"
+    verbose && @info "Estimating boundary polygons"
 
     poly_joint = boundary_polygons(pos_data, assignment; cell_names);
 
@@ -320,7 +328,9 @@ function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:
     end
 
     mask_per_z = [(z_coords .≈ z) for z in z_vals]
-    poly_per_z = progress_map(
+
+    pmap = verbose ? progress_map : map
+    poly_per_z = pmap(
         mask -> boundary_polygons(pos_data[:, mask], assignment[mask]; cell_names),
         mask_per_z
     );

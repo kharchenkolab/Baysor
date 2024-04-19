@@ -22,7 +22,7 @@ function plot_molecules(
 
     noise_args_default = (marker=:xcross, markersize=(0.75 * markersize), strokewidth=0, color="black");
     axis_args_default = (xticklabelsize=12, yticklabelsize=12, xticksvisible=ticksvisible, xticklabelsvisible=ticksvisible, yticksvisible=ticksvisible, yticklabelsvisible=ticksvisible);
-    legend_args_default = (bgcolor=Colors.RGBA(1, 1, 1, 0.85),);
+    legend_args_default = (backgroundcolor=Colors.RGBA(1, 1, 1, 0.85),);
     polygon_args_default = (strokecolor="black", color="transparent", strokewidth=poly_strokewidth, label="")
 
     noise_kwargs = update_args(update_args(noise_args_default, Dict(kwargs...)), noise_kwargs)
@@ -98,7 +98,7 @@ function plot_molecules(
     end
 
     if length(polygons) > 0
-        MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons]; polygon_kwargs...)
+        MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons if Base.size(p, 1) > 0]; polygon_kwargs...)
         # We can also do `for p in polygons MK.lines!(p[:,1], p[:,2], color="black") end`, but this is 10+ times slower
     end
 

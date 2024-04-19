@@ -12,7 +12,7 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 - `-k, --k-neighbors=<k>`:              Number of neighbors for segmentation-free pseudo-cells. It's suggested to set it to the expected minimal number of molecules per cell. (default: inferred from `min-molecules-per-cell`)
 - `-n, --ncvs-to-save=<n>`:             Number of NCVs to save. If set, selects NCVs uniformly across the first 2 PCs. (default: 0, all of them)
 
-- `-c, --config=<config.toml>`:         TOML file with a config. The function only uses the `[data]` section.
+- `-c, --config=<config.toml>`:         TOML file with a config. The function only uses the `[data]` and `[plotting]` sections.
 - `-x, --x-column=<x>`:                 Name of x column. Overrides the config value.
 - `-y, --y-column=<y>`:                 Name of y column. Overrides the config value.
 - `-z, --z-column=<z>`:                 Name of z column. Overrides the config value.
@@ -21,9 +21,6 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
                                         It's an important parameter, as it's used to infer several other parameters.
                                         Overrides the config value.
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "ncvs.loom")
-- `--ncv-method=<method>`:               Method for PCA estimation for NCV dimensionality reduction. Possible values: `dense`, `sparse`, `auto`.
-                                        `dense` method can provide better results, but takes much more memory.
-                                        (default: `auto`, i.e. `dense` for small datasets and `sparse` for large ones)
 """
 @cast function segfree(
         coordinates::String;
@@ -32,7 +29,7 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
         # ncvs_to_save::Int=0, # TODO: uncomment and use it in the code
         x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
         gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
-        output::String="ncvs.loom", ncv_method::Symbol=:auto
+        output::String="ncvs.loom"
     )
     opts = config.data;
     opts = from_dict(DataOptions,
@@ -43,6 +40,9 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
     )
 
     fill_and_check_options!(opts)
+    fill_and_check_options!(config.plotting, min_molecules_per_cell)
+    ncv_method = Symbol(config.plotting.ncv_method)
+
     if isdir(output) || isdirpath(output)
         output = joinpath(output, "ncvs.loom")
     end
@@ -73,8 +73,9 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 
     @info "Estimating gene colors..."
 
-    pca = BPR.gene_pca(neighb_cm, 20; method=ncv_method)[1]
-    col_emb = BPR.gene_composition_color_embedding(pca, confidences)
+    # TODO: embed gene vectors and then estimate embedded molecule vectors
+    mol_vecs = BPR.estimate_gene_vectors(neighb_cm, df_spatial.gene; n_components=30, method=ncv_method, per_molecule=true)
+    col_emb = BPR.gene_composition_color_embedding(mol_vecs, confidences)
     gene_colors = BPR.embedding_to_hex(col_emb)
 
     @info "Saving results..."

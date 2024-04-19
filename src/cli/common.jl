@@ -75,12 +75,14 @@ function fill_and_check_options!(opts::DataOptions)
     return opts
 end
 
-function fill_and_check_options!(opts::PlottingOptions, min_molecules_per_cell::Int, n_genes::Int)
+function fill_and_check_options!(opts::PlottingOptions, min_molecules_per_cell::Int, n_genes::Union{Int, Nothing}=nothing)
     if opts.gene_composition_neigborhood <= 0
         opts.gene_composition_neigborhood = default_param_value(
             :composition_neighborhood, min_molecules_per_cell, n_genes=n_genes
         )
     end
+
+    (opts.ncv_method in ["hash", "dense", "sparse"]) || error("`ncv_method` must be one of \"hash\", \"dense\", or \"sparse\"")
 
     return opts
 end

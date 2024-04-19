@@ -51,6 +51,21 @@ function neighborhood_count_matrix(
     return sphstack(s_vecs);
 end
 
+function estimate_gene_vectors(
+        count_matrix::AbstractMatrix{<:Real}, gene_ids::Vector{Int};
+        n_components::Int, method::Symbol=:hash, per_molecule::Bool=false
+    )::Matrix{<:Real}
+    if method in (:dense, :sparse)
+        mol_vecs, gene_vecs = gene_pca(count_matrix, n_components; method=method)
+        return per_molecule ? mol_vecs : gene_vecs
+    elseif method == :hash
+        gene_vecs = generate_randomized_gene_vectors(count_matrix, gene_ids; n_components=n_components)
+        return per_molecule ? Matrix((count_matrix' * gene_vecs)') : Matrix(gene_vecs')
+    end
+
+    error("Unknown method: $method. Only :dense, :sparse or :hash are supported")
+end
+
 function gene_pca(count_matrix::AbstractMatrix{<:Real}, n_pcs::Int; method::Symbol=:auto)::Tuple{Matrix{<:Real}, Matrix{<:Real}}
     if method == :auto
         method = (prod(size(count_matrix)) < 1e9) ? :dense : :sparse
@@ -74,14 +89,28 @@ end
 
 function generate_randomized_gene_vectors(
         neighb_cm::SparseArrays.SparseMatrixCSC{<:Real, Int64}, gene_ids::Vector{Int};
-        n_components::Int=50, seed::Int=42
+        n_components::Int=50, seed::Int=42, var_clip::Float64=0.05
     )::Matrix{Float64}
     Random.seed!(seed)
     random_vectors_init = randn(size(neighb_cm, 1), n_components);
 
-    ids_by_gene = Utils.split_ids(gene_ids)
-    rnm_mat = (neighb_cm' * random_vectors_init) ./ sum(neighb_cm, dims=1)'
-    return vcat([mean(rnm_mat[ids,:], dims=1) for ids in ids_by_gene]...);
+    coexpr_mat = neighb_cm * neighb_cm'
+
+    if var_clip > 0
+        # Genes that mostly co-variate with themselves don't get updated by other genes
+        # Som we clip their covariance, which greatly improves convergence
+        diag_vals = diag(coexpr_mat)
+        total_var = sum(coexpr_mat, dims=1)[:]
+        diag_frac = diag_vals ./ total_var
+
+        coexpr_mat[diagind(coexpr_mat)] .= min.(
+            (quantile(diag_frac, 1 - var_clip) .* total_var),
+            diag_vals
+        )
+    end
+
+    gene_emb = (coexpr_mat * random_vectors_init) ./ sum(coexpr_mat, dims=2)
+    return gene_emb
 end
 
 normalize_embedding_to_lab_range(embedding::AbstractMatrix{<:Real}; kwargs...) =
@@ -157,12 +186,13 @@ function gene_composition_colors!(embedding::AbstractMatrix{<:Real}; kwargs...)
 end
 
 # It's used in preview.jl:62 and cli_wrappers.jl:76
-function gene_composition_colors(df_spatial::DataFrame, k::Int; method::Symbol=:auto, n_pcs::Int=20, kwargs...)
+function gene_composition_colors(df_spatial::DataFrame, k::Int; method::Symbol=:hash, n_components::Int=20, kwargs...)
     neighb_cm = neighborhood_count_matrix(df_spatial, k);
-    pca = gene_pca(neighb_cm, n_pcs; method)[1];
+    # TODO: embed gene vectors and then estimate embedded molecule vectors
+    mol_vecs = estimate_gene_vectors(neighb_cm, df_spatial.gene; n_components, method, per_molecule=true);
 
     confidence = (:confidence in propertynames(df_spatial)) ? df_spatial.confidence : ones(size(df_spatial, 1))
-    col_emb = gene_composition_color_embedding(pca, confidence; kwargs...);
+    col_emb = gene_composition_color_embedding(mol_vecs, confidence; kwargs...);
 
     return embedding_to_lab(col_emb)
 end
