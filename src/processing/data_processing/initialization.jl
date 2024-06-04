@@ -168,6 +168,14 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     return components, sampler, initial_params.assignment
 end
 
+function initialize_position_params_from_assignment(pos_data::Matrix{Float64}, cell_assignment::Vector{Int})
+    centers = cell_centers_from_assignment(pos_data, cell_assignment);
+    covs = covs_from_assignment(pos_data, cell_assignment);
+    adjust_cov_matrix!.(covs);
+
+    return MvNormalF.(centers, covs);
+end
+
 # Utils
 
 # This function is a determenistic analogue of sampling. It picks points in a manner that preserves the distributions across x and y.
