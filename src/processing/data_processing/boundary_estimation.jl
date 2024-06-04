@@ -311,7 +311,10 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
     return Dict(cid => cb for (cid,cb) in zip(cell_names, cell_borders) if !isempty(cb))
 end
 
-function boundary_polygons_auto(pos_data::Matrix{Float64}, assignment::Vector{<:Integer}; estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing)
+function boundary_polygons_auto(
+        pos_data::Matrix{Float64}, assignment::Vector{<:Integer};
+        estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing, verbose::Bool=true
+    )
     verbose && @info "Estimating boundary polygons"
 
     poly_joint = boundary_polygons(pos_data, assignment; cell_names);

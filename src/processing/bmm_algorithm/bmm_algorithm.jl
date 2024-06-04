@@ -46,7 +46,7 @@ function aggregate_adjacent_component_weights!(
     empty!(comp_ids)
     bg_comp_weight = 0.0
 
-    @inbounds @simd for i in 1:length(adjacent_weights)
+    for i in 1:length(adjacent_weights)
         c_point = adjacent_points[i]
         c_id = assignment[c_point]
         cw = adjacent_weights[i]
@@ -67,19 +67,13 @@ end
 
 @inline function fill_adjacent_component_weights!(
         adj_classes::Vector{Int}, adj_weights::Vector{Float64}, data::BmmData, mol_id::Int;
-        component_weights::Dict{Int, Float64}, adj_classes_global::Dict{Int, Vector{Int}}
+        component_weights::Dict{Int, Float64}
     )
     # Looks like it's impossible to optimize further, even with vectorization. It means that creating vectorized version of expect_dirichlet_spatial makes few sense
     bg_comp_weight = aggregate_adjacent_component_weights!(
         adj_classes, adj_weights, component_weights, data.assignment,
         data.adj_list.ids[mol_id], data.adj_list.weights[mol_id]
     )
-
-    if mol_id in keys(adj_classes_global)
-        n1 = length(adj_classes)
-        append!(adj_classes, adj_classes_global[mol_id])
-        append!(adj_weights, ones(length(adj_classes) - n1) .* data.real_edge_weight)
-    end
 
     return bg_comp_weight
 end
@@ -162,13 +156,12 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     adj_weights = [Float64[] for _ in 1:n_threads];
     denses = [Float64[] for _ in 1:n_threads]
 
-    adj_classes_global = get_global_adjacent_classes(data)
     assignment = deepcopy(data.assignment)
 
     @threads for i in 1:size(data.x, 1)
         ti = Threads.threadid()
         bg_comp_weight = fill_adjacent_component_weights!(
-            adj_classes[ti], adj_weights[ti], data, i; component_weights=component_weights[ti], adj_classes_global
+            adj_classes[ti], adj_weights[ti], data, i; component_weights=component_weights[ti]
         )
 
         expect_density_for_molecule!(denses[ti], data, i; adj_classes=adj_classes[ti], adj_weights=adj_weights[ti], bg_comp_weight)
@@ -181,16 +174,21 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     end
 end
 
-function update_prior_probabilities!(components::Array{<:Component, 1}, new_component_weight::Float64)
-    c_weights = [max(c.n_samples, new_component_weight) for c in components]
-    prior_probs = rand(Distributions.Dirichlet(c_weights))
+function update_prior_probabilities!(components::Vector{<:Component})
+    # c_weights = [log(max(c.n_samples, new_component_weight) + 1) for c in components]
     # t_mmc = 150.0; # TODO: finish the idea
     # t_dist = Normal(t_mmc, t_mmc * 3)
     # prior_probs = pdf.(t_dist, c_weights)
     # prior_probs[c_weights .< t_mmc] .= c_weights[c_weights .< t_mmc] ./ t_mmc .* pdf(t_dist, t_mmc)
 
-    for (c, p) in zip(components, prior_probs)
-        c.prior_probability = p
+    # t_mmc = (log10(100) + log10(1000)) / 2
+    # # t_mmc = log10(2 + 1)
+    # # t_mmc = log10(100 + 1)
+    # t_dist = Normal(t_mmc, t_mmc / 2)
+    # prior_probs = [pdf(t_dist, log10(c.n_samples + 1)) for c in components]
+
+    for c in components
+        c.prior_probability = c.n_samples
     end
 end
 
@@ -242,58 +240,8 @@ function noise_composition_density(data::BmmData{T, MvNormalF{M, N}} where {T, M
     return 1e-2
 end
 
-function noise_position_density(data::BmmData)::Float64
-    std_vals = data.distribution_sampler.shape_prior.std_values;
-    return pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 3 .* std_vals)
-end
-
 estimate_noise_density_level(data::BmmData) =
-    noise_position_density(data) * noise_composition_density(data)
-
-append_empty_component!(data::BmmData) =
-    push!(data.components, sample_distribution!(data))[end]
-
-append_empty_components!(data::BmmData, new_component_frac::Float64) =
-    append_empty_components!(data, round(Int, new_component_frac * length(data.components)))
-
-function append_empty_components!(data::BmmData, n::Int)
-    (n > 0) || return
-
-    if n == 1
-        append_empty_component!(data)
-        return
-    end
-
-    comps = sample_distributions!(data, n)
-    append!(data.components, comps)
-    return
-end
-
-function get_global_adjacent_classes(data::BmmData)::Dict{Int, Vector{Int}}
-    adj_classes_global = Dict{Int, Vector{Int}}()
-    for (cur_id, comp) in enumerate(data.components)
-        if comp.n_samples > 0
-            continue
-        end
-
-        nearest_id = knn(data.position_knn_tree, comp.position_params.μ, 1)[1][1]
-        for t_id in data.adj_list.ids[nearest_id]
-            if t_id in keys(adj_classes_global)
-                push!(adj_classes_global[t_id], cur_id)
-            else
-                adj_classes_global[t_id] = [cur_id]
-            end
-        end
-
-        if nearest_id in keys(adj_classes_global)
-            push!(adj_classes_global[nearest_id], cur_id)
-        else
-            adj_classes_global[nearest_id] = [cur_id]
-        end
-    end
-
-    return adj_classes_global
-end
+    data.noise_position_density * noise_composition_density(data)
 
 function split_nonempty_ids(array::AbstractVector{Int})
     counts = count_array(array)
@@ -366,17 +314,9 @@ function get_connected_components_per_label(assignment::Vector{Int}, adj_ids::Ve
     return cc_per_cell, mol_ids_per_cell
 end
 
-function split_cells_by_connected_components!(data::BmmData; add_new_components::Bool)
+function split_cells_by_connected_components!(data::BmmData)
     cc_per_cell, mol_ids_per_cell = get_connected_components_per_label(data.assignment, data.adj_list.ids)
     !isempty(cc_per_cell) || return
-
-    new_comp_id = 0
-    if add_new_components
-        new_comp_id = length(data.components)
-        n_comps_per_cell = length.(cc_per_cell)
-        n_new_comps = sum(n_comps_per_cell) - sum(n_comps_per_cell .> 0)
-        append_empty_components!(data, n_new_comps)
-    end
 
     for (cell_id, conn_comps) in enumerate(cc_per_cell)
         (length(conn_comps) > 1) || continue
@@ -386,27 +326,17 @@ function split_cells_by_connected_components!(data::BmmData; add_new_components:
             (ci != largest_cc_id) || continue
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
-
-            if add_new_components
-                new_comp_id += 1
-            end
-
-            data.assignment[mol_ids] .= new_comp_id
+            data.assignment[mol_ids] .= 0
         end
     end
 end
 
 function bmm!(
         data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
-        new_component_frac::Float64=0.3, new_component_weight::Float64=0.2,
         assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
         component_split_step::Int=3, refine::Bool=true,
         freeze_composition::Bool=false, freeze_position::Bool=false, freeze_components::Bool=false
     )
-
-    if freeze_components
-        new_component_frac = 0.0
-    end
 
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
 
@@ -419,16 +349,14 @@ function bmm!(
     maximize!(data; freeze_composition, freeze_position)
 
     for i in 1:n_iters
-        # TODO: second slowest place
-        append_empty_components!(data, new_component_frac)
-        update_prior_probabilities!(data.components, new_component_weight)
+        update_prior_probabilities!(data.components)
         update_n_mols_per_segment!(data)
 
         expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
             # TODO: Slowest place
-            split_cells_by_connected_components!(data; add_new_components=(new_component_frac > 1e-10))
+            split_cells_by_connected_components!(data)
         end
 
         if !freeze_components

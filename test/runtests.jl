@@ -274,26 +274,6 @@ end
             end
         end
 
-        @testset "distribution_sampling" begin
-            bm_data = DataWrappers.get_bmm_data(confidence=true, do_maximize=true);
-            @test_nowarn for i in 1:1000
-                BPR.sample_distribution!(bm_data)
-            end
-        end
-
-        @testset "append_empty_components" begin
-            bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true);
-
-            nc_start = length(bm_data.components)
-            for n in 1:10
-                nc_si = length(bm_data.components)
-                BPR.append_empty_components!(bm_data, n)
-                @test length(bm_data.components) == nc_si + n
-            end
-
-            @test maximum(bm_data.assignment) == nc_start
-        end
-
         @testset "drop_unused_components" begin
             bm_data = DataWrappers.get_bmm_data(n_mols=1000, confidence=true);
             bm_data.assignment[rand(1:length(bm_data.assignment), 100)] .= 0

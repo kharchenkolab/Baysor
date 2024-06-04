@@ -49,18 +49,21 @@ pdf(comp::Component{N, CT} where {N, CT}, x::AbstractVector{Float64}, gene::Miss
 pdf(comp::Component{N, CategoricalSmoothed{FT}} where {N, FT}, x::AbstractVector{Float64}, gene::Int64; use_smoothing::Bool=true) =
     comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene; use_smoothing=use_smoothing)
 
-function pdf(comp::Component{T, MvNormalF{M, N}} where {T, M, N}, x::AbstractVector{Float64}, gene::AbstractVector{<:Real}; use_smoothing::Bool=true)
-    # comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene)
-    p_pos = pdf(comp.position_params, x)
-    p_comp = pdf(comp.composition_params, gene)
+pdf(comp::Component{T, CT} where {T, CT}, x::AbstractVector{Float64}, gene::AbstractVector{<:Real}; use_smoothing::Bool=true) =
+    comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene)
 
-    # weighted geometric mean
-    wp = 1.0
-    # wc = 0.25
-    wc = 0.5
-    return comp.prior_probability * comp.confidence * ((p_pos^wp) * (p_comp^wc)) ^ (1 / (wp + wc))
-    # return comp.prior_probability, comp.confidence, p_pos, p_comp, (wp * p_pos + wc * p_comp) ^ (1 / (wp + wc))
-end
+# function pdf(comp::Component{T, MvNormalF{M, N}} where {T, M, N}, x::AbstractVector{Float64}, gene::AbstractVector{<:Real}; use_smoothing::Bool=true)
+#     # comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene)
+#     p_pos = pdf(comp.position_params, x)
+#     p_comp = pdf(comp.composition_params, gene)
+
+#     # weighted geometric mean
+#     wp = 1.0
+#     # wc = 0.25
+#     wc = 0.5
+#     return comp.prior_probability * comp.confidence * ((p_pos^wp) * (p_comp^wc)) ^ (1 / (wp + wc))
+#     # return comp.prior_probability, comp.confidence, p_pos, p_comp, (wp * p_pos + wc * p_comp) ^ (1 / (wp + wc))
+# end
 
 function adjust_cov_by_prior!(Σ::CovMat{N}, prior::ShapePrior{N}; n_samples::TR where TR <: Real) where N
     if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged

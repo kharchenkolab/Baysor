@@ -24,10 +24,10 @@ mutable struct BmmData{L, CT}
 
     # Distribution-related
     components::Array{Component{L, CT}, 1};
-    distribution_sampler::DistributionSampler{L};
     assignment::Vector{Int};
     max_component_guid::Int;
 
+    noise_position_density::Float64;
     noise_density::Float64;
 
     cluster_per_cell::Vector{Int};
@@ -40,7 +40,6 @@ mutable struct BmmData{L, CT}
     # Utils
     tracer::Dict{Symbol, Any}
     misc::Dict{Symbol, Any}
-    center_sample_cache::Vector{Int}
 
     # Parameters
     prior_seg_confidence::Float64
@@ -57,11 +56,10 @@ mutable struct BmmData{L, CT}
     - `adj_list::AdjList`:
     - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
     - `real_edge_weight::Float64`: weight of an edge for "average" real point
-    - `distribution_sampler::DistributionSampler`:
     - `assignment::Array{Int, 1}`:
     """
-    function BmmData(components::Array{Component{N, CT}, 1}, x::DataFrame, adj_list::AdjList,
-                     assignment::Vector{Int}, distribution_sampler::DistributionSampler{N}; real_edge_weight::Float64=1.0, k_neighbors::Int=20,
+    function BmmData(components::Array{Component{N, CT}, 1}, x::DataFrame, adj_list::AdjList, assignment::Vector{Int};
+                     real_edge_weight::Float64=1.0, k_neighbors::Int=20, noise_position_density::Float64=0.0,
                      cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
                      min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where {N, CT}
         @assert maximum(assignment) <= length(components)
@@ -92,10 +90,10 @@ mutable struct BmmData{L, CT}
         self = new{N, CT}(
             x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
             adj_list, real_edge_weight, position_knn_tree, knn_neighbors,
-            components, distribution_sampler, assignment, length(components), 0.0,
+            components, assignment, length(components), noise_position_density, 0.0,
             Int[],
             Int[], Int[], # prior segmentation info
-            Dict{Symbol, Any}(), Dict{Symbol, Any}(), Int[],
+            Dict{Symbol, Any}(), Dict{Symbol, Any}(),
             prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing, min_nuclei_frac, mrf_strength
         )
 

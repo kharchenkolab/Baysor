@@ -147,11 +147,14 @@ function initialize_bmm_data(
     size_prior = initialize_shape_prior(Float64(scale), scale_std; min_molecules_per_cell, is_3d=(:z in propertynames(df_spatial)))
     init_params = cell_centers_uniformly(df_spatial, n_cells_init; scale=scale)
 
-    components, sampler, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
+    components, assignment = initial_distributions(df_spatial, init_params; size_prior=size_prior)
+
+    std_vals = size_prior.std_values
+    noise_position_density = pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 3 .* std_vals)
 
     return BmmData(
-        components, df_spatial, adj_list, assignment, sampler;
-        prior_seg_confidence, kwargs...
+        components, df_spatial, adj_list, assignment;
+        prior_seg_confidence, noise_position_density, kwargs...
     )
 end
 
@@ -163,9 +166,8 @@ function initial_distributions(df_spatial::DataFrame, initial_params::InitialPar
     components = [Component(pd, gd, shape_prior=deepcopy(size_prior)) for (pd, gd) in zip(position_distrubutions, gene_distributions)]
 
     gene_sampler = CategoricalSmoothed(ones(Float64, gene_num))
-    sampler = DistributionSampler(deepcopy(size_prior), gene_smooth)
 
-    return components, sampler, initial_params.assignment
+    return components, initial_params.assignment
 end
 
 function initialize_position_params_from_assignment(pos_data::Matrix{Float64}, cell_assignment::Vector{Int})
