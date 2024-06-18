@@ -1,7 +1,9 @@
-[Data]
-min-molecules-per-gene = 50
-min-molecules-per-cell = 30
-scale = 6.15
+[data]
+min_molecules_per_gene = 50
+min_molecules_per_cell = 30
 
-[Plotting]
-gene-composition-neigborhood = 70
+[segmentation]
+scale = 6.15 # Negative values mean it must be estimated from `min_molecules_per_cell`
+
+[plotting]
+gene_composition_neigborhood = 70
