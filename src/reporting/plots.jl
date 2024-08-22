@@ -179,10 +179,10 @@ function plot_clustering_convergence(clust_res::NamedTuple, title::String=""; di
         :change_frac => round.(100 .* clust_res.change_fracs; digits=digits)
     )
 
-    return p_df |>
-        VL.@vlplot(x={:x, title="Iteration"}, title=title, width=300, height=250) +
-        VL.@vlplot({:line, tooltip=true}, y={:diff, title="Change, %"}, color={datum="Max prob. difference"}) +
-        VL.@vlplot({:line, tooltip=true}, y={:change_frac, title="Change, %"}, color={datum="Molecules changed"})
+    return Data(p_df) * Mark(:line) * Encoding(x=(;field="x", type="quantitative", title="Iteration")) *(
+        Encoding(y=(;field="diff", type="quantitative", title="Change, %"), color=(;datum="Max prob. difference")) +
+        Encoding(y=(;field="change_frac", type="quantitative", title="Change, %"), color=(;datum="Molecules changed"))
+    ) * Deneb.title(title) * config(view=(width=300, height=250))
 end
 
 ### Colormaps
