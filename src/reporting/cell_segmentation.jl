@@ -63,7 +63,7 @@ function plot_diagnostics_panel(
         # Main algorithm convergence
         p_conv = plot_num_of_cells_per_iterarion(tracer[:n_components]);
         io = IOBuffer()
-        show(io, MIME("text/html"), p_conv)
+        print(io, makie_to_base64(p_conv))
         main_conf_plot = String(take!(io))
     end
 
@@ -105,10 +105,10 @@ function plot_transcript_assignment_panel(df_res::DataFrame; clusters::Vector{In
     end
 
     open(file, "w") do io
-        show(io, MIME("text/html"), gc_plot)
+        print(io, makie_to_base64(gc_plot))
 
         if clust_plot !== nothing
-            show(io, MIME("text/html"), clust_plot)
+            print(io, makie_to_base64(clust_plot))
         end
     end
 end

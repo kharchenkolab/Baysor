@@ -4,8 +4,8 @@ using LazyModules
 using DataFrames
 
 @lazy import Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
+@lazy import CairoMakie as MK = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 
-import CairoMakie as MK # lazy loading doesn't help, as it's used as an argument type in Base.show
 using Deneb
 
 using ..Baysor.Utils

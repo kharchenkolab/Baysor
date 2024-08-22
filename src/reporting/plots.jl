@@ -224,7 +224,7 @@ end
 
 ### Utils
 
-function makie_to_base64(fig::Union{MK.Scene, MK.Figure})
+function makie_to_base64(fig) # No types to avoid forcing Makie compilation
     io64 = Base64.IOBuffer();
     iob64 = Base64.Base64EncodePipe(io64)
     show(iob64, MIME("image/png"), fig);
@@ -234,6 +234,3 @@ function makie_to_base64(fig::Union{MK.Scene, MK.Figure})
 
     return "<img src=\"data:image/png;base64,$str\" />"
 end
-
-Base.show(io::IO, ::MIME"text/html", fig::MK.Scene) = print(io, makie_to_base64(fig))
-Base.show(io::IO, ::MIME"text/html", fig::MK.Figure) = print(io, makie_to_base64(fig))
