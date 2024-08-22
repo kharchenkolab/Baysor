@@ -49,7 +49,7 @@ function plot_molecules(
     ylims = something(ylims, val_range(df_spatial.y))
 
     if !append
-        fig = MK.Figure(resolution=size)
+        fig = MK.Figure(;size)
         fig[1, 1] = MK.Axis(fig; axis_kwargs...);
     end
 
@@ -144,7 +144,7 @@ function plot_num_of_cells_per_iterarion(
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    fig = MK.Figure(resolution=(600, 400));
+    fig = MK.Figure(size=(600, 400));
     axis_args = (
         xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14,
         xlabel="Iteration", ylabel="Num. cells", xlabelpadding=0, ylabelpadding=0
@@ -213,7 +213,7 @@ plot_colorbar(colors; kwargs...) = plot_colorbar(colors[:ticks], colors[:palette
 
 function plot_colorbar(color_ticks, palette; size=(500, 110), xticklabelsize=12,
         xlabelsize=14, xlabelpadding=0, kwargs...)
-    fig = MK.Figure(resolution=size)
+    fig = MK.Figure(;size)
     fig[1, 1] = MK.Axis(fig; yticksvisible=false, yticklabelsvisible=false, xticksvisible=false, xticklabelsize=12,
         xlabelsize=14, xlabelpadding=0, kwargs...)
     MK.barplot!(color_ticks, ones(length(color_ticks)), color=palette)

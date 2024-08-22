@@ -74,16 +74,20 @@ function plot_dataset_colors(
         df_spatial::DataFrame, color::Union{Vector, Symbol, String};
         min_molecules_per_cell::Int, min_pixels_per_cell::Int=7, markersize::Float64=-1., alpha::Union{Float64, Vector{Float64}}=0.5,
         prior_polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[], polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[],
-        ticks::Bool=true, axis_kwargs::KWArgT=nothing, kwargs...
+        ticks::Bool=true, axis_kwargs::KWArgT=nothing, title::String="", kwargs...
     )
 
     axis_kwargs = update_args((xticklabelsize=12, yticklabelsize=12), axis_kwargs)
+    if title != ""
+        axis_kwargs = update_args(axis_kwargs, (;title=title))
+    end
+
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
     if markersize < 0
         markersize = min(max(50.0 / min_molecules_per_cell, 0.25), 5)
     end
 
-    fig = MK.Figure(resolution=plot_size)
+    fig = MK.Figure(size=plot_size)
     fig[1, 1] = MK.Axis(fig; xticksvisible=ticks, yticksvisible=ticks, axis_kwargs...);
 
     if length(prior_polygons) > 0
