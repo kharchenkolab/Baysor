@@ -11,11 +11,15 @@ function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confid
         p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
         p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
 
-        return p_df |>
-            VL.@vlplot(x={:s, title="Distance to $(confidence_nn_id)'th nearest neighbor"}, title=title, width=400, height=300) +
-            VL.@vlplot(:bar, y={:h, title="Density"}, color={datum="Observed", scale={scheme="category10"}, legend={title="Distribution"}}) +
-            VL.@vlplot({:line, size=linewidth}, y=:bg, color={datum="Background"}) +
-            VL.@vlplot({:line, size=linewidth}, y=:intra, color={datum="Intracellular"})
+        shared_enc = Encoding(
+            x=(;field="s", type="quantitative", title="Distance to $(confidence_nn_id)'th nearest neighbor"),
+            color=(;scale=(;scheme="category10"), legend=(;title="Distribution"))
+        )
+        return Data(p_df) * shared_enc * (
+            Mark(:bar) * Encoding(y=(;field=:h, type="quantitative", title="Density"), color=(;datum="Observed")) +
+            Mark(:line, size=linewidth) * Encoding(y="bg:q", color=(;datum="Background")) +
+            Mark(:line, size=linewidth) * Encoding(y="intra:q", color=(;datum="Intracellular"))
+        ) * Deneb.title(title) * config(view=(width=400, height=300))
 end
 
 # Function to be called from an environment without DataFrames imported
@@ -33,17 +37,21 @@ function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Fl
 end
 
 function plot_gene_structure(gene_emb::DataFrame)
-    return gene_emb |>
-        VL.@vlplot(
-            x={:x, scale={domain=val_range(gene_emb.x)}, title="UMAP-1"},
-            y={:y, scale={domain=val_range(gene_emb.y)}, title="UMAP-2"},
-            size={:size, scale={range=[5, 10]}, legend=false},
-            tooltip={:gene, type="nominal"},
-            width=600, height=600, title="Gene local structure",
-            config={axis={grid=false, ticks=false, ticklabels=false, labels=false}}
-        ) +
-        VL.@vlplot(:text, text={:gene, type="nominal"}, selection={view={type=:interval, bind=:scales}}) +
-        VL.@vlplot({:point, filled=true})
+    p_conf = config(
+        axis=(;grid=false, ticks=false, ticklabels=false, labels=false),
+        view=(width=600, height=600)
+    )
+
+    p_enc = Encoding(
+        x=(;field="x", type="quantitative", scale=(;domain=val_range(gene_emb.x)), title="UMAP-1"),
+        y=(;field="y", type="quantitative", scale=(;domain=val_range(gene_emb.y)), title="UMAP-1"),
+        size=(;field="size", type="quantitative", scale=(;range=[5, 10], legend=false)),
+        tooltip=(field("gene:n"))
+    )
+    return Data(gene_emb) * p_enc * (
+        Mark(:text) * Encoding(text="gene:n") * interactive_scales() +
+        Mark(:point, filled=true)
+    ) * p_conf * title("Gene local structure")
 end
 
 function estimate_panel_plot_size(df_spatial::DataFrame, min_molecules_per_cell::Int, min_pixels_per_cell::Int=7)
@@ -91,34 +99,35 @@ function plot_confidence_distribution(confidence::Vector{Float64}, is_noise::Abs
     p_df = estimate_hist(v1, bins=bins)
     p_df[!, :h2] = estimate_hist(v2, bins=bins).h;
 
-    return p_df |>
-        VL.@vlplot(
-            x={:s, title="Confidence", scale={domain=[minimum(p_df.s), maximum(p_df.e)]}}, x2=:e, y=:hs,
-            width=size[1], height=size[2], title={text="Confidence per molecule"}
-        ) +
-        VL.@vlplot(:bar, y2={:h, title="Num. molecules"}, color={datum="Assigned molecules"}, tooltip={:h}) +
-        VL.@vlplot({:bar, opacity=0.5}, y2=:h2, color={datum="Noise molecules"}, tooltip={:h2})
+    p_enc = Encoding(
+        x=(;field="s", type="quantitative", title="Confidence", scale=(;domain=[0, 1])),
+        x2="e:q", y="hs:q"
+    )
+
+    return Data(p_df) * p_enc * (
+        Mark(:bar) * Encoding(y2=(;field=:h, type="quantitative", title="Num. molecules"), color=(;datum="Assigned molecules"), tooltip="h:q") +
+        Mark(:bar, opacity=0.5) * Encoding(y2="h2:q", color=(;datum="Noise molecules"), tooltip="h2:q")
+    ) * title("Confidence per molecule") * config(view=(width=size[1], height=size[2]))
 end
 
 function plot_assignment_confidence_distribution(assignment_confidence::Vector{Float64}, nbins::Int=30, width::Int=500, height::Int=250)
-    return estimate_hist(assignment_confidence; nbins=nbins) |>
-        VL.@vlplot() +
-        VL.@vlplot(
-            :rect, x={:s, title="Assignment confidence"}, y={:hs, title="Num. molecules"},
-            x2={:e}, y2={:h}, tooltip={:h},
-            title="Assignment confidence", width=width, height=height
-        ) +
-        VL.@vlplot(:rule, x={datum=0.95})
+    p_df = estimate_hist(assignment_confidence; nbins=nbins)
+    l1 = Mark(:rect) * Encoding(
+        x=(;field="s", type="quantitative", title="Assignment confidence"),
+        y=(;field="hs", type="quantitative", title="Num. molecules"),
+        x2="e:q", y2="h:q", tooltip="h:q"
+    )
+
+    return Data(p_df) *
+        (l1 + Mark(:rule) * Encoding(x=(;datum=0.95))) *
+        config(view=(width=width, height=height)) *
+        title("Assignment confidence")
 end
 
 function plot_n_molecules_per_cell(n_mols_per_cell::Vector{Int}, nbins::Int=50, width::Int=500, height::Int=250)
     p_df = estimate_hist(n_mols_per_cell, nbins=nbins)
-    return p_df |> VL.@vlplot(
-        mark={:rect},
-        x={:s, scale={domain=[minimum(p_df.s), maximum(p_df.e)]}, title="Num. molecules per cell"},
-        x2={:e},
-        y={:hs},
-        y2={:h, title="Num. cells"},
-        width=width, height=height, title="Num. molecules per cell", tooltip={:h}
-    )
+    return Data(p_df) * Mark(:rect) * Encoding(
+        x=(;field="s", type="quantitative", scale=(;domain=[minimum(p_df.s), maximum(p_df.e)]), title="Num. molecules per cell"),
+        x2="e:q", y="hs:q", y2=(;field="h", type="quantitative", title="Num. cells"), tooltip="h:q"
+    ) * config(view=(width=width, height=height)) * title("Num. molecules per cell")
 end
