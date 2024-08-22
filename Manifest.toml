@@ -2,7 +2,7 @@
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "58e87780329ac39164f0c0091ed8e363e20379d6"
+project_hash = "cedd6e2f0382391fd7c8ba740f0692925575509f"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -286,11 +286,23 @@ version = "0.4.13"
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 
+[[deps.DefaultApplication]]
+deps = ["InteractiveUtils"]
+git-tree-sha1 = "c0dfa5a35710a193d83f03124356eef3386688fc"
+uuid = "3f0dd361-4fe0-5fc6-8523-80b14ec94d85"
+version = "1.1.0"
+
 [[deps.DelaunayTriangulation]]
 deps = ["AdaptivePredicates", "EnumX", "ExactPredicates", "Random"]
 git-tree-sha1 = "b5f1c6532d2ea71e99b74231b0a3d53fba846ced"
 uuid = "927a84f5-c5f4-47a5-9785-b46e178433df"
 version = "1.1.3"
+
+[[deps.Deneb]]
+deps = ["DefaultApplication", "JSON", "MultilineStrings", "NodeJS_18_jll", "REPL", "Tables", "UUIDs"]
+git-tree-sha1 = "8ef6aba728cef0dcc3c8634fba5e05c9fac341f9"
+uuid = "b5a61f88-a05b-4725-9526-4eca17cec623"
+version = "0.3.0"
 
 [[deps.DiffResults]]
 deps = ["StaticArraysCore"]
@@ -1042,6 +1054,11 @@ version = "0.3.4"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2023.1.10"
 
+[[deps.MultilineStrings]]
+git-tree-sha1 = "3214216b069fb1bc329f55094681e06b64a51022"
+uuid = "1e8d2bf6-9821-4900-9a2f-4d87552df2bd"
+version = "0.1.1"
+
 [[deps.MultivariateStats]]
 deps = ["Arpack", "Distributions", "LinearAlgebra", "SparseArrays", "Statistics", "StatsAPI", "StatsBase"]
 git-tree-sha1 = "816620e3aac93e5b5359e4fdaf23ca4525b00ddf"
@@ -1087,6 +1104,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "dde03ab3f22e2d7cfbc414a02b50617406346cf1"
 uuid = "a4b94fbf-73f5-58ff-888d-48a8396e17f6"
 version = "16.15.0+0"
+
+[[deps.NodeJS_18_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "82dbe46101dfce63c5a66e7805e6ac453addc4cb"
+uuid = "c1e1d063-8311-5f52-a749-c7b05e91ae37"
+version = "18.16.1+0"
 
 [[deps.Observables]]
 git-tree-sha1 = "7438a59546cf62428fc9d1bc94729146d37a7225"

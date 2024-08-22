@@ -114,16 +114,20 @@ function plot_expression_vectors(vecs...; gene_names::Vector{String}, min_expr_f
     scale = sum(y_vals)
 
     p_df = DataFrame(:gene => gene_names)
-    plt = VL.@vlplot(x={:gene, title="Gene"}, tooltip=:gene, config={axisX={labels=xticks, ticks=false, labelAngle=xrotation}}, width=700, height=300)
+    layers = []
 
     for (l,cnt) in zip(labels, vecs)
         p_df[!,l] = cnt
-        plt += VL.@vlplot({:bar, opacity=alpha}, y={l, title=ylabel}, color={datum=l})
+        layer = Mark(:bar, opacity=alpha) *
+            Encoding(x="gene", y=(;field=l, type="quantitative", title=ylabel), color=(;datum=l))
+        push!(layers, layer)
     end
     p_df[!, :_yf] = y_vals
     p_df[!, :_yt] = y_vals .+ text_offset * scale
 
-    return p_df |> (plt + VL.@vlplot(:text, y=:_yt, text=:gene, transform=[{filter="datum._yf > $(min_expr_frac * scale)"}]))
+    push!(layers, Mark(:text) * Encoding(x="gene", y="_yt:q", text="gene") * transform_filter("datum._yf > $(min_expr_frac * scale)"))
+
+    return Data(p_df) * sum(layers) * config(view=(width=700, height=300))
 end
 
 ### Tracing

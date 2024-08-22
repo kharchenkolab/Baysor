@@ -25,8 +25,8 @@ plot_num_transcript_overview(df_spatial::DataFrame, args...; kwargs...) =
 function plot_num_transcript_overview(genes::Vector{Int}, confidences::Vector{Float64}, gene_names::Vector; alpha::Float64=0.3)
     order = sortperm(gene_names)
     return plot_expression_vectors(
-        count_array(genes[confidences .>= 0.5], max_value=length(gene_names))[order],
-        count_array(genes[confidences .< 0.5], max_value=length(gene_names))[order],
+        count_array(genes[confidences .>= 0.5], max_value=length(gene_names), drop_zero=true)[order],
+        count_array(genes[confidences .< 0.5], max_value=length(gene_names), drop_zero=true)[order],
         gene_names=gene_names[order]; labels=["Real", "Noise"], ylabel="Num. molecules",
         min_expr_frac=0.01, alpha=alpha
     )

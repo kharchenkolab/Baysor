@@ -7,6 +7,7 @@ using DataFrames
 
 import CairoMakie as MK # lazy loading doesn't help, as it's used as an argument type in Base.show
 import VegaLite as VL # lazy loading doesn't help, as macroses trigger compilation
+using Deneb
 
 using ..Baysor.Utils
 
