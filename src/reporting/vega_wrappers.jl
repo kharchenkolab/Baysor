@@ -1,13 +1,16 @@
 import JSON
+using Pkg.Artifacts
+
+asset(url...) = normpath(joinpath(artifact"vegalite_app", "minified", url...))
 
 function vega_header(title::String="Plot", other::String="")
     return """
       <head>
         <title>$title</title>
         <meta charset="UTF-8">
-        <script>$(read(VL.asset("vega.min.js"), String))</script>
-        <script>$(read(VL.asset("vega-lite.min.js"), String))</script>
-        <script>$(read(VL.asset("vega-embed.min.js"), String))</script>
+        <script>$(read(asset("vega.min.js"), String))</script>
+        <script>$(read(asset("vega-lite.min.js"), String))</script>
+        <script>$(read(asset("vega-embed.min.js"), String))</script>
         $other
       </head>
     """
@@ -26,17 +29,22 @@ function vega_style()
     """
 end
 
-function vega_plot_html(specs::Dict{String})
-    res = """
+function vega_plot_html(specs::Dict{String, Deneb.VegaLiteSpec{T}} where T <:Deneb.AbstractSpec)
+    res =
+    """
       <script type="text/javascript">
-        var opt = {
-          mode: "vega-lite",
-          renderer: "$(VL.Vega.RENDERER)",
-          actions: $(VL.Vega.ACTIONSLINKS)
+        var opt = {mode: "vega-lite"}
+        function showError(el, error){
+          el.innerHTML = ('<div class="error" style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
         }
     """
     for (i, (divid,spec)) in enumerate(specs)
-        res *= "var spec$i = $(JSON.json(VL.add_encoding_types(VL.Vega.getparams(spec))))\nvegaEmbed('#$divid', spec$i, opt);\n\n"
+        res *= "var spec$i = $(JSON.json(spec))\nvegaEmbed('#$divid', spec$i, opt).catch(error => showError(el, error));\n\n"
     end
 
     return res * "</script>"
