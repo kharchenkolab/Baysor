@@ -175,18 +175,6 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
 end
 
 function update_prior_probabilities!(components::Vector{<:Component})
-    # c_weights = [log(max(c.n_samples, new_component_weight) + 1) for c in components]
-    # t_mmc = 150.0; # TODO: finish the idea
-    # t_dist = Normal(t_mmc, t_mmc * 3)
-    # prior_probs = pdf.(t_dist, c_weights)
-    # prior_probs[c_weights .< t_mmc] .= c_weights[c_weights .< t_mmc] ./ t_mmc .* pdf(t_dist, t_mmc)
-
-    # t_mmc = (log10(100) + log10(1000)) / 2
-    # # t_mmc = log10(2 + 1)
-    # # t_mmc = log10(100 + 1)
-    # t_dist = Normal(t_mmc, t_mmc / 2)
-    # prior_probs = [pdf(t_dist, log10(c.n_samples + 1)) for c in components]
-
     for c in components
         c.prior_probability = c.n_samples
     end
@@ -202,12 +190,6 @@ function maximize!(data::BmmData{N, CT} where N; kwargs...) where CT
             data.components[i], position_data(data)[:, p_ids], composition_data(data, p_ids);
             nuclei_probs=nuc_probs, min_nuclei_frac=data.min_nuclei_frac, kwargs...
         )
-
-        if CT <: MvNormalF # TODO: move to MvNormalF or Component
-            c = data.components[i]
-            adjust_cov_by_prior!(c.composition_params.Σ, data.misc[:composition_shape_prior]; n_samples=c.n_samples)
-            update_cache!(c.composition_params)
-        end
     end
 
     data.noise_density = estimate_noise_density_level(data)
@@ -232,12 +214,6 @@ function noise_composition_density(data::BmmData{T, CategoricalSmoothed{FT}} whe
     end
 
     return acc / fmax(n_comps, 1.0)
-end
-
-function noise_composition_density(data::BmmData{T, MvNormalF{M, N}} where {T, M, N})::Float64
-    # std_vals::Vector{Float64} = data.misc[:std_vals] .* 0.25; # TODO: fix this
-    # return pdf(MultivariateNormal(zeros(length(std_vals)), diagm(0 => std_vals.^2)), 2 .* std_vals)
-    return 1e-2
 end
 
 estimate_noise_density_level(data::BmmData) =
@@ -355,7 +331,6 @@ function bmm!(
         expect_dirichlet_spatial!(data)
 
         if (i % component_split_step == 0) || (i == n_iters)
-            # TODO: Slowest place
             split_cells_by_connected_components!(data)
         end
 

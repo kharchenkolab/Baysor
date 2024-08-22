@@ -4,7 +4,6 @@ using Statistics
 using StatsBase: countmap
 
 mutable struct BmmData{L, CT}
-
     # Static data
     ## Segmentation data
     x::DataFrame;
@@ -47,96 +46,98 @@ mutable struct BmmData{L, CT}
     use_gene_smoothing::Bool
     min_nuclei_frac::Float64
     mrf_strength::Float64
+end
 
-    """
-    ...
-    # Arguments
-    - `components::Array{Component, 1}`:
-    - `x::DataFrame`:
-    - `adj_list::AdjList`:
-    - `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
-    - `real_edge_weight::Float64`: weight of an edge for "average" real point
-    - `assignment::Array{Int, 1}`:
-    """
-    function BmmData(components::Array{Component{N, CT}, 1}, x::DataFrame, adj_list::AdjList, assignment::Vector{Int};
-                     real_edge_weight::Float64=1.0, k_neighbors::Int=20, noise_position_density::Float64=0.0,
-                     cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
-                     min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]) where {N, CT}
-        @assert maximum(assignment) <= length(components)
-        @assert minimum(assignment) >= 0
-        @assert length(assignment) == size(x, 1)
+"""
+...
+# Arguments
+- `components::Array{Component, 1}`:
+- `x::DataFrame`:
+- `adj_list::AdjList`:
+- `adjacent_weights::Array{Array{Float64, 1}, 1}`: edge weights, used for smoothness penalty
+- `real_edge_weight::Float64`: weight of an edge for "average" real point
+- `assignment::Array{Int, 1}`:
+"""
+function BmmData(
+        components::Array{Component{N, CT}, 1}, x::DataFrame, adj_list::AdjList, assignment::Vector{Int};
+        real_edge_weight::Float64=1.0, k_neighbors::Int=20, noise_position_density::Float64=0.0,
+        cluster_penalty_mult::Float64=0.25, use_gene_smoothing::Bool=true, prior_seg_confidence::Float64=0.5,
+        min_nuclei_frac::Float64=0.1, mrf_strength::Float64=0.1, na_genes::Vector{Int}=Int[]
+    ) where {N, CT}
+    @assert maximum(assignment) <= length(components)
+    @assert minimum(assignment) >= 0
+    @assert length(assignment) == size(x, 1)
 
-        metadata_used = Symbol[];
+    metadata_used = Symbol[];
 
-        if !all(s in propertynames(x) for s in [:x, :y, :gene])
-            error("`x` data frame must have columns 'x', 'y' and 'gene'")
-        end
-
-        p_data = position_data(x)
-        @assert size(p_data, 1) == N
-
-        position_knn_tree = KDTree(p_data)
-        knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
-
-        comp_data = [ifelse(g in na_genes, missing, g) for g in composition_data(x)]
-
-        x = deepcopy(x)
-        if !(:confidence in propertynames(x))
-            x[!, :confidence] .= 0.95
-        end
-
-        nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
-        cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
-        self = new{N, CT}(
-            x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
-            adj_list, real_edge_weight, position_knn_tree, knn_neighbors,
-            components, assignment, length(components), noise_position_density, 0.0,
-            Int[],
-            Int[], Int[], # prior segmentation info
-            Dict{Symbol, Any}(), Dict{Symbol, Any}(),
-            prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing, min_nuclei_frac, mrf_strength
-        )
-
-        for c in self.components
-            c.n_samples = 0
-        end
-
-        for c_id in assignment[assignment .> 0]
-            self.components[c_id].n_samples += 1
-        end
-
-        # Resolve component guids
-        guids = [c.guid for c in self.components]
-
-        if maximum(guids) <= 0
-            self.max_component_guid = length(self.components)
-            for (i,c) in enumerate(self.components)
-                c.guid = i
-            end
-        else
-            if minimum(guids) <= 0
-                error("Either all or no guids can be <= 0")
-            end
-
-            self.max_component_guid = maximum(guids)
-        end
-
-        if :prior_segmentation in propertynames(x)
-            self.segment_per_molecule = deepcopy(x.prior_segmentation);
-            self.n_molecules_per_segment = count_array(self.segment_per_molecule, drop_zero=true);
-            update_n_mols_per_segment!(self);
-        end
-
-        for c in [:confidence, :nuclei_probs, :cluster, :prior_segmentation]
-            if c in propertynames(x)
-                push!(metadata_used, c)
-            end
-        end
-
-        @info "Using the following additional information about molecules: $(metadata_used)"
-
-        return self
+    if !all(s in propertynames(x) for s in [:x, :y, :gene])
+        error("`x` data frame must have columns 'x', 'y' and 'gene'")
     end
+
+    p_data = position_data(x)
+    @assert size(p_data, 1) == N
+
+    position_knn_tree = KDTree(p_data)
+    knn_neighbors = knn(position_knn_tree, p_data, k_neighbors)[1]
+
+    comp_data = [ifelse(g in na_genes, missing, g) for g in composition_data(x)]
+
+    x = deepcopy(x)
+    if !(:confidence in propertynames(x))
+        x[!, :confidence] .= 0.95
+    end
+
+    nuclei_probs = :nuclei_probs in propertynames(x) ? x[!, :nuclei_probs] : Float64[]
+    cluster_per_molecule = :cluster in propertynames(x) ? x.cluster : Int[]
+    self = BmmData{N, CT}(
+        x, p_data, comp_data, confidence(x), cluster_per_molecule, Int[], nuclei_probs,
+        adj_list, real_edge_weight, position_knn_tree, knn_neighbors,
+        components, assignment, length(components), noise_position_density, 0.0,
+        Int[],
+        Int[], Int[], # prior segmentation info
+        Dict{Symbol, Any}(), Dict{Symbol, Any}(),
+        prior_seg_confidence, cluster_penalty_mult, use_gene_smoothing, min_nuclei_frac, mrf_strength
+    )
+
+    for c in self.components
+        c.n_samples = 0
+    end
+
+    for c_id in assignment[assignment .> 0]
+        self.components[c_id].n_samples += 1
+    end
+
+    # Resolve component guids
+    guids = [c.guid for c in self.components]
+
+    if maximum(guids) <= 0
+        self.max_component_guid = length(self.components)
+        for (i,c) in enumerate(self.components)
+            c.guid = i
+        end
+    else
+        if minimum(guids) <= 0
+            error("Either all or no guids can be <= 0")
+        end
+
+        self.max_component_guid = maximum(guids)
+    end
+
+    if :prior_segmentation in propertynames(x)
+        self.segment_per_molecule = deepcopy(x.prior_segmentation);
+        self.n_molecules_per_segment = count_array(self.segment_per_molecule, drop_zero=true);
+        update_n_mols_per_segment!(self);
+    end
+
+    for c in [:confidence, :nuclei_probs, :cluster, :prior_segmentation]
+        if c in propertynames(x)
+            push!(metadata_used, c)
+        end
+    end
+
+    @info "Using the following additional information about molecules: $(metadata_used)"
+
+    return self
 end
 
 function position_data(df::AbstractDataFrame)::Matrix{Float64}
@@ -151,13 +152,8 @@ end
 @inline composition_data(df::AbstractDataFrame)::Union{Vector{Int}, Vector{Union{Missing, Int}}} = df.gene
 @inline composition_data(data::BmmData{T, CategoricalSmoothed{FT}} where {T, FT}) = data.composition_data
 
-# TODO: fix this
-@inline composition_data(data::BmmData{T, MvNormalF{M, N}} where {T, M, N})::Matrix{Float64} = data.misc[:composition_data_norm]
-
 @inline composition_data(data::T where T <: Union{AbstractDataFrame, BmmData{BT, CategoricalSmoothed{FT}}} where {BT, FT}, ids::AbstractVector{Int}) =
     view(composition_data(data), ids)
-@inline composition_data(data::BmmData{T, MvNormalF{M, N}} where {T, M, N}, ids::Union{AbstractVector{Int}, Int}) =
-    view(composition_data(data), :, ids)
 @inline composition_data(data::BmmData{T, CategoricalSmoothed{FN}} where {T, FN}, id::Int) =
     composition_data(data)[id]
 
