@@ -29,7 +29,7 @@ function vega_style()
     """
 end
 
-function vega_plot_html(specs::Dict{String, Deneb.VegaLiteSpec{T}} where T <:Deneb.AbstractSpec)
+function vega_plot_html(specs::Dict{String}) # The dict is deliberately abstract, as these specs are created as Dict{String, Any}
     res =
     """
       <script type="text/javascript">
