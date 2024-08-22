@@ -48,15 +48,20 @@ save_segmented_df(segmented_df::DataFrame, file::String) =
 save_cell_stat_df(cell_stat_df::DataFrame, file::String) =
     CSV.write(file, cell_stat_df)
 
-save_molecule_counts(counts::DataFrame, file::Union{String, Nothing}) =
-    save_molecule_counts(counts, names(counts), file)
+function save_molecule_counts(
+        counts::Union{AbstractDataFrame, AbstractMatrix}, file::Union{String, Nothing};
+        cell_names::Vector{String}, gene_names::Vector{String}
+    )
+    @assert size(counts, 1) == length(gene_names) "Counts matrix has wrong number of rows ($(size(counts, 1)) != $(length(gene_names)))"
+    @assert size(counts, 2) == length(cell_names) "Counts matrix has wrong number of columns ($(size(counts, 2)) != $(length(cell_names)))"
 
-function save_molecule_counts(counts::Union{AbstractDataFrame, AbstractMatrix}, gene_names::Vector{String}, file::Union{String, Nothing})::String
     st = isnothing(file) ? IOBuffer() : open(file, "w")
 
-    println(st, join(gene_names, "\t"))
-    for r in eachrow(counts)
-        println(st, join(["$v" for v in r], '\t'))
+    cell_names = vcat("gene", cell_names)
+    println(st, join(cell_names, "\t"))
+    for ri in axes(counts, 1)
+        print(st, gene_names[ri], "\t")
+        println(st, join(["$v" for v in counts[ri,:]], '\t'))
     end
 
     (file === nothing) && return String(take!(st))
@@ -196,7 +201,7 @@ function save_segmentation_results(
     if matrix_format == :loom
         save_matrix_to_loom(cm, gene_names, cell_stat_df, out_paths.counts)
     elseif matrix_format == :tsv
-        save_molecule_counts(cm, gene_names, out_paths.counts)
+        save_molecule_counts(cm, out_paths.counts; gene_names, cell_names=cell_stat_df.cell)
     else
         error("Unknown matrix format: $(matrix_format). Only :loom and :tsv are supported.")
     end
