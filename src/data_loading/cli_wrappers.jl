@@ -72,8 +72,12 @@ end
 
 
 function polygons_to_geojson(polygons::PolygonCollection)
-    geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))], "cell" => c) for (c,p) in polygons]
-    return Dict("type" => "GeometryCollection", "geometries" => geoms);
+    geoms = [Dict(
+        "type" => "Feature", "id" => c,
+        "geometry" => Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))])
+    ) for (c,p) in polygons if size(p, 1) > 3
+    ]
+    return Dict("type" => "FeatureCollection", "features" => geoms);
 end
 
 polygons_to_geojson(polygons::PolygonStack) =
