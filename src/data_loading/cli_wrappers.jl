@@ -178,11 +178,9 @@ using ..Utils: DataOptions
 function load_df(coordinates::String, data_opts::DataOptions; kwargs...)
     exclude_genes = split_string_list(data_opts.exclude_genes)
 
-    # TODO: fix Symbol when Configurations are fixed. Also replace this whole call with `to_dict(data_opts)...`
     df_spatial, gene_names = load_df(
-        coordinates; x_col=Symbol(data_opts.x), y_col=Symbol(data_opts.y), z_col=Symbol(data_opts.z), gene_col=Symbol(data_opts.gene),
-        min_molecules_per_gene=data_opts.min_molecules_per_gene, exclude_genes=exclude_genes,
-        drop_z=data_opts.force_2d, kwargs...
+        coordinates; x_col=data_opts.x, y_col=data_opts.y, z_col=data_opts.z, gene_col=data_opts.gene,
+        drop_z=data_opts.force_2d, data_opts.min_molecules_per_gene, exclude_genes, kwargs...
     )
 
     @info "Loaded $(size(df_spatial, 1)) transcripts, $(length(gene_names)) genes."

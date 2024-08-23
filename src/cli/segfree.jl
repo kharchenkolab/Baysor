@@ -27,8 +27,8 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
         config::RunOptions=RunOptions(),
         k_neighbors::Int=0,
         # ncvs_to_save::Int=0, # TODO: uncomment and use it in the code
-        x_column::String=config.data.x, y_column::String=config.data.y, z_column::String=config.data.z,
-        gene_column::String=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
+        x_column::Symbol=config.data.x, y_column::Symbol=config.data.y, z_column::Symbol=config.data.z,
+        gene_column::Symbol=config.data.gene, min_molecules_per_cell::Int=config.data.min_molecules_per_cell,
         output::String="ncvs.loom"
     )
     opts = config.data;

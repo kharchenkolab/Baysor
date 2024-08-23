@@ -1,10 +1,10 @@
 using Configurations
 
 @option mutable struct DataOptions # --config.data.*
-    x::String = "x" # Name of the x column in the input data. Default: "x"
-    y::String = "y" # Name of the y column in the input data. Default: "y"
-    z::String = "z" # Name of the y column in the input data. Default: "z"
-    gene::String = "gene" # Name of gene column in the input data. Default: "gene"
+    x::Symbol = :x # Name of the x column in the input data. Default: "x"
+    y::Symbol = :y # Name of the y column in the input data. Default: "y"
+    z::Symbol = :z # Name of the y column in the input data. Default: "z"
+    gene::Symbol = :gene # Name of gene column in the input data. Default: "gene"
     force_2d::Bool = false # Ignores z-column in the data if it is provided
     min_molecules_per_gene::Int = 1 # Minimal number of molecules per gene. Default: 1
     exclude_genes::String = "" # Comma-separated list of genes or regular expressions to ignore during segmentation. Example: 'Blank*,MALAT1'
