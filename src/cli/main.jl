@@ -119,7 +119,7 @@ Run cell segmentation
     )
     @info "Done"
 
-    (segmented_df, tracer, mol_clusts, comp_segs, poly_joint, cell_stat_df, cm, polygons) = BPR.run_segmentation(
+    (segmented_df, tracer, mol_clusts, comp_segs, poly_joined, cell_stat_df, cm, polygons) = BPR.run_segmentation(
         df_spatial, gene_names, opts.segmentation; plot_opts=opts.plotting,
         min_molecules_per_cell=opts.data.min_molecules_per_cell,
         save_polygons=(save_polygons != "false"), run_id, plot
@@ -139,7 +139,7 @@ Run cell segmentation
         @info "Plotting results"
         REP.plot_segmentation_report(
             segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
-            prior_polygons=prior_polygons, polygons=collect(values(poly_joint)),
+            prior_polygons=prior_polygons, polygons=collect(values(poly_joined)),
             diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
             gene_colors=:ncv_color, min_molecules_per_cell=opts.data.min_molecules_per_cell,
             min_pixels_per_cell=opts.plotting.min_pixels_per_cell

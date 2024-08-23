@@ -317,17 +317,17 @@ function boundary_polygons_auto(
     )
     verbose && @info "Estimating boundary polygons"
 
-    poly_joint = boundary_polygons(pos_data, assignment; cell_names);
+    poly_joined = boundary_polygons(pos_data, assignment; cell_names);
 
     if !estimate_per_z || size(pos_data, 1) == 2
-        return poly_joint, poly_joint
+        return poly_joined, poly_joined
     end
 
     z_coords = @view pos_data[3,:]
     z_vals = sort(unique(z_coords))
     if length(z_vals) > (size(pos_data, 2) / 100)
         @warn "To many values of z ($(length(z_vals))). Using 2D polygons"
-        return poly_joint, poly_joint
+        return poly_joined, poly_joined
     end
 
     mask_per_z = [(z_coords .≈ z) for z in z_vals]
@@ -338,8 +338,8 @@ function boundary_polygons_auto(
         mask_per_z
     );
     poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
-    poly_per_z["joint"] = poly_joint
+    poly_per_z["2d"] = poly_joined
 
-    return poly_joint, poly_per_z
+    return poly_joined, poly_per_z
 end
 

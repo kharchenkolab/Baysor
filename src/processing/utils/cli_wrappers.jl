@@ -73,15 +73,15 @@ function run_segmentation(
     )
     segmented_df[!, :ncv_color] = "#" .* Colors.hex.(gene_colors)
 
-    poly_joint, polygons = nothing, nothing
+    poly_joined, polygons = nothing, nothing
     if save_polygons || plot
-        poly_joint, polygons = boundary_polygons_auto(
+        poly_joined, polygons = boundary_polygons_auto(
             position_data(bm_data), bm_data.assignment; estimate_per_z=save_polygons
         )
     end
 
     return (
-        segmented_df, bm_data.tracer, mol_clusts, comp_segs, poly_joint,
+        segmented_df, bm_data.tracer, mol_clusts, comp_segs, poly_joined,
         cell_stat_df, cm, polygons
     )
 end
