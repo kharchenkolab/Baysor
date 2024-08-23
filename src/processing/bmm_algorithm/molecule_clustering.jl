@@ -326,7 +326,7 @@ function cluster_molecules_on_mrf(
     end
 
     if verbose
-        @info "Algorithm stopped after $n_iters iterations. Error: $(round(max_diffs[end], sigdigits=3)). Converged: $(max_diffs[end] <= tol)."
+        @info "Algorithm stopped after $n_iters iterations. Max. probability difference: $(round(max_diffs[end], sigdigits=3)). Converged: $(max_diffs[end] <= tol)."
     end
 
     if do_maximize
