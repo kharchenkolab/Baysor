@@ -48,7 +48,7 @@ function plot_diagnostics_panel(
         file::String, clust_res::Union{NamedTuple, Nothing}=nothing, comp_segs::Union{NamedTuple, Nothing}=nothing
     )
     @info "Plot diagnostics"
-    vega_plots = Dict{String, <:Deneb.AbstractSpec}()
+    vega_plots = Dict{String, Deneb.AbstractSpec}()
 
     if clust_res !== nothing
         vega_plots["vg_clust_conv"] = plot_clustering_convergence(clust_res, "Molecule clustering convergence")

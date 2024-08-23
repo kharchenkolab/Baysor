@@ -307,21 +307,15 @@ end
             tbd.assignment[1:1000] .= 0
             as1 = deepcopy(tbd.assignment);
 
-            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            BPR.split_cells_by_connected_components!(tbd)
             as2 = deepcopy(tbd.assignment);
 
-            BPR.split_cells_by_connected_components!(tbd; add_new_components=true)
+            BPR.split_cells_by_connected_components!(tbd)
             as3 = deepcopy(tbd.assignment);
 
-            @test length(unique(as1)) < length(unique(as2))
+            @test any(as1 .!= as2)
+            @test all(sort(unique(as1)) .== sort(unique(as2)))
             @test all(sort(unique(as2)) .== sort(unique(as3)))
-
-            tbd.assignment .= as1
-            BPR.split_cells_by_connected_components!(tbd; add_new_components=false)
-            as4 = deepcopy(tbd.assignment);
-
-            @test any(as4 .!= as1)
-            @test all(sort(unique(as1)) .== sort(unique(as4)))
         end
 
         @testset "maximize_mvnormal" begin
@@ -377,7 +371,7 @@ end
                     df_spatial; scale_std="5%", min_molecules_per_cell=10, n_cells_init=size(df_spatial, 1) ÷ 3,
                     adj_list, scale
                 );
-                BPR.bmm!(bm_data; n_iters=500, new_component_frac=0.3, min_molecules_per_cell=10, assignment_history_depth=100, verbose=false);
+                BPR.bmm!(bm_data; n_iters=500, min_molecules_per_cell=10, assignment_history_depth=100, verbose=false);
 
                 conj_table = counts(BPR.estimate_assignment_by_history(bm_data)[1], df_spatial.cell)
                 match_masks = [vec(mapslices(maximum, conj_table ./ sum(conj_table, dims=d), dims=d)) .> 0.9 for d in 1:2]
