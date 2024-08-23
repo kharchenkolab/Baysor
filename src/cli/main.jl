@@ -193,8 +193,8 @@ function load_prior_segmentation!(
     prior_polygons = Matrix{Float64}[]
     if prior_segmentation !== ""
         prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation!(
-            prior_segmentation, df_spatial, BPR.position_data(df_spatial);
-            min_mols_per_cell=min_molecules_per_cell, min_molecules_per_segment=min_molecules_per_segment
+            prior_segmentation, df_spatial; min_molecules_per_segment, min_molecules_per_cell,
+            estimate_scale=opts.estimate_scale_from_centers
         )
 
         if opts.estimate_scale_from_centers

@@ -130,9 +130,27 @@ end
         @testset "prior" begin
             df = DataWrappers.get_spatial_df(; n_mols=1000000, n_cells=10000, confidence=false, cell=true)
             pos_data = BPR.position_data(df)
-            scale, std = DAT.estimate_scale_from_assignment(pos_data, df.cell, min_mols_per_cell=1);
+            scale, std = DAT.estimate_scale_from_assignment(pos_data, df.cell, min_molecules_per_cell=1);
             @test (scale - 0.00026) < 0.00002
             @test (std - 0.00017) < 0.00002
+        end
+
+        @testset "not_enough_molecules" begin
+            df = DataWrappers.get_spatial_df(prior_segmentation=true);
+
+            @test_throws ErrorException DAT.load_prior_segmentation!(
+                ":prior_segmentation", df, min_molecules_per_segment=1000,
+                min_molecules_per_cell=1000, estimate_scale=true
+            )
+
+            prior_seg, scale, scale_std = DAT.load_prior_segmentation!(
+                ":prior_segmentation", df, min_molecules_per_segment=10,
+                min_molecules_per_cell=1000, estimate_scale=false
+            )
+
+            @test prior_seg === nothing
+            @test scale ≈ 0.0
+            @test scale_std ≈ 0.0
         end
     end
 

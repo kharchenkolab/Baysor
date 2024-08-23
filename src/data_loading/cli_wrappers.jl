@@ -3,12 +3,13 @@ import JSON
 import LinearAlgebra: Adjoint
 using ProgressMeter
 using StatsBase: denserank
+using Pipe: @pipe as @p
 
 PolygonCollection = Dict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{String, Integer}}
 PolygonStack = Dict{String, Dict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
 Polygons = Union{PolygonCollection, PolygonStack}
 
-function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int, min_mols_per_cell::Int)
+function parse_prior_assignment(prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int)
     try
         prior_segmentation = Int.(prior_segmentation);
     catch
@@ -20,9 +21,8 @@ function parse_prior_assignment(pos_data::Matrix{Float64}, prior_segmentation::V
 
     prior_segmentation = denserank(prior_segmentation) .- 1
     filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=min_molecules_per_segment)
-    scale, scale_std = estimate_scale_from_assignment(pos_data, prior_segmentation; min_mols_per_cell=min_mols_per_cell)
 
-    return prior_segmentation, scale, scale_std
+    return prior_segmentation
 end
 
 # TODO: move it to CLI
@@ -34,10 +34,9 @@ function load_prior_segmentation(file::String, pos_data::Matrix{Float64}; min_mo
     filter_segmentation_labels!(prior_seg_labels, prior_segmentation; min_molecules_per_segment=min_molecules_per_segment)
     GC.gc()
 
-    scale, scale_std = estimate_scale_from_centers(prior_seg_labels)
     @info "Done"
 
-    return prior_segmentation, prior_seg_labels, scale, scale_std
+    return prior_segmentation, prior_seg_labels
 end
 
 ### Data
@@ -216,22 +215,29 @@ function save_segmentation_results(
 end
 
 function load_prior_segmentation!(
-        path::String, df_spatial::DataFrame, pos_data::Matrix{Float64};
-        min_molecules_per_segment::Int, min_mols_per_cell::Int
+        path::String, df_spatial::DataFrame; # TODO: estimate pos_data from df_spatial
+        min_molecules_per_segment::Int, min_molecules_per_cell::Int, estimate_scale::Bool
     )
-
     length(path) > 0 || error("Prior segmentation file path is empty")
+
+    pos_data = @p df_spatial |> _[:, intersect([:x, :y, :z], propertynames(_))] |> Matrix{Float64}(_) |> copy(_')
+
+    scale, scale_std = 0.0, 0.0
+    prior_seg_labels = nothing
+
     if path[1] == ':'
         prior_col = Symbol(path[2:end])
-        prior_seg, scale, scale_std = parse_prior_assignment(
-            pos_data, df_spatial[!, prior_col]; col_name=prior_col,
-            min_molecules_per_segment=min_molecules_per_segment, min_mols_per_cell=min_mols_per_cell
-        )
-        prior_seg_labels = nothing
+        prior_seg = parse_prior_assignment(df_spatial[!, prior_col]; min_molecules_per_segment, col_name=prior_col)
+
+        if estimate_scale
+            scale, scale_std = estimate_scale_from_assignment(pos_data, prior_seg; min_molecules_per_cell)
+        end
     else
-        prior_seg, prior_seg_labels, scale, scale_std = load_prior_segmentation(
-            path, pos_data; min_molecules_per_segment=min_molecules_per_segment
-        )
+        prior_seg, prior_seg_labels = load_prior_segmentation(path, pos_data; min_molecules_per_segment)
+
+        if estimate_scale
+            scale, scale_std = estimate_scale_from_centers(prior_seg_labels)
+        end
     end
 
     df_spatial[!, :prior_segmentation] = prior_seg

@@ -340,8 +340,9 @@ end
 
 function filter_small_molecule_clusters(
         genes::Vector{Int}, confidence::Vector{Float64}, adjacent_points::Vector{Vector{Int}},
-        assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}; min_mols_per_cell::Int, confidence_threshold::Float64=0.95
+        assignment_probs::Matrix{Float64}, cell_type_exprs::Matrix{Float64}; min_molecules_per_cell::Int, confidence_threshold::Float64=0.95
     )
+    ## DEPRECATED
     assignment = vec(mapslices(x -> findmax(x)[2], assignment_probs, dims=1));
     conn_comps_per_clust = get_connected_components_per_label(
         assignment, adjacent_points, 1;
@@ -349,7 +350,7 @@ function filter_small_molecule_clusters(
     )[1];
     n_mols_per_comp_per_clust = [length.(c) for c in conn_comps_per_clust];
 
-    real_clust_ids = findall(maximum.(n_mols_per_comp_per_clust) .>= min_mols_per_cell)
+    real_clust_ids = findall(maximum.(n_mols_per_comp_per_clust) .>= min_molecules_per_cell)
 
     if length(real_clust_ids) == size(assignment_probs, 1)
         return assignment_probs, n_mols_per_comp_per_clust, real_clust_ids
