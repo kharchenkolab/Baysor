@@ -7,7 +7,7 @@
 ### Removed
 
 - `no-ncv-estimation` was removed, as the NCV algorithm is fast and memory-efficient now
-
+- The Dirichlet sampling was removed, as it slowed-down the algorithm significantly, but didn't improve the segmentation quality
 
 ### Fixed
 
@@ -19,6 +19,7 @@
 ### Changed
 
 - Cell IDs in polygon GeoJSON are now strings to match segmentation.csv
+- The whole polygon.json format was changed from `GeometryColection` to `FeatureCollection` to match [10x format](https://www.10xgenomics.com/support/software/xenium-ranger/1.7/analysis/inputs/XR-input-overview#compat-files).
 
 ## [0.6.2] — 2023-08-15
 
