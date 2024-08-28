@@ -224,7 +224,7 @@ end
 
 ### Utils
 
-function makie_to_base64(fig) # No types to avoid forcing Makie compilation
+function makie_to_base64(fig::Union{MK.Scene, MK.Figure})
     io64 = Base64.IOBuffer();
     iob64 = Base64.Base64EncodePipe(io64)
     show(iob64, MIME("image/png"), fig);
