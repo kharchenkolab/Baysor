@@ -5,7 +5,7 @@ Extract Neighborhood Composition Vectors (NCVs) from a dataset
 
 # Args
 
-- `coordinates`:            CSV file with coordinates of molecules and gene type
+- `coordinates`:            CSV or Parquet file with coordinates of molecules and gene type
 
 # Options
 

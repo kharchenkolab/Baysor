@@ -7,8 +7,8 @@ Run cell segmentation
 
 # Args
 
-- `coordinates`:            CSV file with coordinates of molecules and gene type
-- `prior_segmentation`:     Image or a MAT file with segmentation mask (either boolean or component indexing) or CSV
+- `coordinates`:            CSV or Parquet file with coordinates of molecules and gene type
+- `prior_segmentation`:     Image or a MAT file with segmentation mask (either boolean or component indexing) or `coordinates`
                             column with integer segmentation labels.
                             If it's the column name, it should be preceded ':' symbol (e.g. `:cell`)
 

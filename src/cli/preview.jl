@@ -5,7 +5,7 @@ Plot an html with the dataset preview.
 
 # Args
 
-- `coordinates`:            CSV file with coordinates of molecules and gene type
+- `coordinates`:            CSV or Parquet file with coordinates of molecules and gene type
 
 # Options
 
