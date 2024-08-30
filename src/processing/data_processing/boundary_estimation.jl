@@ -304,8 +304,6 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
 
     if cell_names == nothing
         cell_names = 1:length(cell_borders)
-    else
-        cell_names = get.(Ref(cell_names), cell_labels, "")
     end
 
     return Dict(cid => cb for (cid,cb) in zip(cell_names, cell_borders) if !isempty(cb))
