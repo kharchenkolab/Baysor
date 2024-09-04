@@ -76,7 +76,7 @@ function run_segmentation(
     poly_joined, polygons = nothing, nothing
     if save_polygons || plot
         poly_joined, polygons = boundary_polygons_auto(
-            position_data(bm_data), bm_data.assignment; estimate_per_z=save_polygons
+            position_data(bm_data), bm_data.assignment; estimate_per_z=save_polygons, cell_names=cell_stat_df.cell
         )
     end
 
