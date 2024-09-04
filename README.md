@@ -65,6 +65,17 @@ julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/B
 
 It will install all dependencies, compile the package and create an executable in `~/.julia/bin/baysor`. *This executable can be moved to any other place if you need it.*
 
+#### Installing other versions
+
+To install development version, use `Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="develop"))`:
+
+```bash
+julia -e 'using Pkg; Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="develop")); Pkg.build()'
+```
+
+Other versions may be similarly installed by passing the version to the `rev` parameter (e.g., `rev="v0.5.2"`).
+
+
 ### Docker
 
 Alternatively, you can use Docker. It contains executable `baysor` to run Baysor from CLI, as well as IJulia installation to use Baysor with Jupyter.
@@ -91,12 +102,12 @@ You can find more info about dockers at [Docker Cheat Sheet](https://github.com/
 As a full run takes some time, it can be useful to run a quick preview to get meaning from the data and to get some guesses about the parameters of the full run.
 
 ```bash
-baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_CSV
+baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_FILE
 ```
 
 Here:
 
-- `MOLECULES_CSV` must contain information about *x* and *y* positions and gene assignment for each molecule
+- `MOLECULES_FILE` CSV or Parquet file, which contains information about *x* and *y* positions and gene assignment for each molecule
 - Parameters `X_COL`, `Y_COL` and `GENE_COL` must specify the corresponding column names. Default values are "x", "y" and "gene" correspondingly
 - `OUTPUT_PATH` determines the path to the output html file with the diagnostic plots
 
@@ -107,12 +118,12 @@ Here:
 To run the algorithm on your data, use
 
 ```bash
-baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL] -c config.toml MOLECULES_CSV [PRIOR_SEGMENTATION]
+baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL] -c config.toml MOLECULES_FILE [PRIOR_SEGMENTATION]
 ```
 
 Here:
 
-- `MOLECULES_CSV` must contain information about *x* and *y* positions and gene assignment for each molecule
+- `MOLECULES_FILE` must contain information about *x* and *y* positions and gene assignment for each molecule
 - `PRIOR_SEGMENTATION` is optional molecule segmentation obtained from another method (see [Using prior segmentation](#using-prior-segmentation))
 - Parameters X_COL, Y_COL, Z_COL and GENE_COL must specify the corresponding column names. Default values are "x", "y", "z" and "gene" correspondingly.
 - `SCALE` is a crucial parameter and must be approximately equal to the expected cell radius in the same units as "x", "y" and "z". In general, it's around 5-10 micrometers, and the preview run can be helpful to determine it for a specific dataset (by eye, for now).
@@ -132,10 +143,10 @@ For the description of all config parameters, see [example_config.toml](https://
 In some cases, you may want to use another segmentation as a prior for Baysor. The most popular case is having a segmentation based on DAPI/poly-A stainings: such information helps to understand where nuclei are positioned, but it's often quite imprecise. To take this segmentation into account you can pass it as the second positional argument to Baysor:
 
 ```bash
-baysor run [ARGS] MOLECULES_CSV [PRIOR_SEGMENTATION]
+baysor run [ARGS] MOLECULES_FILE [PRIOR_SEGMENTATION]
 ```
 
-Here, `PRIOR_SEGMENTATION` can be a path to a binary image with a segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_CSV` with integer cell assignment per molecule (`0` value means no assignment). In the latter case, the column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`. **Note:** only CSV column prior is currently supported for 3D segmentation.
+Here, `PRIOR_SEGMENTATION` can be a path to a binary image with a segmentation mask, an image with integer cell segmentation labels or a column name in the `MOLECULES_FILE` with integer cell assignment per molecule (`0` value means no assignment). In the latter case, the column name must have `:` prefix, e.g. for column `cell` you should use `baysor run [ARGS] molecules.csv :cell`. In case the image is too big to be stored in the tiff format, Baysor supports MATLAB '.mat' format: it should contain a single field with an integer matrix for either a binary mask or segmentation labels. When loading the segmentation, Baysor filters segments that have less than `min-molecules-per-segment` molecules. It can be set in the toml config, and the default value is `min-molecules-per-segment = min-molecules-per-cell / 4`. **Note:** only CSV column prior is currently supported for 3D segmentation.
 
 To specify the expected quality of the prior segmentation you may use `prior-segmentation-confidence` parameter. The value `0.0` makes the algorithm ignore the prior, while the value `1.0` restricts the algorithm from contradicting the prior. Prior segmentation is mainly needed for the cases where gene expression signal is not enough, e.g. with very sparse protocols (such as ISS or DARTFISH). Another potential use case is high-quality data with a visible sub-cellular structure. In these situations, setting `prior-segmentation-confidence > 0.7` is recommended. Otherwise, the default value `0.2` should work well.
 
@@ -186,7 +197,7 @@ Segmentation results:
   - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with a short lifespan likely correspond to noise.
 
 Visualization:
-- ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In the case of 3D segmentation, it is an array of GeoJSON polygons per z-plane, as well as "joint" polygons. *Shown only if `--save-polygons=geojson` is set*.
+- ***segmentation_polygons.json***: polygons used for visualization in GeoJSON format. In the case of 3D segmentation, it is an array of GeoJSON polygons per z-plane, as well as "2d" polygons.
 - ***segmentation_diagnostics.html***: visualization of the algorithm QC. *Shown only when `-p` is set.*
 - ***segmentation_borders.html***: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
 
@@ -215,7 +226,7 @@ Run parameters:
 To extract NCVs you need to run:
 
 ```bash
-baysor segfree [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_CSV
+baysor segfree [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_FILE
 ```
 
 The results will be stored in [loom format](https://linnarssonlab.org/loompy/format/index.html) with `/matrix` corresponding to the NCV matrix and `/col_attrs/ncv_color` showing the NCV color.
@@ -235,25 +246,6 @@ The pipeline options are described in the CLI help. Run `baysor --help` or the c
 However, there are additional parameters that can be specified through the TOML config. See [example_config.toml](./configs/example_config.toml) for their description. All parameters from the config can also be passed through the command line. For example, to set `exclude_genes` from the `data` section you need to pass `--config.data.exclude-genes='Blank*,MALAT1'` parameter. Please, keep in mind that the CLI parameters require replacing all underscores (`_`) with `-`.
 
 For more details on the syntax for CLI arguments, see the [Comonicon documentation](https://comonicon.org/stable/conventions/#Syntax-and-Conventions). TL;DR, possible spelling options are: `--x-column X` or `-x X`, also `--x-column=X` or `-nX`. And if you're using strings with unusual symbols like `*` or `?`, it's better to have them in quotes: `--config.data.exclude-genes='Blank*'`.
-
-## Preparing a release
-
-Update the version in the Project.toml, then:
-
-```
-export BAYSOR_VERSION=v0.6.0
-# ...change the version in the Project.toml...
-LazyModules_lazyload=false julia --project ./deps/build.jl app
-# ...test transferability...
-zip -r "baysor-x86_x64-linux-${BAYSOR_VERSION}_build.zip" LICENSE README.md ./bin/baysor/*
-
-git push origin master
-docker build -t vpetukhov/baysor:latest -t "vpetukhov/baysor:$BAYSOR_VERSION" --build-arg CACHEBUST=$(date +%s) .
-git tag -a $BAYSOR_VERSION -m $BAYSOR_VERSION
-git push origin master --tags
-
-docker push -a vpetukhov/baysor
-```
 
 ## Citation
 
