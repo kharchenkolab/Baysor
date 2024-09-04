@@ -3,7 +3,7 @@
 ### Added
 
 - New algorithm for NCV estimation based on Random Indexing. It is used by default now.
-- Support for Parquet format for input molecules (can directly use `transcripts.parquet` from Xenium)
+- Support of Parquet format for input molecules (can directly use `transcripts.parquet` from Xenium)
 - Now, in case of continuous z-stack (like Xenium), 3D polygons are estimated by binning the z-stack into 20 slices.
 
 ### Removed
@@ -13,7 +13,7 @@
 
 ### Fixed
 
-- Parallelized the algorithm
+- Improved multithreading
 - Optimized the algorithm performance
 - Improved algorithm for polygon estimation: fixed bugs and reduced overlaps
 - Fixed a bug in the `split` step, improved cell continuity
@@ -23,6 +23,7 @@
 - Cell IDs in polygon GeoJSON are now strings to match segmentation.csv
 - The whole polygon.json format was changed from `GeometryColection` to `FeatureCollection` to match [10x format](https://www.10xgenomics.com/support/software/xenium-ranger/1.7/analysis/inputs/XR-input-overview#compat-files).
 - Polygons are now saved by default using the [10x FeatureCollection format](https://www.10xgenomics.com/support/software/xenium-ranger/1.7/analysis/inputs/XR-input-overview#compat-files). Parameter `save-polygons` is replaced with `polygon-format=FeatureCollection`. Set it to `GeometryCollection` to save polygons in the format from Baysor v0.6 or to `none` to prevent saving polygons.
+- 2D and 3D polygons are now stored in separate files (`polygons_2d/3d.json`)
 
 ## [0.6.2] — 2023-08-15
 

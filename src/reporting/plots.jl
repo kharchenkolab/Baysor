@@ -8,7 +8,7 @@ import Base64
 
 plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwargs...)
 
-plot_molecules(df_spatial::DataFrame, polygons::Dict{<:Union{Int, String}, Matrix{Float64}}; kwargs...) =
+plot_molecules(df_spatial::DataFrame, polygons::AbstractDict{<:Union{Int, String}, Matrix{Float64}}; kwargs...) =
     plot_molecules(df_spatial, collect(values(polygons)); kwargs...)
 
 function plot_molecules(

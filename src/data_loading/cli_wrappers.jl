@@ -3,10 +3,11 @@ import JSON
 import LinearAlgebra: Adjoint
 using ProgressMeter
 using StatsBase: denserank
+using OrderedCollections
 using Pipe: @pipe as @p
 
-PolygonCollection = Dict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{String, Integer}}
-PolygonStack = Dict{String, Dict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
+PolygonCollection = AbstractDict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{String, Integer}}
+PolygonStack = AbstractDict{String, <:AbstractDict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
 Polygons = Union{PolygonCollection, PolygonStack}
 
 function parse_prior_assignment(prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int)
@@ -94,13 +95,26 @@ function polygons_to_geojson(polygons::PolygonCollection; format::String="Featur
 end
 
 polygons_to_geojson(polygons::PolygonStack; kwargs...) =
-    [merge!(polygons_to_geojson(poly; kwargs...), Dict("z" => k)) for (k,poly) in polygons]
+    OrderedDict(k => polygons_to_geojson(poly; kwargs...) for (k,poly) in polygons)
 
 
 function save_polygons(polygons::Polygons, file::String; format::String="FeatureCollection")
     open(file, "w") do f
-        print(f, JSON.json(polygons_to_geojson(polygons; format=format)))
+        print(f, JSON.json(polygons_to_geojson(polygons; format)))
     end
+end
+
+save_polygons(polygons::PolygonCollection, out_paths::OutputPaths; kwargs...) =
+    save_polygons(polygons, out_paths.polygons_2d; kwargs...)
+
+function save_polygons(polygons::PolygonStack, out_paths::OutputPaths; kwargs...)
+    if "2d" in keys(polygons)
+        save_polygons(polygons["2d"], out_paths.polygons_2d; kwargs...)
+        polygons = deepcopy(polygons)
+        delete!(polygons, "2d")
+    end
+
+    save_polygons(polygons, out_paths.polygons_3d; kwargs...)
 end
 
 function save_matrix_to_loom!(matrix::AbstractMatrix{<:Real}, fid::HDF5.File; chunk=min.(size(matrix), 64), compress::Int=3)
@@ -215,7 +229,7 @@ function save_segmentation_results(
     end
 
     if (polygon_format !== "none") && (polygons !== nothing)
-        save_polygons(polygons, out_paths.polygons; format=polygon_format)
+        save_polygons(polygons, out_paths; format=polygon_format)
     end
 end
 
