@@ -28,8 +28,10 @@ Run cell segmentation
                                         (default: 4)
 - `--num-cells-init=<nci>`:             Initial number of cells
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
-- `--save-polygons=<format>`:           Save estimated cell boundary polygons to a file with a specified `format`.
-                                        Only 'GeoJSON' format is currently supported.
+- `--polygon-format=<format>`:          Format to save estimated cell boundary polygons to a file with a specified `format`.
+                                        Two types of 'GeoJSON' format are currently supported: 'FeatureCollection' produces the
+                                        same output as Xenium Ranger and 'GeometryCollection' is the old Baysor format. Set to "none"
+                                        to disable saving polygons. (default: 'FeatureCollection').
 - `--scale-std=<ss>`:                   Standard deviation of scale across cells. Can be either number, which means absolute value of
                                         the std, or string ended with '%' to set it relative to scale (default: "25%")
 - `-s, --scale=<s>`:                    Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same
@@ -57,7 +59,7 @@ Run cell segmentation
         n_clusters::Int=config.segmentation.n_clusters,
         prior_segmentation_confidence::Float64=config.segmentation.prior_segmentation_confidence,
 
-        output::String="segmentation.csv", plot::Bool=false, save_polygons::String="false",
+        output::String="segmentation.csv", plot::Bool=false, polygon_format::String="FeatureCollection",
         count_matrix_format::String="loom"
     )
 
@@ -122,7 +124,7 @@ Run cell segmentation
     (segmented_df, tracer, mol_clusts, comp_segs, poly_joined, cell_stat_df, cm, polygons) = BPR.run_segmentation(
         df_spatial, gene_names, opts.segmentation; plot_opts=opts.plotting,
         min_molecules_per_cell=opts.data.min_molecules_per_cell,
-        save_polygons=(save_polygons != "false"), run_id, plot
+        save_polygons=(polygon_format != "none"), run_id, plot
     )
 
     # Save and plot results
@@ -132,7 +134,7 @@ Run cell segmentation
     out_paths = get_output_paths(output; count_matrix_format=count_matrix_format)
     DAT.save_segmentation_results(
         segmented_df, cell_stat_df, cm, polygons, out_paths;
-        poly_format=save_polygons, matrix_format=Symbol(count_matrix_format), gene_names
+        matrix_format=Symbol(count_matrix_format), gene_names, polygon_format
     )
 
     if plot

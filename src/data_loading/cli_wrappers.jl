@@ -70,29 +70,36 @@ function save_molecule_counts(
 end
 
 
-function polygons_to_geojson(polygons::PolygonCollection)
-    geoms = [Dict(
-        "type" => "Feature", "id" => c,
-        "geometry" => Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))])
-    ) for (c,p) in polygons if size(p, 1) > 3
-    ]
-    return Dict("type" => "FeatureCollection", "features" => geoms);
-end
+"""
+    polygons_to_geojson(polygons::PolygonCollection; format::String="FeatureCollection")
 
-polygons_to_geojson(polygons::PolygonStack) =
-    [merge!(polygons_to_geojson(poly), Dict("z" => k)) for (k,poly) in polygons]
-
-function save_polygons_to_geojson(polygons::Polygons, file::String)
-    open(file, "w") do f
-        print(f, JSON.json(polygons_to_geojson(polygons)))
+    Converts a collection of polygons to GeoJSON format.
+    Uses either `FeatureCollection` (compatible with 10x Xenium Ranger) or `GeometryCollection` (original Baysor) format.
+"""
+function polygons_to_geojson(polygons::PolygonCollection; format::String="FeatureCollection")
+    format_lc = lowercase(format)
+    if format_lc == "geometrycollection"
+        geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))], "cell" => c) for (c,p) in polygons]
+        return Dict("type" => "GeometryCollection", "geometries" => geoms);
+    elseif format_lc == "featurecollection"
+        geoms = [Dict(
+            "type" => "Feature", "id" => c,
+            "geometry" => Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))])
+        ) for (c,p) in polygons if size(p, 1) > 3
+        ]
+        return Dict("type" => "FeatureCollection", "features" => geoms);
+    else
+        error("Unknown polygon format: $(format)")
     end
 end
 
-function save_polygons(polygons::Polygons; format::String, file::String)
-    if lowercase(format) == "geojson"
-        save_polygons_to_geojson(polygons, file)
-    else
-        @warn "Unknown polygon format: $(format)"
+polygons_to_geojson(polygons::PolygonStack; kwargs...) =
+    [merge!(polygons_to_geojson(poly; kwargs...), Dict("z" => k)) for (k,poly) in polygons]
+
+
+function save_polygons(polygons::Polygons, file::String; format::String="FeatureCollection")
+    open(file, "w") do f
+        print(f, JSON.json(polygons_to_geojson(polygons; format=format)))
     end
 end
 
@@ -194,7 +201,7 @@ end
 
 function save_segmentation_results(
         segmented_df::DataFrame, cell_stat_df::DataFrame, cm::SparseMatrixCSC{<:Real, Int}, polygons::Union{Polygons, Nothing},
-        out_paths::OutputPaths; poly_format::String, gene_names::Vector{String}, matrix_format::Symbol=:loom
+        out_paths::OutputPaths; polygon_format::String, gene_names::Vector{String}, matrix_format::Symbol=:loom
     )
     isempty(out_paths.segmented_df) || save_segmented_df(segmented_df, out_paths.segmented_df);
     isempty(out_paths.cell_stats) || save_cell_stat_df(cell_stat_df, out_paths.cell_stats);
@@ -207,8 +214,8 @@ function save_segmentation_results(
         error("Unknown matrix format: $(matrix_format). Only :loom and :tsv are supported.")
     end
 
-    if (poly_format !== "false") && (polygons !== nothing)
-        save_polygons(polygons; format=poly_format, file=out_paths.polygons)
+    if (polygon_format !== "none") && (polygons !== nothing)
+        save_polygons(polygons, out_paths.polygons; format=polygon_format)
     end
 end
 
