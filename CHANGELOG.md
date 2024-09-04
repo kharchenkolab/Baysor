@@ -4,6 +4,7 @@
 
 - New algorithm for NCV estimation based on Random Indexing. It is used by default now.
 - Support for Parquet format for input molecules (can directly use `transcripts.parquet` from Xenium)
+- Now, in case of continuous z-stack (like Xenium), 3D polygons are estimated by binning the z-stack into 20 slices.
 
 ### Removed
 

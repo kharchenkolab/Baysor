@@ -12,6 +12,7 @@ using Distributions
 using LinearAlgebra
 using ProgressMeter
 using Statistics
+using Pipe: @pipe as @p
 
 import Distributions.pdf
 import Distributions.logpdf

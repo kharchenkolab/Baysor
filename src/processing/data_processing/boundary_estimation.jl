@@ -1,5 +1,7 @@
 using StatsBase: countmap
 using StaticArrays
+using CategoricalArrays: cut, levels, levelcode
+using OrderedCollections
 
 """
 Check if an array of `points` are inside a triangle defined by its vertex coordinates `tri`.
@@ -311,7 +313,8 @@ end
 
 function boundary_polygons_auto(
         pos_data::Matrix{Float64}, assignment::Vector{<:Integer};
-        estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing, verbose::Bool=true
+        estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing, verbose::Bool=true,
+        max_z_slices::Int=20
     )
     verbose && @info "Estimating boundary polygons"
 
@@ -323,19 +326,21 @@ function boundary_polygons_auto(
 
     z_coords = @view pos_data[3,:]
     z_vals = sort(unique(z_coords))
-    if length(z_vals) > (size(pos_data, 2) / 100)
-        @warn "To many values of z ($(length(z_vals))). Using 2D polygons"
-        return poly_joined, poly_joined
+    if length(z_vals) > max_z_slices
+        @warn "To many values of z ($(length(z_vals))). Binning z-stack into $max_z_slices layers for polygon estimation."
+        z_cat = cut(z_coords, max_z_slices);
+        z_vals = @p z_cat |> levels |> Base.split.(_, Ref(": ")) |> getindex.(_, 2)
+        z_coords = levelcode.(z_cat)
     end
 
-    mask_per_z = [(z_coords .≈ z) for z in z_vals]
+    mask_per_z = [(z_coords .≈ z) for z in sort(unique(z_coords))] # can't use z_vals here because of binning
 
     pmap = verbose ? progress_map : map
     poly_per_z = pmap(
         mask -> boundary_polygons(pos_data[:, mask], assignment[mask]; cell_names),
         mask_per_z
     );
-    poly_per_z = Dict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
+    poly_per_z = OrderedDict("$k" => p for (k,p) in zip(z_vals, poly_per_z))
     poly_per_z["2d"] = poly_joined
 
     return poly_joined, poly_per_z
