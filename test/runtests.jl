@@ -237,11 +237,11 @@ end
 
                 n_stacks = 3
                 z_vals = rand(1:n_stacks, size(df_spatial, 1))
-                pos_data = hcat(pos_data, z_vals)
+                pos_data = vcat(pos_data, z_vals')
                 polygons = BPR.boundary_polygons_auto(pos_data, df_spatial.cell; estimate_per_z=true)[2]
                 @test length(polygons) == (n_stacks + 1)
                 @test "2d" in keys(polygons)
-                @test all(v in keys(polygons) for v in unique(z_vals))
+                @show all("$(Float64(v))" in keys(polygons) for v in unique(z_vals))
 
                 n_stacks = 50
                 max_slices = 10
