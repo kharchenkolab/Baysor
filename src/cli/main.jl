@@ -46,7 +46,7 @@ Run cell segmentation
 
 # Flags
 
-- `-p, --plot`:             Save pdf with plot of the segmentation
+- `-p, --plot`:             Save an HTML with the plot of the segmentation
 
 """
 @cast function run(
