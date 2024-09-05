@@ -23,10 +23,6 @@ n_cells_init = 0 # Initial number of cells
 nuclei_genes = "" # Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
 cyto_genes = "" # Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
 
-# The parameters below are not supposed to be changed normally
-new_component_weight = 0.2 # Prior weight of assignment a molecule to new component. Default: 0.2
-new_component_fraction = 0.3 # Fraction of distributions, sampled at each stage. Default: 0.3
-
 [plotting]
 gene_composition_neigborhood = 0 # Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
 min_pixels_per_cell = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
