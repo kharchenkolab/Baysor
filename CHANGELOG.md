@@ -10,6 +10,7 @@
 
 - `no-ncv-estimation` was removed, as the NCV algorithm is fast and memory-efficient now
 - The Dirichlet sampling was removed, as it slowed-down the algorithm significantly, but didn't improve the segmentation quality
+    - Correspondingly, parameters `new_component_weight` and `new_component_fraction` were removed
 
 ### Fixed
 

@@ -25,10 +25,6 @@ end
 
     nuclei_genes::String = "" # Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
     cyto_genes::String = "" # Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
-
-    # The parameters below are not supposed to be changed normally
-    new_component_weight::Float64 = 0.2 # Prior weight of assignment a molecule to new component. Default: 0.2
-    new_component_fraction::Float64 = 0.3 # Fraction of distributions, sampled at each stage. Default: 0.3
 end
 
 @option mutable struct PlottingOptions # --config.plotting.*

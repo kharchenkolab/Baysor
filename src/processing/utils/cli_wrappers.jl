@@ -56,9 +56,7 @@ function run_segmentation(
 
     history_depth = round(Int, opts.iters * 0.1)
     bm_data = bmm!(
-        bm_data; n_iters=opts.iters,
-        new_component_frac=opts.new_component_fraction, new_component_weight=opts.new_component_weight,
-        min_molecules_per_cell=min_molecules_per_cell, assignment_history_depth=history_depth
+        bm_data; min_molecules_per_cell, n_iters=opts.iters, assignment_history_depth=history_depth
     );
 
     @info "Processing complete."
