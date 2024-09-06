@@ -314,7 +314,7 @@ end
 function boundary_polygons_auto(
         pos_data::Matrix{Float64}, assignment::Vector{<:Integer};
         estimate_per_z::Bool, cell_names::Union{Vector{String}, Nothing}=nothing, verbose::Bool=true,
-        max_z_slices::Int=20
+        max_z_slices::Int=10
     )
     verbose && @info "Estimating boundary polygons"
 
@@ -328,8 +328,10 @@ function boundary_polygons_auto(
     z_vals = sort(unique(z_coords))
     if length(z_vals) > max_z_slices
         @warn "To many values of z ($(length(z_vals))). Binning z-stack into $max_z_slices layers for polygon estimation."
-        z_cat = cut(z_coords, max_z_slices);
-        z_vals = @p z_cat |> levels |> Base.split.(_, Ref(": ")) |> getindex.(_, 2)
+        clip = min(1 / max_z_slices / 4, 0.025);
+        breaks = @p quantile(z_coords, [clip, 1 - clip]) |> range(_..., length=(max_z_slices + 1));
+        z_cat = cut(z_coords, breaks[2:end-1], extend=true)
+        z_vals = levels(z_cat)
         z_coords = levelcode.(z_cat)
     end
 
