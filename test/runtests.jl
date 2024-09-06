@@ -140,12 +140,12 @@ end
 
             @test_throws ErrorException DAT.load_prior_segmentation!(
                 ":prior_segmentation", df, min_molecules_per_segment=1000,
-                min_molecules_per_cell=1000, estimate_scale=true
+                min_molecules_per_cell=1000, estimate_scale=true, unassigned_label="0"
             )
 
             prior_seg, scale, scale_std = DAT.load_prior_segmentation!(
                 ":prior_segmentation", df, min_molecules_per_segment=10,
-                min_molecules_per_cell=1000, estimate_scale=false
+                min_molecules_per_cell=1000, estimate_scale=false, unassigned_label="0"
             )
 
             @test prior_seg === nothing

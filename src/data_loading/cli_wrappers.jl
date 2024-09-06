@@ -10,20 +10,22 @@ PolygonCollection = AbstractDict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{
 PolygonStack = AbstractDict{String, <:AbstractDict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
 Polygons = Union{PolygonCollection, PolygonStack}
 
-function parse_prior_assignment(prior_segmentation::Vector; col_name::Symbol, min_molecules_per_segment::Int)
-    try
-        prior_segmentation = Int.(prior_segmentation);
-    catch
-        error("The prior segmentation column '$col_name' must be of integer type")
-    end
-    if minimum(prior_segmentation) < 0
-        error("The prior segmentation column '$col_name' must not contain negative numbers")
+function parse_prior_assignment(prior_segmentation::Vector{T}; min_molecules_per_segment::Int, unassigned_label::Union{T, Nothing}=nothing) where T
+    prior_processed = @p prior_segmentation |>
+        ifelse.(_ .== unassigned_label, missing, _) |>
+        encode_genes(_)[1] |>
+        replace!(_, missing => 0) |>
+        Vector{Int}(_);
+
+    if sum(prior_processed .== 0) == 0
+        n,val = countmap(prior_segmentation) |> findmax
+        @warn "No unassigned molecules found in the prior segmentation. Did you specify the unassigned value correctly ($unassigned_label)? " *
+            "Most present assigned value: $val ($n molecules)."
     end
 
-    prior_segmentation = denserank(prior_segmentation) .- 1
-    filter_segmentation_labels!(prior_segmentation, min_molecules_per_segment=min_molecules_per_segment)
+    filter_segmentation_labels!(prior_processed; min_molecules_per_segment);
 
-    return prior_segmentation
+    return prior_processed
 end
 
 # TODO: move it to CLI
@@ -234,8 +236,8 @@ function save_segmentation_results(
 end
 
 function load_prior_segmentation!(
-        path::String, df_spatial::DataFrame; # TODO: estimate pos_data from df_spatial
-        min_molecules_per_segment::Int, min_molecules_per_cell::Int, estimate_scale::Bool
+        path::String, df_spatial::DataFrame;
+        min_molecules_per_segment::Int, min_molecules_per_cell::Int, estimate_scale::Bool, unassigned_label::String
     )
     length(path) > 0 || error("Prior segmentation file path is empty")
 
@@ -246,7 +248,11 @@ function load_prior_segmentation!(
 
     if path[1] == ':'
         prior_col = Symbol(path[2:end])
-        prior_seg = parse_prior_assignment(df_spatial[!, prior_col]; min_molecules_per_segment, col_name=prior_col)
+        col_type = eltype(df_spatial[!, prior_col])
+        if !(col_type <: AbstractString)
+            unassigned_label = parse(col_type, unassigned_label)
+        end
+        prior_seg = parse_prior_assignment(df_spatial[!, prior_col]; min_molecules_per_segment, unassigned_label)
 
         if estimate_scale
             scale, scale_std = estimate_scale_from_assignment(pos_data, prior_seg; min_molecules_per_cell)

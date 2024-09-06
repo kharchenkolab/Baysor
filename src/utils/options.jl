@@ -25,6 +25,8 @@ end
 
     nuclei_genes::String = "" # Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
     cyto_genes::String = "" # Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
+
+    unassigned_prior_label::String = "0" # Label for unassigned cells in the prior segmentation. Default: "0"
 end
 
 @option mutable struct PlottingOptions # --config.plotting.*

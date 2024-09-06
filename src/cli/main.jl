@@ -9,8 +9,8 @@ Run cell segmentation
 
 - `coordinates`:            CSV or Parquet file with coordinates of molecules and gene type
 - `prior_segmentation`:     Image or a MAT file with segmentation mask (either boolean or component indexing) or `coordinates`
-                            column with integer segmentation labels.
-                            If it's the column name, it should be preceded ':' symbol (e.g. `:cell`)
+                            column with segmentation labels.
+                            If it's a column name, it should be preceded by ':' symbol (e.g. `:cell`)
 
 # Options
 
@@ -196,7 +196,7 @@ function load_prior_segmentation!(
     if prior_segmentation !== ""
         prior_seg_labels, scale, scale_std = DAT.load_prior_segmentation!(
             prior_segmentation, df_spatial; min_molecules_per_segment, min_molecules_per_cell,
-            estimate_scale=opts.estimate_scale_from_centers
+            estimate_scale=opts.estimate_scale_from_centers, unassigned_label=opts.unassigned_prior_label
         )
 
         if opts.estimate_scale_from_centers
