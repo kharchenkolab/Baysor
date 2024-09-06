@@ -144,7 +144,7 @@ function plot_num_of_cells_per_iterarion(
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    fig = MK.Figure(size=(600, 400));
+    fig = MK.Figure(size=(300, 200));
     axis_args = (
         xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14,
         xlabel="Iteration", ylabel="Num. cells", xlabelpadding=0, ylabelpadding=0

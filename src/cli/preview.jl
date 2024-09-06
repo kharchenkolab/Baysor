@@ -68,14 +68,14 @@ Plot an html with the dataset preview.
 
     @info "Building transcript plots"
     gc_plot = REP.plot_dataset_colors(
-        df_spatial, gene_colors; min_molecules_per_cell=opts.data.min_molecules_per_cell,
-        min_pixels_per_cell=opts.plotting.min_pixels_per_cell, title="Local expression similarity"
+        df_spatial, gene_colors; title="Local expression similarity",
+        opts.data.min_molecules_per_cell, opts.plotting.min_pixels_per_cell, opts.plotting.max_plot_size
     )
 
     conf_colors = REP.map_to_colors(confidences, lims=(0.0, 1.0), palette=Colors.diverging_palette(10, 250, s=0.75, w=1.0));
     cc_plot = REP.plot_dataset_colors(
-        df_spatial, conf_colors[:colors]; min_molecules_per_cell=opts.data.min_molecules_per_cell,
-        min_pixels_per_cell=opts.plotting.min_pixels_per_cell, title="Transcript confidence"
+        df_spatial, conf_colors[:colors]; title="Transcript confidence",
+        opts.data.min_molecules_per_cell, opts.plotting.min_pixels_per_cell, opts.plotting.max_plot_size
     )
 
     @info "Building gene structure plot"

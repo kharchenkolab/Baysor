@@ -140,11 +140,10 @@ Run cell segmentation
     if plot
         @info "Plotting results"
         REP.plot_segmentation_report(
-            segmented_df; tracer=tracer, clust_res=mol_clusts, comp_segs=comp_segs,
-            prior_polygons=prior_polygons, polygons=collect(values(poly_joined)),
-            diagnostic_file=out_paths.diagnostic_report, molecule_file=out_paths.molecule_plot,
-            gene_colors=:ncv_color, min_molecules_per_cell=opts.data.min_molecules_per_cell,
-            min_pixels_per_cell=opts.plotting.min_pixels_per_cell
+            segmented_df; clust_res=mol_clusts, tracer, comp_segs, prior_polygons,
+            polygons=collect(values(poly_joined)), diagnostic_file=out_paths.diagnostic_report,
+            molecule_file=out_paths.molecule_plot, gene_colors=:ncv_color,
+            opts.data.min_molecules_per_cell, opts.plotting.min_pixels_per_cell, opts.plotting.max_plot_size
         )
     end
 

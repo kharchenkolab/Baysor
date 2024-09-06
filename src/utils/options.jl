@@ -32,6 +32,7 @@ end
 @option mutable struct PlottingOptions # --config.plotting.*
     gene_composition_neigborhood::Int = 0 # Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
     min_pixels_per_cell::Int = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
+    max_plot_size::Int = 3000 # Maximum size of the molecule plot in pixels. Default: 3000
 
     # Method for gene vector estimation for NCV dimensionality reduction.
     # Possible values: `ri` (Random Indexing), `dense` (PCA), `sparse` (Sparse PCA).
