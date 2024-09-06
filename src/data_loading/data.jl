@@ -19,7 +19,7 @@ function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String}
     return matches
 end
 
-function encode_genes(genes::Vector)
+function encode_genes(genes::Vector{<:Any})
     gene_names = sort(unique(skipmissing(genes)));
     gene_ids = Dict(zip(gene_names, 1:length(gene_names)))
     return [(ismissing(g) ? missing : gene_ids[g]) for g in genes], gene_names
@@ -39,7 +39,7 @@ function read_spatial_df(
         data_path::String; x_col::Symbol=:x, y_col::Symbol=:y, z_col::Symbol=:z,
         gene_col::Symbol=:gene, filter_cols::Bool=false, drop_z::Bool=false
     )
-    ext = split(data_path, '.')[2] |> lowercase
+    ext = @p splitext(data_path)[2] |> lstrip(_, '.') |> lowercase
     if ext == "csv"
         df_spatial = CSV.read(data_path, DataFrame);
     elseif ext == "parquet"
