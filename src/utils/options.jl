@@ -33,10 +33,10 @@ end
     gene_composition_neigborhood::Int = 0 # Number of neighbors (i.e. 'k' in k-NN), which is used for gene composition visualization. Larger numbers leads to more global patterns. Default: estimate from min-molecules-per-cell
     min_pixels_per_cell::Int = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
 
-    # Method for gene vector estimation for NCV dimensionality reduction. Possible values: `hash`, `dense`, `sparse`.
-    # `dense` and `sparse` method are based on PCA and will likely be removed in further versions.
-    # (default: `hash`)
-    ncv_method::String = "hash"
+    # Method for gene vector estimation for NCV dimensionality reduction.
+    # Possible values: `ri` (Random Indexing), `dense` (PCA), `sparse` (Sparse PCA).
+    # (default: `ri`)
+    ncv_method::String = "ri"
 end
 
 @option mutable struct RunOptions # --config.*

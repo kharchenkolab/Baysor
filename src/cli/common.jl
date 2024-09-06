@@ -82,7 +82,10 @@ function fill_and_check_options!(opts::PlottingOptions, min_molecules_per_cell::
         )
     end
 
-    (opts.ncv_method in ["hash", "dense", "sparse"]) || error("`ncv_method` must be one of \"hash\", \"dense\", or \"sparse\"")
+    (opts.ncv_method in ["ri", "dense", "sparse"]) || error("`ncv_method` must be one of \"ri\", \"dense\", or \"sparse\"")
 
     return opts
 end
+
+Comonicon.from_dict(::Type{DataOptions}, ::Type{Symbol}, s) = Symbol(s)
+Comonicon.to_dict(::Type, s::Symbol) = "$s"
