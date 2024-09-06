@@ -31,7 +31,11 @@ Also removes Missing type from columns, which don't have missing values
 """
 function normalize_df_types!(df::DataFrame)
     for c in propertynames(df)
-        df[!, c] = identity.(Array(df[!, c]))
+        if eltype(df[!, c]) <: AbstractString
+            df[!, c] = String.(df[!, c])
+        else
+            df[!, c] = identity.(Array(df[!, c]))
+        end
     end
 end
 

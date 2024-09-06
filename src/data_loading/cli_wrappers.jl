@@ -10,7 +10,7 @@ PolygonCollection = AbstractDict{TI, Matrix{TV}} where {TV <: Real, TI <: Union{
 PolygonStack = AbstractDict{String, <:AbstractDict{TI, Matrix{TV}}} where {TV <: Real, TI <: Union{String, Integer}}
 Polygons = Union{PolygonCollection, PolygonStack}
 
-function parse_prior_assignment(prior_segmentation::Vector{T}; min_molecules_per_segment::Int, unassigned_label::Union{T, Nothing}=nothing) where T
+function parse_prior_assignment(prior_segmentation::Vector{T}; min_molecules_per_segment::Int=0, unassigned_label::Union{T, Nothing}=nothing) where T
     prior_processed = @p prior_segmentation |>
         ifelse.(_ .== unassigned_label, missing, _) |>
         encode_genes(_)[1] |>
