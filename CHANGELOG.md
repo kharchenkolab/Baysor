@@ -5,12 +5,14 @@
 - New algorithm for NCV estimation based on Random Indexing. It is used by default now.
 - Support of Parquet format for input molecules (can directly use `transcripts.parquet` from Xenium)
 - Now, in case of continuous z-stack (like Xenium), 3D polygons are estimated by binning the z-stack into 20 slices.
+- Added support for string IDs for prior segmentation. *To specify the label for non-assigned molecules, use `--config.segmentation.unassigned_prior_label`*.
+- New plotting configuration options (see `example_config.toml`)
 
 ### Removed
 
 - `no-ncv-estimation` was removed, as the NCV algorithm is fast and memory-efficient now
 - The Dirichlet sampling was removed, as it slowed-down the algorithm significantly, but didn't improve the segmentation quality
-    - Correspondingly, parameters `new_component_weight` and `new_component_fraction` were removed
+    - *Correspondingly, parameters `new_component_weight` and `new_component_fraction` were removed*
 
 ### Fixed
 

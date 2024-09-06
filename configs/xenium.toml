@@ -5,4 +5,11 @@ z = "z_location"
 gene = "feature_name"
 min_molecules_per_gene = 10
 exclude_genes = "NegControl*,BLANK_*,antisense_*"
-min_molecules_per_cell = 15
+min_molecules_per_cell = 50
+
+[segmentation]
+unassigned_prior_label = "UNASSIGNED"
+prior_segmentation_confidence = 0.5
+
+[plotting]
+min_pixels_per_cell = 10
