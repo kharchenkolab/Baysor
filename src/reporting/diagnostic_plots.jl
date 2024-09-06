@@ -84,14 +84,13 @@ function plot_dataset_colors(
 
     plot_size = estimate_panel_plot_size(df_spatial, min_molecules_per_cell, min_pixels_per_cell)[1]
     if markersize < 0
-        markersize = min(max(50.0 / min_molecules_per_cell, 0.25), 5)
+        markersize = min(max(50.0 / min_molecules_per_cell, 1), 5)
     end
 
-    @info "Plot size: $plot_size"
     if maximum(plot_size) > max_plot_size
         scale = max_plot_size / maximum(plot_size)
         plot_size = (plot_size[1] * scale, plot_size[2] * scale)
-        markersize = 0.25
+        markersize = 1
     end
 
     fig = MK.Figure(size=plot_size)
