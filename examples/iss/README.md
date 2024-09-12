@@ -54,16 +54,16 @@ wget -P data http://pklab.med.harvard.edu/viktor/baysor/iss/pciSeq_3-3.csv
 
 ## CLI run
 
-WARNING: these command run the segmentation using 20 proccesses. To reduce this number change `-n 20` option.
+WARNING: these command run the segmentation using 20 threads. To reduce this number change `JULIA_NUM_THREADS` option.
 
 ### Without DAPI
 
 ```bash
-baysor -i 500 -n 20 -p -c ../../configs/iss.toml -o ./output_no_dapi -p ./data/pciSeq_3-3.csv
+JULIA_NUM_THREADS=20 baysor -i 500 -p -c ../../configs/iss.toml -o ./output_no_dapi -p ./data/pciSeq_3-3.csv
 ```
 
 ### With DAPI
 
 ```bash
-baysor -i 500 -n 20 -p -c ../../configs/iss.toml -o ./output_dapi -p ./data/pciSeq_3-3.csv ./data/DAPI_3-3_mask.tif
+JULIA_NUM_THREADS=20 baysor -i 500 -p -c ../../configs/iss.toml -o ./output_dapi -p ./data/pciSeq_3-3.csv ./data/DAPI_3-3_mask.tif
 ```

@@ -26,7 +26,6 @@ Run cell segmentation
 - `--n-clusters=<nc>`:                  Number of molecule clusters, i.e. major cell types. Depends on protocol resolution,
                                         but should not be too high. In most cases something between 3 and 15 should work well.
                                         (default: 4)
-- `--num-cells-init=<nci>`:             Initial number of cells
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
 - `--polygon-format=<format>`:          Format to save estimated cell boundary polygons to a file with a specified `format`.
                                         Two types of 'GeoJSON' format are currently supported: 'FeatureCollection' produces the
