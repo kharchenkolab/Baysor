@@ -241,7 +241,7 @@ end
                 polygons = BPR.boundary_polygons_auto(pos_data, df_spatial.cell; estimate_per_z=true)[2]
                 @test length(polygons) == (n_stacks + 1)
                 @test "2d" in keys(polygons)
-                @show all("$(Float64(v))" in keys(polygons) for v in unique(z_vals))
+                @test all("$(Float64(v))" in keys(polygons) for v in unique(z_vals))
 
                 n_stacks = 50
                 max_slices = 10
