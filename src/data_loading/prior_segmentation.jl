@@ -23,7 +23,7 @@ function staining_value_per_transcript(
     x_vals = round.(Int, x_vals)
     y_vals = round.(Int, y_vals)
     if !quiet && ((maximum(x_vals) > size(staining, 2)) || (maximum(y_vals) > size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the DAPI size: $(size(staining)). Filling it with 0."
+        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is larger than the prior image size: $(size(staining)). Filling it with 0."
     end
 
     if !quiet && ((minimum(x_vals) < 1) || (minimum(y_vals) < 1))
@@ -31,7 +31,7 @@ function staining_value_per_transcript(
     end
 
     if !quiet && ((maximum(x_vals) < 0.5 * size(staining, 2)) || (maximum(y_vals) < 0.5 * size(staining, 1)))
-        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the DAPI size: $(size(staining)). May be result of an error."
+        @warn "Maximum transcript coordinates are $((maximum(y_vals), maximum(x_vals))), which is much smaller than the prior image size: $(size(staining)). May be result of an error."
     end
 
     inds = findall((x_vals .> 0) .& (x_vals .<= size(staining, 2)) .& (y_vals .> 0) .& (y_vals .<= size(staining, 1)))
@@ -54,10 +54,14 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
             end
         end
 
+        length(size(labels) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
-    labels = load(path) |> ImageCore.channelview |> ImageCore.rawview |> sparse |> dropzeros!
+    labels = load(path) |> ImageCore.channelview |> ImageCore.rawview;
+    length(size(labels) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
+
+    labels = labels |> sparse |> dropzeros!
     if length(unique(nonzeros(labels))) == 1
         return BitMatrix(labels .> 0) |> ImageMorphology.label_components |> sparse
     end
