@@ -97,7 +97,7 @@ function plot_dataset_colors(
     fig[1, 1] = MK.Axis(fig; xticksvisible=ticks, yticksvisible=ticks, axis_kwargs...);
 
     if length(prior_polygons) > 0
-        MK.poly!([MK.Point2.(eachrow(p)) for p in prior_polygons]; strokecolor="darkred", color=Colors.RGBA(1, 0.65, 0, 0.25), strokewidth=0.5)
+        MK.poly!([MK.Point2.(eachrow(p)) for p in prior_polygons if Base.size(p, 1) > 1]; strokecolor="darkred", color=Colors.RGBA(1, 0.65, 0, 0.25), strokewidth=0.5)
     end
 
     return plot_molecules!(df_spatial, polygons; color=color, markersize=markersize, alpha=alpha, kwargs...)

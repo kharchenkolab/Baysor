@@ -98,7 +98,7 @@ function plot_molecules(
     end
 
     if length(polygons) > 0
-        MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons if Base.size(p, 1) > 0]; polygon_kwargs...)
+        MK.poly!([MK.Point2.(eachrow(p .+ [offset[1] offset[2]])) for p in polygons if Base.size(p, 1) > 1]; polygon_kwargs...)
         # We can also do `for p in polygons MK.lines!(p[:,1], p[:,2], color="black") end`, but this is 10+ times slower
     end
 
