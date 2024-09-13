@@ -42,7 +42,7 @@
 
 Baysor is a tool for performing cell segmentation on imaging-based spatial transcriptomics data. It optimizes segmentation considering the likelihood of transcriptional composition, size and shape of the cell. The approach can take into account nuclear or cytoplasm staining, however, can also perform segmentation based on the detected molecules alone. The details of the method are described in the [paper](https://www.nature.com/articles/s41587-021-01044-w), or [pre-print](https://www.biorxiv.org/content/10.1101/2020.10.05.326777v1) (old version of the text). To reproduce the analysis from the paper see [BaysorAnalysis](https://github.com/kharchenkolab/BaysorAnalysis) repo.
 
-See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow!
+See the 16-min **[live-demo of Baysor](https://vimeo.com/558564804)** for an overview of the workflow! Also, here is [my 2023 video](https://www.youtube.com/watch?v=4jG2zFf20Ho) with the paper presentation and some updates on the ideas.
 
 **Do you have any question? Start [a discussion](https://github.com/kharchenkolab/Baysor/discussions)!**
 
@@ -189,7 +189,7 @@ Segmentation results:
 - ***segmentation_cell_stats.csv***: diagnostic info about cells. The following parameters can be used to filter low-quality cells:
   - `area`: area of the convex hull around the cell molecules
   - `avg_confidence`: average confidence of the cell molecules
-  - `density`: cell area divided by the number of molecules in a cell
+  - `density`: the number of molecules in a cell divided by the cell area
   - `elongation`: ratio of the two eigenvalues of the cell covariance matrix
   - `n_transcripts`: number of molecules per cell
   - `avg_assignment_confidence`: average assignment confidence per cell. Cells with low `avg_assignment_confidence` have a much higher chance of being an artifact.
