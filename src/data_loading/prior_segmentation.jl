@@ -54,12 +54,12 @@ function load_segmentation_mask(path::String)::SparseMatrixCSC
             end
         end
 
-        length(size(labels) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
+        (length(size(labels)) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
         return SparseMatrixCSC{Int, Int}(labels)
     end
 
     labels = load(path) |> ImageCore.channelview |> ImageCore.rawview;
-    length(size(labels) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
+    (length(size(labels)) == 2) || error("Segmentation mask must be a 2D image, but it has $(length(size(labels))) dimensions.")
 
     labels = labels |> sparse |> dropzeros!
     if length(unique(nonzeros(labels))) == 1
