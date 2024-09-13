@@ -134,7 +134,8 @@ end
 
 function plot_num_of_cells_per_iterarion(
         n_comps_dict::Vector{Dict{Int64, Int64}}; legend_position::Symbol=:lt,
-        inset_bbox::Tuple{Int, Int, Int, Int}=(370, 550, 180, 330)
+        figsize=(500, 350), inset_bbox::Tuple{Int, Int, Int, Int}=(300, 480, 150, 310),
+        legend_titlesize::Int=16, legend_labelsize::Int=14
     )
     (length(n_comps_dict) > 0) || error("No data about #components per iteration was stored")
 
@@ -144,7 +145,7 @@ function plot_num_of_cells_per_iterarion(
     n_components_per_iter = n_components_per_iter[sortperm(labels),:]
     labels = sort(labels)
 
-    fig = MK.Figure(size=(300, 200));
+    fig = MK.Figure(size=figsize);
     axis_args = (
         xticksvisible=false, yticksvisible=false, xticklabelsize=14, yticklabelsize=14,
         xlabel="Iteration", ylabel="Num. cells", xlabelpadding=0, ylabelpadding=0
@@ -154,7 +155,7 @@ function plot_num_of_cells_per_iterarion(
     for i in 1:size(n_components_per_iter, 1)
         MK.lines!(n_components_per_iter[i,:], label="$(labels[i])", color=ColorSchemes.Dark2_8[mod(i - 1, 8) + 1])
     end
-    MK.axislegend("Min #molecules"; position=legend_position, nbanks = 2, titlesize=16, labelsize=14)
+    MK.axislegend("Min #molecules"; position=legend_position, nbanks = 2, titlesize=legend_titlesize, labelsize=legend_labelsize)
     MK.xlims!(MK.current_axis(), 0, size(n_components_per_iter, 2))
     MK.ylims!(MK.current_axis(), 0, maximum(n_components_per_iter))
 
