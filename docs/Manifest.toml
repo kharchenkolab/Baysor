@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.4"
+julia_version = "1.10.5"
 manifest_format = "2.0"
 project_hash = "cfe419f0a5bd446f85d5c51ed1644192d6c33e05"
 
@@ -106,9 +106,9 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
 [[deps.Baysor]]
 deps = ["Base64", "CSV", "CairoMakie", "CategoricalArrays", "ColorSchemes", "Colors", "Comonicon", "Compat", "Configurations", "DataFrames", "Dates", "Deneb", "Distances", "Distributions", "FastRandPCA", "FileIO", "FiniteDiff", "GeometricalPredicates", "Graphs", "HDF5", "ImageCore", "ImageIO", "ImageMagick", "ImageMorphology", "JSON", "LazyModules", "LibGit2", "LinearAlgebra", "Logging", "MAT", "Makie", "MultivariateStats", "NearestNeighbors", "OrderedCollections", "Parquet", "Pipe", "Pkg", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "Statistics", "StatsBase", "Test", "UMAP", "UUIDs", "VoronoiDelaunay"]
-path = "/home/vpetukhov/.julia/dev/Baysor"
+path = "/Users/vpetukhov/.julia/dev/Baysor"
 uuid = "cc9f9468-1fbe-11e9-0acf-e9460511877c"
-version = "0.6.2"
+version = "0.7.0"
 
 [[deps.BufferedStreams]]
 git-tree-sha1 = "6863c5b7fc997eadcabdbaf6c5f201dc30032643"
@@ -1869,7 +1869,7 @@ version = "0.15.2+0"
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
-version = "5.8.0+1"
+version = "5.11.0+0"
 
 [[deps.libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]

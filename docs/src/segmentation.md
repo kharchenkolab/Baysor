@@ -4,6 +4,12 @@
 
 To run the algorithm on your data, use the following command:
 
+```bash
+baysor run <args> [options] [flags]
+```
+
+CLI parameters:
+
 ```@docs
 Baysor.CLI.run
 ```
@@ -49,7 +55,8 @@ Please, notice that it's highly recommended to set `--n-clusters=1`, so molecule
 
 ## Outputs
 
-Segmentation results:
+### Segmentation results
+
 - **segmentation\_counts.loom** or **segmentation\_counts.tsv** (depends on `--count-matrix-format`): count matrix with segmented stats. In the case of loom format, column attributes also contain the same info as **segmentation\_cell\_stats.csv**.
 - **segmentation.csv**: segmentation info per molecule:
   - `confidence`: probability of a molecule to be real (i.e. not noise)
@@ -68,7 +75,8 @@ Segmentation results:
   - `max_cluster_frac` *(only if `n-clusters > 1`)*: fraction of the molecules coming from the most popular cluster. Cells with low `max_cluster_frac` are often doublets.
   - `lifespan`: number of iterations the given component exists. The maximal `lifespan` is clipped proportionally to the total number of iterations. Components with a short lifespan likely correspond to noise.
 
-Visualization:
+### Visualization
+
 - **segmentation\_polygons\_2d/3d.json**: polygons used for visualization in GeoJSON format. In the case of 3D segmentation, `2d.json` file contains polygons for all molecules pulled across the z-stack. And 3D shows polygons per z-slice. In case of continuous z, it's binned into 20 uniform bins. Depending on the format, it can contain `GeometryCollection` or `FeatureCollection`:
     - For 3D, the file contains an array of dictionaries (one per z-slice), each of which representing a `Collection`. For 2D data it's just a single dictionary with a `Collection`.
     - Each `GeometryCollection` has a field `geometries`, which is an array of polygons with `cell` field set to cell ids and `coordinates` set to its coordinates.
@@ -76,7 +84,8 @@ Visualization:
 - **segmentation\_diagnostics.html**: visualization of the algorithm QC. *Shown only when `-p` is set.*
 - **segmentation\_borders.html**: visualization of cell borders for the dataset colored by local gene expression composition (first part) and molecule clusters (second part). *Shown only when `-p` is set.*
 
-Other:
+### Other
+
 - **segmentation\_params.dump.toml**: aggregated parameters from the config and CLI
 
 ## Choice of parameters
@@ -86,11 +95,7 @@ Most important parameters:
 - `scale` is the most sensitive parameter, which specifies the expected radius of a cell. It doesn't have to be precise, but the wrong setup can lead to over- or under-segmentation. This parameter is inferred automatically if cell centers are provided.
 - `min-molecules-per-cell` is the number of molecules, required for a cell to be considered as real. It really depends on the protocol. For instance, for ISS it's fine to set it to 3, while for MERFISH it can require hundreds of molecules.
 
-Some other sensitive parameters (normally, shouldn't be changed):
-
-- `new-component-weight` is proportional to the probability of generating a new cell for a molecule, instead of assigning it to one of the existing cells. More precisely, the probability to assign a molecule to a particular cell linearly depends on the number of molecules, already assigned to this cell. And this parameter is used as the number of molecules for a cell, which is just generated for this new molecule. The algorithm is robust to small changes in this parameter. And normally values in the range of 0.1-0.9 should work fine. Smaller values would lead to slower convergence of the algorithm, while larger values force the emergence of a large number of small cells on each iteration, which can produce noise in the result. In general, the default value should work well.
-
 Run parameters:
 
-- `--config.segmentation.n-cells-init` expected number of cells in data. This parameter influence only the convergence speed of the algorithm. It's better to set larger values than smaller ones.
-- `--config.segmentation.iters` number of iterations for the algorithm. **At the moment, no convergence criteria are implemented, so it will work exactly `iters` iterations**. Thus, too small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots, produced among the results.
+- `--config.segmentation.n-cells-init` expected number of cells in data. This parameter influences the convergence speed of the algorithm, as well as peak memory usage. Setting this value too small would lead to under-segmentation.
+- `--config.segmentation.iters` number of iterations for the algorithm. **At the moment, no convergence criteria are implemented, so it will work exactly `iters` iterations**. Thus, too small values would lead to non-convergence of the algorithm, while larger ones would just increase working time. Optimal values can be estimated by the convergence plots in the diagnostics report.

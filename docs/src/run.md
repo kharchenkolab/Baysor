@@ -5,7 +5,7 @@ Baysor can be used in several ways:
 A minimal command for cell segmentation:
 
 ```bash
-baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL] -c config.toml MOLECULES_FILE [PRIOR_SEGMENTATION]
+baysor run [-s SCALE -x X_COL -y Y_COL -z Z_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_FILE [PRIOR_SEGMENTATION]
 ```
 
 ## Dataset preview
@@ -22,6 +22,6 @@ baysor preview [-x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH]
 Many analyses don't require segmentation, and can be run on local neighborhoods instead. In the paper, we call them Neighborhood Composition Vectors (NCVs). To obtain them from Baysor, you may run `baysor segfree`. For more information, see `baysor segfree --help`. Minimal command:
 
 ```bash
-baysor segfree [-k K_NEIGHBORS -n NCVS_TO_SAVE -x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_FILE
+baysor segfree [-k K_NEIGHBORS -x X_COL -y Y_COL --gene GENE_COL -c config.toml -o OUTPUT_PATH] MOLECULES_FILE
 ```
 
