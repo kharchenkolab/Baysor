@@ -12,3 +12,5 @@ build.log
 
 examples/*/data*
 examples/*/output_*
+
+docs/build/
