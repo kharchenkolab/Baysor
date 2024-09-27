@@ -14,3 +14,4 @@ examples/*/data*
 examples/*/output_*
 
 docs/build/
+gh_key.sh

@@ -17,7 +17,29 @@ makedocs(
         "Examples" => "examples.md"
         # TODO:
         # API
-    ]
+    ],
+    format=Documenter.HTML(;
+        assets=[
+            asset(
+                "https://cloud.umami.is/script.js", class=:js,
+                attributes=Dict(Symbol("data-website-id") => "b9c0c023-9682-4a74-8d3e-81a1d9a19e98", :defer => "")
+            )
+	    ],
+    )
 )
 
-deploydocs(repo = "github.com/kharchenkolab/Baysor.git")
+if "deploy" in ARGS
+    ENV["TRAVIS_REPO_SLUG"] = "github.com/kharchenkolab/Baysor.git"
+    ENV["TRAVIS_PULL_REQUEST"] = "false"
+    ENV["TRAVIS_OS_NAME"] = "linux"
+    ENV["TRAVIS_JULIA_VERSION"] = "1.1"
+    ENV["TRAVIS_TAG"] = ""
+    ENV["TRAVIS_BRANCH"] = "master"
+
+    deploydocs(
+        repo="github.com/kharchenkolab/Baysor.git",
+        target="build",
+        branch="gh-pages",
+        devbranch="master",
+    )
+end
