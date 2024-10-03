@@ -89,3 +89,4 @@ end
 
 Comonicon.from_dict(::Type{DataOptions}, ::Type{Symbol}, s) = Symbol(s)
 Comonicon.to_dict(::Type, s::Symbol) = "$s"
+Base.tryparse(::Type{Symbol}, s::AbstractString) = Symbol(s)
