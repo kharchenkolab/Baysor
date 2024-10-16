@@ -174,9 +174,17 @@ function expect_dirichlet_spatial!(data::BmmData; stochastic::Bool=true)
     end
 end
 
-function update_prior_probabilities!(components::Vector{<:Component})
+function update_prior_probabilities!(components::Vector{<:Component}; prior_type::Symbol=:n_samples)
     for c in components
-        c.prior_probability = c.n_samples
+        if prior_type == :n_samples
+            c.prior_probability = c.n_samples
+        elseif prior_type == :constant
+            c.prior_probability = 1.0
+        elseif prior_type == :log
+            c.prior_probability = log10(c.n_samples)
+        else
+            error("Unknown `prior_type`: $prior_type")
+        end
     end
 end
 
@@ -311,7 +319,8 @@ function bmm!(
         data::BmmData; min_molecules_per_cell::Int=2, n_iters::Int=500,
         assignment_history_depth::Int=0, verbose::Union{Progress, Bool}=true,
         component_split_step::Int=3, refine::Bool=true,
-        freeze_composition::Bool=false, freeze_position::Bool=false, freeze_components::Bool=false
+        freeze_composition::Bool=false, freeze_position::Bool=false, freeze_components::Bool=false,
+        prior_type::Symbol=:n_samples
     )
 
     progress = isa(verbose, Progress) ? verbose : (verbose ? Progress(n_iters) : nothing)
@@ -324,8 +333,12 @@ function bmm!(
 
     maximize!(data; freeze_composition, freeze_position)
 
+    if data.noise_density < 1e-20
+        @warn "BMM data noise density is extremely low $(data.noise_density). This may cause problems."
+    end
+
     for i in 1:n_iters
-        update_prior_probabilities!(data.components)
+        update_prior_probabilities!(data.components; prior_type)
         update_n_mols_per_segment!(data)
 
         expect_dirichlet_spatial!(data)
@@ -353,13 +366,13 @@ function bmm!(
     if refine
         if :assignment_history in keys(data.tracer)
             data.assignment = estimate_assignment_by_history(data)[1];
-            maximize!(data)
+            maximize!(data; freeze_composition, freeze_position)
         end
 
         if !freeze_components
             drop_unused_components!(data; min_n_samples=1)
         end
-        maximize!(data)
+        maximize!(data; freeze_composition, freeze_position)
     end
 
     return data

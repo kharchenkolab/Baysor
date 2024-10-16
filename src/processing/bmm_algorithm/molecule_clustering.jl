@@ -50,7 +50,7 @@ function maximize_molecule_clusters!(
         t_gene = genes[i];
         t_conf = confidence[i];
 
-        for j in 1:size(cell_type_exprs, 1)
+        for j in axes(cell_type_exprs, 1)
             cell_type_exprs[j, t_gene] += t_conf * assignment_probs[j, i];
         end
     end
