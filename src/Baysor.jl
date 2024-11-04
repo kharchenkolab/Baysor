@@ -17,10 +17,11 @@ REP = include("reporting/Reporting.jl")
 BPR = include("processing/Processing.jl")
 CLI = include("cli/CLI.jl")
 
-using Comonicon
+using Comonicon: @cast, cmd_error
+import Comonicon: @main as @app
 # using .CLI: command_main, julia_main
 
 using .CLI: CASTED_COMMANDS
-@main
+@app
 
 end # module
