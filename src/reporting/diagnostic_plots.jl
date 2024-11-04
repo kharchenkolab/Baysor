@@ -1,25 +1,28 @@
 import UMAP
 import Distributions: UnivariateDistribution,pdf
 
-function plot_noise_estimation_diagnostics(edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T; title::String="Noise estimation",
-        confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50) where T <: UnivariateDistribution
-        x_max = quantile(edge_lengths, 0.99);
-        n1 = sum(confidences);
-        n2 = length(confidences) - n1;
+function plot_noise_estimation_diagnostics(
+        edge_lengths::Vector{Float64}, confidences::Vector{Float64}, d1::T, d2::T;
+        title::String="Noise estimation", confidence_nn_id::Union{Int, String}="k", linewidth::Float64=4.0, bins::Int=50
+    ) where T <: UnivariateDistribution
+    
+    x_max = quantile(edge_lengths, 0.99);
+    n1 = sum(confidences);
+    n2 = length(confidences) - n1;
 
-        p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins, type=:bar)
-        p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
-        p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
+    p_df = estimate_hist(edge_lengths[edge_lengths .< x_max], normalize=true, nbins=bins, type=:bar)
+    p_df[!, :intra] = n1 / (n1 + n2) .* pdf.(d1, p_df.s)
+    p_df[!, :bg] = n2 / (n1 + n2) .* pdf.(d2, p_df.s)
 
-        shared_enc = Encoding(
-            x=(;field="s", type="quantitative", title="Distance to $(confidence_nn_id)'th nearest neighbor"),
-            color=(;scale=(;scheme="category10"), legend=(;title="Distribution"))
-        )
-        return Data(p_df) * shared_enc * (
-            Mark(:bar) * Encoding(y=(;field=:h, type="quantitative", title="Density"), color=(;datum="Observed")) +
-            Mark(:line, size=linewidth) * Encoding(y="bg:q", color=(;datum="Background")) +
-            Mark(:line, size=linewidth) * Encoding(y="intra:q", color=(;datum="Intracellular"))
-        ) * Deneb.title(title) * config(view=(width=400, height=300))
+    shared_enc = Encoding(
+        x=(;field="s", type="quantitative", title="Distance to $(confidence_nn_id)'th nearest neighbor"),
+        color=(;scale=(;scheme="category10"), legend=(;title="Distribution"))
+    )
+    return Data(p_df) * shared_enc * (
+        Mark(:bar) * Encoding(y=(;field=:h, type="quantitative", title="Density"), color=(;datum="Observed")) +
+        Mark(:line, size=linewidth) * Encoding(y="bg:q", color=(;datum="Background")) +
+        Mark(:line, size=linewidth) * Encoding(y="intra:q", color=(;datum="Intracellular"))
+    ) * Deneb.title(title) * config(view=(width=400, height=300))
 end
 
 # Function to be called from an environment without DataFrames imported

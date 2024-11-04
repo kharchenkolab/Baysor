@@ -11,8 +11,45 @@ plot_molecules!(args...; kwargs...) = plot_molecules(args...; append=true, kwarg
 plot_molecules(df_spatial::DataFrame, polygons::AbstractDict{<:Union{Int, String}, Matrix{Float64}}; kwargs...) =
     plot_molecules(df_spatial, collect(values(polygons)); kwargs...)
 
+"""
+```julia
+plot_molecules(df_spatial, polygons=Matrix{Float64}[]; markersize=2, color=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0), is_noise=nothing, annotation=nothing, ann_colors=nothing, legend=(annotation !== nothing), fontsize=8, ticksvisible=false, noise_ann=nothing, shuffle_colors=false, append=false, polygon_kwargs=nothing, axis_kwargs=nothing, noise_kwargs=nothing, legend_kwargs=nothing, kwargs...)
+```
+
+Plot molecules from spatial transcriptomics data with optional polygon overlays.
+
+### Arguments
+- `df_spatial`: DataFrame containing spatial information of molecules.
+- `polygons=Matrix{Float64}[]`: Array of matrices representing polygons to be plotted.
+
+### Keyword Arguments
+- `markersize=2`: Size of markers representing molecules.
+- `color=:gene`: Color of markers. Can be a vector of colors, a symbol referring to a column in `df_spatial`, or a string.
+- `size=(800, 800)`: Size of the plot.
+- `poly_strokewidth=1`: Stroke width of polygon outlines.
+- `xlims=nothing`: x-axis limits. If `nothing`, automatically determined.
+- `ylims=nothing`: y-axis limits. If `nothing`, automatically determined.
+- `offset=(0, 0)`: Offset for the plot.
+- `is_noise=nothing`: Indicator for noise points. Can be a vector, BitArray, symbol referring to a column in `df_spatial`, or `nothing`.
+- `annotation=nothing`: Annotations for points. Can be a vector, symbol referring to a column in `df_spatial`, or `nothing`.
+- `ann_colors=nothing`: Dictionary of colors for annotations.
+- `legend=(annotation !== nothing)`: Whether to show a legend.
+- `fontsize=8`: Font size for annotations.
+- `ticksvisible=false`: Whether to show axis ticks.
+- `noise_ann=nothing`: Annotation for noise points.
+- `shuffle_colors=false`: Whether to shuffle colors of annotations.
+- `append=false`: Whether to append to an existing plot.
+- `polygon_kwargs=nothing`: Additional keyword arguments for polygon plotting.
+- `axis_kwargs=nothing`: Additional keyword arguments for axis (`MK.Axis`).
+- `noise_kwargs=nothing`: Additional keyword arguments for noise points (`MK.scatter!`).
+- `legend_kwargs=nothing`: Additional keyword arguments for legend (`MK.axislegend`).
+- `kwargs...`: Additional keyword arguments for `MK.scatter!` for molecule plotting.
+
+### Returns
+A plot of molecules with optional polygon overlays.
+"""
 function plot_molecules(
-        df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize=2,
+        df_spatial::DataFrame, polygons::Array{Matrix{Float64}, 1}=Matrix{Float64}[]; markersize::Union{<:Real, Vector{<:Real}}=2,
         color::Union{Vector, Symbol, String}=:gene, size=(800, 800), poly_strokewidth=1, xlims=nothing, ylims=nothing, offset=(0, 0),
         is_noise::Union{Vector, BitArray, Symbol, Nothing}=nothing, annotation::Union{<:AbstractVector, Symbol, Nothing} = nothing,
         ann_colors::Union{Nothing, Dict} = nothing, legend=(annotation !== nothing), fontsize=8, ticksvisible::Bool=false,
@@ -83,13 +120,22 @@ function plot_molecules(
 
         for (color, ann) in zip(c_map, ann_vals)
             style_dict = (ann_colors === nothing) ? Dict() : Dict(:color => ann_colors[ann])
-            MK.scatter!(df_spatial.x[annotation .== ann] .+ offset[1], df_spatial.y[annotation .== ann] .+ offset[2];
-                strokewidth=0, markersize=markersize, label=ann, color=color, style_dict..., kwargs...)
+            mask = (annotation .== ann)
+            ms = isa(markersize, Vector) ? markersize[mask] : markersize
+            MK.scatter!(
+                df_spatial.x[mask] .+ offset[1], df_spatial.y[mask] .+ offset[2];
+                strokewidth=0, markersize=ms, label=ann, color=color,
+                style_dict..., kwargs...
+            )
         end
 
         if noise_ann in annotation
-            MK.scatter!(df_spatial.x[annotation .== noise_ann] .+ offset[1], df_spatial.y[annotation .== noise_ann] .+ offset[2];
-                label=noise_ann, noise_kwargs...)
+            mask = (annotation .== noise_ann)
+            ms = isa(markersize, Vector) ? markersize[mask] : markersize
+            MK.scatter!(
+                df_spatial.x[mask] .+ offset[1], df_spatial.y[mask] .+ offset[2];
+                strokewidth=0, markersize=ms, label=noise_ann, noise_kwargs...
+            )
         end
 
         if legend
