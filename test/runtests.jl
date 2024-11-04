@@ -101,22 +101,6 @@ end
     end
 
     @testset "distributions" begin
-        @testset "ShapePrior" begin
-            seed!(42)
-
-            means = BPR.MeanVec{2}([10.0, 20.0])
-            std_stds = BPR.MeanVec{2}([5.0, 10.0])
-            stds = hcat([Vector(BPR.sample_var(BPR.ShapePrior{2}(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
-            @test all(stds .> 0)
-            @test all(abs.(vec(mean(stds, dims=2)) .- means) .< 1)
-
-            means = BPR.MeanVec{2}([1000.0, 2000.0])
-            stds = hcat([Vector(BPR.sample_var(BPR.ShapePrior{2}(means, std_stds, 1000))) for i in 1:100000]...) .^ 0.5
-            @test all(stds .> 0)
-            @test all(abs.(vec(mean(stds, dims=2)) .- means) .< 1)
-            @test all(abs.(vec(std(stds, dims=2)) .- std_stds) .< 1)
-        end
-
         @testset "CategoricalSmoothed" begin
             dist = BPR.CategoricalSmoothed([0.0, 0.0, 0.0])
             BPR.maximize!(dist, [missing, 1, 2], [0.5, 0.5, 0.5])

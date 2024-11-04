@@ -24,19 +24,10 @@ function var_posterior(prior_std::Float64, prior_std_std::Float64, eigen_value::
     d_std = (sqrt(eigen_value) - prior_std)
     std_adj = (prior_std + sign(d_std) * (sqrt(abs(d_std) / prior_std_std + 1) - 1) * prior_std_std)
 
+    # The formula below only corrects variance estimates for cells with low number of molecules
+    # Cells with high number of molecules still get their correction above
     return ((prior_n_samples * prior_std + n_samples * std_adj) / (prior_n_samples + n_samples)) ^ 2
 end
-
-function sample_var(d::Normal)
-    @assert d.μ > 0
-    while true
-        v = rand(d)
-        if v > 0
-            return v.^2
-        end
-    end
-end
-sample_var(prior::ShapePrior) = sample_var.(distributions(prior))
 
 mutable struct MvNormalF{L, L2}
     μ::MeanVec{L};
@@ -175,4 +166,17 @@ function adjust_cov_matrix!(Σ::T; max_iter::Int=100, cov_modifier::Float64=1e-4
     end
 
     return Σ
+end
+
+function adjust_cov_by_prior!(Σ::CovMat{N}, prior::ShapePrior{N}; n_samples::TR where TR <: Real) where N
+    if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
+        Σ[1, 2] = Σ[2, 1] = 0.0
+    end
+
+    fact = eigen(Σ)
+    eigen_values_posterior = var_posterior(prior, fmax.(fact.values, 0.0); n_samples=n_samples)
+    Σ .= fact.vectors * SMatrix{N, N, Float64}(diagm(0 => eigen_values_posterior)) * inv(fact.vectors)
+    Σ .= fmax.(Σ, Σ')
+
+    return adjust_cov_matrix!(Σ)
 end

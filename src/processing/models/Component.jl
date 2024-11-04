@@ -51,16 +51,3 @@ pdf(comp::Component{N, CategoricalSmoothed{FT}} where {N, FT}, x::AbstractVector
 
 pdf(comp::Component{T, CT} where {T, CT}, x::AbstractVector{Float64}, gene::AbstractVector{<:Real}; use_smoothing::Bool=true) =
     comp.prior_probability * comp.confidence * pdf(comp.position_params, x) * pdf(comp.composition_params, gene)
-
-function adjust_cov_by_prior!(Σ::CovMat{N}, prior::ShapePrior{N}; n_samples::TR where TR <: Real) where N
-    if (Σ[2, 1] / max(Σ[1, 1], Σ[2, 2])) < 1e-5 # temporary fix untill https://github.com/JuliaArrays/StaticArrays.jl/pull/694 is merged
-        Σ[1, 2] = Σ[2, 1] = 0.0
-    end
-
-    fact = eigen(Σ)
-    eigen_values_posterior = var_posterior(prior, fmax.(fact.values, 0.0); n_samples=n_samples)
-    Σ .= fact.vectors * SMatrix{N, N, Float64}(diagm(0 => eigen_values_posterior)) * inv(fact.vectors)
-    Σ .= fmax.(Σ, Σ')
-
-    return adjust_cov_matrix!(Σ)
-end

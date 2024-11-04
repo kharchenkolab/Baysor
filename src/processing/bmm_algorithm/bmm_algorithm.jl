@@ -302,6 +302,8 @@ function split_cells_by_connected_components!(data::BmmData)
             (ci != largest_cc_id) || continue
 
             mol_ids = mol_ids_per_cell[cell_id][c_ids]
+            # TODO: it could be better to sample this assignment based on neighborhood labels
+            # Having unexpected background molecules can mess with the MRF connectivity prior
             data.assignment[mol_ids] .= 0
         end
     end
