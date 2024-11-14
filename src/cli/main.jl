@@ -28,9 +28,11 @@ Run cell segmentation
                                         (default: 4)
 - `-o, --output=<path>`:                Name of the output file or path to the output directory (default: "segmentation.csv")
 - `--polygon-format=<format>`:          Format to save estimated cell boundary polygons to a file with a specified `format`.
-                                        Two types of 'GeoJSON' format are currently supported: 'FeatureCollection' produces the
-                                        same output as Xenium Ranger and 'GeometryCollection' is the old Baysor format. Set to "none"
-                                        to disable saving polygons. (default: 'FeatureCollection').
+                                        Two main types of 'GeoJSON' format are currently supported: 'FeatureCollection' produces the
+                                        same output as Xenium Ranger and 'GeometryCollection' is the old Baysor format. Additionally,
+                                        `GeometryCollectionLegacy` format is similar to `GeometryCollection`, but with integer cell IDs
+                                        *(used for compatibility with Xenium Ranger, this option will be deprecated after Xenium Ranger
+                                        is updated)*. Set to "none" to disable saving polygons. (default: 'FeatureCollection').
 - `--scale-std=<ss>`:                   Standard deviation of scale across cells. Can be either number, which means absolute value of
                                         the std, or string ended with '%' to set it relative to scale (default: "25%")
 - `-s, --scale=<s>`:                    Scale parameter, which suggest approximate cell radius for the algorithm. Must be in the same

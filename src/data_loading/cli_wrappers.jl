@@ -72,15 +72,21 @@ function save_molecule_counts(
     return file
 end
 
-
 """
     polygons_to_geojson(polygons::PolygonCollection; format::String="FeatureCollection")
 
     Converts a collection of polygons to GeoJSON format.
-    Uses either `FeatureCollection` (compatible with 10x Xenium Ranger) or `GeometryCollection` (original Baysor) format.
+    Uses either `FeatureCollection` (10x Xenium Ranger output), `GeometryCollection` (original Baysor) or `GeometryCollectionLegacy` (Baysor v0.6 with integer cell IDs) format.
 """
 function polygons_to_geojson(polygons::PolygonCollection; format::String="FeatureCollection")
     format_lc = lowercase(format)
+    if format_lc == "geometrycollectionlegacy"
+        if eltype(keys(polygons)) <: AbstractString
+            polygons = Dict(parse(Int, split(k, '-')[2]) => p for (k,p) in polygons)
+        end
+
+        format_lc = "geometrycollection"
+    end
     if format_lc == "geometrycollection"
         geoms = [Dict("type" => "Polygon", "coordinates" => [collect.(eachrow(p))], "cell" => c) for (c,p) in polygons]
         return Dict("type" => "GeometryCollection", "geometries" => geoms);

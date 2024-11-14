@@ -1,5 +1,9 @@
 ## [Upcoming]
 
+### Added
+
+- `--polygon-format=GeometryCollectionLegacy` format similar to `GeometryCollection`, but with integer cell IDs. Used for compatibility with Xenium Ranger. This option will be deprecated after Xenium Ranger is updated.
+
 ### Fixed
 
 - CLI argument parsing
