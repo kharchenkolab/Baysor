@@ -216,9 +216,12 @@ end
                 df_spatial = DataWrappers.get_spatial_df(; n_mols=100000, cell=true)
                 pos_data = BPR.position_data(df_spatial)
                 polygons = BPR.boundary_polygons(pos_data, df_spatial.cell)
+
+                # Basic tests
                 @test length(polygons) == maximum(df_spatial.cell)
                 @test all(BPR.area(Matrix(p')) > 1e-5 for (i,p) in polygons)
 
+                # Z-stack format
                 n_stacks = 3
                 z_vals = rand(1:n_stacks, size(df_spatial, 1))
                 pos_data = vcat(pos_data, z_vals')
@@ -234,6 +237,13 @@ end
                 polygons = BPR.boundary_polygons_auto(pos_data, df_spatial.cell; estimate_per_z=true, max_z_slices=max_slices)[2]
                 @test length(polygons) == (max_slices + 1)
                 @test "2d" in keys(polygons)
+
+                # Process 1-point cells
+                n_points = 100
+                pos_data = rand(2, n_points)
+                polygons = BPR.boundary_polygons(pos_data, collect(1:n_points))
+                @test length(polygons) == n_points
+                @test all(size.(values(polygons), 1) .== 4)
             end
         end
 

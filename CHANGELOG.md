@@ -1,3 +1,15 @@
+## [Upcoming]
+
+### Fixed
+
+- CLI argument parsing
+- Julia 1.11 compatibility
+
+### Changed
+
+- `polygons.json` now has polygons for all cells in the dataset. *Cells with 1 or 2 points now have polygons with vertices.*
+- Polygon vertices are now slightly shifted farther from the cell center to avoid molecules on the border.
+
 ## [0.7.0] — 2024-09-13
 
 ### Added

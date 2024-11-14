@@ -282,7 +282,7 @@ boundary_polygons(bm_data::BmmData) = boundary_polygons(position_data(bm_data), 
 
 function boundary_polygons(
         pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; 
-        cell_names::Union{Vector{String}, Nothing}=nothing
+        cell_names::Union{Vector{String}, Nothing}=nothing, offset_rel::Float64=0.01
     )
     if size(pos_data, 1) == 3
         pos_data = pos_data[1:2,:]
@@ -300,17 +300,32 @@ function boundary_polygons(
     bbox_per_cell = get_boundary_box_per_cell(pos_data, cell_labels);
     ids_per_bbox = extract_ids_per_bbox(pos_data[1,:], pos_data[2,:], bbox_per_cell);
 
+    mids_per_cell = split_ids(cell_labels, drop_zero=true);
+    dists_to_nn = @p KDTree(pos_data) |>
+        knn_parallel(_, pos_data, 2, sorted=true)[2] |>
+        getindex.(_, 2);
+    offset = mean(dists_to_nn) * offset_rel;
+
     cell_borders = [Matrix{Float64}([;;]) for _ in 1:length(ids_per_bbox)]
     @threads for cid in 1:length(ids_per_bbox)
-        mids = ids_per_bbox[cid]
-        !isempty(mids) || continue
+        if length(mids_per_cell[cid]) == 1
+            cpd = pos_data[:, mids_per_cell[cid]]
+            poly = hcat(cpd .+ [offset, 0], cpd .- [offset, 0], cpd .+ [0, offset], cpd .- [0, offset])
+        elseif length(mids_per_cell[cid]) == 2
+            cpd = pos_data[:, mids_per_cell[cid]]
+            center = mean(cpd, dims=2)
+            poly = hcat(cpd, center .+ [offset, 0], center .- [offset, 0])
+        else
+            mids = ids_per_bbox[cid]
+            !isempty(mids) || continue
 
-        id_map = Dict(si => ti for (ti,si) in enumerate(mids))
-        cpd = pos_data[:, mids]
-        cbord = extract_cell_border_ids(points[mids], cpd, cell_labels[mids], cid; id_map)
-        !isempty(cbord) || continue
-
-        cell_borders[cid] = Matrix(cpd[:,cbord]')
+            id_map = Dict(si => ti for (ti,si) in enumerate(mids))
+            cpd = pos_data[:, mids]
+            cbord = extract_cell_border_ids(points[mids], cpd, cell_labels[mids], cid; id_map)
+            @views poly = cpd[:,cbord]
+            !isempty(cbord) || continue
+        end
+        cell_borders[cid] = Matrix(poly')
     end
 
     if cell_names == nothing
