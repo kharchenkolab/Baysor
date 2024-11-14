@@ -88,23 +88,12 @@ function extract_border_edges(triangle_point_ids::Vector{Vector{Int}})
     return border_edges
 end
 
-function extract_cell_border(
-        points::Vector{IndexedPoint2D}, pos_data::Matrix{Float64}, cell_labels::Vector{Int}, cell_id::Int;
-        max_iters::Int=100, id_map::Union{Dict{Int, Int}, Nothing}=nothing
+function find_border_without_admixture(
+        triangles::Vector{Vector{Int}}, pos_data::Matrix{Float64}, non_cell_pos::Matrix{Float64};
+        max_iters::Int=100
     )
-    cell_mask = (cell_labels .== cell_id)
-    cell_points = points[cell_mask]
-    c_other_pos = pos_data[:, .!cell_mask]
 
-    c_tess = VD.DelaunayTessellation2D(length(cell_points), IndexedPoint2D());
-    push!(c_tess, cell_points);
-
-    c_triangles = extract_triangle_verts(c_tess; closed=false)
-    if id_map !== nothing
-        c_triangles = [[id_map[i] for i in t] for t in c_triangles]
-    end
-
-    edges_per_tri = [[fsort(ps[i1], ps[i2]) for (i1, i2) in [(1, 2), (2, 3), (3, 1)]] for ps in c_triangles];
+    edges_per_tri = [[fsort(ps[i1], ps[i2]) for (i1, i2) in [(1, 2), (2, 3), (3, 1)]] for ps in triangles];
     edge_counts = countmap(vcat(edges_per_tri...));
 
     n_borders_per_node = Dict{Int, Int}() # Used to avoid loops after triangle filtering
@@ -120,7 +109,7 @@ function extract_cell_border(
     for i in 1:max_iters
         converged = true
         empty!(border_triangles)
-        for (i,(tri,es)) in enumerate(zip(c_triangles, edges_per_tri))
+        for (i,(tri,es)) in enumerate(zip(triangles, edges_per_tri))
             is_excluded[i] && continue
 
             n_borders = 0
@@ -129,38 +118,38 @@ function extract_cell_border(
             end
 
             (n_borders > 0) || continue
-            if (n_borders == 1)
-                @views n_inner_points = get_n_points_in_triangle(c_other_pos, SMatrix{2, 3, Float64}(pos_data[:,tri]))
-                if n_inner_points > 0
-                    skip = false
-                    for e in es
-                        edge_counts[e] == 2 || continue
-                        if sum((get(n_borders_per_node, k, 0) == 2) for k in e) == 2
-                            # The condition shows that both nodes of an internal edge are already have other border edges
-                            # It means that if we exclude the triangle, we'd have a loop in our polygon
-                            push!(border_triangles, i)
-                            skip = true
-                        end
-                    end
-                    skip && continue
+            if (n_borders > 1)
+                push!(border_triangles, i)
+                continue
+            end
 
-                    converged = false
-                    is_excluded[i] = true
-                    for e in es
-                        edge_counts[e] -= 1
-                        ne = edge_counts[e]
+            @views n_admix_points = get_n_points_in_triangle(non_cell_pos, SMatrix{2, 3, Float64}(pos_data[:,tri]))
+            (n_admix_points > 0) || continue
+            skip = false
+            for e in es
+                edge_counts[e] == 2 || continue
+                if sum((get(n_borders_per_node, k, 0) == 2) for k in e) == 2
+                    # The condition shows that both nodes of an internal edge already have other border edges
+                    # It means that if we exclude the triangle, we'd have a loop in our polygon
+                    push!(border_triangles, i)
+                    skip = true
+                end
+            end
+            skip && continue
 
-                        for k in e
-                            if ne == 0
-                                n_borders_per_node[k] -= 1
-                            elseif ne == 1
-                                n_borders_per_node[k] = get(n_borders_per_node, k, 0) + 1
-                            end
-                        end
+            converged = false
+            is_excluded[i] = true
+            for e in es
+                edge_counts[e] -= 1
+                ne = edge_counts[e]
+
+                for k in e
+                    if ne == 0
+                        n_borders_per_node[k] -= 1
+                    elseif ne == 1
+                        n_borders_per_node[k] = get(n_borders_per_node, k, 0) + 1
                     end
                 end
-            else
-                push!(border_triangles, i)
             end
         end
 
@@ -171,7 +160,27 @@ function extract_cell_border(
     end
 
     border_edges = [e for (e,n) in edge_counts if n == 1];
+    return border_edges
+end
 
+function extract_cell_border_ids(
+        points::Vector{IndexedPoint2D}, pos_data::Matrix{Float64}, cell_labels::Vector{Int}, cell_id::Int;
+        max_iters::Int=100, id_map::Union{Dict{Int, Int}, Nothing}=nothing
+    )
+    cell_mask = (cell_labels .== cell_id)
+    cell_points = points[cell_mask]
+    non_cell_pos = pos_data[:, .!cell_mask]
+
+    c_tess = VD.DelaunayTessellation2D(length(cell_points), IndexedPoint2D());
+    push!(c_tess, cell_points);
+
+    triangles = extract_triangle_verts(c_tess; closed=false)
+    if id_map !== nothing
+        triangles = [[id_map[i] for i in t] for t in triangles]
+    end
+
+    border_edges = find_border_without_admixture(triangles, pos_data, non_cell_pos; max_iters)
+    
     !isempty(border_edges) || return Int[]
     return border_edges_to_poly(border_edges)
 end
@@ -271,7 +280,10 @@ end
 
 boundary_polygons(bm_data::BmmData) = boundary_polygons(position_data(bm_data), bm_data.assignment)
 
-function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; cell_names::Union{Vector{String}, Nothing}=nothing)
+function boundary_polygons(
+        pos_data::Matrix{Float64}, cell_labels::Vector{<:Integer}; 
+        cell_names::Union{Vector{String}, Nothing}=nothing
+    )
     if size(pos_data, 1) == 3
         pos_data = pos_data[1:2,:]
     elseif size(pos_data, 1) != 2
@@ -288,17 +300,14 @@ function boundary_polygons(pos_data::Matrix{Float64}, cell_labels::Vector{<:Inte
     bbox_per_cell = get_boundary_box_per_cell(pos_data, cell_labels);
     ids_per_bbox = extract_ids_per_bbox(pos_data[1,:], pos_data[2,:], bbox_per_cell);
 
-    # cell_borders = Dict{Int, Matrix{Float64}}()
     cell_borders = [Matrix{Float64}([;;]) for _ in 1:length(ids_per_bbox)]
     @threads for cid in 1:length(ids_per_bbox)
         mids = ids_per_bbox[cid]
         !isempty(mids) || continue
 
+        id_map = Dict(si => ti for (ti,si) in enumerate(mids))
         cpd = pos_data[:, mids]
-        clabs = cell_labels[mids]
-        mid_map = Dict(si => ti for (ti,si) in enumerate(mids))
-
-        cbord = extract_cell_border(points[mids], cpd, clabs, cid; id_map=mid_map)
+        cbord = extract_cell_border_ids(points[mids], cpd, cell_labels[mids], cid; id_map)
         !isempty(cbord) || continue
 
         cell_borders[cid] = Matrix(cpd[:,cbord]')
