@@ -11,9 +11,9 @@ optimize = 2
 execution_file = ["deps/precompile.jl"]
 
 [application]
-incremental=true
-filter_stdlibs=false
-path="./bin"
+incremental = false
+filter_stdlibs = false
+path = "./bin"
 
 [application.precompile]
 execution_file = ["deps/precompile.jl"]
