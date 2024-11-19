@@ -15,6 +15,15 @@ The easiest way to install Baysor on Linux is to download a binary from the [rel
 
 If you need to install julia, [`juliaup`](https://github.com/julialang/juliaup#installation) is a recommended way. It's cross-platform and doesn't require admin privileges. *TL;DR: `curl -fsSL https://install.julialang.org | sh`* .
 
+**The current version of Baysor isn't compatible with Julia 1.11.**
+
+To install Julia 1.10, use the following command:
+
+```bash
+juliaup add 1.10
+juliaup default 1.10
+```
+
 To install Baysor as a Julia package run the following command from your CLI *(it requires `gcc` or `clang` installed)*:
 
 ```bash
