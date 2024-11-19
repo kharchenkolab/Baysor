@@ -14,6 +14,8 @@
 
 ## News ([0.7.0] — 2024-09-13)
 
+**Warning:** the current version isn't compatible with Julia 1.11. See how to set up Julia 1.10 [here](https://kharchenkolab.github.io/Baysor/dev/installation/).
+
 - Improved integration with 10x Xenium
 - Better parallelism
 - Optimized speed
