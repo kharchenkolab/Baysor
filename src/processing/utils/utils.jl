@@ -2,11 +2,11 @@ using SparseArrays
 using Base.Threads
 using NearestNeighbors: KDTree, knn
 
-function knn_parallel(nn_tree::KDTree, x::AbstractMatrix{<:Real}, nn_interpolate::Int; sorted::Bool=false)
+function knn_parallel(nn_tree::KDTree, x::AbstractMatrix{<:Real}, nn_interpolate::Int; sorted::Bool=false, progress::Bool=false)
     indices = Vector{Vector{Int}}(undef, size(x, 2))
     distances = Vector{Vector{eltype(eltype(nn_tree.data))}}(undef, size(x, 2))
 
-    @threads for i in axes(x, 2)
+    @showprogress enabled=progress @threads for i in axes(x, 2)
         indices[i], distances[i] = knn(nn_tree, x[:, i], nn_interpolate, sorted)
     end
 
@@ -49,11 +49,11 @@ count_array_sparse(T::DataType, values::AbstractVector{Union{Missing, Int}}, arg
     count_array_sparse(T, collect(skipmissing(values)), args...; kwargs...)
 
 count_array_sparse(values::AbstractVector{Int}, ::Nothing=nothing; kwargs...) = count_array_sparse(Int, values; kwargs...)
-count_array_sparse(values::AbstractVector{Int}, weights::AbstractVector{Float64}; kwargs...) =
-    count_array_sparse(Float64, values, weights; kwargs...)
+count_array_sparse(values::AbstractVector{Int}, weights::AbstractVector{<:Real}; kwargs...) =
+    count_array_sparse(Float32, values, weights; kwargs...)
 
 function count_array_sparse(
-        T::DataType, values::AbstractVector{Int}, weights::Union{AbstractVector{Float64}, PseudoWeight}=PseudoWeight();
+        T::DataType, values::AbstractVector{Int}, weights::Union{AbstractVector{<:Real}, PseudoWeight}=PseudoWeight();
         total::Int=0, min_val::Float64=1e-5, normalize::Bool=false
     )
     !isempty(values) || return spzeros(T, total)

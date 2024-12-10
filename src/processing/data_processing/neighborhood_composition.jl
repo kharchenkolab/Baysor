@@ -5,10 +5,13 @@ neighborhood_count_matrix(data::Union{BmmData, DataFrame}, k::Int; kwargs...) =
     neighborhood_count_matrix(position_data(data), composition_data(data), k; kwargs...)
 
 function neighborhood_count_matrix(
-        pos_data::Matrix{Float64}, genes::Vector{<:Union{Int, Missing}}, k::Int;
+        pos_data::Matrix{<:Real}, genes::Vector{<:Union{Int, Missing}}, k::Int;
         confidences::Union{Vector{Float64}, Nothing}=nothing,
-        n_genes::Int=maximum(skipmissing(genes)), normalize_by_dist::Bool=true, normalize::Bool=true
+        n_genes::Int=maximum(skipmissing(genes)), normalize_by_dist::Bool=true, normalize::Bool=true,
+        progress::Bool=false
     )
+    # TODO: disable `normalize_by_dist` as memory allocations are terrible for huge datasets
+    @assert size(pos_data, 1) in (2, 3) "Position data must have exactly 2 or 3 rows"
     if k < 3
         @warn "Too small value of k: $k. Setting it to 3."
         k = 3
@@ -25,25 +28,32 @@ function neighborhood_count_matrix(
 
     k = min(k, size(pos_data, 2))
 
-    neighbors, dists = knn_parallel(KDTree(pos_data), pos_data, k; sorted=true);
+    neighbors, dists = knn_parallel(KDTree(pos_data), pos_data, k; sorted=true, progress);
+    
+    s_vecs = Vector{SparseArrays.SparseVector{Float32, Int64}}(undef, length(neighbors))
 
     if normalize_by_dist
         # account for problems with points with duplicating coordinates
         med_closest_dist = median(d[findfirst(d .> 1e-15)] for d in dists if any(d .> 1e-15));
 
-        return sphstack([ # Not sure if making it parallel will have large effect, as we have a lot of allocations here
-            count_array_sparse(Float32, genes[nns], 1 ./ max.(ds, med_closest_dist); total=n_genes, normalize=normalize)
-            for (nns,ds) in zip(neighbors, dists)
-        ]);
+        # Not sure if making it parallel will have large effect, as we have a lot of allocations here
+        @showprogress enabled=progress for i in eachindex(neighbors)
+            @views s_vecs[i] = count_array_sparse(
+                Float32, genes[neighbors[i]], 1 ./ max.(dists[i], med_closest_dist);
+                total=n_genes, normalize=normalize
+            )
+        end
+
+        return sphstack(s_vecs)
     end
 
-    s_vecs = Vector{SparseArrays.SparseVector{Float32, Int64}}(undef, length(neighbors))
+    
     if !normalize || (confidences === nothing)
-        @threads for i in eachindex(neighbors)
+        @showprogress enabled=progress @threads for i in eachindex(neighbors)
             s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]); total=n_genes, normalize=normalize)
         end
     else
-        @threads for i in eachindex(neighbors)
+        @showprogress enabled=progress @threads for i in eachindex(neighbors)
             s_vecs[i] = count_array_sparse(Float32, view(genes, neighbors[i]), view(confidences, neighbors[i]); total=n_genes, normalize=normalize)
         end
     end
