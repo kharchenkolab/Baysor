@@ -1,7 +1,56 @@
 import StatsBase
-using Parquet: read_parquet
+@lazy import Parquet2 = "98572fba-bba0-415d-956f-fa77e587d26d"
+
+using ProgressMeter: @showprogress
+using Base.Threads
 
 ## Internals
+
+function copy_slice!(
+        target::AbstractVector{T1}, source::AbstractVector{T2} where T2 <: Union{Missing, T1}; start_id::Int
+    ) where T1
+    for ri in eachindex(source)
+        target[start_id + ri] = source[ri]
+    end
+end
+
+function read_parquet!(target::Dict{Symbol, Vector}, dataset::Parquet2.Dataset; progress::Bool=true)
+    start_ids = vcat([0], cumsum(d.nrows for d in dataset));
+    col_names = collect(keys(target))
+
+    @showprogress enabled=progress for i in 1:length(dataset)
+        si = start_ids[i]
+        # cdf = DataFrame(dataset[i])
+        @threads for k in col_names
+            col = Parquet2.load(dataset[i], String(k))
+            copy_slice!(target[k], col; start_id=si)
+            # copy_slice!(data[k], cdf[!, k]; start_id=si)
+        end
+    end
+end
+
+function read_parquet_fast(
+        data_path::String; columns::Union{Vector{Symbol}, Nothing}=nothing, progress::Bool=true, normalize_types::Bool=true
+    )
+    dataset = Parquet2.Dataset(data_path);
+    (length(dataset) == 1) && return DataFrame(dataset);
+
+    if columns === nothing
+        columns = propertynames(dataset[1])
+    end
+
+    rdf = DataFrame(dataset[1]);
+    if normalize_types
+        normalize_df_types!(rdf)
+    end
+
+    n_rows_total = sum(d.nrows for d in dataset);
+    data = Dict(k => Vector{eltype(rdf[!, k])}(undef, n_rows_total) for k in columns);
+
+    read_parquet!(data, dataset; progress);
+
+    return DataFrame(data);
+end
 
 function match_gene_names(gene_masks::Vector{String}, gene_names::Vector{String})
     matches = Set{String}()
@@ -47,7 +96,7 @@ function read_spatial_df(
     if ext == "csv"
         df_spatial = CSV.read(data_path, DataFrame);
     elseif ext == "parquet"
-        df_spatial = DataFrame(read_parquet(data_path));
+        df_spatial = read_parquet_fast(data_path);
     else
         error("Unsupported file format: $ext. Please, provide a CSV or Parquet file")
     end
