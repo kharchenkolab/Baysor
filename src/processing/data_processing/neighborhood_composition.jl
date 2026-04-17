@@ -152,7 +152,24 @@ function gene_composition_color_embedding(
 
     (size(pca, 1) > 3) || error("pca must have at least 3 components")
 
-    sample_ids = select_ids_uniformly(pca[1:2,:]', confidence, n=sample_size)
+    min_anchor_count = sample_size
+    threshold_ladder = (0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.60, 0.50)
+    high_conf_ids = Int[]
+    chosen_threshold = first(threshold_ladder)
+    for thr in threshold_ladder
+        high_conf_ids = findall(confidence .>= thr)
+        chosen_threshold = thr
+        length(high_conf_ids) >= min_anchor_count && break
+    end
+
+    sample_size = min(sample_size, length(high_conf_ids))
+    if sample_size <= 1
+        @warn "NCV color embedding fallback: insufficient anchor molecules after adaptive thresholding" max_conf=maximum(confidence) threshold=chosen_threshold anchors=length(high_conf_ids) sample_size=sample_size
+        return repeat(reshape([50.0, 0.0, 0.0], 3, 1), 1, size(pca, 2))
+    end
+
+    @info "NCV color embedding: selected $(length(high_conf_ids)) anchors with confidence >= $(round(chosen_threshold, digits=2)); sampling $sample_size for UMAP fit."
+    sample_ids = select_ids_uniformly(pca[1:2,:]', confidence, n=sample_size, confidence_threshold=chosen_threshold)
 
     ump = fit(UmapFit, pca[:,sample_ids]; n_components=3, kwargs...);
     emb = MultivariateStats.transform(ump, pca)
