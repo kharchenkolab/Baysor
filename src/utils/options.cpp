@@ -196,18 +196,41 @@ std::string toml_get(const TomlSection& sec, const std::string& key, const std::
     return it != sec.end() ? it->second.raw : def;
 }
 
+// Julia never silently keeps a default for an unparsable or wrong-typed
+// config value: `TOML.parsefile` rejects malformed values and
+// `Configurations.from_dict` raises `FieldTypeConversionError` naming the
+// field, the actual and the expected type (see origin/master
+// src/utils/options.jl and Configurations.jl). Match that with a clear error.
 int toml_get_int(const TomlSection& sec, const std::string& key, int def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    try { return std::stoi(it->second.raw); }
-    catch (...) { return def; }
+    const std::string& raw = it->second.raw;
+    try {
+        size_t pos = 0;
+        const int value = std::stoi(raw, &pos);
+        if (pos == raw.size()) return value;  // whole value consumed
+    } catch (...) {
+        // fall through to the error below
+    }
+    throw std::runtime_error(
+        "Invalid value '" + raw + "' for config key '" + key +
+        "': expected an integer");
 }
 
 double toml_get_double(const TomlSection& sec, const std::string& key, double def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    try { return std::stod(it->second.raw); }
-    catch (...) { return def; }
+    const std::string& raw = it->second.raw;
+    try {
+        size_t pos = 0;
+        const double value = std::stod(raw, &pos);
+        if (pos == raw.size()) return value;  // whole value consumed
+    } catch (...) {
+        // fall through to the error below
+    }
+    throw std::runtime_error(
+        "Invalid value '" + raw + "' for config key '" + key +
+        "': expected a number");
 }
 
 bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
@@ -217,7 +240,9 @@ bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
     std::transform(v.begin(), v.end(), v.begin(), ::tolower);
     if (v == "true" || v == "1") return true;
     if (v == "false" || v == "0") return false;
-    return def;
+    throw std::runtime_error(
+        "Invalid value '" + it->second.raw + "' for config key '" + key +
+        "': expected a boolean (true or false)");
 }
 
 } // anonymous namespace
@@ -299,12 +324,16 @@ RunOptions load_config(const std::string& path) {
     // [prior]
     if (doc.count("prior")) {
         auto& sec = doc["prior"];
-        std::string type = toml_get(sec, "type", "");
+        std::string type_raw = toml_get(sec, "type", "");
+        std::string type = type_raw;
         std::transform(type.begin(), type.end(), type.begin(), ::tolower);
         if (type == "none" || type.empty()) opts.prior.type = PriorInputType::None;
         else if (type == "column") opts.prior.type = PriorInputType::Column;
         else if (type == "image") opts.prior.type = PriorInputType::Image;
         else if (type == "boundary") opts.prior.type = PriorInputType::Boundary;
+        else throw std::runtime_error(
+            "Invalid value '" + type_raw + "' for config key 'type': expected "
+            "one of 'none', 'column', 'image', 'boundary'");
         opts.prior.path = toml_get(sec, "path", opts.prior.path);
         opts.prior.column_name = toml_get(sec, "column_name", opts.prior.column_name);
         opts.prior.unassigned_label = toml_get(

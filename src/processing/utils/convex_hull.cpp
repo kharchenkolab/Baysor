@@ -17,7 +17,10 @@ static double cross(double ax, double ay,
 
 // Andrew's monotone chain convex hull (2D).
 // Input:  points  — 2 × n matrix (row 0 = x, row 1 = y)
-// Output: 2 × hull_size matrix of hull vertices in counter-clockwise order.
+// Output: 2 × hull_size matrix of hull vertices in clockwise order
+//         (matching origin/master:src/processing/utils/convex_hull.jl; its
+//         test in test/runtests.jl expects [0 0 1 1 0; 0 1 1 0 0] for the
+//         unit square — i.e. the signed shoelace area is negative).
 // Degenerate cases: 0 points → empty; 1–2 points → return as-is.
 Eigen::MatrixXd convex_hull(const Eigen::MatrixXd& points) {
     int n = static_cast<int>(points.cols());
@@ -52,7 +55,7 @@ Eigen::MatrixXd convex_hull(const Eigen::MatrixXd& points) {
         hull.push_back(p);
     }
 
-    // Lower hull (counter-clockwise turns), reversed direction
+    // Lower hull (also keeping clockwise turns; scanned in reverse order)
     int upper_size = static_cast<int>(hull.size()) + 1;
     for (int i = n - 2; i >= 0; --i) {
         int p = idx[i];

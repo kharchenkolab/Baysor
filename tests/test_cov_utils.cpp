@@ -337,7 +337,7 @@ TEST(Cov1Utils_Options, LoadConfigMissingFileThrows) {
     EXPECT_EQ(defaults.molecules.x_col, "x");
 }
 
-TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
+TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
     TempDir dir("cov1_utils");
     const auto path = write_file(dir, "cfg.toml",
         "# comment line\n"
@@ -348,15 +348,15 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
         "y = \"pos_y\"\n"
         "gene = \"feature\"\n"
         "min_molecules_per_gene = 2\n"
-        "min_molecules_per_cell = notanint\n"
-        "min_qv = notafloat\n"
+        "min_molecules_per_cell = 5\n"
+        "min_qv = 10.5\n"
         "force_2d = 1\n"
         "\n"
         "[segmentation]\n"
         "scale = 25.0\n"
         "scale_std = 10%\n"
         "cluster_method = \"louvain\"\n"
-        "estimate_scale_from_centers = bogus\n"
+        "estimate_scale_from_centers = true\n"
         "unassigned_prior_label = \"EMPTY\"\n"
         "\n"
         "[prior]\n"
@@ -373,23 +373,15 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
 
     auto opts = baysor::load_config(path);
 
-    // Documentation of current behaviour (not necessarily desirable): a bool
-    // value that fails to parse silently keeps the default instead of
-    // warning. Checked on a config where the garbage key is the only setter,
-    // because here [prior] below overwrites the field afterwards.
-    auto garbage_only = baysor::load_config(write_file(dir, "garbage_bool.toml",
-        "[segmentation]\n"
-        "estimate_scale_from_centers = bogus\n"));
-    EXPECT_TRUE(garbage_only.prior.estimate_scale_from_prior);  // default kept
-
     // [data] section (header is lowercased) applies molecule keys.
     EXPECT_EQ(opts.molecules.x_col, "pos_x");
     EXPECT_EQ(opts.molecules.y_col, "pos_y");
     EXPECT_EQ(opts.molecules.gene_col, "feature");
     EXPECT_EQ(opts.molecules.min_molecules_per_gene, 2);
-    // stoi/stod failures keep the defaults.
-    EXPECT_EQ(opts.molecules.min_molecules_per_cell, 0);
-    EXPECT_DOUBLE_EQ(opts.molecules.min_qv, -1.0);
+    // Well-formed int/float values parse (unparsable ones now raise an error,
+    // see Bug3_ConfigErrors in tests/test_bugfix_correctness.cpp).
+    EXPECT_EQ(opts.molecules.min_molecules_per_cell, 5);
+    EXPECT_DOUBLE_EQ(opts.molecules.min_qv, 10.5);
     // force_2d = "1" parses as true.
     EXPECT_TRUE(opts.molecules.force_2d);
 
@@ -398,8 +390,9 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
     EXPECT_EQ(opts.segmentation.cluster_method, baysor::ClusterMethod::Louvain);
     // n_clusters unset -> method-specific default.
     EXPECT_EQ(opts.segmentation.n_clusters, 10);
-    // Backward-compatible keys from [segmentation]: garbage bool keeps the
-    // current value, which the [prior] section below then overwrites to false.
+    // Backward-compatible keys from [segmentation]: the value maps onto
+    // estimate_scale_from_prior, which the [prior] section below then
+    // overwrites to false.
     EXPECT_EQ(opts.prior.unassigned_label, "EMPTY");
     // [prior] section wins afterwards.
     EXPECT_EQ(opts.prior.type, baysor::PriorInputType::Column);
@@ -442,28 +435,19 @@ TEST(Cov1Utils_Options, LoadConfigPriorTypes) {
 
 TEST(Cov1Utils_Options, LoadConfigBooleanParsing) {
     TempDir dir("cov1_utils");
-    // "true"/"false"/garbage cover all branches of the TOML bool parser.
+    // "true"/"false" cover both accepting branches of the TOML bool parser;
+    // unrecognised bool text now raises an error instead of silently keeping
+    // the default (see Bug3_ConfigErrors in tests/test_bugfix_correctness.cpp).
     const auto path = write_file(dir, "bools.toml",
         "[molecules]\n"
         "force_2d = true\n"
         "[segmentation]\n"
-        "estimate_scale_from_centers = false\n"
-        "[prior]\n"
-        "estimate_scale_from_prior = maybe\n");
+        "estimate_scale_from_centers = false\n");
     auto opts = baysor::load_config(path);
     EXPECT_TRUE(opts.molecules.force_2d); // "true" branch of the bool parser
     // "false" branch: [segmentation]'s backward-compatible
     // estimate_scale_from_centers key maps onto estimate_scale_from_prior.
     EXPECT_FALSE(opts.prior.estimate_scale_from_prior);
-
-    // Unrecognised bool text keeps the value set so far: with no earlier
-    // setter that is the default, which is `true`. This distinguishes
-    // keep-current-value from a parser that would coerce garbage to false.
-    const auto garbage_path = write_file(dir, "garbage.toml",
-        "[prior]\n"
-        "estimate_scale_from_prior = maybe\n");
-    auto garbage = baysor::load_config(garbage_path);
-    EXPECT_TRUE(garbage.prior.estimate_scale_from_prior);
 }
 
 TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
