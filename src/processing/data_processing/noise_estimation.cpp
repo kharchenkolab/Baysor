@@ -181,7 +181,7 @@ NoiseFitResult fit_noise_probabilities(
         new_sigma2 = std::max(new_sigma2, 1e-10);
 
         // Convergence: max relative parameter change
-        double param_diff = std::max({
+        double param_diff = std::max({ // GCOVR_EXCL_LINE: dead GCC block; statement counted on lines 185-189
             std::abs(new_mu1 - mu1) / std::max(std::abs(mu1), 1e-20),
             std::abs(new_mu2 - mu2) / std::max(std::abs(mu2), 1e-20),
             std::abs(new_sigma1 - sigma1) / std::max(std::abs(sigma1), 1e-20),

@@ -185,8 +185,8 @@ struct NeighborhoodScratch {
 
     int next_mark() {
         if (current_mark == std::numeric_limits<int>::max()) {
-            std::fill(marks.begin(), marks.end(), 0);
-            current_mark = 1;
+            std::fill(marks.begin(), marks.end(), 0); // GCOVR_EXCL_LINE: unreachable guard; needs >= 2^31 queries on one thread
+            current_mark = 1; // GCOVR_EXCL_LINE: unreachable guard; needs >= 2^31 queries on one thread
         }
         return current_mark++;
     }
@@ -805,7 +805,7 @@ void stream_projected_neighborhood_vectors(
             }
 
             std::vector<int> block_query_ids(
-                ids.begin() + block_start,
+                ids.begin() + block_start, // GCOVR_EXCL_LINE: dead GCC block; expression counted on line 809
                 ids.begin() + block_start + block_n
             );
             callback(block_start, block_query_ids, block_vecs);

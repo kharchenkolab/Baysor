@@ -1,4 +1,5 @@
 #include "baysor/processing/data_processing/boundary_estimation.h"
+#include "baysor/processing/data_processing/boundary_estimation_internal.h"
 
 #include "baysor/processing/data_processing/triangulation.h"
 #include "baysor/processing/utils/utils.h"
@@ -77,7 +78,7 @@ Eigen::MatrixXd subset_columns(const Eigen::MatrixXd& mat, const std::vector<int
         out.col(i) = mat.col(ids[i]);
     }
     return out;
-}
+} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 80
 
 std::vector<BBox> get_boundary_box_per_cell(
     const Eigen::MatrixXd& pos_data,
@@ -174,14 +175,14 @@ std::vector<Triangle> extract_triangle_verts(CgalDelaunay& dt) {
     std::vector<Triangle> triangles;
     triangles.reserve(static_cast<size_t>(dt.number_of_faces()));
     for (auto fit = dt.finite_faces_begin(); fit != dt.finite_faces_end(); ++fit) {
-        triangles.push_back({
+        triangles.push_back({ // GCOVR_EXCL_LINE: dead GCC block; push_back call counted on lines 179-181
             fit->vertex(0)->info(),
             fit->vertex(1)->info(),
             fit->vertex(2)->info()
         });
     }
     return triangles;
-}
+} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 184
 
 std::vector<Edge> extract_border_edges(const std::vector<Triangle>& triangles) {
     std::unordered_map<std::uint64_t, int> edge_counts;
@@ -302,7 +303,7 @@ std::vector<Edge> find_border_without_admixture(
     for (const auto& [key, n] : edge_counts) {
         if (n != 1) continue;
         border_edges.push_back({
-            static_cast<int>(key >> 32),
+            static_cast<int>(key >> 32), // GCOVR_EXCL_LINE: dead GCC block; expression counted on line 307
             static_cast<int>(key & 0xffffffffu)
         });
     }
@@ -510,7 +511,7 @@ std::vector<std::vector<Eigen::Vector2d>> grid_borders_per_label(
     }
 
     return borders;
-}
+} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 513
 
 } // namespace
 
@@ -604,7 +605,7 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     if (static_cast<int>(unique_z.size()) > max_z_slices) {
         if (verbose) {
-            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation.",
+            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on line 609
                          unique_z.size(), max_z_slices);
         }
         const double clip = std::min(1.0 / max_z_slices / 4.0, 0.025);
@@ -655,5 +656,28 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     return {poly_joined, poly_stack};
 }
+
+// Test seam: thin wrappers over the anonymous-namespace helpers above. They
+// exist so unit tests can exercise the max_iters / max_border_len warning
+// guards, which production callers never override. Behavior is unchanged.
+namespace internal {
+
+std::vector<std::pair<int, int>> find_border_without_admixture(
+    const std::vector<std::array<int, 3>>& triangles,
+    const Eigen::MatrixXd& pos_data,
+    const Eigen::MatrixXd& non_cell_pos,
+    int max_iters
+) {
+    return baysor::find_border_without_admixture(triangles, pos_data, non_cell_pos, max_iters);
+}
+
+std::vector<int> border_edges_to_poly(
+    const std::vector<std::pair<int, int>>& border_edges,
+    int max_border_len
+) {
+    return baysor::border_edges_to_poly(border_edges, max_border_len);
+}
+
+} // namespace internal
 
 } // namespace baysor

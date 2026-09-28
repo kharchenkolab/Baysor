@@ -53,7 +53,7 @@ static std::vector<int> select_ids_uniformly(
     }
 
     if (static_cast<int>(high_conf_ids.size()) < n) {
-        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.",
+        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on line 57
                      n, high_conf_ids.size());
         n = static_cast<int>(high_conf_ids.size());
     }
@@ -96,10 +96,10 @@ AdjList build_molecule_graph(
 
     int n_edges = static_cast<int>(adj_result.edge_src.size());
     if (n_edges == 0) {
-        AdjList adj;
+        AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on line 100
         adj.indptr.assign(n + 1, 0);
         return adj;
-    }
+    } // GCOVR_EXCL_LINE: unreachable epilogue block; the branch returns on line 101
 
     double min_edge_length = quantile_vec(adj_result.edge_dists, 0.3);
 
@@ -139,11 +139,11 @@ InitialParams<N> cell_centers_uniformly(
     n_clusters = static_cast<int>(center_ids.size());
     if (n_clusters == 0) {
         // Degenerate: return empty
-        InitialParams<N> result;
+        InitialParams<N> result; // GCOVR_EXCL_LINE: dead GCC block; statement counted on line 143
         result.centers = Eigen::MatrixXd::Zero(0, N);
         result.assignment.assign(n_mols, 1);
         return result;
-    }
+    } // GCOVR_EXCL_LINE: unreachable epilogue block; the branch returns on line 145
 
     // Build center matrix: N x n_clusters
     Eigen::MatrixXd center_mat(N, n_clusters);
