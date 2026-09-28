@@ -5,6 +5,7 @@
 #   ./configure.sh                     # detect deps, configure ./build (Release)
 #   ./configure.sh --build --install   # ...and compile, install to ./install
 #   ./configure.sh --deps=conda --with-tests --build --test
+#   ./configure.sh --coverage --debug --test --build-dir=build-cov  # coverage report
 #
 # Run `./configure.sh --help` for all options.
 
@@ -28,6 +29,7 @@ WITH_TESTS=OFF
 WITH_CUDA=OFF
 WITH_REPORTING=ON
 COMPILE_COMMANDS=OFF
+WITH_COVERAGE=OFF
 NATIVE=OFF
 CC_OVERRIDE="${CC:-}"
 CXX_OVERRIDE="${CXX:-}"
@@ -95,6 +97,9 @@ Build configuration:
   --without-cuda        Disable CUDA support (default)
   --with-reporting      Enable reporting/visualisation (default)
   --without-reporting   Disable reporting/visualisation (BAYSOR_WITH_REPORTING=OFF)
+  --coverage            Instrument for gcov coverage (implies --with-tests; adds
+                        gcovr to conda deps). With --test, runs the 'coverage'
+                        target, which writes <build-dir>/coverage/ reports
   --native              Optimise for this CPU (-march=native)
   --compile-commands    Export compile_commands.json (for clangd etc.)
   --cc=PATH, --cxx=PATH Override C / C++ compiler
@@ -143,6 +148,7 @@ while [[ $# -gt 0 ]]; do
         --without-reporting) WITH_REPORTING=OFF ;;
         --native)            NATIVE=ON ;;
         --compile-commands)  COMPILE_COMMANDS=ON ;;
+        --coverage)          WITH_COVERAGE=ON; WITH_TESTS=ON ;;
         --cc=*)              CC_OVERRIDE="${arg#*=}"; CC_FROM_ENV=0 ;;
         --cxx=*)             CXX_OVERRIDE="${arg#*=}"; CXX_FROM_ENV=0 ;;
         --generator=*)       GENERATOR="${arg#*=}" ;;
@@ -171,6 +177,7 @@ DEPS_DIR="$(abspath "$DEPS_DIR")"
 BUILD_DIR="$(abspath "$BUILD_DIR")"
 PREFIX="$(abspath "$PREFIX")"
 [[ "$WITH_TESTS" == ON ]] && CONDA_PACKAGES+=(gtest)
+[[ "$WITH_COVERAGE" == ON ]] && CONDA_PACKAGES+=(gcovr)
 # conda-forge's newest Linux sysroot (glibc 2.39) ships a crt1.o tagged as
 # requiring x86-64-v3 (AVX2), so binaries refuse to start on older CPUs
 # ("CPU ISA level is lower than required"). The 2.28 sysroot is conda-forge's
@@ -377,6 +384,7 @@ CMAKE_ARGS+=(
     "-DBAYSOR_WITH_CUDA=$WITH_CUDA"
     "-DBAYSOR_WITH_REPORTING=$WITH_REPORTING"
     "-DBAYSOR_EXPORT_COMPILE_COMMANDS=$COMPILE_COMMANDS"
+    "-DBAYSOR_WITH_COVERAGE=$WITH_COVERAGE"
 )
 [[ -n "$CC_OVERRIDE"  ]] && CMAKE_ARGS+=("-DCMAKE_C_COMPILER=$CC_OVERRIDE")
 [[ -n "$CXX_OVERRIDE" ]] && CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER=$CXX_OVERRIDE")
@@ -457,7 +465,11 @@ if [[ "$DO_BUILD" == 1 ]]; then
     info "Building ${TARGETS[*]} with $JOBS jobs"
     cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --parallel "$JOBS" --target "${TARGETS[@]}"
 fi
-if [[ "$DO_TEST" == 1 ]]; then
+if [[ "$DO_TEST" == 1 && "$WITH_COVERAGE" == ON ]] && have gcovr; then
+    info "Running tests with coverage (reports in $BUILD_DIR/coverage)"
+    cmake --build "$BUILD_DIR" --config "$BUILD_TYPE" --target coverage
+elif [[ "$DO_TEST" == 1 ]]; then
+    [[ "$WITH_COVERAGE" == ON ]] && warn "gcovr not found; running tests without a coverage report"
     info "Running tests"
     ctest --test-dir "$BUILD_DIR" --output-on-failure -j "$JOBS" -C "$BUILD_TYPE"
 fi
@@ -478,7 +490,7 @@ ${C_B}Baysor configured${C_0}
   build type  : $BUILD_TYPE
   generator   : $GENERATOR
   compiler    : ${summary_cxx:-(cmake default)}
-  tests       : $WITH_TESTS   cuda: $WITH_CUDA   reporting: $WITH_REPORTING
+  tests       : $WITH_TESTS   coverage: $WITH_COVERAGE   cuda: $WITH_CUDA   reporting: $WITH_REPORTING
   prefix      : $PREFIX
 
 Next steps:
