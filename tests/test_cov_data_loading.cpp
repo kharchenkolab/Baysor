@@ -801,8 +801,9 @@ TEST(Cov1Data_LoadParquet, NumericDictionaryGene) {
     TempDir dir("cov1_data");
     auto x = arr_f64({1, 2});
     auto y = arr_f64({1, 2});
-    // Dictionary-encoded numeric gene column: the dictionary values are not
-    // text, so the reader falls back to scalar stringification ("7", "9").
+    // Dictionary-encoded numeric gene column. Parquet does not keep numeric
+    // dictionaries, so it is read back as a plain int64 column and goes
+    // through the numeric gene-name path ("7", "9").
     auto values = arr_i64({7, 9});
     arrow::Int8Builder ib;
     EXPECT_TRUE(ib.Append(0).ok());
