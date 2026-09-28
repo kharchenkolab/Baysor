@@ -27,7 +27,10 @@ namespace baysor {
 //          whose columns correspond to the components used by Julia's
 //          MultivariateStats.ICA fit via ica_fit.W.
 //
-// Mirrors Julia's MultivariateStats.ICA usage in cluster_molecules_on_mrf.
+// Mirrors Julia's MultivariateStats.ICA usage in cluster_molecules_on_mrf,
+// including its argument check `k <= min(m, n) || error(...)`: throws
+// std::invalid_argument instead of silently clamping, so the caller's
+// try/catch falls back exactly like Julia's wrapper does.
 // ============================================================================
 static Eigen::MatrixXd fast_ica(
     const Eigen::MatrixXd& X,
@@ -38,7 +41,12 @@ static Eigen::MatrixXd fast_ica(
 ) {
     int n_features = static_cast<int>(X.rows());
     int n_samples  = static_cast<int>(X.cols());
-    if (n_components > n_features) n_components = n_features;
+    // Julia's fit(ICA, X, k) rejects k > min(m, n) with an error that
+    // cluster_molecules_on_mrf's wrapper catches to fall back to hash/random
+    // init. Clamping here instead would return fewer columns than the caller
+    // expects and make it index W out of bounds.
+    if (n_components > std::min(n_features, n_samples))
+        throw std::invalid_argument("k must not exceed min(m, n).");
 
     // 1. Center rows to match Julia's preprocess_mean/centralize path.
     Eigen::VectorXd mean_vec = X.rowwise().mean();
@@ -440,9 +448,14 @@ ClusteringResult cluster_molecules_ica(
         }
         exprs_init_ptr = std::make_unique<Eigen::MatrixXd>(std::move(exprs));
         if (verbose) spdlog::info("ICA initialization succeeded ({} components).", n_clusters);
-    } catch (const std::exception& e) { // GCOVR_EXCL_LINE: only reachable if a std::exception (e.g. Eigen std::bad_alloc) escapes the ICA try block; not portable to induce in tests
-        spdlog::warn("ICA did not converge ({}), falling back to hash initialization.", e.what()); // GCOVR_EXCL_LINE: handler body runs only on an allocation failure inside the try block, which no portable test input can induce
-    } catch (...) { // GCOVR_EXCL_LINE: handler never entered; reachable only via a non-std exception escaping the ICA try block, same justification as main.cpp's catch-all
+    } catch (const std::exception& e) {
+        // Discard any partially built init so *every* failure path falls back
+        // to hash initialization, consistent with the log message (and with
+        // Julia, which leaves ct_exprs_init = nothing on any exception).
+        exprs_init_ptr.reset();
+        spdlog::warn("ICA did not converge ({}), falling back to hash initialization.", e.what());
+    } catch (...) {
+        exprs_init_ptr.reset(); // GCOVR_EXCL_LINE: this handler is entered only by a non-std exception, and no Baysor or dependency code throws one
         spdlog::warn("ICA failed, falling back to hash initialization."); // GCOVR_EXCL_LINE: reachable only if a non-std exception escapes the ICA try block; same justification as main.cpp's catch-all (no Baysor or dependency exception lacks std::exception)
     }
 

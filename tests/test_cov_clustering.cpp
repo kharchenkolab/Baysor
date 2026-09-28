@@ -133,6 +133,12 @@ TEST(Cov2Clust, MrfZeroInitGeneColumnProducesUniformProbabilities) {
 // ============================================================================
 // cluster_molecules_ica failure paths
 //
+// The catch (const std::exception&) fallback is reachable and covered: with
+// fewer genes than n_clusters, fast_ica throws std::invalid_argument
+// (mirroring Julia's fit(ICA, ...) k <= min(m, n) check) and the wrapper
+// catches it — see Bug2IcaFallback.FewerGenesThanClustersFallsBackToHashInit
+// in tests/test_bugfix_ica_fallback.cpp.
+//
 // The tests that made the test's own log sink throw to reach the catch (...)
 // fallback were removed (COV-6): they tested spdlog's exception behaviour,
 // not Baysor. The catch (...) body in molecule_clustering.cpp is excluded

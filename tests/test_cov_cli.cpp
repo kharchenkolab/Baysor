@@ -126,9 +126,12 @@ struct MoleculeTable {
 };
 
 // 4 clumps, 4 genes cycling, jitter +-2 in x ( +-1 in wide mode ).
-// NOTE: 4 genes (not 3) is deliberate — with fewer genes than the default
-// mrf --n-clusters (4), cluster_molecules_ica indexes past the end of the ICA
-// unmixing matrix and aborts (see `findings` in the task report).
+// NOTE: this table predates the BUG-2 fix; the original 4-gene choice
+// (rather than 3) was made because fewer genes than the default mrf
+// --n-clusters (4) crashed inside cluster_molecules_ica. That case now
+// falls back to hash initialization safely and is covered by
+// tests/test_bugfix_ica_fallback.cpp; these tables keep 4 genes so their
+// gene-dependent output expectations stay unchanged.
 // with_z adds an exactly per-clump constant z (0/4/8/12) so the table is 3D.
 // n_unassigned_per_clump labels that many molecules per clump as "0".
 // wide=true places the clumps in a single row along x (~600 vs ~4 in y): the
