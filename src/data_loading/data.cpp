@@ -269,7 +269,7 @@ std::shared_ptr<arrow::Schema> get_parquet_schema(
     std::shared_ptr<arrow::Schema> schema;
     ARROW_CHECK_OK(reader->GetSchema(&schema));
     return schema;
-} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if GetSchema/allocation fails
+}
 
 struct NumericArrayView {
     enum class Kind {
@@ -572,7 +572,7 @@ std::vector<std::regex> compile_gene_patterns(const std::vector<std::string>& pa
         regexes.emplace_back(re_str, std::regex::ECMAScript);
     }
     return regexes;
-} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if regex construction/allocation throws
+}
 
 bool matches_any_gene_pattern(const std::string& gene, const std::vector<std::regex>& regexes) {
     for (const auto& re : regexes) {
@@ -763,7 +763,7 @@ Eigen::MatrixXd MoleculeData::position_matrix() const {
         if (d == 3) mat(2, i) = z[i];
     }
     return mat;
-} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if the Eigen allocation throws (bad_alloc)
+}
 
 // ============================================================================
 // Gene encoding

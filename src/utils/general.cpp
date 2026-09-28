@@ -218,6 +218,6 @@ std::vector<std::string> split_string_list(const std::string& s, char sep) {
         start = end + 1;
     }
     return result;
-} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if a string operation inside throws (allocation failure)
+}
 
 } // namespace baysor
