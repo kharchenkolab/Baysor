@@ -161,7 +161,7 @@ std::vector<std::string> embedding_to_hex(const Eigen::MatrixXd& lab_embedding) 
         colors[i] = lab_to_hex(lab_embedding(0, i), lab_embedding(1, i), lab_embedding(2, i));
     }
     return colors;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 // ============================================================================
 // gene_composition_color_embedding (UMAP-based)
@@ -391,7 +391,7 @@ NcvReportEmbedding compute_ncv_embedding(
     // segmentation is still valid, but the UMAP fit/interpolation path below
     // would hit divisions by (sample_size - 1) and invalid KNN sizes.
     if (sample_size <= 1) {
-        spdlog::warn(
+        spdlog::warn( // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed here; the executed warn() call is reported on the following lines
             "NCV color embedding fallback: insufficient anchor molecules after adaptive thresholding "
             "(max_conf={:.4f}, threshold={:.2f}, anchors={}, sample_size={}).",
             confidence.empty() ? 0.0 : *std::max_element(confidence.begin(), confidence.end()),
@@ -515,6 +515,7 @@ LabNormalizationParams fit_lab_normalization_params(
     work = work.cwiseMin(1.0);
 
     if (log_colors) {
+        // GCOVR_EXCL_START: unreachable: the sole caller of fit_lab_normalization_params hardcodes log_colors=false
         all_vals.clear();
         for (int r = 0; r < 3; ++r)
             for (int i = 0; i < n; ++i)
@@ -526,6 +527,7 @@ LabNormalizationParams fit_lab_normalization_params(
             work.row(r).array() -= params.log_row_min[r];
             params.log_row_scale[r] = work.row(r).maxCoeff();
             if (params.log_row_scale[r] <= 0.0) params.log_row_scale[r] = 1.0;
+        // GCOVR_EXCL_STOP: unreachable: the sole caller of fit_lab_normalization_params hardcodes log_colors=false
         }
     }
 
@@ -546,12 +548,14 @@ void apply_lab_normalization_params(Eigen::MatrixXd& embedding, const LabNormali
     embedding = embedding.cwiseMin(1.0);
 
     if (params.log_colors) {
+        // GCOVR_EXCL_START: unreachable: params.log_colors can only be false, see fit_lab_normalization_params
         for (int r = 0; r < 3; ++r) {
             for (int i = 0; i < n; ++i) {
                 embedding(r, i) = std::log10(embedding(r, i) + params.q05);
             }
             embedding.row(r).array() -= params.log_row_min[r];
             embedding.row(r) /= params.log_row_scale[r];
+        // GCOVR_EXCL_STOP: unreachable: params.log_colors can only be false, see fit_lab_normalization_params
         }
     }
 
@@ -837,7 +841,7 @@ NcvProjectedModel fit_ncv_projected_model(
         nullptr, nullptr, true, true, model.basis.distance_floor, true
     );
     return model;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 std::vector<std::string> gene_composition_color_embedding_streaming(
     const Eigen::MatrixXd& pos_data,

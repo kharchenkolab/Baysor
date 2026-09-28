@@ -54,7 +54,7 @@ std::vector<std::array<double, 2>> polygon_vertices(const Eigen::MatrixXd& poly)
         }
     }
     return vertices;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 template<class T>
 void append_le(std::string& out, T value) {
@@ -65,7 +65,7 @@ void append_le(std::string& out, T value) {
 std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
     const auto vertices = polygon_vertices(poly);
     if (vertices.size() < 4) {
-        return {};
+        return {}; // GCOVR_EXCL_LINE: unreachable defensive return: both call sites pre-filter polygons with fewer than 4 vertices
     }
 
     std::string out;
@@ -171,7 +171,7 @@ std::string to_string(OutputStyle style) {
         case OutputStyle::Legacy: return "legacy";
         case OutputStyle::Parquet: return "parquet";
     }
-    return "legacy";
+    return "legacy"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
 }
 
 static nlohmann::json polygons_to_geojson_json(

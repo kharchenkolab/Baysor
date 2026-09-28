@@ -53,7 +53,7 @@ static std::string pixels_to_base64_png(const std::vector<uint8_t>& pixels,
     std::vector<uint8_t> png_buf;
     stbi_write_png_compression_level = 6;
     stbi_write_png_to_func(
-        [](void* ctx, void* data, int size) {
+        [](void* ctx, void* data, int size) { // GCOVR_EXCL_LINE: gcov: lambda entry line carries only an exception-unwind block; the executed entry is reported on the call line
             auto* buf = reinterpret_cast<std::vector<uint8_t>*>(ctx);
             const uint8_t* p = reinterpret_cast<const uint8_t*>(data);
             buf->insert(buf->end(), p, p + size);
@@ -347,12 +347,12 @@ nlohmann::json vega_noise_histogram(
         });
         values.push_back({
             {"x", x_center},
-            {"density", w1 * normal_pdf(x_center, signal_mu, signal_sigma)},
+            {"density", w1 * normal_pdf(x_center, signal_mu, signal_sigma)}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
             {"type", "Intracellular"}
         });
         values.push_back({
             {"x", x_center},
-            {"density", w2 * normal_pdf(x_center, noise_mu, noise_sigma)},
+            {"density", w2 * normal_pdf(x_center, noise_mu, noise_sigma)}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
             {"type", "Background"}
         });
     }
@@ -378,8 +378,8 @@ nlohmann::json vega_noise_histogram(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Noise estimation"},
-        {"width", 500},
-        {"height", 300},
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 300}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", values}}},
         // Merge colour legends from all layers into one.
         {"resolve", {{"legend", {{"color", "shared"}}}}},
@@ -387,7 +387,7 @@ nlohmann::json vega_noise_histogram(
             // Histogram bars — legend shown here
             {
                 {"transform", {{{"filter", "datum.type == 'Observed'"}}}},
-                {"mark", {{"type", "bar"}, {"opacity", 0.5}}},
+                {"mark", {{"type", "bar"}, {"opacity", 0.5}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}, {"title", x_title},
                            {"bin", {{"binned", true}, {"step", bin_width}}}}},
@@ -399,7 +399,7 @@ nlohmann::json vega_noise_histogram(
             // Signal PDF line
             {
                 {"transform", {{{"filter", "datum.type == 'Intracellular'"}}}},
-                {"mark", {{"type", "line"}, {"strokeWidth", 3}}},
+                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}}},
                     {"y", {{"field", "density"}, {"type", "quantitative"}}},
@@ -409,7 +409,7 @@ nlohmann::json vega_noise_histogram(
             // Noise PDF line
             {
                 {"transform", {{{"filter", "datum.type == 'Background'"}}}},
-                {"mark", {{"type", "line"}, {"strokeWidth", 3}}},
+                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}}},
                     {"y", {{"field", "density"}, {"type", "quantitative"}}},
@@ -466,13 +466,13 @@ nlohmann::json vega_gene_frequency(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Gene frequency"},
-        {"width", 600},
-        {"height", 300},
+        {"width", 600}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 300}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", values}}},
         {"mark", "bar"},
         {"encoding", {
             {"x", {{"field", "gene"}, {"type", "nominal"}, {"sort", nullptr},
-                   {"axis", {{"labelAngle", -45}}}, {"title", "Gene"}}},
+                   {"axis", {{"labelAngle", -45}}}, {"title", "Gene"}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
             {"y", {{"field", "count"}, {"type", "quantitative"}, {"title", "Num. molecules"}}},
             {"color", {
                 {"field", "type"}, {"type", "nominal"},
@@ -496,7 +496,7 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
             {"x", emb.x[i]},
             {"y", emb.y[i]},
             {"gene", emb.gene_names[i]},
-            {"size", std::max(emb.marker_sizes[i], 1.0)}
+            {"size", std::max(emb.marker_sizes[i], 1.0)} // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         });
     }
 
@@ -516,18 +516,18 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Gene structure"},
-        {"width", 500},
-        {"height", 500},
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", values}}},
         {"layer", {
             // Dots
             {
-                {"mark", {{"type", "point"}, {"filled", true}, {"opacity", 0.8}}},
+                {"mark", {{"type", "point"}, {"filled", true}, {"opacity", 0.8}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                 {"encoding", {
                     {"x", x_enc},
                     {"y", y_enc},
                     {"size", {{"field", "size"}, {"type", "quantitative"},
-                              {"scale", {{"range", {20, 400}}}}, {"legend", nullptr}}},
+                              {"scale", {{"range", {20, 400}}}}, {"legend", nullptr}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                     {"tooltip", {
                         {{"field", "gene"}, {"type", "nominal"}},
                         {{"field", "size"}, {"type", "quantitative"}, {"title", "log(count)"}}
@@ -536,7 +536,7 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
             },
             // Gene name labels
             {
-                {"mark", {{"type", "text"}, {"dy", -9}, {"fontSize", 10},
+                {"mark", {{"type", "text"}, {"dy", -9}, {"fontSize", 10}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
                           {"fontWeight", "normal"}}},
                 {"encoding", {
                     {"x", x_enc},

@@ -27,7 +27,7 @@ std::string html_escape(const std::string& s) {
         }
     }
     return out;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 std::string prior_type_name(PriorInputType t) {
     switch (t) {
@@ -36,7 +36,7 @@ std::string prior_type_name(PriorInputType t) {
         case PriorInputType::Image: return "image";
         case PriorInputType::Boundary: return "boundary";
     }
-    return "unknown";
+    return "unknown"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
 }
 
 std::vector<int> count_molecules_per_cell(const std::vector<int>& assignment) {
@@ -66,8 +66,8 @@ nlohmann::json vega_generic_histogram(
         return {
             {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
             {"title", title},
-            {"width", 500},
-            {"height", 250},
+            {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+            {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
             {"data", {{"values", vals}}}
         };
     }
@@ -93,8 +93,8 @@ nlohmann::json vega_generic_histogram(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", title},
-        {"width", 500},
-        {"height", 250},
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", vals}}},
         {"mark", "bar"},
         {"encoding", {
@@ -132,8 +132,8 @@ nlohmann::json vega_convergence_trace(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Segmentation convergence"},
-        {"width", 520},
-        {"height", 280},
+        {"width", 520}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 280}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", vals}}},
         {"mark", {{"type", "line"}, {"point", false}}},
         {"encoding", {
@@ -159,8 +159,8 @@ nlohmann::json vega_clustering_convergence(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", title},
-        {"width", 420},
-        {"height", 250},
+        {"width", 420}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
         {"data", {{"values", vals}}},
         {"mark", {{"type", "line"}, {"point", false}}},
         {"encoding", {
@@ -187,7 +187,7 @@ std::vector<std::string> assignment_colors(const std::vector<int>& assignment) {
         }
     }
     return colors;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 std::vector<std::string> cluster_colors(const std::vector<int>& clusters) {
     static const std::vector<std::string> palette = {
@@ -201,7 +201,7 @@ std::vector<std::string> cluster_colors(const std::vector<int>& clusters) {
         colors[i] = (c > 0) ? palette[(c - 1) % palette.size()] : "#000000";
     }
     return colors;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 std::vector<std::string> subset_colors(
     const std::vector<std::string>& colors,
@@ -211,7 +211,7 @@ std::vector<std::string> subset_colors(
     out.reserve(ids.size());
     for (int idx : ids) out.push_back(colors[idx]);
     return out;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 std::vector<int> subset_ints(
     const std::vector<int>& vals,
@@ -221,7 +221,7 @@ std::vector<int> subset_ints(
     out.reserve(ids.size());
     for (int idx : ids) out.push_back(vals[idx]);
     return out;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 void normalize_to_unit_square(
     std::vector<double>& x,
@@ -256,7 +256,7 @@ std::vector<double> extract_col(const Eigen::MatrixXd& mat, int idx) {
         if (std::isfinite(v)) out.push_back(v);
     }
     return out;
-}
+} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
 
 } // namespace
 
