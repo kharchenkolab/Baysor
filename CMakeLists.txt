@@ -46,6 +46,28 @@ endif()
 option(BAYSOR_WITH_CUDA "Enable CUDA/GPU support" OFF)
 option(BAYSOR_WITH_TESTS "Build tests" OFF)
 option(BAYSOR_WITH_REPORTING "Build reporting/visualization support" ON)
+option(BAYSOR_WITH_COVERAGE "Instrument Baysor targets for gcov coverage" OFF)
+
+if(BAYSOR_WITH_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR
+            "BAYSOR_WITH_COVERAGE requires GCC or Clang to produce gcov data, "
+            "but the compiler is ${CMAKE_CXX_COMPILER_ID}. "
+            "Reconfigure with a GCC/Clang toolchain or -DBAYSOR_WITH_COVERAGE=OFF.")
+    endif()
+endif()
+
+# Apply gcov instrumentation to one of the project's own targets. Only called
+# for baysor_lib, baysor_umap_wrappers, baysor and baysor_tests so that
+# third-party and FetchContent code stays uninstrumented. No-op when coverage
+# is off, so default builds are unaffected.
+function(baysor_apply_coverage target)
+    if(NOT BAYSOR_WITH_COVERAGE)
+        return()
+    endif()
+    target_compile_options(${target} PRIVATE --coverage -O0 -g)
+    target_link_options(${target} PRIVATE --coverage)
+endfunction()
 
 # Dependencies managed by vcpkg or find_package
 # Core (always required)
@@ -254,6 +276,7 @@ target_link_libraries(baysor_umap_wrappers PUBLIC
     umappp
     knncolle::knncolle
 )
+baysor_apply_coverage(baysor_umap_wrappers)
 
 target_include_directories(baysor_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -276,6 +299,7 @@ target_link_libraries(baysor_lib PUBLIC
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(baysor_lib PRIVATE -Wno-stringop-overflow)
 endif()
+baysor_apply_coverage(baysor_lib)
 
 if(BAYSOR_WITH_CUDA)
     target_link_libraries(baysor_lib PUBLIC
@@ -295,6 +319,7 @@ install(TARGETS baysor RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(baysor PRIVATE -Wno-stringop-overflow)
 endif()
+baysor_apply_coverage(baysor)
 
 # --- Tests ---
 if(BAYSOR_WITH_TESTS)
@@ -304,12 +329,66 @@ if(BAYSOR_WITH_TESTS)
         INSTALL_HINT "Ubuntu: sudo apt-get install libgtest-dev\nmacOS: brew install googletest\nvcpkg: enable the 'tests' manifest feature or install gtest"
     )
 
+    # Every tests/test_*.cpp file is compiled into the single test binary, so
+    # new test files are picked up without editing CMake (CONFIGURE_DEPENDS
+    # re-globs on build).
+    file(GLOB BAYSOR_TEST_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp"
+    )
+    if(NOT BAYSOR_TEST_SOURCES)
+        message(FATAL_ERROR "BAYSOR_WITH_TESTS is ON but no tests/test_*.cpp files were found.")
+    endif()
+
     add_executable(baysor_tests
-        tests/test_main.cpp
+        ${BAYSOR_TEST_SOURCES}
     )
     target_link_libraries(baysor_tests PRIVATE baysor_lib GTest::gtest_main)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(baysor_tests PRIVATE -Wno-stringop-overflow)
     endif()
+    baysor_apply_coverage(baysor_tests)
     add_test(NAME baysor_tests COMMAND baysor_tests)
+endif()
+
+# --- Coverage report ---
+# 'cmake --build <dir> --target coverage' deletes stale .gcda counters, reruns
+# the tests, and writes text/JSON/HTML reports under <build-dir>/coverage/.
+if(BAYSOR_WITH_COVERAGE)
+    find_program(BAYSOR_GCOVR gcovr)
+    if(BAYSOR_GCOVR)
+        # Use the gcov that matches the compiler. For conda GCC that is the
+        # triple-prefixed gcov sitting next to the compiler, e.g.
+        # x86_64-conda-linux-gnu-g++ -> x86_64-conda-linux-gnu-gcov.
+        get_filename_component(_baysor_cxx_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        get_filename_component(_baysor_cxx_name "${CMAKE_CXX_COMPILER}" NAME)
+        string(REGEX REPLACE "g\\+\\+$" "gcov" _baysor_gcov_name "${_baysor_cxx_name}")
+        if(NOT _baysor_gcov_name STREQUAL _baysor_cxx_name
+                AND EXISTS "${_baysor_cxx_dir}/${_baysor_gcov_name}")
+            set(BAYSOR_GCOV "${_baysor_cxx_dir}/${_baysor_gcov_name}")
+        else()
+            # Fall back to a gcov on PATH; if none is configured gcovr
+            # resolves plain 'gcov' itself.
+            find_program(BAYSOR_GCOV NAMES gcov)
+            if(NOT BAYSOR_GCOV)
+                set(BAYSOR_GCOV gcov)
+            endif()
+        endif()
+
+        add_custom_target(coverage
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_coverage.sh"
+                    "${CMAKE_BINARY_DIR}"
+                    "${CMAKE_SOURCE_DIR}"
+                    "${CMAKE_CTEST_COMMAND}"
+                    "${BAYSOR_GCOVR}"
+                    "${BAYSOR_GCOV}"
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+            COMMENT "Running tests and generating gcov coverage reports"
+            VERBATIM
+        )
+        if(TARGET baysor_tests)
+            add_dependencies(coverage baysor_tests)
+        endif()
+    else()
+        message(STATUS "gcovr not found: the 'coverage' target will not be available")
+    endif()
 endif()
