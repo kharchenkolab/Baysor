@@ -18,6 +18,11 @@
 // Coverage: the catch (const std::exception&) handler (and its reset line)
 // is covered by Bug2IcaFallback.FewerGenesThanClustersFallsBackToHashInit;
 // catch (...) stays genuinely unreachable (no non-std exception sources).
+//
+// Note: the original out-of-bounds reads are caught only through Eigen
+// assertions, which are compiled in for Debug builds; in Release these
+// regression tests would pass even without the fix (the read would just
+// return garbage instead of aborting).
 
 #include <gtest/gtest.h>
 
@@ -26,20 +31,12 @@
 #include "test_cov_helpers.h"
 
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <random>
-#include <sstream>
 #include <string>
 #include <vector>
-
-#ifndef BAYSOR_CLI_PATH
-// Nothing to guard; the unit tests above are always built.
-#elif !defined(_WIN32)
-#include <sys/wait.h>
-#endif
 
 namespace {
 
@@ -173,35 +170,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-std::string bug2_read_text_file(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-struct Bug2CliResult {
-    int exit_code = -1;
-    std::string out;
-    std::string err;
-};
-
-Bug2CliResult bug2_run_cli(const baysor_test::TempDir& tmp,
-                           const std::string& args) {
-    const fs::path out_p = tmp.path / "stdout.txt";
-    const fs::path err_p = tmp.path / "stderr.txt";
-    const std::string cmd = "'" + std::string(BAYSOR_CLI_PATH) + "' " + args +
-                            " > '" + out_p.string() + "' 2> '" +
-                            err_p.string() + "'";
-    const int status = std::system(cmd.c_str());
-
-    Bug2CliResult r;
-    if (status >= 0 && WIFEXITED(status)) r.exit_code = WEXITSTATUS(status);
-    r.out = bug2_read_text_file(out_p);
-    r.err = bug2_read_text_file(err_p);
-    return r;
-}
-
 // 4 clumps x 30 molecules, exactly 3 genes (cycling), no prior column.
 fs::path bug2_write_three_gene_csv(const baysor_test::TempDir& tmp) {
     const fs::path p = tmp.path / "mols_3gene.csv";
@@ -232,8 +200,8 @@ TEST(Bug2IcaFallback, CliThreeGeneDatasetWithDefaultOptionsExitsZero) {
     // Only required options (coordinates/scale); --n-clusters stays at its
     // default of 4, which exceeds the 3 genes and used to abort the run
     // inside cluster_molecules_ica before producing any output.
-    auto r = bug2_run_cli(tmp, "run '" + csv.string() +
-                                   "' -m 10 -s 2.5 -o '" + out.string() + "'");
+    auto r = baysor_test::cli::run_cli(tmp, "run '" + csv.string() +
+                                       "' -m 10 -s 2.5 -o '" + out.string() + "'");
     EXPECT_EQ(r.exit_code, 0)
         << "--- stdout ---\n" << r.out << "\n--- stderr ---\n" << r.err;
 

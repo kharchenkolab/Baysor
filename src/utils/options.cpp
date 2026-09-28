@@ -5,6 +5,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <stdexcept>
 #include <unordered_map>
@@ -196,6 +197,23 @@ std::string toml_get(const TomlSection& sec, const std::string& key, const std::
     return it != sec.end() ? it->second.raw : def;
 }
 
+// Remove TOML digit separators (`1_000` -> `1000`), but only when the
+// underscore sits between two digits; any other underscore is left in place
+// so the value still fails to parse, as in TOML.jl.
+std::string strip_digit_separators(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '_' && i > 0 && i + 1 < s.size() &&
+            std::isdigit(static_cast<unsigned char>(s[i - 1])) &&
+            std::isdigit(static_cast<unsigned char>(s[i + 1]))) {
+            continue;
+        }
+        out.push_back(s[i]);
+    }
+    return out;
+}
+
 // Julia never silently keeps a default for an unparsable or wrong-typed
 // config value: `TOML.parsefile` rejects malformed values and
 // `Configurations.from_dict` raises `FieldTypeConversionError` naming the
@@ -205,10 +223,27 @@ int toml_get_int(const TomlSection& sec, const std::string& key, int def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
     const std::string& raw = it->second.raw;
+    const std::string val = strip_digit_separators(raw);
     try {
         size_t pos = 0;
-        const int value = std::stoi(raw, &pos);
-        if (pos == raw.size()) return value;  // whole value consumed
+        const int value = std::stoi(val, &pos);
+        if (pos == val.size()) return value;  // whole value consumed
+    } catch (...) {
+        // fall through to the float fallback below
+    }
+    // Configurations.jl converts integral floats with `Base.convert(Int, ...)`
+    // (`50.0` -> 50, `1e2` -> 100), and raises `InexactError` for a
+    // non-integral value or one out of Int range. Mirror that: accept the
+    // double only when it is a whole number that fits in `int`.
+    try {
+        size_t pos = 0;
+        const double value = std::stod(val, &pos);
+        if (pos == val.size() && std::isfinite(value) &&
+            value == std::trunc(value) &&
+            value >= static_cast<double>(INT_MIN) &&
+            value <= static_cast<double>(INT_MAX)) {
+            return static_cast<int>(value);
+        }
     } catch (...) {
         // fall through to the error below
     }
@@ -220,7 +255,7 @@ int toml_get_int(const TomlSection& sec, const std::string& key, int def) {
 double toml_get_double(const TomlSection& sec, const std::string& key, double def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    const std::string& raw = it->second.raw;
+    const std::string raw = strip_digit_separators(it->second.raw);
     try {
         size_t pos = 0;
         const double value = std::stod(raw, &pos);
@@ -229,7 +264,7 @@ double toml_get_double(const TomlSection& sec, const std::string& key, double de
         // fall through to the error below
     }
     throw std::runtime_error(
-        "Invalid value '" + raw + "' for config key '" + key +
+        "Invalid value '" + it->second.raw + "' for config key '" + key +
         "': expected a number");
 }
 

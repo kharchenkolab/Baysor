@@ -26,16 +26,18 @@
 // injected by the BAYSOR_WITH_TESTS CMake block) as a subprocess and assert a
 // clean exit code 0 instead of a crash (SIGABRT 134 in Debug, silent garbage
 // colours in Release).
+//
+// Note: the original out-of-bounds reads are caught only through Eigen
+// assertions, which are compiled in for Debug builds; in Release these
+// regression tests would pass even without the fix (the read would just
+// return garbage instead of aborting).
 
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <random>
 #include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -193,50 +195,13 @@ TEST(Bug5_Cli, SubprocessTestsArePosixOnly) {
 
 #else  // BAYSOR_CLI_PATH && !defined(_WIN32)
 
-#include <sys/wait.h>
-
 namespace {
 
 namespace fs = std::filesystem;
 
 using TempDir = baysor_test::TempDir;
-
-std::string read_text_file(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-struct CliResult {
-    int exit_code = -1;  // -1 = process did not exit normally (e.g. signal)
-    std::string out;     // stdout
-    std::string err;     // stderr
-};
-
-CliResult run_cli(const TempDir& tmp, const std::string& args) {
-    const fs::path out_p = tmp.path / "stdout.txt";
-    const fs::path err_p = tmp.path / "stderr.txt";
-    const std::string cmd = "'" + std::string(BAYSOR_CLI_PATH) + "' " + args +
-                            " > '" + out_p.string() + "' 2> '" + err_p.string() + "'";
-    const int status = std::system(cmd.c_str());
-
-    CliResult r;
-    if (status >= 0 && WIFEXITED(status)) {
-        r.exit_code = WEXITSTATUS(status);
-    }
-    r.out = read_text_file(out_p);
-    r.err = read_text_file(err_p);
-    return r;
-}
-
-std::string write_text(const TempDir& tmp, const std::string& name,
-                       const std::string& content) {
-    const fs::path p = tmp.path / name;
-    std::ofstream f(p);
-    f << content;
-    return p.string();
-}
+using baysor_test::cli::run_cli;
+using baysor_test::cli::write_text;
 
 // The BUG-5 reproducer table: 10 molecules / 5 genes, exactly the rows that
 // produced 9 NCV anchors (< n_pca_dims=10) and the Eigen assertion.

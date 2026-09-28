@@ -1,19 +1,26 @@
-// Shared helpers for the coverage test files (COV-*).
+// Shared helpers for the coverage test files (COV-*) and the BUG-* regression
+// tests.
 //
-// Everything in this header is portable: it uses no POSIX-only headers or
-// calls (no getpid(), unistd.h, sys/wait.h, ...), so the test sources that
-// include it stay buildable on Windows as well. Tests that are inherently
-// POSIX (subprocess runs, setrlimit, /dev/full) guard themselves with
-// #ifndef _WIN32; everything else relies on the helpers below.
+// The core of this header is portable: it uses no POSIX-only headers or
+// calls (no getpid(), unistd.h, ...), so the test sources that include it
+// stay buildable on Windows as well. Tests that are inherently POSIX
+// (subprocess runs, setrlimit, /dev/full) guard themselves with
+// #ifndef _WIN32; everything else relies on the helpers below. The CLI
+// subprocess runner at the bottom is POSIX-only (sh-style quoting,
+// WEXITSTATUS) and is compiled only for !defined(_WIN32) with BAYSOR_CLI_PATH
+// defined; on Windows or without the CLI path the tests that use it skip.
 #pragma once
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -22,6 +29,10 @@
 #include <spdlog/spdlog.h>
 
 #include "baysor/utils/general.h"
+
+#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
+#include <sys/wait.h>
+#endif
 
 namespace baysor_test {
 
@@ -126,5 +137,64 @@ struct LoggerGuard {
     LoggerGuard(const LoggerGuard&) = delete;
     LoggerGuard& operator=(const LoggerGuard&) = delete;
 };
+
+// ---------------------------------------------------------------------------
+// CLI subprocess runner (POSIX + BAYSOR_CLI_PATH only)
+// ---------------------------------------------------------------------------
+//
+// Lives in a nested `cli` namespace on purpose: the COV-5 CLI tests keep
+// their own local `run_cli`/`write_text` for TempDir arguments, and ADL on
+// baysor_test::TempDir would make those calls ambiguous if these helpers
+// sat directly in baysor_test.
+
+#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
+namespace cli {
+
+/// Exit code plus captured stdout/stderr of a CLI subprocess run.
+struct CliResult {
+    int exit_code = -1;  // -1 = process did not exit normally (e.g. signal)
+    std::string out;     // stdout
+    std::string err;     // stderr
+};
+
+/// Read a whole file as binary text (empty string when unreadable).
+inline std::string read_text_file(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+/// Write `content` to `tmp/name`; returns the file's full path.
+inline std::string write_text(const TempDir& tmp, const std::string& name,
+                              const std::string& content) {
+    const fs::path p = tmp.path / name;
+    std::ofstream f(p);
+    f << content;
+    return p.string();
+}
+
+/// Run the instrumented `baysor` binary (BAYSOR_CLI_PATH) with `args` in a
+/// POSIX shell, capturing stdout/stderr into `tmp` and the exit code.
+/// Shells out with sh-style quoting and decodes exit codes via WEXITSTATUS.
+inline CliResult run_cli(const TempDir& tmp, const std::string& args) {
+    const fs::path out_p = tmp.path / "stdout.txt";
+    const fs::path err_p = tmp.path / "stderr.txt";
+    const std::string cmd = "'" + std::string(BAYSOR_CLI_PATH) + "' " + args +
+                            " > '" + out_p.string() + "' 2> '" +
+                            err_p.string() + "'";
+    const int status = std::system(cmd.c_str());
+
+    CliResult r;
+    if (status >= 0 && WIFEXITED(status)) {
+        r.exit_code = WEXITSTATUS(status);
+    }
+    r.out = read_text_file(out_p);
+    r.err = read_text_file(err_p);
+    return r;
+}
+
+}  // namespace cli
+#endif  // !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
 
 }  // namespace baysor_test

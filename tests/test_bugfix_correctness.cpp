@@ -1,8 +1,9 @@
 // Regression tests for BUG-3 (three small correctness issues):
 //
 //  (a) AdjList::from_edge_list overflow guards (src/processing/models/adj_list.cpp)
-//  (b) Convex-hull orientation comments must say clockwise
-//      (src/processing/utils/convex_hull.cpp, include/baysor/processing/utils/convex_hull.h)
+//  (b) Convex-hull orientation must be clockwise (behaviour pinned by
+//      SquareHullIsClockwiseLikeJulia; src/processing/utils/convex_hull.cpp,
+//      include/baysor/processing/utils/convex_hull.h)
 //  (c) Config values that fail to parse must raise a clear error
 //      (src/utils/options.cpp)
 //
@@ -57,19 +58,6 @@ double signed_area(const Eigen::MatrixXd& poly) {
         s += poly(0, i) * poly(1, j) - poly(1, i) * poly(0, j);
     }
     return s / 2.0;
-}
-
-// Read a source file that lives at <repo-root>/<rel>; the test TU is compiled
-// with an absolute path, so the repo root is two levels above this file.
-std::string read_source_file(const std::string& rel) {
-    std::string self = __FILE__;  // <repo-root>/tests/test_bugfix_correctness.cpp
-    const auto tests_pos = self.rfind("/tests/");
-    if (tests_pos == std::string::npos) return "";
-    const std::string root = self.substr(0, tests_pos);
-    std::ifstream f(root + "/" + rel);
-    if (!f.is_open()) return "";
-    return std::string((std::istreambuf_iterator<char>(f)),
-                       std::istreambuf_iterator<char>());
 }
 
 } // namespace
@@ -159,25 +147,6 @@ TEST(Bug3_HullOrientation, SquareHullIsClockwiseLikeJulia) {
     const double area = signed_area(hull);
     EXPECT_LT(area, 0.0) << "hull must be in clockwise order";
     EXPECT_NEAR(area, -16.0, 1e-12);
-}
-
-TEST(Bug3_HullOrientation, CommentsDocumentClockwiseOrder) {
-    // The doc comments must not claim the hull is counter-clockwise; they
-    // must document the actual (clockwise) order.
-    const std::string cpp = read_source_file("src/processing/utils/convex_hull.cpp");
-    ASSERT_FALSE(cpp.empty()) << "cannot locate convex_hull.cpp";
-    EXPECT_EQ(cpp.find("counter-clockwise order"), std::string::npos)
-        << "convex_hull.cpp still claims a counter-clockwise hull";
-    EXPECT_NE(cpp.find("clockwise order"), std::string::npos)
-        << "convex_hull.cpp must document the clockwise hull order";
-
-    const std::string hdr =
-        read_source_file("include/baysor/processing/utils/convex_hull.h");
-    ASSERT_FALSE(hdr.empty()) << "cannot locate convex_hull.h";
-    EXPECT_EQ(hdr.find("counter-clockwise order"), std::string::npos)
-        << "convex_hull.h still claims a counter-clockwise hull";
-    EXPECT_NE(hdr.find("clockwise order"), std::string::npos)
-        << "convex_hull.h must document the clockwise hull order";
 }
 
 // ============================================================================

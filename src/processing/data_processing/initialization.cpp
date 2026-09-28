@@ -61,7 +61,7 @@ static std::vector<int> select_ids_uniformly(
     }
 
     if (static_cast<int>(high_conf_ids.size()) < n) {
-        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on line 57
+        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on the following line(s)
                      n, high_conf_ids.size());
         n = static_cast<int>(high_conf_ids.size());
     }
@@ -110,7 +110,7 @@ AdjList build_molecule_graph(
 
     int n_edges = static_cast<int>(adj_result.edge_src.size());
     if (n_edges == 0) {
-        AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on line 100
+        AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on the following line
         adj.indptr.assign(n + 1, 0);
         return adj;
     }
@@ -146,14 +146,15 @@ InitialParams<N> cell_centers_uniformly(
 
     int n_mols = static_cast<int>(pos_data.cols());
     n_clusters = std::min(n_clusters, n_mols);
-    if (n_clusters <= 0) n_clusters = 1;
 
-    // Select n_clusters initial centers evenly-spaced in coordinate-sum order
+    // Select n_clusters initial centers evenly-spaced in coordinate-sum order.
+    // Julia (cell_centers_uniformly) passes the clamped value straight into
+    // select_ids_uniformly, which errors for n <= 1; there is no lower clamp.
     auto center_ids = select_ids_uniformly(pos_data, n_clusters, confidences);
     n_clusters = static_cast<int>(center_ids.size());
     if (n_clusters == 0) {
         // Degenerate: return empty
-        InitialParams<N> result; // GCOVR_EXCL_LINE: dead GCC block; statement counted on line 143
+        InitialParams<N> result; // GCOVR_EXCL_LINE: dead GCC block; statement counted on the following line
         result.centers = Eigen::MatrixXd::Zero(0, N);
         result.assignment.assign(n_mols, 1);
         return result;

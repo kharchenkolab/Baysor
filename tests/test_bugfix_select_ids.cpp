@@ -3,7 +3,7 @@
 //   - public API cell_centers_uniformly<N>(..., n_clusters=1, ...);
 //   - --n-cells-init 1;
 //   - tiny datasets where the inferred n_cells_init = div(n, m) * 2 is 0 and
-//     cell_centers_uniformly clamps it to 1;
+//     cell_centers_uniformly passes it straight into select_ids_uniformly;
 //   - exactly one high-confidence molecule left after the n > high_conf clamp.
 //
 // Julia (Baysor v0.7.1, src/processing/data_processing/initialization.jl,
@@ -19,9 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -68,9 +65,10 @@ TEST(Bug1_SelectIds, ApiNCentersOneThrowsJuliaErrorInsteadOfReadingOutOfBounds) 
 
 TEST(Bug1_SelectIds, ApiNCentersZeroThrowsJuliaErrorInsteadOfReadingOutOfBounds) {
     // Tiny datasets infer n_cells_init = div(n_molecules, min_molecules_per_cell)
-    // * 2 == 0; cell_centers_uniformly clamps it to 1 before the selection,
-    // which used to crash the same way. Julia passes 0 straight into
-    // select_ids_uniformly, which rejects it with the same error.
+    // * 2 == 0. Julia passes 0 straight into select_ids_uniformly, which
+    // rejects it with `error("n must be > 1")`; the C++ port now does the
+    // same (there is no lower clamp), instead of crashing the way the old
+    // clamp-to-1 path did.
     Eigen::MatrixXd pos = make_positions_2d(6);
     try {
         auto init = baysor::cell_centers_uniformly<2>(pos, /*n_clusters=*/0,
@@ -123,50 +121,11 @@ TEST(Bug1_Cli, SubprocessTestsArePosixOnly) {
 
 #else  // BAYSOR_CLI_PATH && !defined(_WIN32)
 
-#include <sys/wait.h>
-
 namespace {
 
-namespace fs = std::filesystem;
-
 using TempDir = baysor_test::TempDir;
-
-std::string read_text_file(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-struct CliResult {
-    int exit_code = -1;  // -1 = process did not exit normally (e.g. signal)
-    std::string out;     // stdout
-    std::string err;     // stderr
-};
-
-CliResult run_cli(const TempDir& tmp, const std::string& args) {
-    const fs::path out_p = tmp.path / "stdout.txt";
-    const fs::path err_p = tmp.path / "stderr.txt";
-    const std::string cmd = "'" + std::string(BAYSOR_CLI_PATH) + "' " + args +
-                            " > '" + out_p.string() + "' 2> '" + err_p.string() + "'";
-    const int status = std::system(cmd.c_str());
-
-    CliResult r;
-    if (status >= 0 && WIFEXITED(status)) {
-        r.exit_code = WEXITSTATUS(status);
-    }
-    r.out = read_text_file(out_p);
-    r.err = read_text_file(err_p);
-    return r;
-}
-
-std::string write_text(const TempDir& tmp, const std::string& name,
-                       const std::string& content) {
-    const fs::path p = tmp.path / name;
-    std::ofstream f(p);
-    f << content;
-    return p.string();
-}
+using baysor_test::cli::run_cli;
+using baysor_test::cli::write_text;
 
 // 10 molecules / 2 genes: fewer than the -m 100 used below.
 std::string tiny_csv_content() {
@@ -209,13 +168,11 @@ TEST(Bug1_Cli, FewerMoleculesThanMinMoleculesPerCellExitsCleanly) {
     const std::string out = (tmp.path / "seg").string();
 
     // 10 molecules < -m 100 => inferred n_cells_init = div(10, 100) * 2 = 0,
-    // clamped to 1, which used to divide by (n - 1) == 0 in
-    // select_ids_uniformly and crash (exit 139 in release, 134 with debug
-    // assertions). Julia reports a clean "n must be > 1" error instead.
-    // --cluster-method none: with 10 molecules the default ICA molecule
-    // clustering aborts independently of this bug, before initialization.
+    // which used to divide by (n - 1) == 0 in select_ids_uniformly and crash
+    // (exit 139 in release, 134 with debug assertions). Julia reports a clean
+    // "n must be > 1" error instead.
     auto r = run_cli(tmp, "run '" + csv + "' -m 100 -s 2.5 "
-                          "--cluster-method none -o '" + out + "'");
+                          "-o '" + out + "'");
 
     EXPECT_EQ(r.exit_code, 1) << "expected a clean error exit, not a crash"
                               << "\n--- stdout ---\n" << r.out
