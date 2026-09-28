@@ -682,15 +682,16 @@ TEST(Cov3Data_Initialization, CellCenters3DAllClustersTooSmallUseIdentityFallbac
 }
 
 TEST(Cov3Data_Initialization, CellCentersDegenerateWhenAllConfidencesAreLow) {
-    // n_clusters <= 0 is clamped to 1, but no molecule clears the 0.25
-    // confidence threshold, so the result degenerates to an empty center set
-    // with every molecule assigned to cluster 1.
+    // n_clusters <= 1 now raises Julia's "n must be > 1" error, so request 2
+    // centers: no molecule clears the 0.25 confidence threshold, the center
+    // selection degenerates to an empty set and every molecule is assigned
+    // to cluster 1.
     Eigen::MatrixXd pos(2, 4);
     pos << 0.0, 1.0, 0.0, 1.0,
            0.0, 0.0, 1.0, 1.0;
     std::vector<double> low_conf(4, 0.1);
 
-    auto init = baysor::cell_centers_uniformly<2>(pos, /*n_clusters=*/0, &low_conf, 1.0);
+    auto init = baysor::cell_centers_uniformly<2>(pos, /*n_clusters=*/2, &low_conf, 1.0);
 
     EXPECT_EQ(init.centers.rows(), 0);
     EXPECT_EQ(init.centers.cols(), 2);

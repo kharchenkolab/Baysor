@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <stdexcept>
 #include <vector>
 
 namespace baysor {
@@ -38,6 +39,13 @@ static std::vector<int> select_ids_uniformly(
     const std::vector<double>* confidences,
     double confidence_threshold = 0.25
 ) {
+    // Matches Julia: `if n <= 1 error("n must be > 1")` in select_ids_uniformly
+    // (initialization.jl). Without this guard the evenly-spaced index step below
+    // divides by (n - 1) == 0 and the NaN result indexes out of bounds.
+    if (n <= 1) {
+        throw std::runtime_error("n must be > 1");
+    }
+
     int total = static_cast<int>(pos_data.cols());
 
     // Collect high-confidence molecule indices
@@ -58,6 +66,12 @@ static std::vector<int> select_ids_uniformly(
         n = static_cast<int>(high_conf_ids.size());
     }
     if (n <= 0) return {};
+
+    // Only one high-confidence molecule survived the clamp above (a smaller
+    // request already errored above). Julia returns that single id the same way
+    // when length(high_conf_ids) < n; take it directly so the evenly-spaced
+    // step below never divides by (n - 1) == 0.
+    if (n == 1) return {high_conf_ids[0]};
 
     // Sort high_conf_ids by sum of coordinates
     std::vector<std::pair<double,int>> sum_ids(high_conf_ids.size());
