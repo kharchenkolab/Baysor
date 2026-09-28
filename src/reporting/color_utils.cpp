@@ -435,12 +435,19 @@ NcvReportEmbedding compute_ncv_embedding(
     // In 3D the VPtree search is O(log N_sample), giving a ~1000× speedup.
     // The first few PCs capture the dominant variance in gene-expression space,
     // so neighbour quality changes are minimal for colour interpolation.
-    const int n_pca = std::min(n_pca_dims, n_components);
     Eigen::VectorXf sample_mean = sample_mat.rowwise().mean();
     Eigen::MatrixXf sample_centered = sample_mat.colwise() - sample_mean;
 
     // Thin U of (n_components × sample_size): columns are principal components.
     Eigen::BDCSVD<Eigen::MatrixXf> svd(sample_centered, Eigen::ComputeThinU);
+    // Thin U only has min(rows, cols) columns, so clamp to min(n_pca_dims,
+    // n_components, sample_size): with fewer sampled anchors than n_pca_dims the
+    // old clamp asked for more columns than exist (Eigen assertion in Debug,
+    // out-of-bounds read in Release). Julia's gene_composition_color_embedding
+    // performs no PCA truncation at all (it interpolates on the raw sampled
+    // columns), so using every available component matches it as closely as
+    // possible.
+    const int n_pca = std::min({n_pca_dims, n_components, sample_size});
     Eigen::MatrixXf pca_basis = svd.matrixU().leftCols(n_pca);  // n_components × n_pca
 
     // Project sample to PCA space: n_pca × sample_size
@@ -454,7 +461,9 @@ NcvReportEmbedding compute_ncv_embedding(
 
     // KNN in PCA-3D space: nanoflann KD-tree via knn_parallel (already OMP-parallel).
     // tree = sample_pca (n_pca × sample_size), query = all_pca (n_pca × n_mols).
-    int k_interp = std::min(graph_k, sample_size - 1);
+    // graph_k <= 0 must not reach knn_parallel, which then returns no results
+    // and the interpolation loop below reads past the empty index lists.
+    int k_interp = std::max(1, std::min(graph_k, sample_size - 1));
     auto knn = knn_parallel(sample_pca.cast<double>(), all_pca, k_interp);
 
     // Weighted interpolation of UMAP coordinates.
@@ -641,7 +650,11 @@ NcvInterpolationModel fit_ncv_interpolation_model(
 ) {
     const int n_components = static_cast<int>(anchor_vecs.rows());
     const int n_anchors = static_cast<int>(anchor_vecs.cols());
-    const int n_pca = std::min(n_pca_dims, n_components);
+    // Thin U of (n_components × n_anchors) has min(rows, cols) columns, so the
+    // truncation must be clamped to the anchor count as well: tiny datasets can
+    // have fewer anchors than n_pca_dims, and leftCols() would then read past
+    // the end of matrixU() (assertion in Debug, out-of-bounds read in Release).
+    const int n_pca = std::min({n_pca_dims, n_components, n_anchors});
     NcvInterpolationModel model;
     model.sample_mean = anchor_vecs.rowwise().mean();
     Eigen::MatrixXf centered = anchor_vecs.colwise() - model.sample_mean;
@@ -650,7 +663,6 @@ NcvInterpolationModel fit_ncv_interpolation_model(
     model.anchor_pca = (model.pca_basis.transpose() * centered).cast<double>();
     model.anchor_emb = anchor_emb;
     model.interp_k = std::max(1, graph_k);
-    (void)n_anchors;
     return model;
 }
 
