@@ -18,7 +18,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
-#include <atomic>
+#include <algorithm>
 #include <csignal>
 #include <cstdint>
 #include <cstring>
@@ -31,11 +31,15 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <unistd.h>
+
+#ifndef _WIN32
 #include <sys/resource.h>
+#endif
 
 #include "baysor/data_loading/data.h"
 #include "baysor/reporting/output.h"
+
+#include "test_cov_helpers.h"
 
 namespace {
 
@@ -45,11 +49,8 @@ namespace fs = std::filesystem;
 class Cov4OutputFiles : public ::testing::Test {
 protected:
     void SetUp() override {
-        static std::atomic<int> counter{0};
-        dir_ = fs::temp_directory_path() /
-               ("baysor_cov4_output_" + std::to_string(::getpid()) + "_" +
-                std::to_string(counter++));
-        fs::create_directories(dir_);
+        // Portable unique dir (counter + random suffix, no getpid()).
+        dir_ = baysor_test::make_unique_dir("cov4_output");
     }
 
     void TearDown() override {
@@ -70,18 +71,24 @@ std::string read_text(const std::string& path) {
     return ss.str();
 }
 
+#ifndef _WIN32
 /// Temporarily cap the maximum file size of this process and ignore SIGXFSZ
 /// so that writes past the cap fail with an error instead of killing it.
+/// Restore happens in the destructor (RAII); ok() reports whether both the
+/// rlimit query and the update succeeded.
 class ScopedFileSizeLimit {
 public:
     explicit ScopedFileSizeLimit(rlim_t bytes) {
-        ::getrlimit(RLIMIT_FSIZE, &old_);
+        ok_ = (::getrlimit(RLIMIT_FSIZE, &old_) == 0);
+        if (!ok_) return;
         keep_ = old_;
         keep_.rlim_cur = bytes;
         ok_ = (::setrlimit(RLIMIT_FSIZE, &keep_) == 0);
+        if (!ok_) return;
         old_handler_ = std::signal(SIGXFSZ, SIG_IGN);
     }
     ~ScopedFileSizeLimit() {
+        if (!ok_) return;
         std::signal(SIGXFSZ, old_handler_);
         ::setrlimit(RLIMIT_FSIZE, &old_);
     }
@@ -95,6 +102,7 @@ private:
     bool ok_ = false;
     void (*old_handler_)(int) = nullptr;
 };
+#endif  // !_WIN32
 
 template <typename T>
 T unwrap_arrow(arrow::Result<T>&& result) {
@@ -173,36 +181,54 @@ std::string parquet_footer_kv(const std::string& path, const std::string& key) {
     return {};
 }
 
+/// RAII wrapper for HDF5 handles: closes with the matching H5*close function
+/// on scope exit, including early returns.
+struct H5Handle {
+    hid_t id = -1;
+    herr_t (*closer)(hid_t) = nullptr;
+
+    H5Handle() = default;
+    H5Handle(hid_t handle, herr_t (*close_fn)(hid_t)) : id(handle), closer(close_fn) {}
+    ~H5Handle() {
+        if (id >= 0 && closer != nullptr) closer(id);
+    }
+    H5Handle(const H5Handle&) = delete;
+    H5Handle& operator=(const H5Handle&) = delete;
+    operator hid_t() const { return id; }
+};
+
 std::vector<std::string> h5_read_vlen_strings(hid_t fid, const std::string& ds_path) {
-    hid_t ds = H5Dopen2(fid, ds_path.c_str(), H5P_DEFAULT);
-    EXPECT_GE(ds, 0) << ds_path;
-    if (ds < 0) return {};
-    hid_t space = H5Dget_space(ds);
+    H5Handle ds(H5Dopen2(fid, ds_path.c_str(), H5P_DEFAULT), H5Dclose);
+    EXPECT_GE(ds.id, 0) << ds_path;
+    if (ds.id < 0) return {};
+    H5Handle space(H5Dget_space(ds), H5Sclose);
     hsize_t dim = 0;
     H5Sget_simple_extent_dims(space, &dim, nullptr);
-    hid_t type = H5Dget_type(ds);
+    H5Handle type(H5Dget_type(ds), H5Tclose);
     std::vector<char*> buf(static_cast<size_t>(dim), nullptr);
     EXPECT_GE(H5Dread(ds, type, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf.data()), 0) << ds_path;
     std::vector<std::string> out;
     for (hsize_t i = 0; i < dim; ++i) out.emplace_back(buf[i] ? buf[i] : "");
-    H5Tclose(type);
-    H5Sclose(space);
-    H5Dclose(ds);
+    // The strings were allocated by the HDF5 library: reclaim them (otherwise
+    // AddressSanitizer reports the leak); the RAII handles close afterwards.
+#if H5_VERSION_GE(1, 12, 0)
+    H5Treclaim(type, space, H5P_DEFAULT, buf.data());
+#else
+    H5Dvlen_reclaim(type, space, H5P_DEFAULT, buf.data());
+#endif
     return out;
 }
 
 std::vector<double> h5_read_doubles(hid_t fid, const std::string& ds_path) {
-    hid_t ds = H5Dopen2(fid, ds_path.c_str(), H5P_DEFAULT);
-    EXPECT_GE(ds, 0) << ds_path;
-    if (ds < 0) return {};
-    hid_t space = H5Dget_space(ds);
+    H5Handle ds(H5Dopen2(fid, ds_path.c_str(), H5P_DEFAULT), H5Dclose);
+    EXPECT_GE(ds.id, 0) << ds_path;
+    if (ds.id < 0) return {};
+    H5Handle space(H5Dget_space(ds), H5Sclose);
     hsize_t dim = 0;
     H5Sget_simple_extent_dims(space, &dim, nullptr);
     std::vector<double> out(static_cast<size_t>(dim), 0.0);
     EXPECT_GE(H5Dread(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, out.data()), 0)
         << ds_path;
-    H5Sclose(space);
-    H5Dclose(ds);
     return out;
 }
 
@@ -835,6 +861,7 @@ TEST_F(Cov4OutputFiles, ParquetOpenFailureThrowsRuntimeError) {
     }
 }
 
+#ifndef _WIN32
 TEST_F(Cov4OutputFiles, ParquetOpenWriteFailureThrowsRuntimeError) {
     // /dev/full accepts open() but fails the very first write (the parquet
     // magic bytes emitted by FileWriter::Open) with ENOSPC, surfacing the
@@ -853,13 +880,17 @@ TEST_F(Cov4OutputFiles, ParquetOpenWriteFailureThrowsRuntimeError) {
         EXPECT_NE(msg.find("IOError"), std::string::npos) << msg;
     }
 }
+#endif  // !_WIN32
 
+#ifndef _WIN32
 TEST_F(Cov4OutputFiles, ParquetMidStreamWriteFailureThrowsRuntimeError) {
     // Cap the file size so the header write succeeds but a later write fails:
     // this exercises the arrow_check() error path (a failure during
     // FileWriter::Open itself would take the arrow_unwrap path instead).
     ScopedFileSizeLimit limit(4096);
-    ASSERT_TRUE(limit.ok());
+    if (!limit.ok()) {
+        GTEST_SKIP() << "cannot lower RLIMIT_FSIZE in this process";
+    }
 
     // Random doubles do not compress away, so the parquet file is far larger
     // than the 4 KiB cap.
@@ -881,3 +912,4 @@ TEST_F(Cov4OutputFiles, ParquetMidStreamWriteFailureThrowsRuntimeError) {
         EXPECT_NE(msg.find("parquet"), std::string::npos) << msg;
     }
 }
+#endif  // !_WIN32

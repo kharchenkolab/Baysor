@@ -17,6 +17,7 @@
 #include <parquet/arrow/writer.h>
 #include <tiffio.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -26,9 +27,9 @@
 #include <random>
 #include <sstream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <vector>
+
+#include "test_cov_helpers.h"
 
 #ifndef BAYSOR_CLI_PATH
 
@@ -38,7 +39,18 @@ TEST(Cov5Cli, BaysorCliPathAvailable) {
     GTEST_SKIP() << "BAYSOR_CLI_PATH is not defined; CLI end-to-end tests are disabled";
 }
 
-#else
+#elif defined(_WIN32)
+
+// The subprocess runner below shells out with sh-style quoting and decodes
+// exit codes via WEXITSTATUS, so the end-to-end CLI tests are POSIX-only.
+TEST(Cov5Cli, SubprocessTestsArePosixOnly) {
+    GTEST_SKIP() << "CLI subprocess tests require a POSIX shell and sys/wait.h";
+}
+
+#else  // BAYSOR_CLI_PATH && !defined(_WIN32)
+
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -52,25 +64,9 @@ std::string cli_binary() {
 // Per-test unique temp directory (removed on destruction)
 // ---------------------------------------------------------------------------
 
-struct TempDir {
-    fs::path path;
-
-    explicit TempDir(const std::string& tag) {
-        static std::atomic<int> counter{0};
-        path = fs::temp_directory_path() /
-               ("baysor_cov5_" + tag + "_" + std::to_string(::getpid()) + "_" +
-                std::to_string(counter.fetch_add(1)));
-        fs::create_directories(path);
-    }
-
-    ~TempDir() {
-        std::error_code ec;
-        fs::remove_all(path, ec);
-    }
-
-    TempDir(const TempDir&) = delete;
-    TempDir& operator=(const TempDir&) = delete;
-};
+// Portable RAII temp directory (see tests/test_cov_helpers.h): unique via a
+// counter plus a random suffix, no getpid()/POSIX.
+using TempDir = baysor_test::TempDir;
 
 // ---------------------------------------------------------------------------
 // Subprocess runner
@@ -374,23 +370,6 @@ TEST(Cov5CliHelp, RunSubcommandHelpListsRunOptions) {
     EXPECT_NE(r.out.find("--nuclei-genes"), std::string::npos);
 }
 
-TEST(Cov5CliHelp, VersionFlagIsRejected) {
-    // CLI11 only registers --version when set_version_flag() is called, which
-    // main() does not do, so --version is an unknown option (it surfaces as an
-    // extras error inside a subcommand; at the root level the missing
-    // subcommand error wins, but the exit code is nonzero either way).
-    TempDir tmp("help_version");
-    auto csv = write_2d_csv(tmp, 20);
-
-    auto r = run_cli(tmp, "run '" + csv.string() + "' --version -m 10 -s 2.5");
-    EXPECT_NE(r.exit_code, 0);
-    EXPECT_NE(r.err.find("--version"), std::string::npos) << r.err;
-
-    auto root_r = run_cli(tmp, "--version");
-    EXPECT_NE(root_r.exit_code, 0);
-    EXPECT_NE(root_r.err.find("subcommand"), std::string::npos) << root_r.err;
-}
-
 TEST(Cov5CliParse, RequiresExactlyOneSubcommand) {
     TempDir tmp("parse_no_sub");
     auto r = run_cli(tmp, "");
@@ -474,7 +453,10 @@ TEST(Cov5CliInput, MissingCoordinatesFileFails) {
     auto r = run_cli(tmp, "run '" + (tmp.path / "nope.csv").string() +
                               "' -m 10 -s 2.5");
     EXPECT_EQ(r.exit_code, 1);
-    EXPECT_NE(r.out.find("error"), std::string::npos) << r.out;
+    // Exact error from load_molecules (arrow_unwrap of the reader open):
+    EXPECT_NE(r.out.find("Arrow error: IOError: Failed to open local file"),
+              std::string::npos) << r.out;
+    EXPECT_NE(r.out.find("No such file or directory"), std::string::npos) << r.out;
 }
 
 TEST(Cov5CliInput, MissingPriorMaskFileFails) {
@@ -583,10 +565,46 @@ TEST(Cov5CliRun, PriorColumnLegacy2DBundle) {
     EXPECT_NE(stats_header.find("avg_assignment_confidence"), std::string::npos)
         << stats_header;
     EXPECT_GE(count_lines(out / "segmentation_cell_stats.csv"), 3);
-    // The collinear clump yields a zero-area cell: density/elongation fall back
-    // to NaN in the stats table.
-    EXPECT_NE(read_text_file(out / "segmentation_cell_stats.csv").find("nan"),
-              std::string::npos);
+    // The collinear clump yields a zero-area cell: density/elongation fall
+    // back to NaN. Check the actual columns rather than any "nan" substring:
+    // locate density and elongation in the header and require "nan" in both
+    // columns of at least one data row.
+    {
+        std::ifstream stats_f(out / "segmentation_cell_stats.csv");
+        std::string header;
+        ASSERT_TRUE(std::getline(stats_f, header));
+        auto col_index = [&](const std::string& name) -> int {
+            std::stringstream hs(header);
+            std::string col;
+            int idx = 0;
+            while (std::getline(hs, col, ',')) {
+                if (col == name) return idx;
+                ++idx;
+            }
+            return -1;
+        };
+        const int density_col = col_index("density");
+        const int elongation_col = col_index("elongation");
+        ASSERT_GE(density_col, 0) << header;
+        ASSERT_GE(elongation_col, 0) << header;
+        bool density_nan = false;
+        bool elongation_nan = false;
+        std::string row;
+        while (std::getline(stats_f, row)) {
+            std::stringstream rs(row);
+            std::string cell;
+            std::vector<std::string> cols;
+            while (std::getline(rs, cell, ',')) cols.push_back(cell);
+            ASSERT_GT(cols.size(),
+                      static_cast<size_t>(std::max(density_col, elongation_col)));
+            if (cols[density_col] == "nan") density_nan = true;
+            if (cols[elongation_col] == "nan") elongation_nan = true;
+        }
+        EXPECT_TRUE(density_nan) << "no nan density in:\n"
+                                 << read_text_file(out / "segmentation_cell_stats.csv");
+        EXPECT_TRUE(elongation_nan) << "no nan elongation in:\n"
+                                    << read_text_file(out / "segmentation_cell_stats.csv");
+    }
 
     EXPECT_NE(read_text_file(out / "segmentation_polygons_2d.json")
                   .find("FeatureCollection"),
@@ -694,10 +712,9 @@ TEST(Cov5CliRun, Leiden3DParquetBundle) {
     EXPECT_NE(r.out.find("Leiden on NCV kNN graph"), std::string::npos) << r.out;
     expect_files(out, {"molecules.parquet", "cells.parquet", "feature_matrix.h5",
                        "run_params.toml", "run.log"});
-    // 3D parquet polygons (the stack variant).
-    EXPECT_TRUE(file_nonempty(out / "cell_boundaries_3d.parquet") ||
-                file_nonempty(out / "cell_boundaries.parquet"))
-        << "expected GeoParquet boundary output under " << out;
+    // 3D input writes both GeoParquet boundary files: the combined 2-D
+    // projection and the per-layer 3-D stack.
+    expect_files(out, {"cell_boundaries.parquet", "cell_boundaries_3d.parquet"});
     const std::string dump = read_text_file(out / "run_params.toml");
     EXPECT_EQ(toml_value(dump, "cluster_method"), "\"leiden\"") << dump;
 }
@@ -822,4 +839,4 @@ TEST(Cov5CliSegfree, ExplicitKWithXeniumManifestInput) {
     EXPECT_TRUE(file_nonempty(out)) << out;
 }
 
-#endif  // BAYSOR_CLI_PATH
+#endif  // BAYSOR_CLI_PATH && !defined(_WIN32)

@@ -14,11 +14,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <random>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "baysor/data_loading/data.h"
@@ -77,6 +80,57 @@ Eigen::MatrixXf random_vecs(int rows, int cols, unsigned seed) {
     return m;
 }
 
+// Minimal base64 decoder for the "data:image/png;base64,..." URIs returned
+// by the PNG renderers.
+std::string base64_decode(const std::string& in) {
+    static const char* kAlphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(in.size() * 3 / 4);
+    int val = 0;
+    int valb = -8;
+    for (unsigned char c : in) {
+        if (c == '=') break;  // padding: end of payload
+        const char* p = std::strchr(kAlphabet, static_cast<char>(c));
+        if (p == nullptr || c == '\0') break;
+        val = (val << 6) + static_cast<int>(p - kAlphabet);
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<char>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
+// Verify the PNG signature of a base64 data URI and return the dimensions
+// from the IHDR chunk (big-endian); {0, 0} plus a failure on any problem.
+std::pair<uint32_t, uint32_t> png_ihdr(const std::string& data_uri) {
+    const std::string prefix = "data:image/png;base64,";
+    if (data_uri.rfind(prefix, 0) != 0) {
+        ADD_FAILURE() << "missing PNG data-URI prefix: " << data_uri.substr(0, 64);
+        return {0, 0};
+    }
+    const std::string bytes = base64_decode(data_uri.substr(prefix.size()));
+    static const uint8_t kSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (bytes.size() < 24 || std::memcmp(bytes.data(), kSig, sizeof(kSig)) != 0) {
+        ADD_FAILURE() << "decoded payload is not a PNG (bad signature or truncated, "
+                      << bytes.size() << " bytes)";
+        return {0, 0};
+    }
+    if (bytes.compare(12, 4, "IHDR") != 0) {
+        ADD_FAILURE() << "first PNG chunk is not IHDR";
+        return {0, 0};
+    }
+    auto be32 = [&](size_t off) {
+        return (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off])) << 24) |
+               (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 1])) << 16) |
+               (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 2])) << 8) |
+               static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 3]));
+    };
+    return {be32(16), be32(20)};
+}
+
 } // namespace
 
 // ============================================================================
@@ -108,6 +162,11 @@ TEST(Cov4PreviewRender, ScatterPngWithPolygonsAndInvalidHexDigits) {
                                           /*width_px=*/64);
     ASSERT_GE(png.size(), 22u);
     EXPECT_EQ(png.substr(0, 22), "data:image/png;base64,");
+    // Decode and check the PNG signature plus the IHDR dimensions:
+    // 64 px wide, height = 64 * (yrange=1) / (xrange=3) = 21 px.
+    const auto dims = png_ihdr(png);
+    EXPECT_EQ(dims.first, 64u);
+    EXPECT_EQ(dims.second, 21u);
 
     // Empty input renders nothing at all.
     EXPECT_EQ(baysor::render_scatter_png({}, {}, {}), "");
@@ -124,6 +183,11 @@ TEST(Cov4PreviewRender, ConfidencePngCoversBothBranchesAndClamping) {
                                              /*width_px=*/64);
     ASSERT_GE(png.size(), 22u);
     EXPECT_EQ(png.substr(0, 22), "data:image/png;base64,");
+    // Decode and check the PNG signature plus the IHDR dimensions:
+    // 64 px wide, height = 64 * (yrange=1) / (xrange=4) = 16 px.
+    const auto dims = png_ihdr(png);
+    EXPECT_EQ(dims.first, 64u);
+    EXPECT_EQ(dims.second, 16u);
 
     EXPECT_EQ(baysor::render_confidence_png({}, {}, {}), "");
 }

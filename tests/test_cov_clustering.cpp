@@ -5,14 +5,11 @@
 
 #include "baysor/processing/bmm_algorithm/molecule_clustering.h"
 
-#include <spdlog/sinks/base_sink.h>
-#include <spdlog/spdlog.h>
+#include "test_cov_helpers.h"
 
 #include <Eigen/Dense>
 #include <memory>
-#include <mutex>
 #include <set>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -21,69 +18,8 @@ namespace {
 using baysor::AdjList;
 using baysor::ClusterMethod;
 using baysor::ClusteringOptions;
-
-// Exception type deliberately not derived from std::exception, used to
-// verify the catch (...) fallback in cluster_molecules_ica and the unwind
-// cleanup paths of verbose log statements.
-struct cov2_nonstd_exception {};
-
-class cov2_capturing_sink : public spdlog::sinks::base_sink<std::mutex> {
-protected:
-    void sink_it_(const spdlog::details::log_msg& msg) override {
-        data_.append(msg.payload.data(), msg.payload.size());
-        data_.push_back('\n');
-    }
-    void flush_() override {}
-
-public:
-    std::string data() const { return data_; }
-
-private:
-    std::string data_;
-};
-
-// Throws a non-std exception for every payload containing `trigger`; all
-// other messages are captured normally. Because spdlog only swallows
-// std::exception from sinks, the non-std exception propagates out of the
-// logging call — exercising the exception-cleanup line-table entries of the
-// corresponding spdlog::info statements.
-class cov2_throwing_sink : public spdlog::sinks::base_sink<std::mutex> {
-public:
-    explicit cov2_throwing_sink(std::string trigger)
-        : trigger_(std::move(trigger)) {}
-
-protected:
-    void sink_it_(const spdlog::details::log_msg& msg) override {
-        std::string payload(msg.payload.data(), msg.payload.size());
-        if (payload.find(trigger_) != std::string::npos) {
-            throw cov2_nonstd_exception{};
-        }
-        data_.append(payload);
-        data_.push_back('\n');
-    }
-    void flush_() override {}
-
-public:
-    std::string data() const { return data_; }
-
-private:
-    std::string trigger_;
-    std::string data_;
-};
-
-// Swaps the global default logger for the duration of a test and restores it
-// afterwards (even when expectations fail).
-struct cov2_logger_guard {
-    std::shared_ptr<spdlog::logger> original;
-    explicit cov2_logger_guard(std::shared_ptr<spdlog::sinks::sink> sink)
-        : original(spdlog::default_logger()) {
-        auto logger = std::make_shared<spdlog::logger>("cov2-clustering", sink);
-        logger->set_level(spdlog::level::trace);
-        sink->set_level(spdlog::level::trace);
-        spdlog::set_default_logger(logger);
-    }
-    ~cov2_logger_guard() { spdlog::set_default_logger(original); }
-};
+using baysor_test::CapturingSink;
+using baysor_test::LoggerGuard;
 
 AdjList cov2_chain_adj(int n) {
     std::vector<int> src, dst;
@@ -196,88 +132,12 @@ TEST(Cov2Clust, MrfZeroInitGeneColumnProducesUniformProbabilities) {
 
 // ============================================================================
 // cluster_molecules_ica failure paths
+//
+// The tests that made the test's own log sink throw to reach the catch (...)
+// fallback were removed (COV-6): they tested spdlog's exception behaviour,
+// not Baysor. The catch (...) body in molecule_clustering.cpp is excluded
+// with a GCOVR_EXCL_LINE marker (reachable only via a non-std exception).
 // ============================================================================
-
-TEST(Cov2Clust, IcaNonStdExceptionFromLoggerTriggersCatchAllFallback) {
-    auto sink = std::make_shared<cov2_throwing_sink>(
-        "ICA initialization succeeded");
-    cov2_logger_guard guard(sink);
-
-    const std::vector<int> genes = {1, 2, 3, 3, 4, 1, 4, 4, 3, 1, 3, 2};
-    const std::vector<double> confidence(12, 1.0);
-    const int edge_src[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    const int edge_dst[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-    const double edge_wt[] = {1.0, 1.3, 1.6, 1.9, 1.0, 1.3, 1.6, 1.9, 1.0, 1.3, 1.6};
-    auto adj = AdjList::from_edge_list(edge_src, edge_dst, edge_wt, 11, 12);
-
-    // The sink throws a non-std exception on the success log line inside the
-    // try block; the catch (...) handler must log its fallback warning and
-    // the function must still return a valid clustering.
-    auto result = baysor::cluster_molecules_ica(
-        genes, adj, confidence, /*n_clusters=*/2,
-        /*tol=*/0.5, /*mrf_weight=*/1.0, /*max_iters=*/50,
-        /*verbose=*/true);
-
-    ASSERT_EQ(result.assignment.size(), 12u);
-    cov2_assert_labels_in_range(result.assignment, 1, 2);
-    EXPECT_NE(sink->data().find("ICA failed, falling back to hash initialization"),
-              std::string::npos);
-}
-
-// The verbose EM-loop log statements are annotated with exception-cleanup
-// entries: when the sink throws a non-std exception from inside spdlog, the
-// statement's cleanup runs and the exception escapes the clustering call.
-TEST(Cov2Clust, MrfVerboseIterationLogPropagatesSinkFailure) {
-    auto sink = std::make_shared<cov2_throwing_sink>("Clustering iter");
-    cov2_logger_guard guard(sink);
-
-    const std::vector<int> genes = {1, 1, 1, 1, 1, 2, 2, 2, 2, 2};
-    const std::vector<double> confidence(10, 1.0);
-    auto adj = cov2_chain_adj(10);
-
-    EXPECT_THROW(
-        (void)baysor::cluster_molecules_on_mrf(
-            genes, adj, confidence, /*n_clusters=*/2,
-            /*tol=*/1.0, /*mrf_weight=*/1.0, /*max_iters=*/-1,
-            /*verbose=*/true, /*exprs_init=*/nullptr),
-        cov2_nonstd_exception);
-}
-
-TEST(Cov2Clust, MrfConvergenceLogPropagatesSinkFailure) {
-    auto sink = std::make_shared<cov2_throwing_sink>("Clustering converged");
-    cov2_logger_guard guard(sink);
-
-    const std::vector<int> genes = {1, 1, 1, 1, 1, 2, 2, 2, 2, 2};
-    const std::vector<double> confidence(10, 1.0);
-    auto adj = cov2_chain_adj(10);
-
-    // Runs the full EM loop to the convergence branch (tol = 1.0 guarantees
-    // the check fires after 20+ iterations), then throws from the log line.
-    EXPECT_THROW(
-        (void)baysor::cluster_molecules_on_mrf(
-            genes, adj, confidence, /*n_clusters=*/2,
-            /*tol=*/1.0, /*mrf_weight=*/1.0, /*max_iters=*/-1,
-            /*verbose=*/true, /*exprs_init=*/nullptr),
-        cov2_nonstd_exception);
-}
-
-TEST(Cov2Clust, LouvainBackendAnchorLogPropagatesSinkFailure) {
-    // "clustering: using" only appears on the backend's per-run anchor log
-    // (the NCV fitter logs a different "NCV basis anchors" line).
-    auto sink = std::make_shared<cov2_throwing_sink>("clustering: using");
-    cov2_logger_guard guard(sink);
-
-    auto data = cov2_make_patch_data();
-    auto empty_adj = AdjList::from_edge_list(nullptr, nullptr, nullptr, 0, data.n);
-
-    EXPECT_THROW(
-        (void)baysor::cluster_molecules_louvain(
-            data.pos, data.genes, empty_adj, data.confidence,
-            /*resolution=*/1.0, /*graph_k=*/4, /*spatial_k=*/0,
-            /*target_clusters=*/3, /*n_dims=*/20,
-            /*basis_sample_size=*/100000, /*verbose=*/true),
-        cov2_nonstd_exception);
-}
 
 // ============================================================================
 // cluster_molecules dispatcher
@@ -339,8 +199,8 @@ TEST(Cov2Clust, DispatcherRoutesEveryMethodAndRejectsUnknownValues) {
 // ============================================================================
 
 TEST(Cov2Clust, LouvainBackendLogsAnchorDiagnostics) {
-    auto sink = std::make_shared<cov2_capturing_sink>();
-    cov2_logger_guard guard(sink);
+    auto sink = std::make_shared<CapturingSink>();
+    LoggerGuard guard(sink);
 
     auto data = cov2_make_patch_data();
     auto empty_adj = AdjList::from_edge_list(nullptr, nullptr, nullptr, 0, data.n);
@@ -361,8 +221,8 @@ TEST(Cov2Clust, LouvainBackendLogsAnchorDiagnostics) {
 }
 
 TEST(Cov2Clust, LeidenBackendWithZeroGraphKWarnsAboutIsolatedAnchors) {
-    auto sink = std::make_shared<cov2_capturing_sink>();
-    cov2_logger_guard guard(sink);
+    auto sink = std::make_shared<CapturingSink>();
+    LoggerGuard guard(sink);
 
     auto data = cov2_make_patch_data();
     auto empty_adj = AdjList::from_edge_list(nullptr, nullptr, nullptr, 0, data.n);

@@ -8,9 +8,13 @@
 #include "baysor/processing/bmm_algorithm/history_analysis.h"
 #include "baysor/processing/bmm_algorithm/tracing.h"
 
+#include "test_cov_helpers.h"
+
 #include <Eigen/Dense>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -213,12 +217,20 @@ TEST(Cov2Bmm, MaximizeTracksClusterPerCellMode) {
 }
 
 TEST(Cov2Bmm, NonFiniteNoiseDensityIsWarnedAndResetToZero) {
+    // The test name promises the warning; capture it instead of only pinning
+    // the reset value.
+    auto sink = std::make_shared<baysor_test::CapturingSink>();
+    baysor_test::LoggerGuard logger(sink);
+
     // NaN path: infinite position density times an empty component list.
     auto nan_data = BmmData<2>{};
     nan_data.noise_position_density = std::numeric_limits<double>::infinity();
     nan_data.noise_density = 42.0;  // must be overwritten by the M-step
     baysor::maximize(nan_data, /*freeze_composition=*/false, /*freeze_position=*/false);
     EXPECT_DOUBLE_EQ(nan_data.noise_density, 0.0);  // NaN was warned about and reset
+    EXPECT_NE(sink->data().find("Unexpected noise density"), std::string::npos)
+        << sink->data();
+    sink->clear();
 
     // Inf path: infinite position density times a positive composition density.
     auto inf_data = BmmData<2>{};
@@ -237,6 +249,8 @@ TEST(Cov2Bmm, NonFiniteNoiseDensityIsWarnedAndResetToZero) {
 
     baysor::maximize(inf_data, /*freeze_composition=*/false, /*freeze_position=*/false);
     EXPECT_DOUBLE_EQ(inf_data.noise_density, 0.0);
+    EXPECT_NE(sink->data().find("Unexpected noise density"), std::string::npos)
+        << sink->data();
 }
 
 // ============================================================================
@@ -342,6 +356,7 @@ TEST(Cov2Bmm, EstimateAssignmentByHistoryFallsBackWithoutHistory) {
 // ============================================================================
 
 TEST(Cov2Bmm, VerboseLoopWithHistoryAndRefineKeepsStableComponents) {
+    baysor_test::GlobalRngGuard rng_guard;  // bmm() advances the global RNG
     auto data = cov2_make_disconnected_data();
 
     baysor::bmm(data,
@@ -369,6 +384,9 @@ TEST(Cov2Bmm, VerboseLoopWithHistoryAndRefineKeepsStableComponents) {
 }
 
 TEST(Cov2Bmm, VerboseLoopWithDropOneOmitsRedundantDiagnosticColumns) {
+    baysor_test::GlobalRngGuard rng_guard;  // bmm() advances the global RNG
+    auto sink = std::make_shared<baysor_test::CapturingSink>();
+    baysor_test::LoggerGuard logger(sink);
     auto data = cov2_make_disconnected_data();
 
     baysor::bmm(data,
@@ -387,9 +405,20 @@ TEST(Cov2Bmm, VerboseLoopWithDropOneOmitsRedundantDiagnosticColumns) {
     EXPECT_EQ(data.n_components(), 3);
     EXPECT_TRUE(data.assignment_history.empty());
     EXPECT_EQ(data.n_components_trace.size(), 2u);  // initial + 1 iteration
+
+    // Verbose diagnostics were captured: the per-iteration line must exist
+    // with its base columns, while the >=drop / >=disp columns are omitted
+    // because both thresholds coincide (min_molecules_drop == disp_thresh == 1).
+    const std::string log = sink->data();
+    EXPECT_NE(log.find("Iter"), std::string::npos) << log;
+    EXPECT_NE(log.find("noise="), std::string::npos) << log;
+    EXPECT_NE(log.find("total="), std::string::npos) << log;
+    EXPECT_EQ(log.find("_segs="), std::string::npos) << log;
+    EXPECT_EQ(log.find("_cells="), std::string::npos) << log;
 }
 
 TEST(Cov2Bmm, ThreeDimensionalLoopWithSegmentsAndRefineStaysStable) {
+    baysor_test::GlobalRngGuard rng_guard;  // bmm() advances the global RNG
     auto data = cov2_make_3d_data();
 
     baysor::bmm(data,

@@ -27,8 +27,9 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 #include <vector>
+
+#include "test_cov_helpers.h"
 
 namespace {
 
@@ -36,29 +37,9 @@ namespace {
 // Temporary files
 // ---------------------------------------------------------------------------
 
-class TempDir {
-public:
-    TempDir() {
-        static std::atomic<int> counter{0};
-        const auto base = std::filesystem::temp_directory_path();
-        path_ = base / ("baysor_cov1_data_" + std::to_string(::getpid()) + "_" +
-                        std::to_string(counter++));
-        std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
-        std::filesystem::create_directories(path_);
-    }
-    ~TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
-    }
-    std::string file(const std::string& name) const {
-        return (path_ / name).string();
-    }
-    const std::filesystem::path& path() const { return path_; }
-
-private:
-    std::filesystem::path path_;
-};
+// Portable RAII temp directory (see tests/test_cov_helpers.h): unique via a
+// counter plus a random suffix, no getpid()/POSIX.
+using TempDir = baysor_test::TempDir;
 
 std::string write_csv(const TempDir& dir, const std::string& name,
                       const std::string& content) {
@@ -349,7 +330,7 @@ baysor::MoleculeInputOptions default_opts() {
 // ============================================================================
 
 TEST(Cov1Data_Readers, ArrowErrorOnMissingFile) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     try {
         baysor::read_double_column(dir.file("does_not_exist.csv"), "x");
         FAIL() << "expected throw";
@@ -365,7 +346,7 @@ TEST(Cov1Data_Readers, ArrowErrorOnMissingFile) {
 }
 
 TEST(Cov1Data_Readers, UnsupportedFileFormat) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "data.txt", "x,y\n1,2\n");
     try {
         baysor::read_double_column(path, "x");
@@ -377,7 +358,7 @@ TEST(Cov1Data_Readers, UnsupportedFileFormat) {
 }
 
 TEST(Cov1Data_Readers, ParquetAndPqExtensions) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1.5, 2.5, 3.5});
     auto y = arr_f64({4.0, 5.0, 6.0});
     auto p1 = write_parquet(dir, "a.parquet", {field("x", x), field("y", y)}, {x, y});
@@ -392,7 +373,7 @@ TEST(Cov1Data_Readers, ParquetAndPqExtensions) {
 }
 
 TEST(Cov1Data_Readers, MissingColumnMessage) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "d.csv", "x,y\n1,2\n");
     try {
         baysor::read_double_column(path, "gene");
@@ -405,7 +386,7 @@ TEST(Cov1Data_Readers, MissingColumnMessage) {
 }
 
 TEST(Cov1Data_Readers, DoubleColumnNumericTypes) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto xf = arr_f32({1.5f, 2.5f});
     auto x32 = arr_i32({7, -3});
     auto x16 = arr_i16({5, 6});
@@ -440,7 +421,7 @@ TEST(Cov1Data_Readers, DoubleColumnNumericTypes) {
 }
 
 TEST(Cov1Data_Readers, DoubleColumnCastFailureThrows) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto lists = arr_list_i32({{1, 2}, {3}});
     auto xs = arr_f64({1.0, 2.0});
     auto path = write_parquet(dir, "lists.parquet",
@@ -455,7 +436,7 @@ TEST(Cov1Data_Readers, DoubleColumnCastFailureThrows) {
 }
 
 TEST(Cov1Data_Readers, StringColumnTypes) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto plain = arr_str({"a", "b"});
     auto large = arr_lstr({"big1", "big2"});
     auto d8 = arr_dict({"G1", "G2"}, {0, 1}, arrow::int8());
@@ -485,7 +466,7 @@ TEST(Cov1Data_Readers, StringColumnTypes) {
 // ============================================================================
 
 TEST(Cov1Data_ReadTabular, KeepsVaryingZ) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "z3d.csv",
         "x,y,z,gene\n"
         "1,2,10,A\n"
@@ -501,7 +482,7 @@ TEST(Cov1Data_ReadTabular, KeepsVaryingZ) {
 }
 
 TEST(Cov1Data_ReadTabular, DropsConstantZ) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "zconst.csv",
         "x,y,z,gene\n"
         "1,2,7,A\n"
@@ -512,7 +493,7 @@ TEST(Cov1Data_ReadTabular, DropsConstantZ) {
 }
 
 TEST(Cov1Data_ReadTabular, Force2DSkipsZColumn) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "zforce.csv",
         "x,y,z,gene\n"
         "1,2,10,A\n"
@@ -525,7 +506,7 @@ TEST(Cov1Data_ReadTabular, Force2DSkipsZColumn) {
 }
 
 TEST(Cov1Data_ReadTabular, NoZColumn) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "plain.csv",
         "x,y,gene\n"
         "1,2,A\n");
@@ -539,7 +520,7 @@ TEST(Cov1Data_ReadTabular, NoZColumn) {
 // ============================================================================
 
 TEST(Cov1Data_LoadCsv, OptionalMetadataColumnsAndQvFilter) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "meta.csv",
         "x,y,gene,confidence,cluster,nuclei_probs,qv,transcript_id\n"
         "1,1,G1,0.9,1,0.5,30,1000\n"
@@ -565,7 +546,7 @@ TEST(Cov1Data_LoadCsv, OptionalMetadataColumnsAndQvFilter) {
 }
 
 TEST(Cov1Data_LoadCsv, SpatialBoundsFilter) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_csv(dir, "bounds.csv",
         "x,y,gene\n"
         "1,1,A\n"
@@ -586,7 +567,7 @@ TEST(Cov1Data_LoadCsv, SpatialBoundsFilter) {
 // ============================================================================
 
 TEST(Cov1Data_LoadParquet, AllOptionalColumns) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3, 4});
     auto y = arr_f64({1, 1, 2, 2});
     auto z = arr_f64({10, 20, 30, 40});
@@ -637,7 +618,7 @@ TEST(Cov1Data_LoadParquet, CoordinateNumericTypes) {
         std::shared_ptr<arrow::Array> arr;
         double expect0;
     };
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<Case> cases = {
         {"xf32", arr_f32({1.5f, 2.5f}), 1.5},
         {"xi64", arr_i64({7, 8}), 7.0},
@@ -683,7 +664,7 @@ TEST(Cov1Data_LoadParquet, TranscriptIdTypes) {
         std::shared_ptr<arrow::Array> arr;
         std::vector<std::uint64_t> expect;
     };
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<Case> cases = {
         {"ti64", arr_i64({100, 101}), {100u, 101u}},
         {"ti32", arr_i32({200, 201}), {200u, 201u}},
@@ -728,7 +709,7 @@ TEST(Cov1Data_LoadParquet, TranscriptIdTypes) {
 }
 
 TEST(Cov1Data_LoadParquet, DictionaryEncodedGene) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3, 4, 5});
     auto y = arr_f64({1, 1, 1, 1, 1});
     // gene: [A, B, null, A, B]; cell_id: [c1, c1, null, c2, c2]
@@ -760,7 +741,7 @@ TEST(Cov1Data_LoadParquet, DictionaryEncodedGene) {
 }
 
 TEST(Cov1Data_LoadParquet, LargeStringGene) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2});
     auto y = arr_f64({1, 2});
     auto gene = arr_lstr({"GeneX", "GeneY"});
@@ -774,7 +755,7 @@ TEST(Cov1Data_LoadParquet, LargeStringGene) {
 }
 
 TEST(Cov1Data_LoadParquet, DictionaryLargeStringGene) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3});
     auto y = arr_f64({1, 1, 1});
     // Build the dictionary values as large_string manually.
@@ -799,7 +780,7 @@ TEST(Cov1Data_LoadParquet, DictionaryLargeStringGene) {
 }
 
 TEST(Cov1Data_LoadParquet, BinaryDictionaryGene) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2});
     auto y = arr_f64({1, 2});
     auto gene = arr_dict_binary({"bin1", "bin2"}, {0, 1});
@@ -810,15 +791,38 @@ TEST(Cov1Data_LoadParquet, BinaryDictionaryGene) {
     auto data = baysor::load_molecules(path, default_opts());
     ASSERT_EQ(data.n_molecules(), 2);
     ASSERT_EQ(data.n_genes(), 2);
-    // Binary values stringify differently from plain text, but each distinct
-    // dictionary entry still becomes its own gene.
-    EXPECT_NE(data.gene_names[0], data.gene_names[1]);
-    EXPECT_FALSE(data.gene_names[0].empty());
-    EXPECT_NE(data.gene[0], data.gene[1]);
+    // Binary dictionary values are decoded as text (GetView), so the gene
+    // names are exactly the original strings, sorted.
+    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"bin1", "bin2"}));
+    EXPECT_EQ(data.gene, (std::vector<int>{1, 2}));
+}
+
+TEST(Cov1Data_LoadParquet, NumericDictionaryGene) {
+    TempDir dir("cov1_data");
+    auto x = arr_f64({1, 2});
+    auto y = arr_f64({1, 2});
+    // Dictionary-encoded numeric gene column: the dictionary values are not
+    // text, so the reader falls back to scalar stringification ("7", "9").
+    auto values = arr_i64({7, 9});
+    arrow::Int8Builder ib;
+    EXPECT_TRUE(ib.Append(0).ok());
+    EXPECT_TRUE(ib.Append(1).ok());
+    std::shared_ptr<arrow::Array> idx = finish(ib);
+    auto gene_res = arrow::DictionaryArray::FromArrays(idx, values);
+    ASSERT_TRUE(gene_res.ok()) << gene_res.status().ToString();
+    auto gene = gene_res.ValueOrDie();
+    auto path = write_parquet(dir, "dict_num.parquet",
+                              {field("x", x), field("y", y), field("gene", gene)},
+                              {x, y, gene},
+                              /*store_schema=*/true);
+    auto data = baysor::load_molecules(path, default_opts());
+    ASSERT_EQ(data.n_molecules(), 2);
+    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"7", "9"}));
+    EXPECT_EQ(data.gene, (std::vector<int>{1, 2}));
 }
 
 TEST(Cov1Data_LoadParquet, NumericGeneColumn) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3});
     auto y = arr_f64({1, 1, 1});
     auto gene = arr_i64({7, 7, 9});
@@ -831,7 +835,7 @@ TEST(Cov1Data_LoadParquet, NumericGeneColumn) {
 }
 
 TEST(Cov1Data_LoadParquet, ExcludeGenePatternSpecialCharacters) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3, 4});
     auto y = arr_f64({1, 1, 1, 1});
     auto gene = arr_str({"Blank-1", "GeneA", "GeneB", "MALAT1"});
@@ -850,7 +854,7 @@ TEST(Cov1Data_LoadParquet, ExcludeGenePatternSpecialCharacters) {
 }
 
 TEST(Cov1Data_LoadParquet, MissingRequiredColumn) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     auto x = arr_f64({1});
     auto gene = arr_str({"A"});
     auto path = write_parquet(dir, "nocol.parquet",
@@ -1002,7 +1006,7 @@ std::string write_boundary_csv(const TempDir& dir, const std::string& name,
 } // namespace
 
 TEST(Cov1Data_Prior, BoundaryWithLabelIdColumn) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_boundary_csv(dir, "b.csv", "label_id", /*far_polygon=*/true);
 
     std::vector<double> x{1, 1.5, 2, 2.5, 1.2, 6, 6.5, 7, 7.5, 6.2, 11, 11.5, 12, 12.5, 11.2};
@@ -1026,7 +1030,7 @@ TEST(Cov1Data_Prior, BoundaryWithLabelIdColumn) {
 }
 
 TEST(Cov1Data_Prior, BoundaryScaleEstimationFailureIsSwallowed) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     const auto path = write_boundary_csv(dir, "b2.csv", "label_id", /*far_polygon=*/false);
 
     std::vector<double> x{1, 1.5, 2, 6, 6.5, 7, 11, 11.5, 12};
@@ -1073,7 +1077,7 @@ TEST(Cov1Data_Prior, NoneReturnsSentinel) {
 // ============================================================================
 
 TEST(Cov1Data_Prior, TiffMultiChannelRejected) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<uint8_t> rgb(8 * 8 * 3, 255);
     const auto path = write_tiff(dir, "rgb.tif", rgb.data(), 8 * 3, 8, 8, 8, /*spp=*/3);
     try {
@@ -1086,7 +1090,7 @@ TEST(Cov1Data_Prior, TiffMultiChannelRejected) {
 }
 
 TEST(Cov1Data_Prior, TiffUnsupportedBitsPerSample) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     // 8 pixels wide at 4 bits/sample = 4 bytes per row.
     std::vector<uint8_t> rows(4 * 8, 0xF0);
     const auto path = write_tiff(dir, "bps4.tif", rows.data(), 4, 8, 8, /*bps=*/4);
@@ -1100,7 +1104,7 @@ TEST(Cov1Data_Prior, TiffUnsupportedBitsPerSample) {
 }
 
 TEST(Cov1Data_Prior, TiffCorruptScanlineThrows) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     // Deflate-compressed mask whose pixel data is corrupted after writing:
     // the directory still parses, but decoding a scanline fails.
     std::vector<uint8_t> px(8 * 8, 255);
@@ -1118,7 +1122,7 @@ TEST(Cov1Data_Prior, TiffCorruptScanlineThrows) {
 }
 
 TEST(Cov1Data_Prior, TiffNoMoleculesYieldsEmptyResult) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<uint8_t> px(8 * 8, 255);
     const auto path = write_tiff_u8(dir, "m8.tif", px, 8, 8);
 
@@ -1129,7 +1133,7 @@ TEST(Cov1Data_Prior, TiffNoMoleculesYieldsEmptyResult) {
 }
 
 TEST(Cov1Data_Prior, TiffMoleculesOutOfBounds) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<uint8_t> px(8 * 8, 255);
     const auto path = write_tiff_u8(dir, "m8b.tif", px, 8, 8);
 
@@ -1145,7 +1149,7 @@ TEST(Cov1Data_Prior, TiffMoleculesOutOfBounds) {
 }
 
 TEST(Cov1Data_Prior, TiffFullImageWindowLogs) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     // Molecules at the extreme corners -> window equals the full image.
     std::vector<uint8_t> px(6 * 6, 255);
     const auto path = write_tiff_u8(dir, "full.tif", px, 6, 6);
@@ -1158,7 +1162,7 @@ TEST(Cov1Data_Prior, TiffFullImageWindowLogs) {
 }
 
 TEST(Cov1Data_Prior, Tiff16BitMultiLabel) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<uint16_t> px(8 * 8);
     for (uint32_t r = 0; r < 8; ++r)
         for (uint32_t c = 0; c < 8; ++c)
@@ -1181,7 +1185,7 @@ TEST(Cov1Data_Prior, Tiff16BitMultiLabel) {
 }
 
 TEST(Cov1Data_Prior, Tiff32BitMultiLabel) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     std::vector<uint32_t> px(8 * 8);
     for (uint32_t r = 0; r < 8; ++r)
         for (uint32_t c = 0; c < 8; ++c)
@@ -1203,7 +1207,7 @@ TEST(Cov1Data_Prior, Tiff32BitMultiLabel) {
 }
 
 TEST(Cov1Data_Prior, ImageScaleFallbackWhenNoMoleculesInMask) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     // Valid image but molecules only sit on background pixels -> no components,
     // so the scale estimate falls back to the (all-unassigned) assignment and
     // fails, leaving the -1 sentinel.
@@ -1224,7 +1228,7 @@ TEST(Cov1Data_Prior, ImageScaleFallbackWhenNoMoleculesInMask) {
 }
 
 TEST(Cov1Data_Prior, ImageScaleFromComponents) {
-    TempDir dir;
+    TempDir dir("cov1_data");
     // Binary mask with three separate 2x2 blobs (area 4 each), two molecules
     // per blob -> the area-based estimator has 3 components and succeeds.
     std::vector<uint8_t> px(8 * 8, 0);

@@ -24,35 +24,15 @@
 #include <fstream>
 #include <random>
 #include <string>
-#include <unistd.h>
 #include <vector>
+
+#include "test_cov_helpers.h"
 
 namespace {
 
-// Unique temporary directory under temp_directory_path(), removed on destruction.
-class TempDir {
-public:
-    TempDir() {
-        static std::atomic<int> counter{0};
-        const auto base = std::filesystem::temp_directory_path();
-        path_ = base / ("baysor_cov1_utils_" + std::to_string(::getpid()) + "_" +
-                        std::to_string(counter++));
-        std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
-        std::filesystem::create_directories(path_);
-    }
-    ~TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
-    }
-    std::string file(const std::string& name) const {
-        return (path_ / name).string();
-    }
-    const std::filesystem::path& path() const { return path_; }
-
-private:
-    std::filesystem::path path_;
-};
+// Portable RAII temp directory (see tests/test_cov_helpers.h): unique via a
+// counter plus a random suffix, no getpid()/POSIX.
+using TempDir = baysor_test::TempDir;
 
 std::string write_file(const TempDir& dir, const std::string& name,
                        const std::string& content) {
@@ -140,6 +120,9 @@ TEST(Cov1Utils_General, FsampleXoshiro) {
 }
 
 TEST(Cov1Utils_General, GlobalXoshiroResetIsDeterministic) {
+    // Reseeds the global RNG: restore the default stream afterwards so later
+    // tests cannot observe this state (order independence).
+    baysor_test::GlobalRngGuard rng_guard;
     baysor::reset_global_xoshiro_rng(123);
     double first = baysor::global_xoshiro_rng().rand_float64();
     baysor::reset_global_xoshiro_rng(123);
@@ -296,12 +279,13 @@ TEST(Cov1Utils_Options, FillAndCheckPriorInputValidation) {
         EXPECT_NE(std::string(e.what()).find("non-empty path"), std::string::npos);
     }
 
-    // Valid column fills the derived min_molecules_per_segment.
+    // Valid column fills the derived min_molecules_per_segment
+    // (default_param_value("min_molecules_per_segment", 10) == max(10/4, 2) == 2).
     baysor::PriorInputOptions ok;
     ok.type = baysor::PriorInputType::Column;
     ok.column_name = "cell_id";
     baysor::fill_and_check_prior_input_options(ok, 10);
-    EXPECT_GT(ok.min_molecules_per_segment, 0);
+    EXPECT_EQ(ok.min_molecules_per_segment, 2);
 
     // None never fills min_molecules_per_segment.
     baysor::PriorInputOptions none;
@@ -354,7 +338,7 @@ TEST(Cov1Utils_Options, LoadConfigMissingFileThrows) {
 }
 
 TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
-    TempDir dir;
+    TempDir dir("cov1_utils");
     const auto path = write_file(dir, "cfg.toml",
         "# comment line\n"
         "\n"
@@ -389,6 +373,15 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
 
     auto opts = baysor::load_config(path);
 
+    // Documentation of current behaviour (not necessarily desirable): a bool
+    // value that fails to parse silently keeps the default instead of
+    // warning. Checked on a config where the garbage key is the only setter,
+    // because here [prior] below overwrites the field afterwards.
+    auto garbage_only = baysor::load_config(write_file(dir, "garbage_bool.toml",
+        "[segmentation]\n"
+        "estimate_scale_from_centers = bogus\n"));
+    EXPECT_TRUE(garbage_only.prior.estimate_scale_from_prior);  // default kept
+
     // [data] section (header is lowercased) applies molecule keys.
     EXPECT_EQ(opts.molecules.x_col, "pos_x");
     EXPECT_EQ(opts.molecules.y_col, "pos_y");
@@ -421,7 +414,7 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypeFallbacks) {
 }
 
 TEST(Cov1Utils_Options, LoadConfigPriorTypes) {
-    TempDir dir;
+    TempDir dir("cov1_utils");
 
     const auto img_path = write_file(dir, "img.toml",
         "[prior]\n"
@@ -448,7 +441,7 @@ TEST(Cov1Utils_Options, LoadConfigPriorTypes) {
 }
 
 TEST(Cov1Utils_Options, LoadConfigBooleanParsing) {
-    TempDir dir;
+    TempDir dir("cov1_utils");
     // "true"/"false"/garbage cover all branches of the TOML bool parser.
     const auto path = write_file(dir, "bools.toml",
         "[molecules]\n"
@@ -458,10 +451,19 @@ TEST(Cov1Utils_Options, LoadConfigBooleanParsing) {
         "[prior]\n"
         "estimate_scale_from_prior = maybe\n");
     auto opts = baysor::load_config(path);
-    EXPECT_TRUE(opts.molecules.force_2d); // "true" branch
-    EXPECT_FALSE(opts.prior.estimate_scale_from_prior); // "false" branch via [segmentation]
-    // Unrecognised bool text keeps the value set so far (false).
+    EXPECT_TRUE(opts.molecules.force_2d); // "true" branch of the bool parser
+    // "false" branch: [segmentation]'s backward-compatible
+    // estimate_scale_from_centers key maps onto estimate_scale_from_prior.
     EXPECT_FALSE(opts.prior.estimate_scale_from_prior);
+
+    // Unrecognised bool text keeps the value set so far: with no earlier
+    // setter that is the default, which is `true`. This distinguishes
+    // keep-current-value from a parser that would coerce garbage to false.
+    const auto garbage_path = write_file(dir, "garbage.toml",
+        "[prior]\n"
+        "estimate_scale_from_prior = maybe\n");
+    auto garbage = baysor::load_config(garbage_path);
+    EXPECT_TRUE(garbage.prior.estimate_scale_from_prior);
 }
 
 TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
@@ -507,7 +509,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     opts.plotting.max_plot_size = 444;
     opts.plotting.ncv_method = "sparse";
 
-    TempDir dir;
+    TempDir dir("cov1_utils");
     const auto out = dir.file("params.toml");
     baysor::save_params_toml(opts, "baysor run -d data.csv", out);
 
@@ -588,7 +590,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
 // ============================================================================
 
 TEST(Cov1Utils_Xenium, ManifestResolution) {
-    TempDir dir;
+    TempDir dir("cov1_utils");
 
     // Missing manifest -> open error.
     try {
@@ -613,7 +615,7 @@ TEST(Cov1Utils_Xenium, ManifestResolution) {
     write_file(dir, "transcripts.csv.gz", "stub");
     auto ctx = baysor::load_xenium_manifest_context(dir.file("experiment.xenium"));
     EXPECT_EQ(ctx.manifest_path, dir.file("experiment.xenium"));
-    EXPECT_EQ(ctx.dataset_dir, dir.path().string());
+    EXPECT_EQ(ctx.dataset_dir, dir.path.string());
     EXPECT_EQ(ctx.transcripts_path, dir.file("transcripts.csv.gz"));
 
     // transcripts.parquet wins when both exist.
@@ -722,6 +724,13 @@ TEST(Cov1Utils_JuliaIntDict, EStep3DCoversBmmInstance) {
     const auto before = data.assignment;
     auto stats = baysor::expect_dirichlet_spatial<3>(data, /*stochastic=*/false);
 
+    // Candidate components come only from direct graph neighbours. Molecules
+    // 3 and 4 (0-based 2, 3) sit at the end of their chains, so their only
+    // candidate is the far-away component across the gap; its position
+    // density underflows to zero and they fall to noise. Everything else
+    // stays with its own spatial group.
+    EXPECT_EQ(data.assignment, (std::vector<int>{1, 1, 0, 0, 3, 3}));
+    EXPECT_EQ(stats.n_changed, 2);
     // n_changed must equal the number of assignments that actually changed,
     // and every assignment must stay in the valid component-id range.
     std::int64_t expected_changed = 0;

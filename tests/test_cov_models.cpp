@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "baysor/processing/distributions/categorical_smoothed.h"
+#include "baysor/utils/general.h"
 #include "baysor/processing/distributions/mv_normal.h"
 #include "baysor/processing/models/adj_list.h"
 #include "baysor/processing/models/bmm_data.h"
@@ -149,7 +150,7 @@ TEST(Cov2Models, PdfPositionOnlyMatchesPdfWithMissingGene) {
     // for every dimensionality, hence (2*pi)^1.5 * sqrt(det) in the pdf.
     const double expected2 =
         0.5 * std::exp(-0.5) /
-        (std::pow(2.0 * M_PI, 1.5) * std::sqrt(0.25));  // prior * N(mu, 0.5 I)
+        (std::pow(2.0 * baysor::kPi, 1.5) * std::sqrt(0.25));  // prior * N(mu, 0.5 I)
     EXPECT_NEAR(comp2.pdf_position_only(x2), expected2, 1e-12);
     EXPECT_DOUBLE_EQ(comp2.pdf_position_only(x2), comp2.pdf(x2, /*gene=*/-1));
 
@@ -157,7 +158,7 @@ TEST(Cov2Models, PdfPositionOnlyMatchesPdfWithMissingGene) {
     auto comp3 = cov2_make_component3d(/*guid=*/2);
     comp3.prior_probability = 0.25;
     const double x3[3] = {0.0, 0.0, 0.0};
-    const double expected3 = 0.25 * std::pow(2.0 * M_PI, -1.5);
+    const double expected3 = 0.25 * std::pow(2.0 * baysor::kPi, -1.5);
     EXPECT_NEAR(comp3.pdf_position_only(x3), expected3, 1e-12);
     EXPECT_DOUBLE_EQ(comp3.pdf_position_only(x3), comp3.pdf(x3, /*gene=*/-1));
 }
@@ -228,8 +229,8 @@ TEST(Cov2Dist, DefaultConstructorsAreStandardNormal) {
     EXPECT_TRUE(d2.sigma_inv.isIdentity());
 
     const double x2[2] = {0.0, 0.0};
-    EXPECT_NEAR(d2.pdf(x2), 1.0 / (2.0 * M_PI), 1e-12);
-    EXPECT_NEAR(d2.log_pdf(x2), -std::log(2.0 * M_PI), 1e-12);
+    EXPECT_NEAR(d2.pdf(x2), 1.0 / (2.0 * baysor::kPi), 1e-12);
+    EXPECT_NEAR(d2.log_pdf(x2), -std::log(2.0 * baysor::kPi), 1e-12);
 
     MvNormal<3> d3;
     EXPECT_TRUE(d3.mu.isZero());
@@ -237,12 +238,12 @@ TEST(Cov2Dist, DefaultConstructorsAreStandardNormal) {
     EXPECT_TRUE(d3.sigma_inv.isIdentity());
 
     const double x3[3] = {0.0, 0.0, 0.0};
-    EXPECT_NEAR(d3.pdf(x3), std::pow(2.0 * M_PI, -1.5), 1e-12);
-    EXPECT_NEAR(d3.log_pdf(x3), -1.5 * std::log(2.0 * M_PI), 1e-12);
+    EXPECT_NEAR(d3.pdf(x3), std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
+    EXPECT_NEAR(d3.log_pdf(x3), -1.5 * std::log(2.0 * baysor::kPi), 1e-12);
 
     // Off-mode density decays with the squared Mahalanobis distance.
     const double y2[2] = {1.0, 0.0};
-    EXPECT_NEAR(d2.pdf(y2), std::exp(-0.5) / (2.0 * M_PI), 1e-12);
+    EXPECT_NEAR(d2.pdf(y2), std::exp(-0.5) / (2.0 * baysor::kPi), 1e-12);
 }
 
 TEST(Cov2Dist, MaximizeWithTooFewPointsKeepsCovariance) {

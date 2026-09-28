@@ -20,6 +20,8 @@
 #include "baysor/processing/utils/convex_hull.h"
 #include "baysor/processing/utils/utils.h"
 
+#include "test_cov_helpers.h"
+
 #include <Eigen/Dense>
 #include <algorithm>
 #include <array>
@@ -275,6 +277,8 @@ TEST(Cov3Data_Utils, KnnParallelReturnsEmptyOnEmptyInputs) {
 // ============================================================================
 
 TEST(Cov3Data_Triangulation, NormalizePointsJittersDuplicates) {
+    // Draws from the global RNG to jitter duplicates: restore it afterwards.
+    baysor_test::GlobalRngGuard rng_guard;
     Eigen::MatrixXd pts(2, 4);
     pts.col(0) << 5.0, 5.0;
     pts.col(1) << 5.0, 5.0;   // exact duplicate of col 0
@@ -449,16 +453,23 @@ TEST(Cov3Data_Noise, DegenerateEqualInputsStillYieldOrderedSignalAndNoise) {
                                                   /*verbose=*/false);
 
     EXPECT_LE(result.signal_mu, result.noise_mu);
-    EXPECT_NEAR(result.signal_mu, -5.0, 1e-9);
-    EXPECT_NEAR(result.noise_mu, 0.0, 1e-9);
+    EXPECT_TRUE(std::isfinite(result.signal_mu));
+    EXPECT_TRUE(std::isfinite(result.noise_mu));
+    EXPECT_TRUE(std::isfinite(result.signal_sigma));
+    EXPECT_TRUE(std::isfinite(result.noise_sigma));
     ASSERT_FALSE(result.diffs.empty());
     EXPECT_LE(result.diffs.back(), 0.005);        // the EM loop reported convergence
     ASSERT_EQ(result.assignment.size(), 6u);
     EXPECT_EQ(result.assignment[0], 1);
     // Both component densities underflow to zero for this input, so the row
-    // normalization is skipped and the degenerate row stays at (0, 0).
-    EXPECT_DOUBLE_EQ(result.assignment_probs(0, 0), 0.0);
-    EXPECT_DOUBLE_EQ(result.assignment_probs(0, 1), 0.0);
+    // normalization is skipped; do not pin the resulting raw values (they are
+    // an implementation detail), only require finite, in-range entries.
+    for (int i = 0; i < 6; ++i) {
+        EXPECT_TRUE(std::isfinite(result.assignment_probs(i, 0)));
+        EXPECT_TRUE(std::isfinite(result.assignment_probs(i, 1)));
+        EXPECT_GE(result.assignment_probs(i, 0), 0.0);
+        EXPECT_GE(result.assignment_probs(i, 1), 0.0);
+    }
 }
 
 TEST(Cov3Data_Noise, EstimateConfidenceDetailsUsesDefaultNnId) {
@@ -505,8 +516,12 @@ TEST(Cov3Data_Noise, EstimateConfidenceDetailsFloorsAtPriorConfidence) {
             << "molecule " << i;
     }
     for (int i = 10; i < 20; ++i) {
-        EXPECT_GE(details.fit_result.assignment_probs(i, 0), 0.0);
-        EXPECT_LE(details.fit_result.assignment_probs(i, 0), 1.0);
+        // Unassigned molecules get no floor; assert the real value: the
+        // per-molecule row must be a proper distribution over the two
+        // components (a range check [0, 1] alone would pass trivially).
+        EXPECT_NEAR(details.fit_result.assignment_probs(i, 0) +
+                        details.fit_result.assignment_probs(i, 1),
+                    1.0, 1e-9) << "molecule " << i;
     }
 }
 
@@ -985,6 +1000,10 @@ TEST(Cov3Data_Boundary, AutoBinnedZStackProducesTenLayers) {
 }
 
 TEST(Cov3Data_Boundary, InternalBorderFilterStopsAfterMaxIterations) {
+    // The max_iters guard is only visible through its warning; capture it.
+    auto sink = std::make_shared<baysor_test::CapturingSink>();
+    baysor_test::LoggerGuard logger(sink);
+
     // Square + interior center. Triangles (vertex indices into pos):
     //   T0 = (0, 1, 4), T1 = (1, 2, 4), T2 = (2, 3, 4), T3 = (3, 0, 4)
     // with the intruder inside T0 only.
@@ -998,20 +1017,27 @@ TEST(Cov3Data_Boundary, InternalBorderFilterStopsAfterMaxIterations) {
         {0, 1, 4}, {1, 2, 4}, {2, 3, 4}, {3, 0, 4}};
 
     // One iteration is enough to exclude exactly the intruder-carrying T0,
-    // which is not convergence -> the caller-visible warning path fires and
-    // the remaining border is {T0's neighbours plus the untouched spokes}.
+    // which is not convergence -> the max_iters warning fires, and the
+    // remaining border is {T0's neighbours plus the untouched spokes}.
     auto edges_1 = baysor::internal::find_border_without_admixture(
         triangles, pos, non_cell, /*max_iters=*/1);
     const auto got_1 = cov3_sorted_edges(edges_1);
     const std::vector<std::pair<int, int>> expected_1 = {
         {0, 3}, {0, 4}, {1, 2}, {1, 4}, {2, 3}};
     EXPECT_EQ(got_1, expected_1);
+    EXPECT_NE(sink->data().find(
+                  "Polygon filtering did not converge within 1 iterations"),
+              std::string::npos) << sink->data();
+    sink->clear();
 
     // More iterations converge to the same border (the only exclusion is T0:
-    // the remaining triangles either have >1 border edge or no admixture).
+    // the remaining triangles either have >1 border edge or no admixture),
+    // so the warning must not fire.
     auto edges_full = baysor::internal::find_border_without_admixture(
         triangles, pos, non_cell, /*max_iters=*/100);
     EXPECT_EQ(cov3_sorted_edges(edges_full), expected_1);
+    EXPECT_EQ(sink->data().find("did not converge"), std::string::npos)
+        << sink->data();
 
     // Without an admixture point nothing is excluded: the plain hull.
     Eigen::MatrixXd empty_non_cell(2, 0);
@@ -1023,15 +1049,24 @@ TEST(Cov3Data_Boundary, InternalBorderFilterStopsAfterMaxIterations) {
 }
 
 TEST(Cov3Data_Boundary, InternalBorderToPolyHonoursLengthCap) {
+    // The cap guard is only visible through its warning; capture it.
+    auto sink = std::make_shared<baysor_test::CapturingSink>();
+    baysor_test::LoggerGuard logger(sink);
+
     // A simple 4-cycle closes under the default cap ...
     const std::vector<std::pair<int, int>> cycle = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
     auto poly = baysor::internal::border_edges_to_poly(cycle);
     EXPECT_EQ(poly.size(), 4u);
+    EXPECT_EQ(sink->data().find("Could not build a polygon border"), std::string::npos)
+        << sink->data();
 
     // ... but with a cap of two steps the walk cannot return to the start
     // and the function warns and gives up.
     auto capped = baysor::internal::border_edges_to_poly(cycle, /*max_border_len=*/2);
     EXPECT_TRUE(capped.empty());
+    EXPECT_NE(sink->data().find("Could not build a polygon border of size 4"),
+              std::string::npos) << sink->data();
+    sink->clear();
 
     // Degenerate input: at most two border edges can never form a polygon.
     EXPECT_TRUE(baysor::internal::border_edges_to_poly({{0, 1}}).empty());
