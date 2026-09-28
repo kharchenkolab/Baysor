@@ -40,7 +40,7 @@ std::string cluster_method_to_string(ClusterMethod method) {
         case ClusterMethod::Louvain: return "louvain";
         case ClusterMethod::Leiden: return "leiden";
     }
-    return "mrf";
+    return "mrf"; // GCOVR_EXCL_LINE: unreachable, the switch above handles every ClusterMethod enumerator
 }
 
 int default_cluster_count(ClusterMethod method) {

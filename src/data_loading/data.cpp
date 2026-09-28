@@ -269,7 +269,7 @@ std::shared_ptr<arrow::Schema> get_parquet_schema(
     std::shared_ptr<arrow::Schema> schema;
     ARROW_CHECK_OK(reader->GetSchema(&schema));
     return schema;
-}
+} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if GetSchema/allocation fails
 
 struct NumericArrayView {
     enum class Kind {
@@ -395,9 +395,9 @@ struct NumericArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return std::stod(scalar->ToString());
             }
-            case Kind::Invalid: break;
+            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
         }
-        return std::numeric_limits<double>::quiet_NaN();
+        return std::numeric_limits<double>::quiet_NaN(); // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
     }
 
     int64_t int64_value(int64_t i) const {
@@ -417,9 +417,9 @@ struct NumericArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return static_cast<int64_t>(std::stoll(scalar->ToString()));
             }
-            case Kind::Invalid: break;
+            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
         }
-        return -1;
+        return -1; // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
     }
 };
 
@@ -478,8 +478,8 @@ struct StringArrayView {
                     dict_string_arr = static_cast<const arrow::StringArray*>(dict.get());
                     kind = Kind::DictionaryString;
                 } else if (dict->type_id() == arrow::Type::LARGE_STRING) {
-                    dict_large_string_arr = static_cast<const arrow::LargeStringArray*>(dict.get());
-                    kind = Kind::DictionaryLargeString;
+                    dict_large_string_arr = static_cast<const arrow::LargeStringArray*>(dict.get()); // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
+                    kind = Kind::DictionaryLargeString; // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
                 } else {
                     fallback = arr;
                     kind = Kind::Fallback;
@@ -504,8 +504,8 @@ struct StringArrayView {
 
     int64_t dictionary_length() const {
         if (kind == Kind::DictionaryString && dict_string_arr) return dict_string_arr->length();
-        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) return dict_large_string_arr->length();
-        return 0;
+        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) return dict_large_string_arr->length(); // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
+        return 0; // GCOVR_EXCL_LINE: unreachable, callers only invoke this while is_dictionary() is true
     }
 
     int64_t dictionary_index(int64_t i) const {
@@ -518,10 +518,10 @@ struct StringArrayView {
         if (kind == Kind::DictionaryString && dict_string_arr) {
             return std::string(dict_string_arr->GetView(dict_idx));
         }
-        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) {
-            return std::string(dict_large_string_arr->GetView(dict_idx));
+        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) { // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
+            return std::string(dict_large_string_arr->GetView(dict_idx)); // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
         }
-        return "";
+        return ""; // GCOVR_EXCL_LINE: unreachable, dictionary_value() is only called for dictionary kinds whose value array is always set
     }
 
     std::string value(int64_t i) const {
@@ -538,10 +538,10 @@ struct StringArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return scalar->ToString();
             }
-            case Kind::Invalid:
-                break;
+            case Kind::Invalid: // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
+                break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
         }
-        return "";
+        return ""; // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
     }
 };
 
@@ -572,7 +572,7 @@ std::vector<std::regex> compile_gene_patterns(const std::vector<std::string>& pa
         regexes.emplace_back(re_str, std::regex::ECMAScript);
     }
     return regexes;
-}
+} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if regex construction/allocation throws
 
 bool matches_any_gene_pattern(const std::string& gene, const std::vector<std::regex>& regexes) {
     for (const auto& re : regexes) {
@@ -763,7 +763,7 @@ Eigen::MatrixXd MoleculeData::position_matrix() const {
         if (d == 3) mat(2, i) = z[i];
     }
     return mat;
-}
+} // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only if the Eigen allocation throws (bad_alloc)
 
 // ============================================================================
 // Gene encoding
@@ -902,7 +902,7 @@ void filter_genes_by_pattern(MoleculeData& data, const std::vector<std::string>&
 
     // Find gene names matching any pattern
     std::unordered_set<int> excluded_genes; // 1-based
-    std::vector<std::string> excluded_names;
+    std::vector<std::string> excluded_names; // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only on allocation failure inside this function
     for (int g = 0; g < n_genes; ++g) {
         const auto& name = data.gene_names[g];
         for (const auto& re : regexes) {

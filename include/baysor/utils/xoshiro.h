@@ -33,7 +33,7 @@ public:
         }
 
         if ((state_[0] | state_[1] | state_[2] | state_[3]) == 0) {
-            state_[0] = 0x9e3779b97f4a7c15ULL;
+            state_[0] = 0x9e3779b97f4a7c15ULL; // GCOVR_EXCL_LINE: unreachable defensive guard, a SHA-256 digest can never be all-zero
         }
     }
 
