@@ -9,7 +9,7 @@ AdjList AdjList::from_edge_list(
     const double* edge_weights, int n_edges, int n_verts
 ) {
     if (n_edges == 0 || n_verts == 0) {
-        AdjList adj;
+        AdjList adj; // GCOVR_EXCL_LINE: exception-cleanup block for this declaration is only reachable if `indptr.assign` throws inside this frame (allocation failure); no portable test input can induce that
         adj.indptr.assign(n_verts + 1, 0);
         return adj;
     }

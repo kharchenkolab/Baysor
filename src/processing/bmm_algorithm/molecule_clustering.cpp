@@ -440,8 +440,8 @@ ClusteringResult cluster_molecules_ica(
         }
         exprs_init_ptr = std::make_unique<Eigen::MatrixXd>(std::move(exprs));
         if (verbose) spdlog::info("ICA initialization succeeded ({} components).", n_clusters);
-    } catch (const std::exception& e) {
-        spdlog::warn("ICA did not converge ({}), falling back to hash initialization.", e.what());
+    } catch (const std::exception& e) { // GCOVR_EXCL_LINE: only reachable if a std::exception (e.g. Eigen std::bad_alloc) escapes the ICA try block; not portable to induce in tests
+        spdlog::warn("ICA did not converge ({}), falling back to hash initialization.", e.what()); // GCOVR_EXCL_LINE: handler body runs only on an allocation failure inside the try block, which no portable test input can induce
     } catch (...) {
         spdlog::warn("ICA failed, falling back to hash initialization.");
     }

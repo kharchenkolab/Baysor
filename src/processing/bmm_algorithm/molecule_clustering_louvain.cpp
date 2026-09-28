@@ -385,68 +385,6 @@ static std::vector<int> run_leiden_zero_based(
     return reindex_membership_zero_based(finest_to_current);
 }
 
-static std::vector<int> evenly_sample_ids_by_spatial_sum(
-    const Eigen::MatrixXd& pos_data,
-    const std::vector<int>& ids,
-    int target_size
-) {
-    if (target_size <= 0 || static_cast<int>(ids.size()) <= target_size) return ids;
-
-    std::vector<std::pair<double, int>> ordered;
-    ordered.reserve(ids.size());
-    for (int id : ids) {
-        ordered.emplace_back(pos_data.col(id).sum(), id);
-    }
-    std::stable_sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
-        if (a.first != b.first) return a.first < b.first;
-        return a.second < b.second;
-    });
-
-    std::vector<int> out;
-    out.reserve(target_size);
-    for (int j = 0; j < target_size; ++j) {
-        int idx = static_cast<int>(std::floor(
-            static_cast<double>(j) * static_cast<double>(ordered.size()) /
-            static_cast<double>(target_size)
-        ));
-        idx = std::min(idx, static_cast<int>(ordered.size()) - 1);
-        out.push_back(ordered[idx].second);
-    }
-    return out;
-}
-
-static std::vector<int> select_basis_anchor_ids_simple(
-    const Eigen::MatrixXd& pos_data,
-    const std::vector<double>& confidence,
-    int basis_sample_size
-) {
-    const int n = static_cast<int>(pos_data.cols());
-    if (basis_sample_size <= 0 || basis_sample_size >= n) {
-        std::vector<int> ids(n);
-        std::iota(ids.begin(), ids.end(), 0);
-        return ids;
-    }
-
-    static const double thresholds[] = {0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50};
-    std::vector<int> candidates;
-    std::vector<int> last_nonempty;
-    for (double thr : thresholds) {
-        candidates.clear();
-        for (int i = 0; i < n; ++i) {
-            if (confidence[i] >= thr) candidates.push_back(i);
-        }
-        if (!candidates.empty()) last_nonempty = candidates;
-        if (static_cast<int>(candidates.size()) >= basis_sample_size) break;
-    }
-
-    if (candidates.empty()) candidates = last_nonempty;
-    if (candidates.empty()) {
-        candidates.resize(n);
-        std::iota(candidates.begin(), candidates.end(), 0);
-    }
-    return evenly_sample_ids_by_spatial_sum(pos_data, candidates, basis_sample_size);
-}
-
 struct EigenColMajorAdaptor {
     const Eigen::MatrixXd& mat;
 
@@ -658,8 +596,8 @@ static PartitionAttempt run_graph_partition_once(
         case ClusterMethod::Leiden:
             out.membership = run_leiden_zero_based(graph, resolution, max_passes, &out.move_fracs);
             break;
-        default:
-            break;
+        default: // GCOVR_EXCL_LINE: unreachable — graph_partition_to_target rejects methods other than Louvain/Leiden before calling this helper
+            break; // GCOVR_EXCL_LINE: unreachable — defensive default for the exhaustive ClusterMethod switch
     }
     out.membership = reindex_membership_zero_based(out.membership, &out.n_clusters);
     return out;
