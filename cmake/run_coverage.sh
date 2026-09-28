@@ -27,8 +27,11 @@ find "$BUILD_DIR" -name '*.gcda' -delete
 # 3. Generate all three reports in one gcovr run. Lines that are not code
 #    (e.g. a lone '}' that GCC tags with exception-cleanup blocks at -O0) and
 #    compiler-generated exception/unreachable branches are left out, so the
-#    numbers reflect the source that tests can actually exercise. Run from
-#    the source dir so the relative filters src/ and include/baysor/ match;
+#    numbers reflect the source that tests can actually exercise. Note: the
+#    GCOVR_EXCL_LINE gcov-artifact exclusion markers in the sources are
+#    specific to GCC at -O0; with a Clang coverage build they would hide real
+#    lines. Run from the source dir so the relative filters src/ and
+#    include/baysor/ match;
 #    the build dir is passed explicitly as the search path for .gcda files.
 #    include/third_party/ is excluded defensively (the filters already drop it).
 mkdir -p "$BUILD_DIR/coverage"

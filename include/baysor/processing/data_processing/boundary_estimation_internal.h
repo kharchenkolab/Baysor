@@ -1,12 +1,16 @@
 #pragma once
 
-// Test seam for boundary-estimation helpers that normally live in an
-// anonymous namespace inside boundary_estimation.cpp.
+// Test-only seam for boundary-estimation helpers that normally live in an
+// anonymous namespace inside boundary_estimation.cpp. NOT public API: it
+// exists solely so unit tests can reach the parameterized convergence guards
+// (max_iters / max_border_len) whose warning branches production callers
+// never trigger; it may change or disappear with the internals it wraps.
 //
-// Production code calls the original implementations directly; these wrappers
-// forward to them with identical default arguments so unit tests can reach the
-// parameterized convergence guards (max_iters / max_border_len) whose warning
-// branches production callers never trigger. No production behavior changes.
+// Production code calls the original implementations directly and passes the
+// same constants explicitly; the default arguments below are the single
+// place those defaults are declared (the definitions in boundary_estimation.cpp
+// deliberately carry no defaults, so the values cannot drift). Forwarding
+// preserves identical behavior; no production behavior changes.
 
 #include <array>
 #include <utility>

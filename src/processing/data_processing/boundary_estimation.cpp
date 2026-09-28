@@ -216,7 +216,8 @@ std::vector<Edge> find_border_without_admixture(
     const std::vector<Triangle>& triangles,
     const Eigen::MatrixXd& pos_data,
     const Eigen::MatrixXd& non_cell_pos,
-    int max_iters = 100
+    int max_iters  // no default here: the only default (100) lives in
+                   // boundary_estimation_internal.h, see the call sites below
 ) {
     std::vector<std::array<Edge, 3>> edges_per_tri(triangles.size());
     std::unordered_map<std::uint64_t, int> edge_counts;
@@ -310,7 +311,7 @@ std::vector<Edge> find_border_without_admixture(
     return border_edges;
 }
 
-std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int max_border_len = 10000) {
+std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int max_border_len) { // no default: the only default (10000) lives in boundary_estimation_internal.h
     if (border_edges.size() <= 2) return {};
 
     std::unordered_map<int, std::pair<int, int>> adjacency;
@@ -455,8 +456,9 @@ PolygonCollection build_polygons_for_cells(
                 non_cell_pos.col(i) = bbox_pos.col(non_cell_ids[i]);
             }
 
-            auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos);
-            auto poly_ids = border_edges_to_poly(border_edges);
+            auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos,
+                                                              /*max_iters=*/100);
+            auto poly_ids = border_edges_to_poly(border_edges, /*max_border_len=*/10000);
             if (poly_ids.empty()) continue;
 
             poly.resize(2, static_cast<int>(poly_ids.size()));
@@ -557,7 +559,7 @@ std::vector<Eigen::MatrixXd> boundary_polygons_from_grid(
         dt.insert(pts.begin(), pts.end());
         auto triangles = extract_triangle_verts(dt);
         auto border_edges = extract_border_edges(triangles);
-        auto poly_ids = border_edges_to_poly(border_edges);
+        auto poly_ids = border_edges_to_poly(border_edges, /*max_border_len=*/10000);
         if (poly_ids.empty()) {
             polys.emplace_back();
             continue;

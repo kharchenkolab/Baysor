@@ -439,8 +439,12 @@ struct StringArrayView {
     const arrow::StringArray* string_arr = nullptr;
     const arrow::LargeStringArray* large_string_arr = nullptr;
     NumericArrayView dict_indices;
-    const arrow::StringArray* dict_string_arr = nullptr;
-    const arrow::LargeStringArray* dict_large_string_arr = nullptr;
+    // Dictionary value arrays are read through BinaryArray/LargeBinaryArray
+    // (the common base of the string variants) so that binary-typed
+    // dictionary values are decoded as text via GetView instead of being
+    // hex-dumped by Scalar::ToString().
+    const arrow::BinaryArray* dict_string_arr = nullptr;
+    const arrow::LargeBinaryArray* dict_large_string_arr = nullptr;
     std::shared_ptr<arrow::Array> fallback;
 
     StringArrayView() = default;
@@ -474,15 +478,19 @@ struct StringArrayView {
                 auto dict_arr = static_cast<const arrow::DictionaryArray*>(arr.get());
                 dict_indices.reset(dict_arr->indices());
                 auto dict = dict_arr->dictionary();
-                if (dict->type_id() == arrow::Type::STRING) {
-                    dict_string_arr = static_cast<const arrow::StringArray*>(dict.get());
+                if (dict->type_id() == arrow::Type::STRING ||
+                        dict->type_id() == arrow::Type::BINARY) {
+                    // Binary dictionary values share the string layout; GetView
+                    // decodes the raw bytes back to text ("bin1", ...).
+                    dict_string_arr = static_cast<const arrow::BinaryArray*>(dict.get());
                     kind = Kind::DictionaryString;
-                } else if (dict->type_id() == arrow::Type::LARGE_STRING) {
-                    dict_large_string_arr = static_cast<const arrow::LargeStringArray*>(dict.get()); // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
+                } else if (dict->type_id() == arrow::Type::LARGE_STRING || // GCOVR_EXCL_LINE: unreachable with the linked Arrow: the parquet reader only yields string- or binary-valued dictionaries (large_* value types are converted on read), so this condition is never evaluated
+                        dict->type_id() == arrow::Type::LARGE_BINARY) { // GCOVR_EXCL_LINE: unreachable with the linked Arrow: the parquet reader only yields string- or binary-valued dictionaries (large_* value types are converted on read), so this condition is never evaluated
+                    dict_large_string_arr = static_cast<const arrow::LargeBinaryArray*>(dict.get()); // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
                     kind = Kind::DictionaryLargeString; // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
                 } else {
-                    fallback = arr;
-                    kind = Kind::Fallback;
+                    fallback = arr; // GCOVR_EXCL_LINE: unreachable with the linked Arrow: every dictionary value type surviving a parquet round-trip is string or binary, both handled above
+                    kind = Kind::Fallback; // GCOVR_EXCL_LINE: unreachable with the linked Arrow: every dictionary value type surviving a parquet round-trip is string or binary, both handled above
                 }
                 break;
             }

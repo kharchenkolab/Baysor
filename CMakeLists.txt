@@ -353,6 +353,9 @@ if(BAYSOR_WITH_TESTS)
     endif()
     baysor_apply_coverage(baysor_tests)
     add_test(NAME baysor_tests COMMAND baysor_tests)
+    # The suite spawns the CLI as a subprocess; a hung `baysor` must not
+    # stall CI forever (review COV-6).
+    set_tests_properties(baysor_tests PROPERTIES TIMEOUT 900)
 endif()
 
 # --- Coverage report ---

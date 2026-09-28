@@ -334,7 +334,7 @@ ClusteringResult cluster_molecules_on_mrf(
         change_fracs.push_back(static_cast<double>(n_changed) / n_mols);
 
         if (verbose && (iter % 100 == 0 || iter < 5)) {
-            spdlog::info("  Clustering iter {:4d}: max_diff={:.4f}, change_frac={:.4f}",
+            spdlog::info("  Clustering iter {:4d}: max_diff={:.4f}, change_frac={:.4f}", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following line; this line only runs when an exception unwinds through the statement
                          iter + 1, max_diff, change_fracs.back());
         }
 
@@ -349,7 +349,7 @@ ClusteringResult cluster_molecules_on_mrf(
             }
             if (worst < tol) {
                 if (verbose)
-                    spdlog::info("Clustering converged after {} iterations. Max diff: {:.4f}",
+                    spdlog::info("Clustering converged after {} iterations. Max diff: {:.4f}", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following line; this line only runs when an exception unwinds through the statement
                                  iter + 1, max_diff);
                 break;
             }
@@ -442,8 +442,8 @@ ClusteringResult cluster_molecules_ica(
         if (verbose) spdlog::info("ICA initialization succeeded ({} components).", n_clusters);
     } catch (const std::exception& e) { // GCOVR_EXCL_LINE: only reachable if a std::exception (e.g. Eigen std::bad_alloc) escapes the ICA try block; not portable to induce in tests
         spdlog::warn("ICA did not converge ({}), falling back to hash initialization.", e.what()); // GCOVR_EXCL_LINE: handler body runs only on an allocation failure inside the try block, which no portable test input can induce
-    } catch (...) {
-        spdlog::warn("ICA failed, falling back to hash initialization.");
+    } catch (...) { // GCOVR_EXCL_LINE: handler never entered; reachable only via a non-std exception escaping the ICA try block, same justification as main.cpp's catch-all
+        spdlog::warn("ICA failed, falling back to hash initialization."); // GCOVR_EXCL_LINE: reachable only if a non-std exception escapes the ICA try block; same justification as main.cpp's catch-all (no Baysor or dependency exception lacks std::exception)
     }
 
     // 3. Core EM with ICA init (or nullptr → hash fallback)

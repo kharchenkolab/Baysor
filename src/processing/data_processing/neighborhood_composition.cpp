@@ -185,8 +185,8 @@ struct NeighborhoodScratch {
 
     int next_mark() {
         if (current_mark == std::numeric_limits<int>::max()) {
-            std::fill(marks.begin(), marks.end(), 0); // GCOVR_EXCL_LINE: unreachable guard; needs >= 2^31 queries on one thread
-            current_mark = 1; // GCOVR_EXCL_LINE: unreachable guard; needs >= 2^31 queries on one thread
+            std::fill(marks.begin(), marks.end(), 0); // GCOVR_EXCL_LINE: impractical to test: needs >= 2^31 queries on one thread
+            current_mark = 1; // GCOVR_EXCL_LINE: impractical to test: needs >= 2^31 queries on one thread
         }
         return current_mark++;
     }

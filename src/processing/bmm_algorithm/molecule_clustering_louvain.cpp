@@ -821,7 +821,7 @@ static ClusteringResult cluster_molecules_graph_backend(
         cluster_anchor_confidence.push_back(confidence.empty() ? 1.0 : confidence[id]);
     }
     if (verbose) {
-        spdlog::info(
+        spdlog::info( // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following lines; this line only runs when an exception unwinds through the statement
             "{} clustering: using {} basis anchors (spatial_k={}, graph_k={}).",
             method == ClusterMethod::Leiden ? "Leiden" : "Louvain",
             cluster_anchor_ids.size(),
