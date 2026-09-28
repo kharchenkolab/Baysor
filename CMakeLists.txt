@@ -343,6 +343,11 @@ if(BAYSOR_WITH_TESTS)
         ${BAYSOR_TEST_SOURCES}
     )
     target_link_libraries(baysor_tests PRIVATE baysor_lib GTest::gtest_main)
+    # End-to-end CLI tests spawn the instrumented `baysor` executable as a
+    # subprocess (its own .gcda counters cover src/cli/main.cpp, which is not
+    # linked into the test binary). Build it first and pass its path in.
+    add_dependencies(baysor_tests baysor)
+    target_compile_definitions(baysor_tests PRIVATE BAYSOR_CLI_PATH="$<TARGET_FILE:baysor>")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(baysor_tests PRIVATE -Wno-stringop-overflow)
     endif()
