@@ -27,10 +27,11 @@ struct MvNormal {
     Vec mu;
     Mat sigma;
     Mat sigma_inv;
-    double pdf_divider;  // 0.5 * log((2*pi)^N * det(sigma))
+    double pdf_divider;  // 0.5 * log((2*pi)^3 * det(sigma))
 
-    MvNormal() : mu(Vec::Zero()), sigma(Mat::Identity()), sigma_inv(Mat::Identity()),
-                 pdf_divider(0.5 * N * std::log(2.0 * kPi)) {}
+    // Julia parity: same norm_pdf_divider formula as update_cache().
+    // Defined out-of-line so it can never drift from update_cache().
+    MvNormal();
 
     MvNormal(const Vec& mu, const Mat& sigma);
 

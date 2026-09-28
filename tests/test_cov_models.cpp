@@ -222,20 +222,24 @@ TEST(Cov2Models, Component3DContiguousMaximizeKeepsConfidenceWithoutNuclei) {
 // MvNormal
 // ============================================================================
 
-TEST(Cov2Dist, DefaultConstructorsAreStandardNormal) {
+TEST(Cov2Dist, DefaultConstructorsMatchJuliaParityNormaliser) {
     MvNormal<2> d2;
     EXPECT_TRUE(d2.mu.isZero());
     EXPECT_TRUE(d2.sigma.isIdentity());
     EXPECT_TRUE(d2.sigma_inv.isIdentity());
 
+    // Julia parity quirk: norm_pdf_divider hardcodes (2*pi)^3 even in 2D,
+    // so the default-constructed divider is 1.5*log(2*pi), not log(2*pi).
+    EXPECT_NEAR(d2.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
     const double x2[2] = {0.0, 0.0};
-    EXPECT_NEAR(d2.pdf(x2), 1.0 / (2.0 * baysor::kPi), 1e-12);
-    EXPECT_NEAR(d2.log_pdf(x2), -std::log(2.0 * baysor::kPi), 1e-12);
+    EXPECT_NEAR(d2.pdf(x2), std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
+    EXPECT_NEAR(d2.log_pdf(x2), -1.5 * std::log(2.0 * baysor::kPi), 1e-12);
 
     MvNormal<3> d3;
     EXPECT_TRUE(d3.mu.isZero());
     EXPECT_TRUE(d3.sigma.isIdentity());
     EXPECT_TRUE(d3.sigma_inv.isIdentity());
+    EXPECT_NEAR(d3.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
 
     const double x3[3] = {0.0, 0.0, 0.0};
     EXPECT_NEAR(d3.pdf(x3), std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
@@ -243,7 +247,7 @@ TEST(Cov2Dist, DefaultConstructorsAreStandardNormal) {
 
     // Off-mode density decays with the squared Mahalanobis distance.
     const double y2[2] = {1.0, 0.0};
-    EXPECT_NEAR(d2.pdf(y2), std::exp(-0.5) / (2.0 * baysor::kPi), 1e-12);
+    EXPECT_NEAR(d2.pdf(y2), std::exp(-0.5) * std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
 }
 
 TEST(Cov2Dist, MaximizeWithTooFewPointsKeepsCovariance) {
