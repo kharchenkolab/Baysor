@@ -30,3 +30,4 @@ tmp/
 cpp/build*/
 cpp/tmp/
 gh_key.sh
+/.deps/
