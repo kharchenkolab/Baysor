@@ -99,7 +99,7 @@ AdjList build_molecule_graph(
         AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on line 100
         adj.indptr.assign(n + 1, 0);
         return adj;
-    } // GCOVR_EXCL_LINE: unreachable epilogue block; the branch returns on line 101
+    }
 
     double min_edge_length = quantile_vec(adj_result.edge_dists, 0.3);
 
@@ -143,7 +143,7 @@ InitialParams<N> cell_centers_uniformly(
         result.centers = Eigen::MatrixXd::Zero(0, N);
         result.assignment.assign(n_mols, 1);
         return result;
-    } // GCOVR_EXCL_LINE: unreachable epilogue block; the branch returns on line 145
+    }
 
     // Build center matrix: N x n_clusters
     Eigen::MatrixXd center_mat(N, n_clusters);

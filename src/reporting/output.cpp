@@ -54,7 +54,7 @@ std::vector<std::array<double, 2>> polygon_vertices(const Eigen::MatrixXd& poly)
         }
     }
     return vertices;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 template<class T>
 void append_le(std::string& out, T value) {

@@ -161,7 +161,7 @@ std::vector<std::string> embedding_to_hex(const Eigen::MatrixXd& lab_embedding) 
         colors[i] = lab_to_hex(lab_embedding(0, i), lab_embedding(1, i), lab_embedding(2, i));
     }
     return colors;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 // ============================================================================
 // gene_composition_color_embedding (UMAP-based)
@@ -841,7 +841,7 @@ NcvProjectedModel fit_ncv_projected_model(
         nullptr, nullptr, true, true, model.basis.distance_floor, true
     );
     return model;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 std::vector<std::string> gene_composition_color_embedding_streaming(
     const Eigen::MatrixXd& pos_data,

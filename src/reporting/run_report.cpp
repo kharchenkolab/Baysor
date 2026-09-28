@@ -27,7 +27,7 @@ std::string html_escape(const std::string& s) {
         }
     }
     return out;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 std::string prior_type_name(PriorInputType t) {
     switch (t) {
@@ -187,7 +187,7 @@ std::vector<std::string> assignment_colors(const std::vector<int>& assignment) {
         }
     }
     return colors;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 std::vector<std::string> cluster_colors(const std::vector<int>& clusters) {
     static const std::vector<std::string> palette = {
@@ -201,7 +201,7 @@ std::vector<std::string> cluster_colors(const std::vector<int>& clusters) {
         colors[i] = (c > 0) ? palette[(c - 1) % palette.size()] : "#000000";
     }
     return colors;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 std::vector<std::string> subset_colors(
     const std::vector<std::string>& colors,
@@ -211,7 +211,7 @@ std::vector<std::string> subset_colors(
     out.reserve(ids.size());
     for (int idx : ids) out.push_back(colors[idx]);
     return out;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 std::vector<int> subset_ints(
     const std::vector<int>& vals,
@@ -221,7 +221,7 @@ std::vector<int> subset_ints(
     out.reserve(ids.size());
     for (int idx : ids) out.push_back(vals[idx]);
     return out;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 void normalize_to_unit_square(
     std::vector<double>& x,
@@ -256,7 +256,7 @@ std::vector<double> extract_col(const Eigen::MatrixXd& mat, int idx) {
         if (std::isfinite(v)) out.push_back(v);
     }
     return out;
-} // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed to this closing brace; normal exit is reported on the preceding line
+}
 
 } // namespace
 

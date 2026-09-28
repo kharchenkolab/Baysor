@@ -109,7 +109,12 @@ int cmd_run(
                     prior_based_n_cells_init = std::max(prior_based_n_cells_init, n_active_prior_segments);
                     inferred_n_cells_init = std::min(inferred_n_cells_init, prior_based_n_cells_init);
 
-                    spdlog::info("Using prior-aware n_cells_init={} (active prior segments={}, unassigned molecules={}, default without prior would be {}).", inferred_n_cells_init, n_active_prior_segments, n_unassigned, default_param_value("n_cells_init", opts.molecules.min_molecules_per_cell, data.n_molecules()));
+                    spdlog::info( // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+                        "Using prior-aware n_cells_init={} (active prior segments={}, unassigned molecules={}, "
+                        "default without prior would be {}).",
+                        inferred_n_cells_init, n_active_prior_segments, n_unassigned,
+                        default_param_value("n_cells_init", opts.molecules.min_molecules_per_cell, data.n_molecules())
+                    );
                 }
             }
         }
@@ -122,7 +127,8 @@ int cmd_run(
         return 1;
     }
 
-    spdlog::info("Using scale={:.2f}, scale_std={}", opts.segmentation.scale, opts.segmentation.scale_std);
+    spdlog::info("Using scale={:.2f}, scale_std={}", // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+                 opts.segmentation.scale, opts.segmentation.scale_std);
 
     double psc = opts.segmentation.prior_segmentation_confidence;
 
@@ -243,7 +249,8 @@ int cmd_run(
         // History depth: match Julia's round(iters * 0.1)
         int history_depth = std::max(1, n_iters / 10);
 
-        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...", n_iters, history_depth, opts.segmentation.tol);
+        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...", // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+                     n_iters, history_depth, opts.segmentation.tol);
         // Julia hardcodes min_n_samples=2 in drop_unused_components! — match that exactly.
         // min_mols = min_molecules_per_cell = display threshold only.
         bmm(bm_data, /*min_molecules_drop=*/2, n_iters,
@@ -979,7 +986,7 @@ int main(int argc, char* argv[]) {
     } catch (...) {
         spdlog::error("Unknown error"); // GCOVR_EXCL_LINE: unreachable, every exception thrown by Baysor or its dependencies derives from std::exception
         return 1; // GCOVR_EXCL_LINE: unreachable, only reachable via the never-entered catch-all above
-    } // GCOVR_EXCL_LINE: unreachable, closing brace of the never-entered catch-all clause
+    }
 
     return 0; // GCOVR_EXCL_LINE: unreachable, require_subcommand(1) guarantees exactly one subcommand and run/preview/segfree are all dispatched above
 }

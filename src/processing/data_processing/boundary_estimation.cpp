@@ -78,7 +78,7 @@ Eigen::MatrixXd subset_columns(const Eigen::MatrixXd& mat, const std::vector<int
         out.col(i) = mat.col(ids[i]);
     }
     return out;
-} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 80
+}
 
 std::vector<BBox> get_boundary_box_per_cell(
     const Eigen::MatrixXd& pos_data,
@@ -182,7 +182,7 @@ std::vector<Triangle> extract_triangle_verts(CgalDelaunay& dt) {
         });
     }
     return triangles;
-} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 184
+}
 
 std::vector<Edge> extract_border_edges(const std::vector<Triangle>& triangles) {
     std::unordered_map<std::uint64_t, int> edge_counts;
@@ -511,7 +511,7 @@ std::vector<std::vector<Eigen::Vector2d>> grid_borders_per_label(
     }
 
     return borders;
-} // GCOVR_EXCL_LINE: unreachable exception-cleanup epilogue after return on line 513
+}
 
 } // namespace
 
