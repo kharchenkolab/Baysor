@@ -4,6 +4,14 @@ All functions take int64 label vectors (0 = unassigned / noise) as numpy
 arrays and return plain floats. Label 0 always counts as its own label in
 cluster metrics. Nothing here reads or writes files.
 
+Primary agreement metrics ignore the giant unassigned cluster: ``ari_assigned``
+/ ``ami_assigned`` are computed only over molecules assigned in *both*
+sides, and the assigned status of each side is reported separately
+(``assigned_agreement``, ``assigned_fraction_*``, ``noise_precision`` /
+``noise_recall``). The primary sim accuracy is the one-to-one (Hungarian)
+``accuracy_1to1``; the many-to-one ``matched_accuracy`` is kept as a
+secondary metric.
+
 Sim-vs-truth metrics operate on molecules with ``interior == True`` (the mask
 defaults to all molecules). Real-vs-baseline metrics compare two assignments
 of the *same* input molecules, so both vectors must be aligned by
@@ -12,19 +20,24 @@ of the *same* input molecules, so both vectors must be aligned by
 from __future__ import annotations
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import (adjusted_rand_score,
                              adjusted_mutual_info_score)
 
 __all__ = [
-    "matched_accuracy", "ari", "ami", "noise_precision", "noise_recall",
+    "accuracy_1to1", "matched_accuracy", "ari", "ami", "ari_assigned",
+    "ami_assigned", "assigned_agreement", "assigned_fraction",
+    "noise_precision", "noise_recall",
     "cell_count_ratio", "over_segmentation_rate", "under_segmentation_rate",
     "recovery_rate", "median_matched_jaccard", "oracle_gap", "sim_metrics",
-    "molecule_ari", "assigned_agreement", "cell_match_stats",
+    "molecule_ari", "cell_match_stats",
     "cell_count_ratio_between", "median_mpc_rel_change", "real_pair_metrics",
+    "NOISE_MIN_COUNT", "JACCARD_THRESHOLD",
 ]
 
 JACCARD_THRESHOLD = 0.5
 OVERSPLIT_FRACTION = 0.8   # largest true->pred part must hold >= 80% of the cell
+NOISE_MIN_COUNT = 50       # below this, noise precision/recall are undefined
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +84,16 @@ def matched_accuracy(pred, truth, mask=None) -> float:
 
     Each predicted cell (including 0 = noise) is mapped to the true cell it
     shares most molecules with; ties break towards the smallest true label.
-    The special rule for predicted noise is that it is only ever correct when
-    the true label is also 0 (noise maps to noise, never to a real cell).
+    Special rules for noise:
+
+    * predicted noise is only ever correct against true noise (noise maps to
+      noise, never to a real cell);
+    * a real predicted cell whose majority is true noise earns **no credit**
+      for its noise molecules (its winner is the noise label, which never
+      counts for a real cell).
+
+    Many-to-one: several predicted cells may map to the same true cell. The
+    one-to-one variant is :func:`accuracy_1to1`.
     """
     pred, truth = _apply_mask(pred, truth, mask)
     n = len(pred)
@@ -95,9 +116,38 @@ def matched_accuracy(pred, truth, mask=None) -> float:
             # noise is correct only against true noise
             if t_labels[c] == 0:
                 correct += int(cnt)
+        elif t_labels[winner[r]] == 0:
+            # majority is true noise -> this real cell earns no credit for
+            # noise molecules (c == winner[r] is the only possible hit here)
+            continue
         elif c == winner[r]:
             correct += int(cnt)
     return correct / n
+
+
+def accuracy_1to1(pred, truth, mask=None) -> float:
+    """One-to-one (Hungarian) assignment accuracy — the PRIMARY sim metric.
+
+    Builds the predicted x true overlap matrix over all labels (0 included)
+    and matches predicted cells to true cells with
+    ``scipy.optimize.linear_sum_assignment`` to maximise credited molecules.
+    A pair earns credit only when the two sides agree on noise status:
+    predicted noise matches true noise (and nothing else), and a real
+    predicted cell never earns credit from true-noise molecules. Unmatched
+    labels and mismatched-noise pairs contribute 0. A pure split therefore
+    scores below 1.0 (only one part can be matched).
+    """
+    pred, truth = _apply_mask(pred, truth, mask)
+    n = len(pred)
+    if n == 0:
+        return _nan()
+    p_labels, t_labels, ri, ti, counts = _contingency(pred, truth)
+    overlap = np.zeros((len(p_labels), len(t_labels)), dtype=np.float64)
+    np.add.at(overlap, (ri, ti), counts)
+    noise_status_agrees = ((p_labels > 0)[:, None] == (t_labels > 0)[None, :])
+    credit = np.where(noise_status_agrees, overlap, 0.0)
+    r, c = linear_sum_assignment(-credit)
+    return float(credit[r, c].sum() / n)
 
 
 def ari(pred, truth, mask=None) -> float:
@@ -116,21 +166,70 @@ def ami(pred, truth, mask=None) -> float:
     return float(adjusted_mutual_info_score(truth, pred))
 
 
-def noise_precision(pred, truth, mask=None) -> float:
-    """P(true noise | predicted noise). Vacuously 1.0 if nothing predicted noise."""
+def ari_assigned(pred, truth, mask=None) -> float:
+    """ARI over molecules assigned in BOTH sides (primary agreement metric).
+
+    Unassigned molecules are excluded instead of forming one giant cluster;
+    NaN when no molecule is assigned on both sides.
+    """
+    pred, truth = _apply_mask(pred, truth, mask)
+    both = (pred > 0) & (truth > 0)
+    if not both.any():
+        return _nan()
+    return float(adjusted_rand_score(truth[both], pred[both]))
+
+
+def ami_assigned(pred, truth, mask=None) -> float:
+    """AMI over molecules assigned in BOTH sides (NaN when none)."""
+    pred, truth = _apply_mask(pred, truth, mask)
+    both = (pred > 0) & (truth > 0)
+    if not both.any():
+        return _nan()
+    return float(adjusted_mutual_info_score(truth[both], pred[both]))
+
+
+def assigned_fraction(a, mask=None) -> float:
+    """Fraction of molecules with a label > 0 in one label vector."""
+    a = np.asarray(a)
+    if mask is not None:
+        mask = np.asarray(mask, dtype=bool)
+        if a.shape != mask.shape:
+            raise ValueError(f"shape mismatch: {a.shape} vs {mask.shape}")
+        a = a[mask]
+    if len(a) == 0:
+        return _nan()
+    return float((a > 0).mean())
+
+
+def noise_precision(pred, truth, mask=None,
+                    min_count: int = NOISE_MIN_COUNT) -> float:
+    """P(true noise | predicted noise).
+
+    NaN (skipped) when fewer than ``min_count`` molecules are predicted noise;
+    vacuously 1.0 when ``min_count == 0`` and nothing is predicted noise.
+    """
     pred, truth = _apply_mask(pred, truth, mask)
     pn = pred == 0
     n_pred = int(pn.sum())
+    if n_pred < min_count:
+        return _nan()
     if n_pred == 0:
         return 1.0
     return float((pn & (truth == 0)).sum() / n_pred)
 
 
-def noise_recall(pred, truth, mask=None) -> float:
-    """P(predicted noise | true noise). Vacuously 1.0 if there is no true noise."""
+def noise_recall(pred, truth, mask=None,
+                 min_count: int = NOISE_MIN_COUNT) -> float:
+    """P(predicted noise | true noise).
+
+    NaN (skipped) when fewer than ``min_count`` molecules are true noise;
+    vacuously 1.0 when ``min_count == 0`` and there is no true noise.
+    """
     pred, truth = _apply_mask(pred, truth, mask)
     tn = truth == 0
     n_true = int(tn.sum())
+    if n_true < min_count:
+        return _nan()
     if n_true == 0:
         return 1.0
     return float((tn & (pred == 0)).sum() / n_true)
@@ -239,27 +338,40 @@ def median_matched_jaccard(pred, truth, mask=None) -> float:
     return float(np.median(jac[real_cells]))
 
 
-def oracle_gap(matched_acc: float, oracle_accuracy) -> float:
-    """Gap to the generator's oracle accuracy, NaN when not provided."""
+def oracle_gap(accuracy_1to1: float, oracle_accuracy) -> float:
+    """Gap between the one-to-one accuracy and the generator's oracle
+    accuracy (the oracle is identity/one-to-one), NaN when not provided.
+    """
     if oracle_accuracy is None:
         return _nan()
     try:
         oa = float(oracle_accuracy)
     except (TypeError, ValueError):
         return _nan()
-    if np.isnan(oa) or np.isnan(matched_acc):
+    if np.isnan(oa) or np.isnan(accuracy_1to1):
         return _nan()
-    return oa - matched_acc
+    return oa - accuracy_1to1
 
 
 def sim_metrics(pred, truth, interior=None, oracle_accuracy=None) -> dict:
-    """All sim-vs-truth metrics in one dict (interior mask optional)."""
+    """All sim-vs-truth metrics in one dict (interior mask optional).
+
+    Primary: ``accuracy_1to1`` (Hungarian), ``ari_assigned``,
+    ``recovery_rate``, ``cell_count_ratio``. Everything else is secondary /
+    informational. ``oracle_gap`` is computed from ``accuracy_1to1``.
+    """
     mask = None if interior is None else np.asarray(interior, dtype=bool)
-    acc = matched_accuracy(pred, truth, mask)
+    acc1 = accuracy_1to1(pred, truth, mask)
     return {
-        "matched_accuracy": acc,
+        "accuracy_1to1": acc1,
+        "matched_accuracy": matched_accuracy(pred, truth, mask),
         "ari": ari(pred, truth, mask),
+        "ari_assigned": ari_assigned(pred, truth, mask),
         "ami": ami(pred, truth, mask),
+        "ami_assigned": ami_assigned(pred, truth, mask),
+        "assigned_agreement": assigned_agreement(pred, truth, mask),
+        "assigned_fraction_pred": assigned_fraction(pred, mask),
+        "assigned_fraction_truth": assigned_fraction(truth, mask),
         "noise_precision": noise_precision(pred, truth, mask),
         "noise_recall": noise_recall(pred, truth, mask),
         "cell_count_ratio": cell_count_ratio(pred, truth, mask),
@@ -267,7 +379,7 @@ def sim_metrics(pred, truth, interior=None, oracle_accuracy=None) -> dict:
         "under_segmentation_rate": under_segmentation_rate(pred, truth, mask),
         "recovery_rate": recovery_rate(pred, truth, mask),
         "median_matched_jaccard": median_matched_jaccard(pred, truth, mask),
-        "oracle_gap": oracle_gap(acc, oracle_accuracy),
+        "oracle_gap": oracle_gap(acc1, oracle_accuracy),
     }
 
 
@@ -286,12 +398,15 @@ def molecule_ari(a, b) -> float:
     return float(adjusted_rand_score(a, b))
 
 
-def assigned_agreement(a, b) -> float:
+def assigned_agreement(a, b, mask=None) -> float:
     """Fraction of molecules that agree on assigned-vs-unassigned status."""
-    a = np.asarray(a, dtype=np.int64)
-    b = np.asarray(b, dtype=np.int64)
-    if a.shape != b.shape:
-        raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")
+    if mask is not None:
+        a, b = _apply_mask(a, b, mask)
+    else:
+        a = np.asarray(a, dtype=np.int64)
+        b = np.asarray(b, dtype=np.int64)
+        if a.shape != b.shape:
+            raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")
     if len(a) == 0:
         return _nan()
     return float(((a > 0) == (b > 0)).mean())
@@ -375,14 +490,23 @@ def real_pair_metrics(candidate, reference) -> dict:
     """All real-segmentation comparison metrics for one (candidate, reference) pair.
 
     ``reference`` is the baseline (or lower-index replicate); ``candidate`` is
-    the new assignment.
+    the new assignment. Primary: ``ari_assigned`` (ARI over molecules
+    assigned in both), ``frac_cells_matched``, ``cell_count_ratio``. The
+    assigned status of each side and the noise precision/recall (reference
+    plays the role of truth) are reported separately; ``molecule_ari`` keeps
+    the all-molecule value for reference only.
     """
     candidate = np.asarray(candidate, dtype=np.int64)
     reference = np.asarray(reference, dtype=np.int64)
     stats = cell_match_stats(reference, candidate)
     return {
         "molecule_ari": molecule_ari(candidate, reference),
+        "ari_assigned": ari_assigned(candidate, reference),
         "assigned_agreement": assigned_agreement(candidate, reference),
+        "assigned_fraction_candidate": assigned_fraction(candidate),
+        "assigned_fraction_reference": assigned_fraction(reference),
+        "noise_precision": noise_precision(candidate, reference),
+        "noise_recall": noise_recall(candidate, reference),
         "frac_cells_matched": stats["frac_cells_matched"],
         "median_jaccard": stats["median_jaccard"],
         "cell_count_ratio": cell_count_ratio_between(candidate, reference),

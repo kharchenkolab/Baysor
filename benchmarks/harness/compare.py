@@ -1,23 +1,46 @@
 #!/usr/bin/env python3
 """Compare a benchmark run against a stored baseline.
 
-Two modes:
+Three expectation modes:
+
+``--expect identical`` (default; the refactor gate)
+  Run and baseline must both be 1-thread with exactly 1 replicate. For every
+  dataset the ``assignment_sha256`` recorded per replicate in ``metrics.json``
+  must match; on a mismatch the comparison fails and reports the metric
+  deltas. Baysor is bitwise-deterministic at 1 thread, so a no-behaviour-change
+  refactor must reproduce the baseline assignments exactly.
 
 ``--expect same``
-  * every sim metric must stay within ``max(k * SD_baseline, abs_floor)``
-    (k = 3, per-metric absolute floors);
-  * on real data the run-vs-baseline agreement must stay within the baseline
-    replicate-vs-replicate agreement minus a margin (the noise floor).
+  The algorithm must not have changed beyond the measurement noise:
+  * provenance gates fail on thread-count or binary/threads mismatches and on
+    differing dataset content hashes (``inputs.molecules_sha256`` /
+    ``inputs.meta_sha256``);
+  * only a few **primary** metrics gate the verdict —
+    sim: one-to-one accuracy, ARI over assigned molecules, recovery fraction,
+    cell-count ratio; real: ARI over assigned molecules, matched-cell
+    fraction, cell-count ratio. All other metrics are informational;
+  * tolerance is ``max(k * SD_pooled, floor)`` with k = 3 and the SD pooled
+    per metric across the baseline's datasets of the same kind (3-replicate
+    SDs alone are too unreliable), floors calibrated in the README;
+  * a false-alarm budget (normal approximation) is reported with the gated
+    checks.
 
 ``--expect improved``
-  * mean sim matched accuracy over the baseline's sim datasets must increase,
-    and no individual sim dataset may drop beyond its tolerance;
-  * on real data ``total_admixture_rate`` must be <= baseline + tolerance for
-    every dataset (skipped gracefully when the cellAdmix audit is unavailable).
+  Improvement must exceed the noise:
+  * the mean gain in primary sim accuracy (one-to-one) across sim datasets
+    must exceed both 2 standard errors (from the per-dataset replicate SDs)
+    and a minimum effect (0.005);
+  * no sim dataset may regress beyond its tolerance in one-to-one accuracy,
+    assigned-ARI, recovery or the over-segmentation rate;
+  * on real data the cellAdmix ``total_admixture_rate`` must be
+    <= baseline + k*SD(baseline audit replicates), gated only when the audit
+    status is ``ok`` on both sides and the baseline crop has >= 2000 cells;
+    otherwise it is reported as ``unavailable`` (never as 0).
 
-Runtime and peak-RSS changes are reported; slowdowns or RSS growth beyond 20%
-are warnings. Failures/timeouts and missing datasets fail the comparison.
-Writes a Markdown and a JSON report; exit code 0 = pass, 1 = fail.
+Runtime and peak-RSS changes are reported; slowdowns or RSS growth beyond
+20% are warnings. Failures/timeouts and missing datasets fail the comparison.
+Writes a Markdown and a JSON report; exit code 0 = pass, 1 = fail, 2 = setup
+error.
 """
 from __future__ import annotations
 
@@ -33,45 +56,47 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common    # noqa: E402
 import metrics as m  # noqa: E402
 
-# Per-metric absolute floors for --expect same (used when k*SD is smaller).
+MODES = ("identical", "same", "improved")
+
+# --- primary (gated) metrics ------------------------------------------------
+SIM_PRIMARY_SAME = ("accuracy_1to1", "ari_assigned", "recovery_rate",
+                    "cell_count_ratio")
+SIM_REGRESSION_IMPROVED = ("accuracy_1to1", "ari_assigned", "recovery_rate",
+                           "over_segmentation_rate")
+REAL_PRIMARY_SAME = ("ari_assigned", "frac_cells_matched",
+                     "cell_count_ratio")
+# informational metrics (never gated)
+REAL_INFO = ("molecule_ari", "assigned_agreement", "assigned_fraction_candidate",
+             "assigned_fraction_reference", "noise_precision", "noise_recall",
+             "median_jaccard", "median_mpc_rel_change",
+             "n_cells_reference", "n_cells_candidate")
+
+# --- floors for tolerance = max(k * SD_pooled, floor) ------------------------
+# Calibrated with recompute_metrics.py on harness-val{1..4} and
+# rev-{same,scale09}-{sim,real}; see benchmarks/harness/README.md.
 SIM_FLOORS = {
-    "matched_accuracy": 0.01,
-    "ari": 0.02,
-    "ami": 0.02,
-    "noise_precision": 0.02,
-    "noise_recall": 0.02,
-    "cell_count_ratio": 0.05,
-    "over_segmentation_rate": 0.05,
-    "under_segmentation_rate": 0.05,
+    "accuracy_1to1": 0.01,
+    "ari_assigned": 0.02,
     "recovery_rate": 0.05,
-    "median_matched_jaccard": 0.05,
-    "oracle_gap": 0.01,
+    "cell_count_ratio": 0.03,
+    "over_segmentation_rate": 0.05,
 }
 DEFAULT_SIM_FLOOR = 0.02
-
-# Margins subtracted from the baseline replicate agreement (higher is better).
-REAL_MARGINS = {
-    "molecule_ari": 0.05,
-    "assigned_agreement": 0.02,
-    "frac_cells_matched": 0.10,
-    "median_jaccard": 0.10,
+REAL_FLOORS = {
+    "ari_assigned": 0.02,       # >= 0.02 by design (calibration: scale x0.9
+    "frac_cells_matched": 0.05, # drops are caught without false alarms)
+    "cell_count_ratio": 0.03,
 }
-# Near-1 metrics: allowed absolute deviation, widened by k*SD of the
-# baseline's replicate pairs when available.
-REAL_RATIO_FLOORS = {
-    "cell_count_ratio": 0.10,
-    "median_mpc_rel_change": 0.10,
-}
-# Fallback absolute minima when a baseline has no replicate agreement at all.
+DEFAULT_REAL_FLOOR = 0.05
+# absolute fallbacks when a baseline has no replicate agreement at all
 REAL_ABS_MIN = {
-    "molecule_ari": 0.90,
-    "assigned_agreement": 0.95,
+    "ari_assigned": 0.90,
     "frac_cells_matched": 0.75,
-    "median_jaccard": 0.75,
 }
 
-ADMIXTURE_TOLERANCE = 0.01
 K_DEFAULT = 3.0
+MIN_EFFECT_ACCURACY = 0.005     # --expect improved: minimum mean gain
+ADMIXTURE_MIN_CELLS = 2000      # admixture gate only on crops with >= cells
 SLOWDOWN_WARN = 0.20
 RSS_GROWTH_WARN = 0.20
 
@@ -95,6 +120,58 @@ def _sd(values: list[float]) -> float:
     return float(arr.std(ddof=1))
 
 
+def _pooled_sd(pairs: list[tuple[float, int]]) -> float:
+    """Within-dataset pooled SD: sqrt(sum((n-1)*sd^2) / sum(n-1))."""
+    num = sum((n - 1) * s * s for s, n in pairs
+              if n > 1 and _finite(s) and s >= 0)
+    den = sum(n - 1 for s, n in pairs if n > 1 and _finite(s) and s >= 0)
+    return math.sqrt(num / den) if den > 0 else 0.0
+
+
+def _two_sided_alpha(tol: float, sd: float) -> float:
+    """Two-sided normal tail probability beyond ``tol`` given ``sd``."""
+    if not _finite(sd) or sd <= 0 or not _finite(tol) or tol <= 0:
+        return 0.0
+    z = tol / sd
+    return math.erfc(z / math.sqrt(2))     # = 2 * (1 - Phi(z))
+
+
+def _one_sided_alpha(tol: float, sd: float) -> float:
+    if not _finite(sd) or sd <= 0 or not _finite(tol) or tol <= 0:
+        return 0.0
+    z = tol / sd
+    return 0.5 * math.erfc(z / math.sqrt(2))   # = 1 - Phi(z)
+
+
+def pooled_sd_by_metric(base_metrics: dict[str, dict], kind: str) -> dict[str, float]:
+    """Pool per-metric SDs across the baseline's datasets of one kind.
+
+    Sim: replicate SDs of the dataset means (``sim.sd``, n = replicate
+    count). Real: replicate-pair agreement SDs (``real.rep_agreement.sd``,
+    n = pair count). Pooling guards against the unreliability of a single
+    3-replicate SD.
+    """
+    per_metric: dict[str, list[tuple[float, int]]] = {}
+    for mm in base_metrics.values():
+        ds_kind = (mm.get("dataset") or {}).get("kind") or mm.get("kind")
+        if ds_kind != kind:
+            continue
+        if kind == "sim":
+            block = mm.get("sim") or {}
+            sd = block.get("sd") or {}
+            n = int(block.get("n_metric_reps") or 0)
+        else:
+            block = ((mm.get("real") or {}).get("rep_agreement")) or {}
+            sd = block.get("sd") or {}
+            n = len(block.get("per_pair") or [])
+        if n < 2:
+            continue
+        for key, val in sd.items():
+            if _finite(val):
+                per_metric.setdefault(key, []).append((float(val), n))
+    return {key: _pooled_sd(v) for key, v in per_metric.items()}
+
+
 class Report:
     def __init__(self, run_id: str, baseline: str, expect: str):
         self.run_id = run_id
@@ -104,6 +181,7 @@ class Report:
         self.warnings: list[str] = []
         self.run_failures: list[dict] = []
         self.runtime_rows: list[dict] = []
+        self.gate_info: list[dict] = []
         self.meta: dict = {}
 
     def check(self, scope: str, dataset: str, metric: str, status: str, **kw):
@@ -123,17 +201,36 @@ class Report:
     def passed(self) -> bool:
         return self.n_fail == 0
 
+    @property
+    def gated(self) -> list[dict]:
+        return [c for c in self.checks if "false_alarm_p" in c]
+
+    def finalize_budget(self, k: float):
+        """Record the false-alarm budget of the gated (primary) checks."""
+        gated = self.gated
+        if not gated:
+            return
+        total = sum(float(c.get("false_alarm_p") or 0.0) for c in gated)
+        self.meta["gated checks"] = len(gated)
+        self.meta["false-alarm budget"] = (
+            f"~{total:.3f} expected false failures across {len(gated)} "
+            f"gated checks (normal approximation, k={k:g})")
+        if total > 0.5:
+            self.warn(f"false-alarm budget is high (~{total:.2f} expected "
+                      f"false failures); consider a larger floor or k")
+
     def to_json(self) -> dict:
         counts = {"pass": 0, "fail": 0, "skip": 0, "info": 0}
         for c in self.checks:
             counts[c["status"]] = counts.get(c["status"], 0) + 1
         return {
-            "schema": 1,
+            "schema": 2,
             "run_id": self.run_id,
             "baseline": self.baseline,
             "expect": self.expect,
             "generated": common.utc_now(),
             "meta": self.meta,
+            "gates": self.gate_info,
             "checks": self.checks,
             "runtime": self.runtime_rows,
             "warnings": self.warnings,
@@ -143,11 +240,153 @@ class Report:
 
 
 # ---------------------------------------------------------------------------
-# checks
+# provenance / content checks
+# ---------------------------------------------------------------------------
+
+def check_provenance(rep: Report, ds_id: str, run_m: dict, base_m: dict,
+                     mode: str):
+    """Threads / binary sha per dataset (and identical-mode preconditions)."""
+    if mode == "identical":
+        for side, mm in (("run", run_m), ("baseline", base_m)):
+            ok_threads = mm.get("threads") == 1
+            rep.check("provenance", ds_id, f"{side}_threads_1",
+                      "pass" if ok_threads else "fail",
+                      threads=mm.get("threads"),
+                      detail="identical requires threads == 1"
+                             if not ok_threads else None)
+            ok_reps = mm.get("replicates") == 1
+            rep.check("provenance", ds_id, f"{side}_replicates_1",
+                      "pass" if ok_reps else "fail",
+                      replicates=mm.get("replicates"),
+                      detail="identical requires exactly 1 replicate"
+                             if not ok_reps else None)
+        return
+    # same / improved: a thread mismatch invalidates the noise floor;
+    # in 'same' a binary mismatch means the comparison is not an unchanged run
+    r_threads, b_threads = run_m.get("threads"), base_m.get("threads")
+    same_threads = r_threads == b_threads
+    rep.check("provenance", ds_id, "threads", "pass" if same_threads else "fail",
+              run_value=r_threads, baseline_value=b_threads,
+              detail=None if same_threads else
+              "thread count differs; the baseline noise floor does not transfer")
+    if mode == "same":
+        r_sha = (run_m.get("binary") or {}).get("sha256")
+        b_sha = (base_m.get("binary") or {}).get("sha256")
+        same_sha = r_sha is not None and r_sha == b_sha
+        rep.check("provenance", ds_id, "binary_sha256",
+                  "pass" if same_sha else "fail",
+                  run_value=r_sha, baseline_value=b_sha,
+                  detail=None if same_sha else
+                  "binary sha256 differs from the baseline ('same' requires "
+                  "the unchanged binary)")
+
+
+def check_content_hashes(rep: Report, ds_id: str, run_m: dict, base_m: dict):
+    """Dataset content hashes recorded by the runner (``inputs``).
+
+    A mismatch fails in every mode: comparing against different input data
+    is meaningless. Runs/baselines created before the hashes were recorded
+    produce a ``skip`` (with a hint) instead.
+    """
+    ri = run_m.get("inputs") or {}
+    bi = base_m.get("inputs") or {}
+    for key in ("molecules_sha256", "meta_sha256"):
+        rv, bv = ri.get(key), bi.get(key)
+        if rv and bv:
+            ok = rv == bv
+            rep.check("provenance", ds_id, key, "pass" if ok else "fail",
+                      run_value=rv, baseline_value=bv,
+                      detail=None if ok else "dataset content differs")
+        elif rv or bv:
+            rep.check("provenance", ds_id, key, "skip",
+                      detail="content hash recorded on one side only "
+                             "(regenerate the baseline with recompute_metrics.py)")
+            rep.warn(f"{ds_id}: {key} recorded on one side only")
+        else:
+            rep.check("provenance", ds_id, key, "skip",
+                      detail="content hash not recorded (older metrics.json; "
+                             "rerun with recompute_metrics.py)")
+
+
+def _metric_delta_rows(rep: Report, scope: str, ds_id: str, kind: str,
+                       run_m: dict, base_m: dict, detail: str):
+    """Informational metric-delta rows (used by 'identical' on sha mismatch)."""
+    if kind == "sim":
+        run_mean = ((run_m.get("sim") or {}).get("mean")) or {}
+        base_mean = ((base_m.get("sim") or {}).get("mean")) or {}
+        for key in sorted(set(run_mean) | set(base_mean)):
+            rv, bv = run_mean.get(key), base_mean.get(key)
+            delta = (float(rv) - float(bv)
+                     if _finite(rv) and _finite(bv) else None)
+            rep.check(scope, ds_id, key, "info",
+                      baseline_mean=bv, run_mean=rv, delta=delta, detail=detail)
+    else:
+        run_agr = ((run_m.get("real") or {}).get("rep_agreement") or {}).get("mean") or {}
+        base_agr = ((base_m.get("real") or {}).get("rep_agreement") or {}).get("mean") or {}
+        for key in sorted(set(run_agr) | set(base_agr)):
+            rv, bv = run_agr.get(key), base_agr.get(key)
+            delta = (float(rv) - float(bv)
+                     if _finite(rv) and _finite(bv) else None)
+            rep.check(scope, ds_id, key, "info",
+                      baseline_rep_mean=bv, run_vs_baseline_mean=rv,
+                      delta=delta, detail=detail)
+
+
+# ---------------------------------------------------------------------------
+# identical mode
+# ---------------------------------------------------------------------------
+
+def check_identical_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
+                            run_cells: list[np.ndarray],
+                            base_cells: list[np.ndarray]):
+    """Compare per-replicate assignment sha256; emit metric deltas on mismatch."""
+    run_reps = [r for r in run_m.get("reps", [])
+                if r.get("status") == "ok" and r.get("assignment_sha256")]
+    base_reps = [r for r in base_m.get("reps", [])
+                 if r.get("status") == "ok" and r.get("assignment_sha256")]
+    kind = (run_m.get("dataset") or {}).get("kind") or run_m.get("kind")
+    detail = "assignment sha256 mismatch; metric deltas below"
+    mismatch = False
+    if not run_reps or not base_reps:
+        rep.check("identical", ds_id, "assignment_sha256", "fail",
+                  detail="no successful replicate with an assignment sha "
+                         "on the " + ("run side" if not run_reps else "baseline side"))
+        mismatch = True
+    elif len(run_reps) != len(base_reps):
+        rep.check("identical", ds_id, "assignment_sha256", "fail",
+                  detail=f"replicate counts differ ({len(run_reps)} vs "
+                         f"{len(base_reps)})")
+        mismatch = True
+    else:
+        for rb, bb in zip(run_reps, base_reps):
+            ok = rb["assignment_sha256"] == bb["assignment_sha256"]
+            mismatch = mismatch or not ok
+            rep.check("identical", ds_id,
+                      f"rep{rb['rep']}_assignment_sha256",
+                      "pass" if ok else "fail",
+                      run_value=rb["assignment_sha256"],
+                      baseline_value=bb["assignment_sha256"],
+                      detail=None if ok else detail)
+    if not mismatch:
+        return
+    _metric_delta_rows(rep, "identical", ds_id, kind, run_m, base_m, detail)
+    if kind == "real":
+        if run_cells and base_cells:
+            pair = m.real_pair_metrics(run_cells[0], base_cells[0])
+            for key, val in pair.items():
+                rep.check("identical", ds_id, f"run_vs_baseline_{key}", "info",
+                          run_vs_baseline=val, detail=detail)
+        else:
+            rep.warn(f"{ds_id}: assignment tables unavailable for pair "
+                     f"metrics on sha mismatch")
+
+
+# ---------------------------------------------------------------------------
+# same mode
 # ---------------------------------------------------------------------------
 
 def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
-                      k: float, mode: str):
+                      k: float, pooled: dict[str, float], mode: str = "same"):
     run_mean = (run_m.get("sim") or {}).get("mean") or {}
     base_mean = (base_m.get("sim") or {}).get("mean") or {}
     base_sd = (base_m.get("sim") or {}).get("sd") or {}
@@ -155,52 +394,79 @@ def check_sim_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         rep.check("sim", ds_id, "*", "fail", detail="baseline has no sim metrics")
         return
     if not run_mean:
-        rep.check("sim", ds_id, "*", "fail", detail="run has no sim metrics (all reps failed?)")
+        rep.check("sim", ds_id, "*", "fail",
+                  detail="run has no sim metrics (all reps failed?)")
         return
 
-    if mode == "same":
-        for metric, bval in base_mean.items():
-            rval = run_mean.get(metric)
-            floor = SIM_FLOORS.get(metric, DEFAULT_SIM_FLOOR)
-            sd = base_sd.get(metric)
-            sd = float(sd) if _finite(sd) else 0.0
-            tol = max(k * sd, floor)
-            if not _finite(bval) and not _finite(rval):
-                rep.check("sim", ds_id, metric, "skip", detail="undefined for both")
-                continue
-            if not _finite(rval):
-                rep.check("sim", ds_id, metric, "fail", baseline_mean=bval,
-                          run_mean=rval, tolerance=tol, detail="run metric undefined")
-                continue
-            delta = float(rval) - float(bval)
-            ok = abs(delta) <= tol
-            rep.check("sim", ds_id, metric, "pass" if ok else "fail",
-                      baseline_mean=float(bval), baseline_sd=sd, run_mean=float(rval),
-                      delta=delta, tolerance=tol)
-    else:  # improved: drop check on matched accuracy, info on everything else
-        for metric, bval in base_mean.items():
-            rval = run_mean.get(metric)
-            if not _finite(bval) or not _finite(rval):
-                rep.check("sim", ds_id, metric, "skip", detail="undefined")
-                continue
-            delta = float(rval) - float(bval)
-            if metric == "matched_accuracy":
-                sd = base_sd.get(metric)
-                sd = float(sd) if _finite(sd) else 0.0
-                tol = max(k * sd, SIM_FLOORS.get(metric, DEFAULT_SIM_FLOOR))
-                ok = delta >= -tol
-                rep.check("sim", ds_id, metric, "pass" if ok else "fail",
-                          baseline_mean=float(bval), baseline_sd=sd,
-                          run_mean=float(rval), delta=delta, tolerance=tol,
-                          detail="drop tolerance")
+    gated = SIM_REGRESSION_IMPROVED if mode == "improved" else SIM_PRIMARY_SAME
+    floors = SIM_FLOORS
+    lower_better = {"over_segmentation_rate"}
+    for metric in gated:
+        if metric not in base_mean:
+            rep.check("sim", ds_id, metric, "skip",
+                      detail="metric not in baseline (regenerate it with "
+                             "recompute_metrics.py)")
+            rep.warn(f"{ds_id}: baseline lacks primary metric {metric!r}")
+            continue
+        bval = base_mean[metric]
+        rval = run_mean.get(metric)
+        sd = pooled.get(metric, 0.0)
+        floor = floors.get(metric, DEFAULT_SIM_FLOOR)
+        tol = max(k * sd, floor)
+        if not _finite(rval):
+            rep.check("sim", ds_id, metric, "fail", baseline_mean=bval,
+                      run_mean=rval, tolerance=tol,
+                      detail="run metric undefined")
+            continue
+        if not _finite(bval):
+            rep.check("sim", ds_id, metric, "skip", detail="undefined in baseline")
+            continue
+        delta = float(rval) - float(bval)
+        sd_base = base_sd.get(metric)
+        sd_base = float(sd_base) if _finite(sd_base) else 0.0
+        if mode == "improved":
+            if metric in lower_better:
+                ok = delta <= tol
             else:
-                rep.check("sim", ds_id, metric, "info",
-                          baseline_mean=float(bval), run_mean=float(rval), delta=delta)
+                ok = delta >= -tol
+            alpha = _one_sided_alpha(tol, sd)
+            detail = "regression beyond tolerance"
+        else:
+            ok = abs(delta) <= tol
+            alpha = _two_sided_alpha(tol, sd)
+            detail = None
+        rep.check("sim", ds_id, metric, "pass" if ok else "fail",
+                  baseline_mean=float(bval), baseline_sd=sd_base,
+                  run_mean=float(rval), delta=delta, tolerance=tol,
+                  false_alarm_p=alpha,
+                  detail=None if ok else detail)
+
+    # everything else is informational
+    for metric in sorted(set(run_mean) | set(base_mean)):
+        if metric in gated:
+            continue
+        bval, rval = base_mean.get(metric), run_mean.get(metric)
+        delta = (float(rval) - float(bval)
+                 if _finite(rval) and _finite(bval) else None)
+        rep.check("sim", ds_id, metric, "info",
+                  baseline_mean=bval, run_mean=rval, delta=delta)
+
+
+def load_pair_cells(run_root: Path, root: Path, baseline: str, ds_id: str,
+                    run_m: dict) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    run_paths = [run_root / ds_id / f"rep{r['rep']}" / "assignment.parquet"
+                 for r in run_m.get("reps", [])
+                 if r.get("status") == "ok" and r.get("assignment")]
+    base_assign = root / "baselines" / baseline / ds_id
+    base_paths = sorted(base_assign.glob("rep*/assignment.parquet")) \
+        if base_assign.is_dir() else []
+    return load_assignments(run_paths), load_assignments(base_paths)
 
 
 def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                        run_cells: list[np.ndarray], base_cells: list[np.ndarray],
-                       k: float, mode: str, admixture_tolerance: float):
+                       k: float, mode: str, pooled: dict[str, float],
+                       admixture_tolerance_floor: float):
     if mode == "same":
         if not run_cells or not base_cells:
             rep.check("real", ds_id, "*", "fail",
@@ -209,59 +475,157 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         pairs = [m.real_pair_metrics(rc, bc) for rc in run_cells for bc in base_cells]
         base_agr = ((base_m.get("real") or {}).get("rep_agreement") or {})
         b_mean = base_agr.get("mean") or {}
-        b_sd = base_agr.get("sd") or {}
         has_floor = bool(b_mean)
-        if not has_floor:
-            rep.warn(f"{ds_id}: baseline has no replicate agreement "
-                     f"(single replicate); using absolute fallbacks")
-        for metric in ("molecule_ari", "assigned_agreement",
-                       "frac_cells_matched", "median_jaccard"):
-            r_val = _mean([p[metric] for p in pairs])
-            if has_floor and _finite(b_mean.get(metric)):
-                sd = b_sd.get(metric)
-                sd = float(sd) if _finite(sd) else 0.0
-                required = float(b_mean[metric]) - REAL_MARGINS[metric]
-                rep.check("real", ds_id, metric,
-                          "pass" if _finite(r_val) and r_val >= required else "fail",
-                          baseline_rep_mean=float(b_mean[metric]),
-                          baseline_rep_sd=sd, run_vs_baseline_mean=r_val,
-                          required_min=required, margin=REAL_MARGINS[metric])
-            else:
-                floor = REAL_ABS_MIN[metric]
-                rep.check("real", ds_id, metric,
-                          "pass" if _finite(r_val) and r_val >= floor else "fail",
-                          run_vs_baseline_mean=r_val, required_min=floor,
-                          detail="absolute fallback (no baseline replicates)")
-        for metric, abs_floor in REAL_RATIO_FLOORS.items():
-            r_val = _mean([p[metric] for p in pairs])
-            sd = _sd([v.get(metric) for v in (base_agr.get("per_pair") or [])])
-            tol = max(abs_floor, k * sd)
-            if not _finite(r_val):
-                dev = float("inf")
-            elif metric == "cell_count_ratio":
-                dev = abs(r_val - 1.0)
-            else:  # median_mpc_rel_change is already a relative deviation
-                dev = abs(r_val)
-            rep.check("real", ds_id, metric,
-                      "pass" if dev <= tol else "fail",
-                      baseline_rep_sd=sd, run_vs_baseline_mean=r_val,
-                      deviation=dev, tolerance=tol,
-                      detail="absolute deviation from 0 (no change)")
-    else:  # improved: admixture audit only
-        base_rate = ((base_m.get("real") or {}).get("celladmix") or {}).get("mean_total")
-        run_rate = ((run_m.get("real") or {}).get("celladmix") or {}).get("mean_total")
-        if not _finite(base_rate) or not _finite(run_rate):
-            rep.check("real", ds_id, "total_admixture_rate", "skip",
-                      detail="cellAdmix audit unavailable on "
-                             + ("both sides" if not _finite(base_rate) and not _finite(run_rate)
-                                else ("baseline" if not _finite(base_rate) else "run")))
-            return
-        allowed = float(base_rate) + admixture_tolerance
-        ok = float(run_rate) <= allowed
-        rep.check("real", ds_id, "total_admixture_rate", "pass" if ok else "fail",
-                  baseline_mean=float(base_rate), run_mean=float(run_rate),
-                  tolerance=admixture_tolerance, allowed_max=allowed)
 
+        def gated_row(metric, r_val, center, tol, ok, **extra):
+            alpha = _two_sided_alpha(tol, pooled.get(metric, 0.0))
+            rep.check("real", ds_id, metric, "pass" if ok else "fail",
+                      baseline_rep_mean=center, run_vs_baseline_mean=r_val,
+                      deviation=abs(r_val - center) if _finite(r_val) else None,
+                      tolerance=tol, false_alarm_p=alpha, **extra)
+
+        for metric in REAL_PRIMARY_SAME:
+            r_val = _mean([p.get(metric) for p in pairs])
+            floor = REAL_FLOORS.get(metric, DEFAULT_REAL_FLOOR)
+            sd = pooled.get(metric, 0.0)
+            tol = max(k * sd, floor)
+            if not _finite(r_val):
+                rep.check("real", ds_id, metric, "fail",
+                          run_vs_baseline_mean=r_val, tolerance=tol,
+                          detail="run metric undefined")
+                continue
+            if metric == "cell_count_ratio":
+                # run and baseline must segment about the same number of
+                # cells: deviation of the mean ratio from 1
+                gated_row(metric, r_val, 1.0, tol, abs(r_val - 1.0) <= tol,
+                          detail="|ratio - 1| vs tolerance")
+            elif has_floor and _finite(b_mean.get(metric)):
+                center = float(b_mean[metric])
+                gated_row(metric, r_val, center, tol,
+                          abs(r_val - center) <= tol,
+                          detail="deviation from baseline replicate agreement")
+            else:
+                floor_abs = REAL_ABS_MIN.get(metric)
+                if floor_abs is None:
+                    rep.check("real", ds_id, metric, "skip",
+                              detail="baseline has no replicate agreement")
+                    continue
+                rep.warn(f"{ds_id}: baseline has no replicate agreement "
+                         f"(single replicate); using absolute fallback")
+                rep.check("real", ds_id, metric,
+                          "pass" if r_val >= floor_abs else "fail",
+                          run_vs_baseline_mean=r_val, required_min=floor_abs,
+                          detail="absolute fallback (no baseline replicates)")
+
+        for metric in REAL_INFO:
+            if metric not in pairs[0]:
+                continue
+            r_val = _mean([p.get(metric) for p in pairs])
+            rep.check("real", ds_id, metric, "info", run_vs_baseline_mean=r_val)
+    else:  # improved: admixture audit only
+        check_real_admixture(rep, ds_id, run_m, base_m, k,
+                             admixture_tolerance_floor)
+
+
+def check_real_admixture(rep: Report, ds_id: str, run_m: dict, base_m: dict,
+                         k: float, tolerance_floor: float):
+    base_cam = ((base_m.get("real") or {}).get("celladmix")) or {}
+    run_cam = ((run_m.get("real") or {}).get("celladmix")) or {}
+    base_rate = base_cam.get("mean_total")
+    run_rate = run_cam.get("mean_total")
+
+    def unavailable(reason: str):
+        rep.check("real", ds_id, "total_admixture_rate", "skip",
+                  detail=f"unavailable: {reason}")
+
+    if base_cam.get("status") != "ok" or run_cam.get("status") != "ok":
+        which = []
+        if run_cam.get("status") != "ok":
+            which.append(f"run={run_cam.get('status', 'missing')}")
+        if base_cam.get("status") != "ok":
+            which.append(f"baseline={base_cam.get('status', 'missing')}")
+        unavailable("cellAdmix audit not ok (" + ", ".join(which) + ")")
+        return
+    if not _finite(base_rate) or not _finite(run_rate):
+        unavailable("audit rate missing on "
+                    + ("both sides" if not _finite(base_rate) and not _finite(run_rate)
+                       else ("baseline" if not _finite(base_rate) else "run")))
+        return
+    # gate only on crops large enough for the audit to have statistical power
+    base_cells = [r.get("n_cells") for r in base_m.get("reps", [])
+                  if r.get("status") == "ok" and _finite(r.get("n_cells"))]
+    n_cells = int(round(_mean(base_cells))) if base_cells else 0
+    if n_cells < ADMIXTURE_MIN_CELLS:
+        unavailable(f"baseline crop has {n_cells} cells "
+                    f"(< {ADMIXTURE_MIN_CELLS})")
+        return
+    rates = [t for t in (base_cam.get("per_rep_total") or [])
+             if _finite(t)]
+    sd = _sd(rates) if len(rates) > 1 else 0.0
+    tol = max(k * sd, tolerance_floor)
+    allowed = float(base_rate) + tol
+    ok = float(run_rate) <= allowed
+    rep.check("real", ds_id, "total_admixture_rate", "pass" if ok else "fail",
+              baseline_mean=float(base_rate), run_mean=float(run_rate),
+              baseline_sd=sd, tolerance=tol, allowed_max=allowed,
+              n_cells=n_cells, false_alarm_p=_one_sided_alpha(tol, sd),
+              detail=None if ok else "admixture rate rose beyond k*SD of the "
+                                     "baseline audit replicates")
+
+
+# ---------------------------------------------------------------------------
+# improved: aggregate gain
+# ---------------------------------------------------------------------------
+
+def check_improved_aggregate(rep: Report, run_metrics: dict[str, dict],
+                             base_metrics: dict[str, dict], k: float):
+    """Mean one-to-one accuracy gain must exceed 2 SE and a minimum effect."""
+    sim_ids = [d for d, mm in base_metrics.items()
+               if (mm.get("dataset") or {}).get("kind") == "sim"
+               or mm.get("kind") == "sim"]
+    if not sim_ids:
+        rep.check("sim", "*", "aggregate_accuracy_1to1", "fail",
+                  detail="baseline contains no sim datasets")
+        return
+
+    def stats(metrics, ds):
+        block = ((metrics.get(ds) or {}).get("sim")) or {}
+        mean = (block.get("mean") or {}).get("accuracy_1to1")
+        sd = (block.get("sd") or {}).get("accuracy_1to1")
+        n = int(block.get("n_metric_reps") or 0)
+        return (float(mean) if _finite(mean) else float("nan"),
+                float(sd) if _finite(sd) else 0.0, max(n, 1))
+
+    gains, variances = [], []
+    used = []
+    for ds in sim_ids:
+        rm, rs, rn = stats(run_metrics, ds)
+        bm, bs, bn = stats(base_metrics, ds)
+        if not (_finite(rm) and _finite(bm)):
+            continue
+        gains.append(rm - bm)
+        variances.append(rs * rs / rn + bs * bs / bn)
+        used.append(ds)
+    if not gains:
+        rep.check("sim", "*", "aggregate_accuracy_1to1", "fail",
+                  detail="no comparable sim accuracy_1to1 values")
+        return
+    gain = float(np.mean(gains))
+    se = math.sqrt(sum(variances)) / len(gains)
+    threshold = max(2.0 * se, MIN_EFFECT_ACCURACY)
+    ok = gain > threshold
+    bound = "2*SE" if 2.0 * se >= MIN_EFFECT_ACCURACY else "min effect"
+    rep.check("sim", "*", "aggregate_accuracy_1to1", "pass" if ok else "fail",
+              delta=gain, se=se, threshold=threshold,
+              n_datasets=len(used),
+              detail=f"mean gain must exceed 2*SE={2 * se:.4f} and "
+                     f"min effect={MIN_EFFECT_ACCURACY:.3f} "
+                     f"(binding: {bound})")
+
+
+# ---------------------------------------------------------------------------
+# run health / runtime
+# ---------------------------------------------------------------------------
 
 def collect_run_failures(rep: Report, run_metrics: dict[str, dict]):
     for ds_id, mm in sorted(run_metrics.items()):
@@ -305,35 +669,6 @@ def _ratio_change(new, base) -> float:
     if not _finite(new) or not _finite(base) or float(base) == 0:
         return float("nan")
     return float(new) / float(base) - 1.0
-
-
-def check_improved_aggregate(rep: Report, run_metrics: dict[str, dict],
-                             base_metrics: dict[str, dict]):
-    """Mode 'improved': mean sim matched accuracy must increase."""
-    sim_ids = [d for d, mm in base_metrics.items()
-               if mm.get("kind") == "sim" or mm.get("dataset", {}).get("kind") == "sim"]
-    if not sim_ids:
-        rep.check("sim", "*", "aggregate_matched_accuracy", "fail",
-                  detail="baseline contains no sim datasets")
-        return
-
-    def agg(metrics):
-        vals = []
-        for d in sim_ids:
-            mm = metrics.get(d) or {}
-            v = ((mm.get("sim") or {}).get("mean") or {}).get("matched_accuracy")
-            if _finite(v):
-                vals.append(float(v))
-        return _mean(vals) if vals else float("nan")
-
-    run_agg = agg(run_metrics)
-    base_agg = agg(base_metrics)
-    ok = _finite(run_agg) and _finite(base_agg) and run_agg > base_agg
-    rep.check("sim", "*", "aggregate_matched_accuracy", "pass" if ok else "fail",
-              baseline_mean=base_agg, run_mean=run_agg,
-              delta=(run_agg - base_agg) if _finite(run_agg) and _finite(base_agg)
-              else None,
-              detail="mean matched accuracy over baseline sim datasets must increase")
 
 
 # ---------------------------------------------------------------------------
@@ -380,8 +715,12 @@ def render_markdown(rep: Report) -> str:
         lines.append("| dataset | metric | baseline | run | delta | tol/req | status |")
         lines.append("|---|---|---|---|---|---|---|")
         for c in rows:
-            b = c.get("baseline_mean", c.get("baseline_rep_mean"))
-            r = c.get("run_mean", c.get("run_vs_baseline_mean"))
+            b = c.get("baseline_mean", c.get("baseline_rep_mean",
+                                             c.get("baseline_value")))
+            r = c.get("run_mean", c.get("run_vs_baseline_mean",
+                                        c.get("run_value")))
+            if b is None and c.get("baseline_value") is not None:
+                b = c["baseline_value"]
             tol = c.get("tolerance", c.get("required_min"))
             delta = c.get("delta", c.get("deviation"))
             status = c["status"].upper()
@@ -391,6 +730,19 @@ def render_markdown(rep: Report) -> str:
                          f"| {_fmt(delta)} | {_fmt(tol)} | {status} |")
         lines.append("")
 
+    if rep.gate_info:
+        lines.append("## Gated metrics (tolerance = max(k·SD_pooled, floor))")
+        lines.append("")
+        lines.append("| kind | metric | pooled SD | floor | tolerance |")
+        lines.append("|---|---|---|---|---|")
+        for g in rep.gate_info:
+            lines.append(f"| {g['kind']} | {g['metric']} | {_fmt(g['pooled_sd'], 5)} "
+                         f"| {_fmt(g['floor'])} | {_fmt(g['tolerance'])} |")
+        lines.append("")
+
+    if rep.expect == "identical":
+        section("Identity (per-replicate assignment sha256)", "identical")
+    section("Provenance / content hashes", "provenance")
     section("Sim datasets (vs truth)", "sim")
     section("Real datasets (vs baseline segmentation / admixture)", "real")
     section("Run health", "run")
@@ -436,20 +788,43 @@ def load_assignments(paths: list[Path]) -> list[np.ndarray]:
     return [common.assignment_cells(p) for p in paths]
 
 
+def record_gate_info(pooled_sim: dict[str, float], pooled_real: dict[str, float],
+                     k: float) -> list[dict]:
+    """Tolerance table for the report (same / improved gates)."""
+    out = []
+    for kind, pooled, floors, default_floor, primary in (
+            ("sim", pooled_sim, SIM_FLOORS, DEFAULT_SIM_FLOOR, SIM_PRIMARY_SAME),
+            ("real", pooled_real, REAL_FLOORS, DEFAULT_REAL_FLOOR,
+             REAL_PRIMARY_SAME)):
+        for metric in primary:
+            sd = pooled.get(metric, 0.0)
+            floor = floors.get(metric, default_floor)
+            out.append({"kind": kind, "metric": metric,
+                        "pooled_sd": sd, "floor": floor,
+                        "tolerance": max(k * sd, floor)})
+    return out
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--baseline", required=True)
-    ap.add_argument("--expect", required=True, choices=["same", "improved"])
+    ap.add_argument("--expect", choices=list(MODES), default="identical",
+                    help="identical = bitwise check at 1 thread/1 replicate "
+                         "(default, refactor gate); same = unchanged "
+                         "algorithm within the noise floor; improved = "
+                         "measurably better")
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--baselines-dir", default=None,
                     help="default <repo>/benchmarks/baselines")
     ap.add_argument("--k", type=float, default=K_DEFAULT,
-                    help="tolerance multiplier on baseline SD (default 3)")
-    ap.add_argument("--admixture-tolerance", type=float,
-                    default=ADMIXTURE_TOLERANCE,
-                    help="allowed increase of total_admixture_rate (default 0.01)")
+                    help="tolerance multiplier on the pooled baseline SD "
+                         "(default 3)")
+    ap.add_argument("--admixture-tolerance", type=float, default=0.0,
+                    help="minimum admixture tolerance floor; the actual "
+                         "tolerance is max(k*SD of the baseline audit "
+                         "replicates, floor) (default 0)")
     ap.add_argument("--report-md", default=None)
     ap.add_argument("--report-json", default=None)
     args = ap.parse_args(argv)
@@ -492,13 +867,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         "run binary sha256": run_sha,
         "baseline binary sha256": base_sha,
         "k": args.k,
+        "threads (run)": sorted({mm.get("threads") for mm in run_metrics.values()
+                                 if mm.get("threads") is not None}),
+        "threads (baseline)": sorted({mm.get("threads") for mm in base_metrics.values()
+                                      if mm.get("threads") is not None}),
     }
-    if run_sha != base_sha:
-        rep.warn("binary sha256 differs from baseline "
-                 "(expected for algorithm changes, suspicious for 'same')")
-    if any_run.get("threads") != any_base.get("threads"):
-        rep.warn(f"thread count differs: run={any_run.get('threads')} "
-                 f"baseline={any_base.get('threads')} (noise floor may not transfer)")
+    if args.expect == "improved" and run_sha != base_sha:
+        rep.meta["binary sha note"] = ("differs from baseline (expected for an "
+                                       "algorithm change)")
 
     # run health
     collect_run_failures(rep, run_metrics)
@@ -510,33 +886,52 @@ def main(argv: Optional[list[str]] = None) -> int:
     for ds_id in sorted(set(run_metrics) - set(base_metrics)):
         rep.warn(f"{ds_id}: present in run but not in baseline (ignored)")
 
+    # pooled SDs and tolerance table (same / improved)
+    pooled_sim: dict[str, float] = {}
+    pooled_real: dict[str, float] = {}
+    if args.expect in ("same", "improved"):
+        pooled_sim = pooled_sd_by_metric(base_metrics, "sim")
+        pooled_real = pooled_sd_by_metric(base_metrics, "real")
+        rep.gate_info = record_gate_info(pooled_sim, pooled_real, args.k)
+
     # per-dataset checks
     for ds_id in sorted(set(run_metrics) & set(base_metrics)):
         run_m, base_m = run_metrics[ds_id], base_metrics[ds_id]
         kind = (run_m.get("dataset") or {}).get("kind") or run_m.get("kind")
+        check_content_hashes(rep, ds_id, run_m, base_m)
+        if args.expect == "identical":
+            check_provenance(rep, ds_id, run_m, base_m, "identical")
+            run_cells, base_cells = ([], [])
+            if kind == "real":
+                run_cells, base_cells = load_pair_cells(
+                    run_root, root, args.baseline, ds_id, run_m)
+            check_identical_dataset(rep, ds_id, run_m, base_m,
+                                    run_cells, base_cells)
+            continue
+
+        check_provenance(rep, ds_id, run_m, base_m, args.expect)
         if kind == "sim":
-            check_sim_dataset(rep, ds_id, run_m, base_m, args.k, args.expect)
+            check_sim_dataset(rep, ds_id, run_m, base_m, args.k,
+                              pooled_sim, mode=args.expect)
         elif kind == "real":
             run_cells, base_cells = [], []
             if args.expect == "same":
-                run_paths = [run_root / ds_id / f"rep{r['rep']}" / "assignment.parquet"
-                             for r in run_m.get("reps", [])
-                             if r.get("status") == "ok" and r.get("assignment")]
-                base_assign = root / "baselines" / args.baseline / ds_id
-                base_paths = sorted(base_assign.glob("rep*/assignment.parquet")) \
-                    if base_assign.is_dir() else []
-                if not base_paths:
+                run_cells, base_cells = load_pair_cells(
+                    run_root, root, args.baseline, ds_id, run_m)
+                if not base_cells:
                     rep.check("real", ds_id, "baseline_assignments", "fail",
-                              detail=f"missing {base_assign} (recreate the baseline)")
-                run_cells = load_assignments(run_paths)
-                base_cells = load_assignments(base_paths)
+                              detail="missing baseline assignment tables "
+                                     "(recreate the baseline)")
             check_real_dataset(rep, ds_id, run_m, base_m, run_cells, base_cells,
-                               args.k, args.expect, args.admixture_tolerance)
+                               args.k, args.expect, pooled_real,
+                               args.admixture_tolerance)
 
     if args.expect == "improved":
-        check_improved_aggregate(rep, run_metrics, base_metrics)
+        check_improved_aggregate(rep, run_metrics, base_metrics, args.k)
 
     compare_runtime(rep, run_metrics, base_metrics)
+    if args.expect in ("same", "improved"):
+        rep.finalize_budget(args.k)
 
     # reports
     md_path = Path(args.report_md) if args.report_md else \

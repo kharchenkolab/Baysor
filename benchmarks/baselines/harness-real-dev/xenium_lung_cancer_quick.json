@@ -209,7 +209,12 @@
       "per_pair": [
         {
           "molecule_ari": 0.8573460826958886,
+          "ari_assigned": 0.826910354115763,
           "assigned_agreement": 0.9997153846153846,
+          "assigned_fraction_candidate": 0.9886153846153846,
+          "assigned_fraction_reference": 0.9886538461538461,
+          "noise_precision": 0.9858108108108108,
+          "noise_recall": 0.9891525423728813,
           "frac_cells_matched": 0.8843641951594314,
           "median_jaccard": 0.825,
           "cell_count_ratio": 0.9973107952362659,
@@ -219,7 +224,12 @@
         },
         {
           "molecule_ari": 0.8573204057950872,
+          "ari_assigned": 0.8300041487436425,
           "assigned_agreement": 0.9995538461538461,
+          "assigned_fraction_candidate": 0.988423076923077,
+          "assigned_fraction_reference": 0.9886538461538461,
+          "noise_precision": 0.9707641196013289,
+          "noise_recall": 0.9905084745762712,
           "frac_cells_matched": 0.8901267767960046,
           "median_jaccard": 0.8333333333333334,
           "cell_count_ratio": 0.9957741067998463,
@@ -229,7 +239,12 @@
         },
         {
           "molecule_ari": 0.8553687165038076,
+          "ari_assigned": 0.8272429397482881,
           "assigned_agreement": 0.9995615384615385,
+          "assigned_fraction_candidate": 0.988423076923077,
+          "assigned_fraction_reference": 0.9886153846153846,
+          "noise_precision": 0.9727574750830564,
+          "noise_recall": 0.9891891891891892,
           "frac_cells_matched": 0.8852080123266564,
           "median_jaccard": 0.8301886792452831,
           "cell_count_ratio": 0.9984591679506933,
@@ -239,24 +254,34 @@
         }
       ],
       "mean": {
+        "ari_assigned": 0.8280524808692311,
         "assigned_agreement": 0.9996102564102564,
+        "assigned_fraction_candidate": 0.9884871794871795,
+        "assigned_fraction_reference": 0.9886410256410256,
         "cell_count_ratio": 0.9971813566622685,
         "frac_cells_matched": 0.8865663280940308,
         "median_jaccard": 0.8295073375262053,
         "median_mpc_rel_change": 0.015459324601265258,
         "molecule_ari": 0.8566784016649279,
         "n_cells_candidate": 2593.3333333333335,
-        "n_cells_reference": 2600.6666666666665
+        "n_cells_reference": 2600.6666666666665,
+        "noise_precision": 0.9764441351650653,
+        "noise_recall": 0.9896167353794473
       },
       "sd": {
+        "ari_assigned": 0.0016983547685178611,
         "assigned_agreement": 9.112490073800196e-05,
+        "assigned_fraction_candidate": 0.00011102889792103021,
+        "assigned_fraction_reference": 2.220577958421886e-05,
         "cell_count_ratio": 0.001347202324922204,
         "frac_cells_matched": 0.0031121701548061436,
         "median_jaccard": 0.004208239657472963,
         "median_mpc_rel_change": 0.0067522885394005906,
         "molecule_ari": 0.0011342932785450512,
         "n_cells_candidate": 2.309401076758503,
-        "n_cells_reference": 4.041451884327381
+        "n_cells_reference": 4.041451884327381,
+        "noise_precision": 0.008172779576654656,
+        "noise_recall": 0.0007724861446334109
       }
     },
     "n_metric_reps": 3,
@@ -264,7 +289,12 @@
       "per_rep": [
         {
           "molecule_ari": 0.021538121100484725,
+          "ari_assigned": 0.6368698035788309,
           "assigned_agreement": 0.8253230769230769,
+          "assigned_fraction_candidate": 0.9886538461538461,
+          "assigned_fraction_reference": 0.8188384615384615,
+          "noise_precision": 0.7857627118644068,
+          "noise_recall": 0.04921234767101185,
           "frac_cells_matched": 0.6027204502814258,
           "median_jaccard": 0.5555555555555556,
           "cell_count_ratio": 1.2209193245778611,
@@ -274,7 +304,12 @@
         },
         {
           "molecule_ari": 0.021504025383649462,
+          "ari_assigned": 0.635838709898837,
           "assigned_agreement": 0.8253461538461538,
+          "assigned_fraction_candidate": 0.9886153846153846,
+          "assigned_fraction_reference": 0.8188384615384615,
+          "noise_precision": 0.7858108108108108,
+          "noise_recall": 0.049382191838987725,
           "frac_cells_matched": 0.5956848030018762,
           "median_jaccard": 0.5517241379310345,
           "cell_count_ratio": 1.2176360225140712,
@@ -284,7 +319,12 @@
         },
         {
           "molecule_ari": 0.021777286181215494,
+          "ari_assigned": 0.6389808691712286,
           "assigned_agreement": 0.8254923076923077,
+          "assigned_fraction_candidate": 0.988423076923077,
+          "assigned_fraction_reference": 0.8188384615384615,
+          "noise_precision": 0.7873754152823921,
+          "noise_recall": 0.05031633476285508,
           "frac_cells_matched": 0.6022514071294559,
           "median_jaccard": 0.5527385537013265,
           "cell_count_ratio": 1.2157598499061915,
@@ -294,24 +334,34 @@
         }
       ],
       "mean": {
+        "ari_assigned": 0.6372297942162989,
         "assigned_agreement": 0.8253871794871795,
+        "assigned_fraction_candidate": 0.9885641025641024,
+        "assigned_fraction_reference": 0.8188384615384615,
         "cell_count_ratio": 1.2181050656660413,
         "frac_cells_matched": 0.6002188868042526,
         "median_jaccard": 0.5533394157293056,
         "median_mpc_rel_change": 0.08749999999999998,
         "molecule_ari": 0.02160647755511656,
         "n_cells_candidate": 2597.0,
-        "n_cells_reference": 2132.0
+        "n_cells_reference": 2132.0,
+        "noise_precision": 0.7863163126525365,
+        "noise_recall": 0.049636958090951554
       },
       "sd": {
+        "ari_assigned": 0.0016017135098286752,
         "assigned_agreement": 9.177194958040374e-05,
+        "assigned_fraction_candidate": 0.00012363654821780892,
+        "assigned_fraction_reference": 0.0,
         "cell_count_ratio": 0.0026115217461678717,
         "frac_cells_matched": 0.003933629026081618,
         "median_jaccard": 0.0019851238338887125,
         "median_mpc_rel_change": 0.012500000000000004,
         "molecule_ari": 0.00014890372573908797,
         "n_cells_candidate": 5.5677643628300215,
-        "n_cells_reference": 0.0
+        "n_cells_reference": 0.0,
+        "noise_precision": 0.0009175250201419131,
+        "noise_recall": 0.0005944545879155889
       },
       "information_only": true
     },
@@ -335,10 +385,19 @@
       "per_rep_total": []
     }
   },
+  "inputs": {
+    "molecules_sha256": "69081b78280ff591b1098e4e2c2291c31bb7228697a6cbe85a54ecf5618bd7c3",
+    "meta_sha256": "0adbad565877454231f115059bee2c43d5b577ca26145b70b13e5ee99df1a2b3"
+  },
+  "metrics_recomputed": {
+    "script": "recompute_metrics.py",
+    "at": "2026-09-29T15:04:35+00:00",
+    "metrics_module": "metrics.py (current definitions)"
+  },
   "baseline": {
     "name": "harness-real-dev",
     "run_id": "harness-val3",
-    "created": "2026-09-29T12:11:35+00:00",
+    "created": "2026-09-29T15:15:11+00:00",
     "noise_floor_replicates": 3,
     "noise_floor_valid": true,
     "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/harness-real-dev/xenium_lung_cancer_quick/",

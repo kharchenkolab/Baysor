@@ -203,11 +203,15 @@ def make_run(root: Path, run_id: str, ds_dir: Path,
              assignments: list[np.ndarray], *, threads: int = 6,
              celladmix_rates: list | None = None,
              wall_s: float = 1.0, binary: dict | None = None,
-             statuses: list[str] | None = None) -> dict:
+             statuses: list[str] | None = None,
+             inputs: dict | str | None = "auto") -> dict:
     """Write a synthetic run (assignments + run.json + metrics.json) for tests.
 
     ``assignments[k]`` is the cell vector for replicate k; it must have one
-    entry per input molecule. Returns the metrics dict.
+    entry per input molecule. ``inputs`` controls the dataset content hashes
+    recorded under ``metrics["inputs"]``: ``"auto"`` hashes the actual
+    ``molecules.parquet``/``meta.json``, a dict is used verbatim and ``None``
+    omits the block. Returns the metrics dict.
     """
     import common
     import run as runner
@@ -246,5 +250,12 @@ def make_run(root: Path, run_id: str, ds_dir: Path,
     mjson = runner.compute_dataset_metrics(
         ds, run_id, rep_dir_for, [records[k] for k in sorted(records)],
         dict(FAKE_BINARY, **(binary or {})), threads)
+    if isinstance(inputs, dict):
+        mjson["inputs"] = dict(inputs)
+    elif inputs == "auto":
+        mjson["inputs"] = {
+            "molecules_sha256": common.sha256_file(ds_dir / "molecules.parquet"),
+            "meta_sha256": common.sha256_file(ds_dir / "meta.json"),
+        }
     common.write_json(root / "runs" / run_id / ds.id / "metrics.json", mjson)
     return mjson

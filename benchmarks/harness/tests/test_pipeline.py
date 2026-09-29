@@ -112,4 +112,4 @@ def test_degraded_run_fails(pipeline, tmp_path):
     report = common.read_json(
         root / "runs" / "p_degraded" / "compare_pipe_same.json")
     failed = {c["metric"] for c in report["checks"] if c["status"] == "fail"}
-    assert "matched_accuracy" in failed or "molecule_ari" in failed
+    assert {"accuracy_1to1", "ari_assigned", "frac_cells_matched"} & failed

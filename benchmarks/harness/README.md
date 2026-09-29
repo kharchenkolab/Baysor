@@ -8,7 +8,8 @@ Runner, metrics, baselines and comparison for the Baysor benchmark suite
 | `run.py` | run a Baysor binary over datasets, normalize output, compute metrics |
 | `metrics.py` | pure metric functions (unit-tested, no I/O) |
 | `baseline.py` | create/list committed baselines from a run |
-| `compare.py` | compare a run with a baseline, Markdown + JSON report, exit code |
+| `compare.py` | compare a run with a baseline (`identical`/`same`/`improved`), Markdown + JSON report, exit code |
+| `recompute_metrics.py` | recompute `metrics.json` from stored `assignment.parquet` files (no Baysor rerun) |
 | `bench.sh` | one command: run → compare → print report |
 | `celladmix.py` | optional adapter for the cellAdmix audit (`../celladmix/audit.py`) |
 | `tests/` | pytest suite incl. contract-conformant fixture datasets |
@@ -30,6 +31,13 @@ $PY benchmarks/harness/baseline.py create --run-id myrun --name mybase
 
 # 3. later: check an unchanged algorithm
 $PY benchmarks/harness/compare.py --run-id otherrun --baseline mybase --expect same
+
+# refactor gate (default when --expect is omitted): bitwise-identical at 1 thread
+$PY benchmarks/harness/run.py --baysor /path/to/baysor --datasets quick \
+    --run-id refactor1 --replicates 1 --threads 1
+$PY benchmarks/harness/baseline.py create --run-id refactor1 --name mybase-1t \
+    --allow-incomplete
+$PY benchmarks/harness/compare.py --run-id refactor2 --baseline mybase-1t
 
 # or everything in one command
 benchmarks/harness/bench.sh --baysor /path/to/baysor --baseline mybase \
@@ -113,65 +121,94 @@ replicate pairs (`real.rep_agreement`), the same metrics against
 
 ### Sim vs truth — computed over molecules with `interior == True`
 
-* **`matched_accuracy`** — each predicted cell (including 0 = noise) is
-  mapped to the true cell it shares most molecules with (ties → smallest
-  true label); a molecule is correct when its predicted cell maps to its own
-  true cell. Predicted noise is only ever correct against true noise
-  (noise ↔ noise). Many-to-one: several predicted cells may map to the same
-  true cell.
-* **`ari` / `ami`** — adjusted Rand / adjusted mutual information with label 0
-  as its own label.
-* **`noise_precision` / `noise_recall`** — P(true noise | predicted noise)
-  and P(predicted noise | true noise); vacuously 1.0 when the denominator is 0.
+Primary metrics (these gate `--expect same` and `--expect improved`):
+
+* **`accuracy_1to1`** — **PRIMARY** one-to-one (Hungarian) assignment
+  accuracy: `scipy.optimize.linear_sum_assignment` on the predicted × true
+  overlap matrix over all labels (0 included). A pair earns credit only when
+  the two sides agree on noise status — predicted noise matches true noise
+  (and nothing else), and a real predicted cell never earns credit from
+  true-noise molecules; unmatched labels contribute 0. A pure split scores
+  below 1.0 (only one part can be matched). This is the metric the
+  st-recoverability oracle is defined against, so `oracle_gap` is computed
+  from it.
+* **`ari_assigned`** / **`ami_assigned`** — **PRIMARY** ARI/AMI over the
+  molecules assigned in *both* sides. Unassigned molecules are excluded
+  instead of collapsing into one giant cluster (on
+  `sim_sparse_noisy_g100` this moves ARI from 0.661 to 0.993; on the vendor
+  comparison for pancreas from 0.02 to 0.549).
+* **`recovery_rate`** — fraction of true cells recovered with molecule-set
+  Jaccard ≥ 0.5 (against predicted cells > 0; unmatched → 0).
 * **`cell_count_ratio`** — #predicted cells / #true cells (labels > 0).
+
+Reported separately (informational):
+
+* **`matched_accuracy`** — the many-to-one majority metric: each predicted
+  cell maps to the true cell it shares most molecules with (ties → smallest
+  true label); a molecule is correct when its predicted cell maps to its own
+  true cell. Predicted noise is only ever correct against true noise, and a
+  real predicted cell whose **majority is true noise earns no credit** for
+  its noise molecules. Several predicted cells may map to the same true cell
+  (a pure split still scores 1.0 — that is why it is *secondary*).
+* **`ari` / `ami`** — all-molecule values with label 0 as its own label.
+* **`assigned_agreement`** — fraction of molecules agreeing on
+  assigned-vs-unassigned status vs truth.
+* **`assigned_fraction_pred` / `assigned_fraction_truth`** — the assigned
+  fraction of each side.
+* **`noise_precision` / `noise_recall`** — P(true noise | predicted noise)
+  and P(predicted noise | true noise). **NaN (skipped) when the relevant
+  noise count is below 50 molecules** (`NOISE_MIN_COUNT`), so they no longer
+  fire on noise-free st-recoverability data; with `min_count=0` the vacuous
+  1.0 behaviour is available for tiny hand-made cases.
 * **`over_segmentation_rate`** — fraction of true cells whose largest
   predicted part holds < 80 % of the cell.
 * **`under_segmentation_rate`** — fraction of predicted cells whose largest
   true source holds < 80 %.
-* **`recovery_rate`** — fraction of true cells recovered with molecule-set
-  Jaccard ≥ 0.5 (against predicted cells > 0; unmatched → 0).
 * **`median_matched_jaccard`** — median, over true cells, of the best
   Jaccard against one predicted cell.
-* **`oracle_gap`** — `meta.truth.oracle_accuracy − matched_accuracy`, NaN
-  when the generator provides no oracle.
+* **`oracle_gap`** — `meta.truth.oracle_accuracy − accuracy_1to1`, NaN when
+  the generator provides no oracle.
 
 **Difference vs st-recoverability's `matched_accuracy`**
 (`$BAYSOR_BENCH_DATA/cache/sim/st-recoverability/src/headroom_common.py`):
-that implementation scores molecules under the *optimal one-to-one*
+that implementation scores molecules under the optimal *one-to-one*
 matching of method cells to true cells (Hungarian on the contingency table),
-with unassigned method labels participating like any other label (their
-docstring: background/unassigned counts as errors). Ours is *many-to-one
-majority* with an explicit noise↔noise rule. Consequences:
-
-* a pure split (two predicted parts of one true cell) scores 1.0 here but
-  ≤ (largest part) under one-to-one matching — only one part can be matched
-  (`tests/test_metrics.py::test_matched_accuracy_vs_st_recoverability_on_split`
-  asserts 1.0 vs 34/38 on a hand-made case);
-* merged cells are penalized by both definitions (majority mapping vs
-  one-to-one) and they agree on clean one-to-one situations
-  (`..._on_merge_agree`);
-* predicted noise is correct against true noise here, never against a real
-  cell; there, unassigned labels cannot earn credit except through the
-  single slot the Hungarian assignment gives label 0.
-
-Both operate on interior molecules only.
+with unassigned method labels participating like any other label. Our
+`accuracy_1to1` follows the same one-to-one principle but zeroes the credit
+of noise-status-mismatched pairs (a real cell never earns credit from noise
+molecules and vice versa); the two agree exactly when there is no noise
+(`tests/test_metrics.py::test_matched_accuracy_vs_st_recoverability_on_*`
+asserts this on split/merge hand-made cases). The old many-to-one
+`matched_accuracy` is kept only as a secondary metric.
 
 ### Real vs baseline segmentation
 
-Both assignments are aligned by `mol_index` over the same input molecules:
+Both assignments are aligned by `mol_index` over the same input molecules.
 
-* **`molecule_ari`** — ARI of the two label vectors (0 = unassigned);
+Primary (gating):
+
+* **`ari_assigned`** — ARI over molecules assigned in *both* segmentations
+  (the primary agreement metric; the all-molecule `molecule_ari` is kept for
+  reference only);
+* **`frac_cells_matched`** — for each *baseline* cell the best molecule-set
+  Jaccard in the run: fraction with J ≥ 0.5;
+* **`cell_count_ratio`** — #run cells / #baseline cells.
+
+Reported separately (informational):
+
+* **`molecule_ari`** — ARI of the two full label vectors (0 = unassigned);
 * **`assigned_agreement`** — fraction of molecules agreeing on
   assigned-vs-unassigned status;
-* **`frac_cells_matched`** / **`median_jaccard`** — for each *baseline*
-  cell the best molecule-set Jaccard in the run: fraction with J ≥ 0.5 and
-  the median;
-* **`cell_count_ratio`** — #run cells / #baseline cells;
+* **`assigned_fraction_candidate` / `assigned_fraction_reference`** — the
+  assigned fraction of each side;
+* **`noise_precision` / `noise_recall`** — with the reference playing the
+  role of truth; same 50-molecule rule (NaN below it);
+* **`median_jaccard`** — the median baseline-cell Jaccard;
 * **`median_mpc_rel_change`** — relative change of the median
   molecules-per-cell, `(run − baseline) / baseline`.
 
-The same five metrics against `cell_vendor` are stored in
-`real.vs_vendor` for information only.
+The same metrics against `cell_vendor` are stored in `real.vs_vendor` for
+information only.
 
 ### Real admixture (cellAdmix)
 
@@ -221,80 +258,190 @@ $PY benchmarks/harness/baseline.py list
   * `xenium_pancreas_377_quick`: replicate ARI 0.79–0.81;
   * results also differ *between* thread counts (fixture ARI 0.62 between
     1 and 6 threads), so a baseline must be reproduced with the same
-    `--threads` — `compare.py` warns on a thread mismatch.
+    `--threads` — `compare.py` **fails** on a thread mismatch in
+    `same`/`improved` (and requires 1 thread in `identical`).
 
 Therefore baselines use ≥ 3 replicates at the comparison thread count and
 store per-metric mean and SD; `compare.py` uses
-`tolerance = max(3·SD_baseline, floor)`.
+`tolerance = max(k·SD_pooled, floor)` with k = 3 and the SD **pooled per
+metric across the baseline's datasets of the same kind** (a single
+3-replicate SD has a 95% CI of [0.52σ, 6.3σ] and cannot be trusted
+alone).
 
 ### Measured noise floor (6 threads, 3 replicates, this binary)
 
+Numbers below are from `recompute_metrics.py` with the current metric
+definitions (2026-09-29), i.e. what the committed baselines `harness-dev`
+and `harness-real-dev` actually store.
+
 Sim (mean ± sample SD over replicates):
 
-| dataset | matched_accuracy | ari | cell_count_ratio | recovery_rate |
-|---|---|---|---|---|
-| `sim_circles_gaps_g100` | 0.9872 ± 0.0002 | 0.9611 ± 0.0004 | 1.0353 ± 0.0020 | 1.000 ± 0.000 |
-| `sim_sparse_noisy_g100` | 0.9292 ± 0.0003 | 0.6603 ± 0.0014 | 1.1372 ± 0.0095 | 1.000 ± 0.000 |
-| `sim_tiled_distinct_g100` | 0.9898 ± 0.0002 | 0.9608 ± 0.0003 | 1.0217 ± 0.0023 | 1.000 ± 0.000 |
-| `strec_dense_s2_disjoint` | 0.5606 ± 0.0039 | 0.3964 ± 0.0023 | 1.0874 ± 0.0168 | 0.224 ± 0.020 |
+| dataset | accuracy_1to1 | matched_accuracy | ari_assigned | recovery | cell_count_ratio |
+|---|---|---|---|---|---|
+| `sim_circles_gaps_g100` | 0.9865 ± 0.0002 | 0.9870 ± 0.0002 | 0.9928 ± 0.0005 | 1.0000 ± 0.0000 | 1.0353 ± 0.0020 |
+| `sim_sparse_noisy_g100` | 0.9207 ± 0.0006 | 0.9286 ± 0.0003 | 0.9928 ± 0.0005 | 1.0000 ± 0.0000 | 1.1372 ± 0.0095 |
+| `sim_tiled_distinct_g100` | 0.9896 ± 0.0002 | 0.9896 ± 0.0002 | 0.9994 ± 0.0003 | 1.0000 ± 0.0000 | 1.0217 ± 0.0023 |
+| `strec_dense_s2_disjoint` | 0.5481 ± 0.0043 | 0.5606 ± 0.0039 | 0.3964 ± 0.0023 | 0.2240 ± 0.0200 | 1.0874 ± 0.0168 |
 
-The largest SDs across all sim metrics are 0.02 (`recovery_rate` on the hard
-`strec_dense` dataset); most are ≤ 0.01, i.e. comfortably inside the
-per-metric absolute floors (0.01–0.05) used by `--expect same`.
+Note `ari_assigned` vs the all-molecule `ari` on `sim_sparse_noisy_g100`:
+0.993 vs 0.66 — the gap is exactly the giant-unassigned-cluster artefact the
+assigned-only primary metric removes.
 
 Real, replicate-vs-replicate agreement (3 replicate pairs):
 
-| dataset | molecule ARI | assigned agreement | frac cells matched | median Jaccard | cell-count ratio |
-|---|---|---|---|---|---|
-| `xenium_pancreas_377_quick` | 0.8009 ± 0.0058 | 0.9998 | 0.8719 ± 0.0047 | 0.8413 | 0.9981 ± 0.0017 |
-| `xenium_breast_rep1_dense_quick` | 0.8458 ± 0.0105 | 0.9992 | 0.9155 ± 0.0102 | 0.8583 | 1.0011 ± 0.0057 |
-| `xenium_lung_cancer_quick` | 0.8567 ± 0.0011 | 0.9996 | 0.8866 ± 0.0031 | 0.8295 | 0.9972 ± 0.0013 |
+| dataset | ari_assigned | molecule_ari | assigned agreement | frac cells matched | median Jaccard | cell-count ratio |
+|---|---|---|---|---|---|---|
+| `xenium_pancreas_377_quick` | 0.7912 ± 0.0059 | 0.8009 ± 0.0058 | 0.9998 ± 0.0000 | 0.8719 ± 0.0047 | 0.8413 ± 0.0014 | 0.9981 ± 0.0017 |
+| `xenium_breast_rep1_dense_quick` | 0.8254 ± 0.0123 | 0.8458 ± 0.0105 | 0.9992 ± 0.0000 | 0.9155 ± 0.0102 | 0.8583 ± 0.0088 | 1.0011 ± 0.0057 |
+| `xenium_lung_cancer_quick` | 0.8281 ± 0.0017 | 0.8567 ± 0.0011 | 0.9996 ± 0.0001 | 0.8866 ± 0.0031 | 0.8295 ± 0.0042 | 0.9972 ± 0.0013 |
 
 So at 6 threads the segmentations themselves are **not** run-to-run stable
 (label-identity ARI ≈ 0.8) while assigned/unassigned status is essentially
-stable (≥ 0.999). The `--expect same` margins on real data
-(ARI −0.05, assigned −0.02, matched cells −0.10, Jaccard −0.10 below the
-replicate agreement) are drawn around this floor.
+stable (≥ 0.999).
 
 ## `compare.py`
 
 ```
-compare.py --run-id R --baseline NAME --expect {same,improved}
-           [--k 3] [--admixture-tolerance 0.01] [--report-md P] [--report-json P]
+compare.py --run-id R --baseline NAME [--expect {identical,same,improved}]
+           [--k 3] [--admixture-tolerance FLOOR] [--report-md P] [--report-json P]
 ```
 
 Exit code **0 = pass, 1 = fail, 2 = usage/setup error**. Reports are written
 to `runs/<R>/compare_<NAME>_<expect>.{md,json}` and the Markdown is printed.
+`--expect` defaults to **`identical`**, the default refactor gate.
 
-`--expect same` — unchanged algorithm must stay inside the noise floor:
+### `--expect identical` (default; the refactor gate)
 
-* every sim metric: `|run_mean − baseline_mean| ≤ max(k·SD_baseline, floor)`
-  with k = 3 and per-metric floors (matched accuracy/oracle gap 0.01, ARI/AMI
-  0.02, noise P/R 0.02, cell-count ratio 0.05, over/under-segmentation 0.05,
-  recovery 0.05, median Jaccard 0.05);
-* real: run-vs-baseline agreement (all run-rep × baseline-rep pairs) must be
-  ≥ baseline replicate-vs-replicate agreement − margin
-  (ARI −0.05, assigned −0.02, matched cells −0.10, Jaccard −0.10);
-  cell-count ratio within ±max(0.10, 3·SD) of 1 and median-molecules-per-cell
-  change within ±max(0.10, 3·SD) of 0 (10 % either way). A single-replicate
-  baseline without a replicate-agreement floor falls back to absolute minima
-  (0.90/0.95/0.75/0.75) with a warning.
+Baysor at 1 thread is bitwise-deterministic (findings above), so a change
+that must not alter behaviour can be verified exactly:
 
-`--expect improved` — changed algorithm must get better:
+* the run **and** the baseline must both have `threads == 1` and exactly
+  1 replicate — each violation fails;
+* for every dataset the `assignment_sha256` recorded per replicate in
+  `metrics.json` is compared against the baseline's; any mismatch fails;
+* on a mismatch the report shows the metric deltas (sim: every metric of
+  `sim.mean`; real: `real.rep_agreement` deltas plus pair metrics between
+  run rep0 and baseline rep0);
+* dataset content hashes are checked as in `same`.
 
-* mean sim matched accuracy over the baseline's sim datasets must **increase**
-  (strictly), and no individual sim dataset may drop by more than
-  `max(3·SD, 0.01)`;
-* every real dataset: `total_admixture_rate ≤ baseline + tolerance`
-  (default +0.01); unavailable audits are skipped with a warning;
+### `--expect same`
+
+Provenance gates (fail, not warn):
+
+* thread count must match between run and baseline, per dataset;
+* the binary sha256 must match per dataset (`same` means *unchanged
+  binary*; use `identical` for rebuilt-but-equivalent binaries);
+* `inputs.molecules_sha256` / `inputs.meta_sha256` must match when
+  recorded on both sides (recorded by the runner; `recompute_metrics.py`
+  backfills them). Missing hashes → `skip` + warning, never a pass silently
+  waved through.
+
+Metric gates — only the **primary** metrics can fail the run, everything
+else is informational:
+
+| kind | primary metrics | floors |
+|---|---|---|
+| sim | `accuracy_1to1`, `ari_assigned`, `recovery_rate`, `cell_count_ratio` | 0.01 / 0.02 / 0.05 / 0.03 |
+| real | `ari_assigned`, `frac_cells_matched`, `cell_count_ratio` | 0.02 / 0.05 / 0.03 |
+
+* tolerance = `max(k·SD_pooled, floor)`, k = 3, SD pooled per metric across
+  the baseline's datasets of the same kind (sim: replicate SDs of the
+  means; real: replicate-pair agreement SDs);
+* real checks measure the run-vs-baseline agreement (all run-rep ×
+  baseline-rep pairs) against the baseline's replicate agreement (and the
+  cell-count ratio against 1.0); a single-replicate baseline without
+  replicate agreement falls back to absolute minima (ARI ≥ 0.90, matched ≥
+  0.75) with a warning;
+* **false-alarm budget**: every gated check carries its normal-approximation
+  tail probability at the used tolerance; the report sums them
+  (`false-alarm budget: ~0.009 expected false failures across 16 gated
+  checks`) and warns when the budget exceeds 0.5.
+
+### `--expect improved`
+
+Improvement must exceed the noise:
+
+* the mean gain in `accuracy_1to1` over the baseline's sim datasets must
+  exceed **both** 2 standard errors (SE of the mean gain computed from the
+  per-dataset replicate SDs, `SE = sqrt(Σ(sd_r²/n_r + sd_b²/n_b))/D`) **and**
+  a minimum effect of 0.005;
+* no individual sim dataset may regress beyond `max(k·SD_pooled, floor)` in
+  `accuracy_1to1`, `ari_assigned`, `recovery_rate` or
+  `over_segmentation_rate`;
+* on real data: `total_admixture_rate ≤ baseline + max(k·SD, floor)`, where
+  SD is taken over the *baseline's* audit replicates (`--admixture-tolerance`
+  sets the floor, default 0). The check is gated **only** when the audit
+  status is `ok` in both run and baseline *and* the baseline crop has
+  ≥ 2000 cells; otherwise it is reported as `unavailable` (`skip`), never as
+  0;
+* an unchanged binary therefore cannot pass: +0.0001 mean gain ≪ 0.005
+  (verified on `rev-same-sim`, see calibration);
 * a baseline without sim datasets fails this mode — improvement cannot be
   demonstrated without sim truth.
 
-Both modes fail on: replicate failures/timeouts, datasets in the baseline
-missing from the run, and missing baseline assignment tables. Runtime and
-peak RSS are compared per dataset; a slowdown > 20 % or RSS growth > 20 %
-adds a warning (never a failure). A binary sha256 change is noted (expected
-for algorithm changes, suspicious for `same`).
+All modes fail on: replicate failures/timeouts, datasets in the baseline
+missing from the run, and (in `same`) missing baseline assignment tables.
+Runtime and peak RSS are compared per dataset; a slowdown > 20 % or RSS
+growth > 20 % adds a warning (never a failure). A binary sha256 change is
+expected for `improved`, informational otherwise.
+
+## Calibration (2026-09-29)
+
+Runs used (all exist under `$BAYSOR_BENCH_DATA/runs/`, all recorded with the
+same binary sha `68b1b505…`, 6 threads, 3 replicates; metrics recomputed
+with the current definitions, baselines regenerated from `harness-val1` /
+`harness-val3`):
+
+| run | role |
+|---|---|
+| `harness-val1`, `harness-val3` | baseline runs → `harness-dev`, `harness-real-dev` |
+| `rev-same-sim`, `rev-same-real` | unchanged binary, independent rerun |
+| `rev-scale09-sim`, `rev-scale09-real` | subtle change (`--scale-factor 0.9`) |
+| `harness-val2`, `harness-val4` | strong change (`--scale-factor 0.5`) |
+
+Reproduce:
+
+```bash
+$PY benchmarks/harness/recompute_metrics.py --run harness-val1 --run harness-val2 \
+    --run harness-val3 --run harness-val4 --run rev-same-sim --run rev-same-real \
+    --run rev-scale09-sim --run rev-scale09-real
+$PY benchmarks/harness/baseline.py create --run-id harness-val1 --name harness-dev --force
+$PY benchmarks/harness/baseline.py create --run-id harness-val3 --name harness-real-dev --force
+$PY benchmarks/harness/compare.py --run-id rev-same-sim --baseline harness-dev --expect same
+```
+
+Calibrated tolerances (`k = 3`; pooled SD from `harness-dev` /
+`harness-real-dev`):
+
+| kind | metric | pooled SD | floor | tolerance |
+|---|---|---|---|---|
+| sim | accuracy_1to1 | 0.00216 | 0.01 | 0.0100 |
+| sim | ari_assigned | 0.00123 | 0.02 | 0.0200 |
+| sim | recovery_rate | 0.01002 | 0.05 | 0.0500 |
+| sim | cell_count_ratio | 0.00978 | 0.03 | 0.0300 |
+| real | ari_assigned | 0.00795 | 0.02 | 0.0239 |
+| real | frac_cells_matched | 0.00674 | 0.05 | 0.0500 |
+| real | cell_count_ratio | 0.00350 | 0.03 | 0.0300 |
+
+Measured outcomes with these numbers:
+
+| comparison | expect | result |
+|---|---|---|
+| `rev-same-sim` vs `harness-dev` | `same` | **PASS** (32 gates, 0 fail) |
+| `rev-same-real` vs `harness-real-dev` | `same` | **PASS** (21 gates, 0 fail) |
+| `rev-same-sim` vs `harness-dev` | `improved` | **FAIL** — mean gain +0.00009 ≪ 0.005 (unchanged binary must not pass) |
+| `rev-same-real` vs `harness-real-dev` | `improved` | **FAIL** — no sim datasets in the baseline |
+| `rev-scale09-sim` vs `harness-dev` | `same` | **FAIL** — 2/4 datasets: `strec` (accuracy +0.023, cells +8.3 %), `sim_sparse_noisy` (cells +3.4 %) |
+| `rev-scale09-real` vs `harness-real-dev` | `same` | **FAIL** — 3/3 datasets (assigned-ARI −0.028…−0.046, cells +7…+11 %) |
+| `harness-val2` (scale 0.5) vs `harness-dev` | `same` | **FAIL** — 4/4 datasets, 14 gates |
+| `harness-val4` (scale 0.5) vs `harness-real-dev` | `same` | **FAIL** — 3/3 datasets, 9 gates |
+
+Scale × 0.9 fails `same` on **5 of 7 datasets** (all three real ones plus
+two sim). The three trivial sim datasets show no reaction to scale × 0.9 at
+all (deltas ≤ 0.0017, i.e. below the 6-thread replicate noise of 0.0006–0.003)
+— catching those would require tolerances smaller than the noise floor
+itself; use `--expect identical` at 1 thread to detect changes that small.
+False-alarm budgets: ~0.009 over 16 sim gates, ~0.008 over 9 real gates.
 
 ## Validation performed
 
@@ -302,55 +449,25 @@ All on this machine with the Release binary at
 `/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor`,
 data root `/home/vpetukhov/Projects/Baysor/.bench-data`:
 
-1. **Unit tests** (72): `cd benchmarks/harness/tests && $PY -m pytest -q` —
+1. **Unit/fixture tests** (94): `cd benchmarks/harness/tests && $PY -m pytest -q` —
    hand-made metric cases (perfect, one split, one merge, all noise,
-   permuted labels, st-recoverability divergence), command construction,
-   output alignment (positional, shuffled, loader-dropped, legacy CSV),
-   dataset selection, `/usr/bin/time` parsing, timeouts, baseline creation,
-   both compare modes incl. admixture tolerances, and an end-to-end pipeline
-   run against the real binary.
-2. **Sim pipeline** — `harness-val1`: 4 quick sim datasets × 3 reps
-   (`strec_dense_s2_disjoint`, `sim_sparse_noisy_g100`,
-   `sim_tiled_distinct_g100`, `sim_circles_gaps_g100`, 48k–116k molecules,
-   ~30 s per run at 6 threads) → baseline `harness-dev` →
-   `--expect same` against itself: **PASS** (41 checks);
-   `--expect same` against a scale-halved run (`harness-val2`,
-   `--scale-factor 0.5`): **FAIL** with 21 flagged checks. Note the halved
-   scale *raised* matched accuracy on the dense strec dataset (+0.086), so
-   that run legitimately passes `--expect improved`; a 20 %-random-reassign
-   degradation fails both modes (covered by `tests/test_pipeline.py`).
-3. **Real pipeline** — `harness-val3`: 3 quick Xenium datasets × 3 reps
-   (130k molecules, `prior: column`, ~35 s per run) → baseline
-   `harness-real-dev` → `--expect same` against itself: **PASS**
-   (18 checks); scale-halved run `harness-val4`: **FAIL** with 15 flagged
-   checks (ARI 0.59–0.65 vs required ≥ 0.796, cell counts 2.2×).
-   `--expect improved` on the real-only baseline fails with
-   "baseline contains no sim datasets" (by design) and skips the absent
-   cellAdmix audit gracefully.
-4. **Determinism** — `harness-det1a`/`harness-det1b`: 3 runs at `--threads 1`
-   on `xenium_pancreas_377_quick`, bitwise-identical assignments
-   (see findings above).
-
-Reproduce:
-
-```bash
-export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
-B=/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor
-$PY benchmarks/harness/run.py --baysor $B \
-    --datasets strec_dense_s2_disjoint,sim_sparse_noisy_g100,sim_tiled_distinct_g100,sim_circles_gaps_g100 \
-    --run-id harness-val1 --replicates 3
-$PY benchmarks/harness/baseline.py create --run-id harness-val1 --name harness-dev --force
-$PY benchmarks/harness/compare.py --run-id harness-val1 --baseline harness-dev --expect same
-$PY benchmarks/harness/run.py --baysor $B --kind real \
-    --datasets xenium_pancreas_377_quick,xenium_breast_rep1_dense_quick,xenium_lung_cancer_quick \
-    --run-id harness-val3 --replicates 3
-$PY benchmarks/harness/baseline.py create --run-id harness-val3 --name harness-real-dev --force
-$PY benchmarks/harness/compare.py --run-id harness-val3 --baseline harness-real-dev --expect same
-```
-
-`harness-dev` and `harness-real-dev` are committed under
-`../baselines/` as working examples; replace them once the final
-baseline run is agreed on.
+   permuted labels, majority-noise rule, 50-molecule noise rule,
+   assigned-only ARI, one-to-one vs many-to-one, st-recoverability
+   divergence), command construction, output alignment (positional,
+   shuffled, loader-dropped, legacy CSV), dataset selection,
+   `/usr/bin/time` parsing, timeouts, baseline creation, `recompute_metrics`,
+   and end-to-end `compare.py` tests for **all three modes** on synthetic
+   metric JSONs (identical sha pass/mismatch/thread/replicate gates;
+   same-mode primary gates, provenance/content-hash gates, pooled tolerances,
+   false-alarm budget; improved-mode 2-SE + min-effect aggregate, regression
+   gates, admixture gating conditions) plus an end-to-end pipeline run
+   against the real binary.
+2. **Calibration** — the table in the section above: unchanged runs pass
+   `same` and fail `improved`, scale × 0.9 fails `same` on most datasets,
+   scale × 0.5 fails `same` everywhere.
+3. **Determinism** — `harness-det1a`/`harness-det1b`: runs at `--threads 1`
+   on `xenium_pancreas_377_quick`, bitwise-identical assignments (see
+   findings above); this is what the `identical` mode gates on.
 
 ## Tests
 
