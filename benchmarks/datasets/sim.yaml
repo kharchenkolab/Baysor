@@ -2,19 +2,40 @@
 #
 # Regenerate everything with:
 #   BAYSOR_BENCH_DATA=... .deps/bench/bin/python benchmarks/simulate/generate_all.py
+#   ... generate_all.py --update-hashes     # (re)record the sha256 block below
 # Regenerate one dataset and verify byte-identity:
-#   ... generate_all.py --verify <id>
+#   ... generate_all.py --verify <id>       # disk + regeneration vs this manifest
+#   ... generate_all.py --verify-all
 #
 # Design notes:
 # * The trivial panel variants (g100/g1000/g5000) and the tiled pair share one
 #   seed, so they share geometry and molecule counts; only the gene panel (and
 #   for tiled_distinct the type profiles) changes — a controlled panel ablation.
-# * st-recoverability datasets are a design over the three factors (packing,
-#   displacement sigma, expression model), not the full cartesian product;
-#   dense + sigma=2 + realistic is covered by strec_dense_s2_merfish and
-#   strec_dense_s2_xenium.
-# * All datasets are quick tier (<= ~150k molecules) except the single
-#   full-tier tiled_distinct at 1000 genes (~1M molecules).
+# * st-recoverability datasets are a design over the factors (packing,
+#   displacement sigma, expression model, geometry, ambient noise), not the
+#   full cartesian product; dense + sigma=2 + realistic is covered by
+#   strec_dense_s2_merfish and strec_dense_s2_xenium.
+# * `<id>_noprior` entries are derived from their base entry: the same
+#   molecules with the prior column dropped and baysor.prior = none, so
+#   Baysor's default no-prior mode is measured against identical truth.
+#   (No noprior variant of the full-tier tiled_distinct: new datasets must
+#   stay in the quick tier; sim_tiled_distinct_g1000_noprior covers the same
+#   scenario and panel.)
+# * `<id>_imprior` entries share their base's seed and params but degrade the
+#   prior column (20% nuclei missed, nuclei shifted 1-2 um, 5% of priors
+#   merged onto a neighbour); the truth is unchanged.
+# * strec_*_ambient5/20 add 5%/20% uniform background molecules (cell = 0)
+#   in the wrapper; strec_ultrasparse_* is a truly sparse field (1000
+#   cells/mm2, contract class "sparse"); prime5k models come from the Xenium
+#   Prime 5K ovarian cell_feature_matrix.h5 (fetched via remotezip);
+#   *_aniso uses the upstream anisotropic label mode (elongated cells);
+#   *_3d adds a z column in the wrapper; *_full is the single ~1M-molecule
+#   full-tier dataset.
+# * Every entry records the sha256 of molecules.parquet and meta.json; they
+#   are checked by generate_all.py --verify-all.
+# * All datasets are quick tier (<= ~150k molecules) except the two full-tier
+#   entries (tiled_distinct at 1000 genes, dense strec xenium at ~1M
+#   molecules).
 
 version: 1
 
@@ -37,6 +58,13 @@ generators:
       merfish: squidpy MERFISH_0.24.h5ad mirror, figshare file 40038538
       xenium: Xenium_FFPE_Human_Breast_Cancer_Rep1 (10x release 1.0.1),
         cell_feature_matrix.h5 + cells.parquet fetched from outs.zip via remotezip
+      prime5k: Xenium_Prime_Ovarian_Cancer_FFPE_XRrun (10x release 3.0.0),
+        cell_feature_matrix.h5 fetched from outs.zip via remotezip
+  noprior:
+    entry: benchmarks/simulate/generate_all.py (derive)
+    generator_version: 1
+    note: "derived from another entry (base): same molecules, no prior
+      column, meta.baysor.prior = none"
 
 datasets:
   # --- trivial: circles_gaps panel ablation (shared geometry) --------------
@@ -46,18 +74,21 @@ datasets:
     tier: quick
     seed: 1201
     params: {n_genes: 100}
+    sha256: {molecules.parquet: d838ccae908b33650b4dc717a86d2e06788132252317d35ef2580747f6af0690, meta.json: f1fd98f095c8d907c8745d170e32b7dc78f9d8242e63f112db158cead534eccc}
   - id: sim_circles_gaps_g1000
     generator: trivial
     scenario: circles_gaps
     tier: quick
     seed: 1201
     params: {n_genes: 1000}
+    sha256: {molecules.parquet: b1a9624af4801de57aa40060a8dd4419dd635acf6429056e21dc70d530db9304, meta.json: b64ac75503d6203f03f29480cb7112dfe19d71c4782716e9116843a6460f86bf}
   - id: sim_circles_gaps_g5000
     generator: trivial
     scenario: circles_gaps
     tier: quick
     seed: 1201
     params: {n_genes: 5000}
+    sha256: {molecules.parquet: 390b503faabb7b132df71979ee49438b320d0fa8fb0467da25657e57ff24f09a, meta.json: f5064fd023961204e7fd5babfb802f49518da309d588134a01b0ff918591eef9}
 
   # --- trivial: tiled boundaries resolvable by composition only ------------
   - id: sim_tiled_distinct_g100
@@ -66,24 +97,28 @@ datasets:
     tier: quick
     seed: 1201
     params: {n_genes: 100}
+    sha256: {molecules.parquet: e79ab97880c938d92b5e8333bab588e9d9fd92e67ca0b599a154bb3f4410d656, meta.json: 15d3b54dd47471b5cf819040ba36d5b0bc163e145fad9dcfe62969489ae96873}
   - id: sim_tiled_distinct_g1000
     generator: trivial
     scenario: tiled_distinct
     tier: quick
     seed: 1201
     params: {n_genes: 1000}
+    sha256: {molecules.parquet: 6dd0f90e7cce5e706b302d6b0aa11e1064aff64a1969aebc093ba214a2b13bc8, meta.json: 2951b0ce7ba36db1ae156f498aba76092d4e55c3bab76e5d53e675bd91bf9535}
   - id: sim_tiled_distinct_g5000
     generator: trivial
     scenario: tiled_distinct
     tier: quick
     seed: 1201
     params: {n_genes: 5000}
+    sha256: {molecules.parquet: 7fa096c56d3396f3cd8cb0951db642f4410ed11d3131c1110b81d88583e7e3c4, meta.json: 528b34671cb08aec40effa8cf74654b18c75658cf62718c487f9f4015e42bcc1}
   - id: sim_tiled_distinct_g1000_full
     generator: trivial
     scenario: tiled_distinct
     tier: full
     seed: 1201
     params: {n_genes: 1000, extent_um: 1100.0}
+    sha256: {molecules.parquet: ed70ef5b0080933ea1e9675b37041958ad25772bee44d2cd9f9835764fc4358a, meta.json: 85446adfadd16c88ffcca47b0e99d2dc1f6fdfdc5ad755d86712bc3e63c88bef}
 
   # --- trivial: hard control, single type ----------------------------------
   - id: sim_tiled_same_g100
@@ -92,6 +127,7 @@ datasets:
     tier: quick
     seed: 1201
     params: {n_genes: 100}
+    sha256: {molecules.parquet: a047e2454eb80d886ced854e04f1d7934e94caf1a1537a00fb7cac36b88c3e5d, meta.json: 9aabad5d91e52e2ca5aefc01e4d1b14da7366be7f39f20289a5fcfe9af68f44e}
 
   # --- trivial: other scenarios --------------------------------------------
   - id: sim_mixed_sizes_g100
@@ -100,18 +136,118 @@ datasets:
     tier: quick
     seed: 1202
     params: {n_genes: 100}
+    sha256: {molecules.parquet: 86bd4bdfc3307857932017427c82977b20226ec0eaef20cd9d54075f877e1703, meta.json: 8c48d63f127e48092bf7b6a4a2f5b7b2f8c5a2f133dc6834b3b0d0473dec7f78}
   - id: sim_sparse_noisy_g100
     generator: trivial
     scenario: sparse_noisy
     tier: quick
     seed: 1203
     params: {n_genes: 100}
+    sha256: {molecules.parquet: 2f1530fa8d1405ba5eba4f68fb20783ce6333195f75f8d3d0f72ff2baad3c704, meta.json: d321d0a1271b3f37c8015007786b5bdacc2a501c3d18efb761d0a00b60f4da40}
   - id: sim_circles_gaps_3d_g100
     generator: trivial
     scenario: circles_gaps_3d
     tier: quick
     seed: 1204
     params: {n_genes: 100}
+    sha256: {molecules.parquet: b9c4cc671e3a5bf67c8c59d1f2a79687887f0fa1541cb7255a9e5ef2d356a2a6, meta.json: 6022ec6bc6b80b71f12b60176fe0fab3527009c3a62b68cbfdee059b1910277d}
+  - id: sim_elongated_gaps_g100
+    generator: trivial
+    scenario: elongated_gaps
+    tier: quick
+    seed: 1205
+    params: {n_genes: 100}
+    sha256: {molecules.parquet: 530a64db40dced45634fae9ba696bb358c8b9415b97b2fcce0bd3781da9b3b8d, meta.json: 24ca3a6e1a8e2b33acdfc1dfcee67cd9cd90894dbb79e56cbbf878a64da691ea}
+
+  # --- trivial: no-prior variants (same molecules, prior column dropped) ---
+  - id: sim_circles_gaps_g100_noprior
+    generator: noprior
+    base: sim_circles_gaps_g100
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: aa331ba75aa50e3f85ea9cec760e70fd6461fe05786f36ce1c79229ef0722a20, meta.json: 0751eeacebf3fdb19007194b4f1239e64ff08b757a79c065ffd36a5e4746b963}
+  - id: sim_circles_gaps_g1000_noprior
+    generator: noprior
+    base: sim_circles_gaps_g1000
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: 8edc47ed41c6beb7608e226d6edda3deabee6bd1a9d937013b2b9ecbeed35f86, meta.json: af25dca8136239782c65f67f4fe369c3517439f637b50855080239da56673872}
+  - id: sim_circles_gaps_g5000_noprior
+    generator: noprior
+    base: sim_circles_gaps_g5000
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: f50d7a60d708a6598fd31f891c23bf4708a12b1cc309c24e1d4660ef73578cc9, meta.json: ae2c12a698c7316a3232b024bc80a48c74e571a0c29128a7eaea28f8c05b63ec}
+  - id: sim_tiled_distinct_g100_noprior
+    generator: noprior
+    base: sim_tiled_distinct_g100
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: 90cbf9e24fc82e9d4c63e22629edee65ddfc06ed891d3be5bc387628d2ee8d9c, meta.json: a086554b80385312b2c9db373a882af08bb12f4905ae47d5bec16fd1993f3647}
+  - id: sim_tiled_distinct_g1000_noprior
+    generator: noprior
+    base: sim_tiled_distinct_g1000
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: 85cc93a17906b640dfeafdbffbb270423d64ade73e1ce00783f8f66cefdaaa96, meta.json: 85c27ad3438c65846f885d22db93fc6e2c5d74d8c27544ce53785185cf1e0fc8}
+  - id: sim_tiled_distinct_g5000_noprior
+    generator: noprior
+    base: sim_tiled_distinct_g5000
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: 64da79701e4b09202597a9403ed5a915b965ca1415d48bb59cfa4036a97f1f61, meta.json: aa98a1797692760db560cb1068fcab1584769c9406147b85f3e2bb3003079fd0}
+  - id: sim_tiled_same_g100_noprior
+    generator: noprior
+    base: sim_tiled_same_g100
+    tier: quick
+    seed: 1201
+    sha256: {molecules.parquet: dedbbe41ceefd78083c09353eb1ba2d6b8372a9148c40b139b6eefd9a2d62817, meta.json: d91f3c6e7ef6c957793510993c99c820a95a6a6d0c6c2c76f442665174e6e313}
+  - id: sim_mixed_sizes_g100_noprior
+    generator: noprior
+    base: sim_mixed_sizes_g100
+    tier: quick
+    seed: 1202
+    sha256: {molecules.parquet: e121e060b10c1aea62db7f175fd2715beb130034f31fd446cd38707f54dad1de, meta.json: e08c9a31fa23e3f9597ff45e0d47fe244d18e11d79e4ea96c927fde2dbc62891}
+  - id: sim_sparse_noisy_g100_noprior
+    generator: noprior
+    base: sim_sparse_noisy_g100
+    tier: quick
+    seed: 1203
+    sha256: {molecules.parquet: ccd7faae80491f4205d6678fe816d233bb31f18ba707a08c3206927f4835ca45, meta.json: aa30384fdad0cef4aa1f499f963c2036c7bf485e464f84735c2d8757896f0dc3}
+  - id: sim_circles_gaps_3d_g100_noprior
+    generator: noprior
+    base: sim_circles_gaps_3d_g100
+    tier: quick
+    seed: 1204
+    sha256: {molecules.parquet: 2e673b0bb04cfa561f248ce4bf26b72be7dc1049f0dcc4bbdf23f95d0e5bd13f, meta.json: ea2908c33b1e8487e461b6a49b320025efdd7d6d53d439883573920702002874}
+  - id: sim_elongated_gaps_g100_noprior
+    generator: noprior
+    base: sim_elongated_gaps_g100
+    tier: quick
+    seed: 1205
+    sha256: {molecules.parquet: fac99221d3ffc7a224c3e616fad1eb4f69db7ea42e6ab2be7d99745268c3cf12, meta.json: 501a7474f1771ca94126b9eb7d7549d6365980ac46102dfab514530952d32ad9}
+
+  # --- trivial: imperfect-prior variants (truth unchanged) -----------------
+  - id: sim_circles_gaps_g100_imprior
+    generator: trivial
+    scenario: circles_gaps
+    tier: quick
+    seed: 1201
+    params:
+      n_genes: 100
+      prior_opts: {kind: imperfect, base: sim_circles_gaps_g100, seed: 7301,
+        miss_frac: 0.2, shift_um: [1.0, 2.0], merge_frac: 0.05}
+    sha256: {molecules.parquet: e5b0b811f50bef6d40518f1f976ecd8b2c4e21260188e74484c714de7477e8d8, meta.json: 0330c0bb5c148884571845f1d7c4c6ef49e5c21e049317d3a5f8ce166bb4b4c0}
+  - id: sim_mixed_sizes_g100_imprior
+    generator: trivial
+    scenario: mixed_sizes
+    tier: quick
+    seed: 1202
+    params:
+      n_genes: 100
+      prior_opts: {kind: imperfect, base: sim_mixed_sizes_g100, seed: 7302,
+        miss_frac: 0.2, shift_um: [1.0, 2.0], merge_frac: 0.05}
+    sha256: {molecules.parquet: 511e57e32e53157df2233f441e7f269e6538e7a0182b8db28c6d495904fcebca, meta.json: 38c8b29c1bc70e5cab73da866e24df5ec1f1b3857f4ec52bfa1f58a74b3e3b3a}
 
   # --- st-recoverability design -------------------------------------------
   - id: strec_sparse_s1_disjoint
@@ -119,48 +255,171 @@ datasets:
     tier: quick
     seed: 910001
     params: {packing: 2575, sigma: 1.0, model: disjoint}
+    sha256: {molecules.parquet: d01944be8b02ad27b4be6099e5a9f6a491f64a4c1d97520e3323ea6d10095d1c, meta.json: 150ae941f0336de0b5d575acf2497823470a4e0dc00c0aff02a8a4d69e17763a}
   - id: strec_sparse_s2_disjoint
     generator: strec
     tier: quick
     seed: 910002
     params: {packing: 2575, sigma: 2.0, model: disjoint}
+    sha256: {molecules.parquet: ae82db43d1fd8ce2622761af25cba22195cda63b6bba087604f1ee4fcd7fc53a, meta.json: 2fc923053b5269c56be9d105489c31c34ff76f1f06d370df64d7d5411b997a74}
   - id: strec_sparse_s2_merfish
     generator: strec
     tier: quick
     seed: 910003
     params: {packing: 2575, sigma: 2.0, model: merfish}
+    sha256: {molecules.parquet: cbf7a8f66ccac5841d31a5eca62d9853d554985746a85bd567bfddb4fb74707f, meta.json: be5d4785255bd6b76fc8ea6efbccac0230c420f5ac3c8d66a32b55edfe1199b2}
   - id: strec_medium_s2_disjoint
     generator: strec
     tier: quick
     seed: 910004
     params: {packing: 6000, sigma: 2.0, model: disjoint}
+    sha256: {molecules.parquet: c5ae6f60d78459bd67d2921a9f86bd4799cad4906831fdf934c1aa165f1a415d, meta.json: 354e5c518a4c59e6d3050011618f1de6f6079f56f8005d24fded35a58c013874}
   - id: strec_medium_s3_xenium
     generator: strec
     tier: quick
     seed: 910005
     params: {packing: 6000, sigma: 3.0, model: xenium}
+    sha256: {molecules.parquet: 73b97d1cec8700771c1b4ea41deb6296e6f3992b106901e57c8acabb6d020a76, meta.json: e6c8e57cbcd583b1518e0e6fa35c041f815d1c50f3ccee91aa7060a08e84103b}
   - id: strec_dense_s1_disjoint
     generator: strec
     tier: quick
     seed: 910006
     params: {packing: 13625, sigma: 1.0, model: disjoint}
+    sha256: {molecules.parquet: cd14b4f43e8a9e5527b0334eca3b0333aea47c78ae2be34f856d661eddcdea6e, meta.json: f7337884274261cb39901aa9871d59965ea9c08e8e8045e26df61446a9d2774f}
   - id: strec_dense_s2_disjoint
     generator: strec
     tier: quick
     seed: 910007
     params: {packing: 13625, sigma: 2.0, model: disjoint}
+    sha256: {molecules.parquet: 6b0838d82daad3efab3692b5e23f9618d842035a248065eb0fc88926f237a366, meta.json: 9ab1d25d2f36a64dd9b8b1463f9b72c1bcf278f21ea31fe0471aa6061fb22b1e}
   - id: strec_dense_s3_disjoint
     generator: strec
     tier: quick
     seed: 910008
     params: {packing: 13625, sigma: 3.0, model: disjoint}
+    sha256: {molecules.parquet: 419e50343b4dc1c47ee6a4113cc5fad4a0c755ee5fa22348f79d78a52385a6ac, meta.json: e2c391c7fecd3889f6c8e9bc50e69894ebc7798404c34250ad5c59b62a009923}
   - id: strec_dense_s2_merfish
     generator: strec
     tier: quick
     seed: 910009
     params: {packing: 13625, sigma: 2.0, model: merfish}
+    sha256: {molecules.parquet: 6a3b5b3262601c2887eaea2d6fbc963bd82e5061e54f498078cf75436cb91f02, meta.json: 5ae526797bc3ec128a14aeb3b715244473a4c5e184809cf394d7cfe69b296195}
   - id: strec_dense_s2_xenium
     generator: strec
     tier: quick
     seed: 910010
     params: {packing: 13625, sigma: 2.0, model: xenium}
+    sha256: {molecules.parquet: 2ee801fc6cc9303b1eb5739b3c792134269b4c93ea14084131efbc580eca6f7e, meta.json: 077daa0badb78499f56a2f2d6a08ca8b355c23bc5909f1fe13dcc8d8065a9db9}
+
+  # --- st-recoverability extensions ----------------------------------------
+  - id: strec_dense_s2_disjoint_ambient5
+    generator: strec
+    tier: quick
+    seed: 910011
+    params: {packing: 13625, sigma: 2.0, model: disjoint, bg_frac: 0.05}
+    sha256: {molecules.parquet: 9d25f4d33b9654d57627560731b798bf83c104ba7a5c82274d5b3f0990d2c782, meta.json: 6e891188ccbe9118ba86dab028d1bac754571ae5952c22f698dfbe9ce9876ce2}
+  - id: strec_dense_s2_merfish_ambient20
+    generator: strec
+    tier: quick
+    seed: 910012
+    params: {packing: 13625, sigma: 2.0, model: merfish, bg_frac: 0.2}
+    sha256: {molecules.parquet: c1cb0721a97a60262af1ed70328781dc472d26afe4781ecf54ed47a72608aec3, meta.json: b48949e5062fe7d03e4ce26aa817fc8c224d4b26de845c3ec1270515d87b212b}
+  - id: strec_ultrasparse_s2_disjoint
+    generator: strec
+    tier: quick
+    seed: 910013
+    params: {packing: 1000, sigma: 2.0, model: disjoint}
+    sha256: {molecules.parquet: f34985053e900309754fde44b177c115ccd772ba63d148b3451040cd6926880b, meta.json: 1aa55b581845c0be29101eedb222b89ba1299386f2ef19b11aecf0cb4845df5d}
+  - id: strec_dense_s2_prime5k1000
+    generator: strec
+    tier: quick
+    seed: 910014
+    params: {packing: 13625, sigma: 2.0, model: prime5k1000}
+    sha256: {molecules.parquet: 05f776e506b5a05bd31ebb5c2f5ed58f8f9b45291fc1c4b8f90f4a9ec63c0191, meta.json: a4fbc4203a7dfea5e4c84c31e424528d132c262c811c60afa7dafde282c93657}
+  - id: strec_dense_s2_prime5k5000
+    generator: strec
+    tier: quick
+    seed: 910014
+    params: {packing: 13625, sigma: 2.0, model: prime5k5000}
+    sha256: {molecules.parquet: b2df7a895d6742b8a010ff2d96415e57e934caad626c3d24a4c4a7287c6edc86, meta.json: 4efd986333df92d5590e2eff08834a925ab50086d2e5e6de5eacb5dbc2d75b7a}
+  - id: strec_dense_s2_merfish_aniso
+    generator: strec
+    tier: quick
+    seed: 910015
+    params: {packing: 13625, sigma: 2.0, model: merfish, geometry: aniso}
+    sha256: {molecules.parquet: 29860816ab778bec4f4fb5573ccdbf853cf45f1327bd8f7a87035cc029f0649b, meta.json: d477b1067233e40d27800c70f4d230390ddea7a44112189e9c374378900bd1b1}
+  - id: strec_dense_s2_disjoint_3d
+    generator: strec
+    tier: quick
+    seed: 910016
+    params: {packing: 13625, sigma: 2.0, model: disjoint, z_slab_um: 6.0}
+    sha256: {molecules.parquet: aee1d4bb4517026caf498589ae4bce1e527271b7b2bcd2218e46949128c1238d, meta.json: 363996d93f1444e64e576e6f793218204605ce0a92ca1beb4ee647a24ff24ad2}
+  - id: strec_dense_s2_xenium_full
+    generator: strec
+    tier: full
+    seed: 910017
+    params: {packing: 13625, sigma: 2.0, model: xenium, n_target: 2500,
+      mean_tx: 400}
+    sha256: {molecules.parquet: c7a8d01f0c7ce87794b9128522a0c7670699e6f0714dbd79c015afbbfb8f3110, meta.json: bd021c6df3bb75acf5627661ef1a3bb1e75cfb9f7307865983356b94893238fd}
+
+  # --- st-recoverability: no-prior variants --------------------------------
+  - id: strec_sparse_s1_disjoint_noprior
+    generator: noprior
+    base: strec_sparse_s1_disjoint
+    tier: quick
+    seed: 910001
+    sha256: {molecules.parquet: 42f4d0d95fbcd63292cfc95a99177692f5ef0aca2a7f6d22e77948f71abf5172, meta.json: 0ebb25ddf438cd0d1a5e14d570b20058b53896eb41190233346c2dfcad5b2922}
+  - id: strec_sparse_s2_merfish_noprior
+    generator: noprior
+    base: strec_sparse_s2_merfish
+    tier: quick
+    seed: 910003
+    sha256: {molecules.parquet: d31e61019789f7b21aa3e3582a5905b7824f7437c88888d8209a200f5500a92f, meta.json: f919931d0720d222e61f5fca8a5a3d8274cfa7083f25226d34c97c54f00ef87d}
+  - id: strec_medium_s3_xenium_noprior
+    generator: noprior
+    base: strec_medium_s3_xenium
+    tier: quick
+    seed: 910005
+    sha256: {molecules.parquet: 7f24695b0ccd6f37977303d42911c5f880258b45fa9411d630ddc75490ee06d7, meta.json: f7de6d92881014b8f1d6818696e23c8442b415b9226f070a1e0b94f027e3d9be}
+  - id: strec_dense_s1_disjoint_noprior
+    generator: noprior
+    base: strec_dense_s1_disjoint
+    tier: quick
+    seed: 910006
+    sha256: {molecules.parquet: bf6c3cfc1611dd7d4c69020bad9d5c3182d09bf6cc606b627a6f783649b387dd, meta.json: 259324a657294f8d209207762e271f2f69ab2fd8a0ed1c576c3e2e19d8b5ed7f}
+  - id: strec_dense_s2_disjoint_noprior
+    generator: noprior
+    base: strec_dense_s2_disjoint
+    tier: quick
+    seed: 910007
+    sha256: {molecules.parquet: 76c9ee9ddc57969bcc2cbbeaa1d98145abcb8e1f721f3d3fa5ca399424c3ecd7, meta.json: 32a9ea7e87d74015e0101d405d09430bd5a0dc6a4cb9f665817ec1a4af6ce6ab}
+  - id: strec_dense_s2_merfish_noprior
+    generator: noprior
+    base: strec_dense_s2_merfish
+    tier: quick
+    seed: 910009
+    sha256: {molecules.parquet: c0437bc3e4a8d25b053e741e0efc4c55eada9a3a6628a2bfa1b63a6de74a5e88, meta.json: ebc3af7a21e0bc53ed6d20d7cba08d4ea8a1feb6554ce54bd55de487b6ddd2f5}
+
+  # --- st-recoverability: imperfect-prior variants (truth unchanged) -------
+  - id: strec_medium_s3_xenium_imprior
+    generator: strec
+    tier: quick
+    seed: 910005
+    params:
+      packing: 6000
+      sigma: 3.0
+      model: xenium
+      prior_opts: {kind: imperfect, base: strec_medium_s3_xenium, seed: 7303,
+        miss_frac: 0.2, shift_um: [1.0, 2.0], merge_frac: 0.05}
+    sha256: {molecules.parquet: 1a098634601e6f7d2d15a1d3e6441bd358e07c49df459761034686dfb59a6bf3, meta.json: 0b723d7001467ce3b933e51f79193f04cea354cde1abdfeeca06617f89610ca1}
+  - id: strec_dense_s2_merfish_imprior
+    generator: strec
+    tier: quick
+    seed: 910009
+    params:
+      packing: 13625
+      sigma: 2.0
+      model: merfish
+      prior_opts: {kind: imperfect, base: strec_dense_s2_merfish, seed: 7304,
+        miss_frac: 0.2, shift_um: [1.0, 2.0], merge_frac: 0.05}
+    sha256: {molecules.parquet: 58d038e64df3e13061999fc43562298785cf1d5adb5a280219c268169fc4216a, meta.json: 48b603b4feeb14417baa7699c917bd96d800eb5cc7bdceed21ad95fe202f002d}

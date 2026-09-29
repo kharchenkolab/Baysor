@@ -176,3 +176,63 @@ def test_child_rngs_independent_streams():
     x = c["x"].random(5)
     y = c["y"].random(5)
     assert not np.array_equal(x, y)
+
+
+def test_imperfect_nucleus_prior_rates_and_determinism():
+    rng = np.random.default_rng(0)
+    centers = rng.uniform(0, 100, size=(200, 2))
+    xy = centers[rng.integers(0, 200, 1000)] + rng.normal(0, 1, (1000, 2))
+    label, info = common.imperfect_nucleus_prior(
+        xy, centers, 3.0, seed=42, miss_frac=0.2, shift_um=(1.0, 2.0),
+        merge_frac=0.05)
+    assert info["n_missed"] == 40
+    assert info["n_merge_sources"] == 10
+    assert set(np.unique(label)) <= set(range(0, 201))
+    # missed (and merged-away) nuclei never appear in the prior
+    absent = set(range(1, 201)) - set(np.unique(label))
+    assert len(absent) >= info["n_missed"]
+    # shifted centres change some labels vs the perfect prior
+    perfect, _ = common.nucleus_prior(xy, centers, 3.0)
+    assert (label != perfect).any()
+    # deterministic
+    label2, info2 = common.imperfect_nucleus_prior(
+        xy, centers, 3.0, seed=42, miss_frac=0.2, shift_um=(1.0, 2.0),
+        merge_frac=0.05)
+    assert np.array_equal(label, label2) and info == info2
+    # different seed -> different result
+    label3, _ = common.imperfect_nucleus_prior(
+        xy, centers, 3.0, seed=43, miss_frac=0.2, shift_um=(1.0, 2.0),
+        merge_frac=0.05)
+    assert not np.array_equal(label, label3)
+
+
+def test_imperfect_nucleus_prior_3d_shifts_in_plane():
+    rng = np.random.default_rng(1)
+    centers = rng.uniform(0, 50, size=(50, 3))
+    centers[:, 2] = 3.0
+    xy = centers.copy()
+    label, info = common.imperfect_nucleus_prior(xy, centers, 4.0, seed=5,
+                                                 miss_frac=0.0,
+                                                 shift_um=(1.0, 2.0),
+                                                 merge_frac=0.0)
+    # every centre moved by 1-2 um in the x-y plane; z untouched
+    assert info["n_missed"] == 0 and info["n_merge_sources"] == 0
+    assert (label > 0).all()          # self still within radius at own point
+    label2, _ = common.imperfect_nucleus_prior(xy, centers, 4.0, seed=5,
+                                               miss_frac=0.0,
+                                               shift_um=(1.0, 2.0),
+                                               merge_frac=0.0)
+    assert np.array_equal(label, label2)
+
+
+def test_imperfect_nucleus_prior_validates_inputs():
+    centers = np.zeros((10, 2))
+    with pytest.raises(ValueError, match="miss_frac"):
+        common.imperfect_nucleus_prior(centers, centers, 3.0, seed=1,
+                                       miss_frac=1.5)
+    with pytest.raises(ValueError, match="merge_frac"):
+        common.imperfect_nucleus_prior(centers, centers, 3.0, seed=1,
+                                       merge_frac=-0.1)
+    with pytest.raises(ValueError, match="shift_um"):
+        common.imperfect_nucleus_prior(centers, centers, 3.0, seed=1,
+                                       shift_um=(2.0, 1.0))

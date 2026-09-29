@@ -1,6 +1,6 @@
 """Trivial simulated datasets with exact ground truth.
 
-Six scenarios (see ``benchmarks/datasets/sim.yaml`` for the instances):
+Seven scenarios (see ``benchmarks/datasets/sim.yaml`` for the instances):
 
 1. ``circles_gaps``    round cells of equal radius on a jittered hex lattice
                        with clear gaps; several cell types, ~1% uniform
@@ -20,6 +20,10 @@ Six scenarios (see ``benchmarks/datasets/sim.yaml`` for the instances):
                        noise.
 6. ``circles_gaps_3d`` 3D spheres in a thin slab, ``z`` column present, cells
                        cut by the section.
+7. ``elongated_gaps``  fibroblast-like (8 x 3 um) and neuron-like (11 x 2.4 um)
+                       elongated cells with random orientations and clear gaps;
+                       composition is not enough at the contacts, the shape and
+                       the prior carry the signal.
 
 Every scenario is a function of explicit parameters plus a seed and returns
 ``(molecules_df, meta)`` following ``benchmarks/README.md``.  Molecule counts
@@ -178,9 +182,11 @@ def _capture_params(fn, env: dict, seed: int, dataset_id: str, tier: str) -> dic
 
     ``env`` is the scenario's ``locals()``: every signature parameter is bound
     there, so the recorded values are what was really used, not the defaults.
+    ``prior_opts`` is excluded: it only perturbs the prior column and lives in
+    ``truth.prior`` instead (keeps ``truth.params`` schema-stable).
     """
     names = inspect.signature(fn).parameters
-    params = {k: env[k] for k in names}
+    params = {k: env[k] for k in names if k != "prior_opts"}
     params.update(seed=seed, dataset_id=dataset_id, tier=tier)
     return params
 
@@ -191,12 +197,15 @@ def _assemble(*, dataset_id: str, tier: str, scenario: str, seed: int,
               mol_genes: np.ndarray, type_of_cell: np.ndarray,
               type_names: list[str], interior_margin: float,
               r_nucleus: np.ndarray | float, bg_frac: float, bg_xy: np.ndarray,
-              bg_genes: np.ndarray, scale_um: float, notes: str
+              bg_genes: np.ndarray, scale_um: float, notes: str,
+              prior_opts: dict | None = None
               ) -> tuple[pd.DataFrame, dict]:
     """Build the contract molecule table + ``meta.json`` payload.
 
     ``centers`` is ``(N, 2)`` (2D scenarios) or ``(N, 3)`` (3D); ``mol_xy`` /
-    ``bg_xy`` match that dimensionality.
+    ``bg_xy`` match that dimensionality.  ``prior_opts`` optionally degrades
+    the nucleus prior (``kind: imperfect``, see
+    :func:`common.imperfect_nucleus_prior``); the truth columns never change.
     """
     n_cells = len(centers)
     interior_cell = (
@@ -206,7 +215,22 @@ def _assemble(*, dataset_id: str, tier: str, scenario: str, seed: int,
     n_bg = len(bg_xy)
 
     obs_all = np.vstack([mol_xy, bg_xy])
-    prior, _ = common.nucleus_prior(obs_all, centers, r_nucleus)
+    prior_info = None
+    if prior_opts:
+        if prior_opts.get("kind", "imperfect") != "imperfect":
+            raise ValueError(f"unknown prior_opts kind {prior_opts.get('kind')!r}")
+        if "seed" not in prior_opts:
+            raise ValueError("prior_opts requires an explicit seed")
+        prior, prior_info = common.imperfect_nucleus_prior(
+            obs_all, centers, r_nucleus,
+            seed=int(prior_opts["seed"]),
+            miss_frac=float(prior_opts.get("miss_frac", 0.2)),
+            shift_um=tuple(prior_opts.get("shift_um", (1.0, 2.0))),
+            merge_frac=float(prior_opts.get("merge_frac", 0.05)))
+        if prior_opts.get("base"):
+            prior_info["base"] = prior_opts["base"]
+    else:
+        prior, _ = common.nucleus_prior(obs_all, centers, r_nucleus)
 
     cell = np.concatenate([mol_cell + 1, np.zeros(n_bg, dtype=np.int64)]).astype(np.int32)
     if n_bg:
@@ -263,6 +287,7 @@ def _assemble(*, dataset_id: str, tier: str, scenario: str, seed: int,
             "scenario": scenario,
             "seed": seed,
             "params": params,
+            **({"prior": prior_info} if prior_info else {}),
             "note": "truth exact by construction (no displacement); an oracle "
                     "accuracy is not computed for the trivial scenarios",
         },
@@ -281,7 +306,8 @@ def circles_gaps(*, seed: int, dataset_id: str, tier: str = "quick",
                  bg_frac: float = 0.01, r_nucleus_um: float = 3.0,
                  min_gap_um: float = 2.0, mean_molecules: float = 140.0,
                  molecules_sigma: float = 0.35, markers_per_type: int = 8,
-                 marker_mass: float = 0.55) -> tuple[pd.DataFrame, dict]:
+                 marker_mass: float = 0.55, prior_opts: dict | None = None
+                 ) -> tuple[pd.DataFrame, dict]:
     """Round cells of equal radius on a jittered hex lattice with clear gaps."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
     centers = _lattice_with_gaps(extent_um, spacing_um, jitter_frac, rngs["geo"],
@@ -312,7 +338,8 @@ def circles_gaps(*, seed: int, dataset_id: str, tier: str = "quick",
         type_of_cell=type_of_cell, type_names=[f"ct{t}" for t in range(n_types)],
         interior_margin=radius_um + 5.0, r_nucleus=r_nucleus_um,
         bg_frac=bg_frac, bg_xy=bg_xy, bg_genes=bg_genes, scale_um=radius_um,
-        notes="round cells with clear gaps, ~1% uniform background")
+        notes="round cells with clear gaps, ~1% uniform background",
+        prior_opts=prior_opts)
 
 
 def tiled_distinct(*, seed: int, dataset_id: str, tier: str = "quick",
@@ -320,7 +347,8 @@ def tiled_distinct(*, seed: int, dataset_id: str, tier: str = "quick",
                    spacing_um: float = 14.5, jitter_frac: float = 0.15,
                    bg_frac: float = 0.01, r_nucleus_um: float = 3.0,
                    mean_molecules: float = 140.0, molecules_sigma: float = 0.35,
-                   markers_per_type: int = 8) -> tuple[pd.DataFrame, dict]:
+                   markers_per_type: int = 8, prior_opts: dict | None = None
+                   ) -> tuple[pd.DataFrame, dict]:
     """Gapless Voronoi tiling; neighbouring cells have different types with
     disjoint gene sets (boundaries resolvable by composition only)."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
@@ -351,7 +379,8 @@ def tiled_distinct(*, seed: int, dataset_id: str, tier: str = "quick",
         interior_margin=spacing_um, r_nucleus=r_nucleus_um, bg_frac=bg_frac,
         bg_xy=bg_xy, bg_genes=bg_genes,
         scale_um=float(np.sqrt((extent_um ** 2 / n_cells) / np.pi)),
-        notes=f"Voronoi tiling, {n_types} DSATUR colours, disjoint gene sets")
+        notes=f"Voronoi tiling, {n_types} DSATUR colours, disjoint gene sets",
+        prior_opts=prior_opts)
 
 
 def tiled_same(*, seed: int, dataset_id: str, tier: str = "quick",
@@ -359,7 +388,8 @@ def tiled_same(*, seed: int, dataset_id: str, tier: str = "quick",
                spacing_um: float = 14.5, jitter_frac: float = 0.15,
                bg_frac: float = 0.01, r_nucleus_um: float = 3.0,
                mean_molecules: float = 140.0,
-               molecules_sigma: float = 0.35) -> tuple[pd.DataFrame, dict]:
+               molecules_sigma: float = 0.35, prior_opts: dict | None = None
+               ) -> tuple[pd.DataFrame, dict]:
     """The ``tiled_distinct`` geometry with all cells of one identical type:
     boundaries are unresolvable by composition (hard control)."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
@@ -386,7 +416,8 @@ def tiled_same(*, seed: int, dataset_id: str, tier: str = "quick",
         interior_margin=spacing_um, r_nucleus=r_nucleus_um, bg_frac=bg_frac,
         bg_xy=bg_xy, bg_genes=bg_genes,
         scale_um=float(np.sqrt((extent_um ** 2 / n_cells) / np.pi)),
-        notes="single cell type everywhere: composition gives no boundary signal")
+        notes="single cell type everywhere: composition gives no boundary signal",
+        prior_opts=prior_opts)
 
 
 def mixed_sizes(*, seed: int, dataset_id: str, tier: str = "quick",
@@ -397,7 +428,8 @@ def mixed_sizes(*, seed: int, dataset_id: str, tier: str = "quick",
                 r_nucleus_um: float = 2.5, min_gap_um: float = 1.8,
                 median_small: float = 70.0, median_large: float = 190.0,
                 molecules_sigma: float = 0.35,
-                markers_per_type: int = 8) -> tuple[pd.DataFrame, dict]:
+                markers_per_type: int = 8, prior_opts: dict | None = None
+                ) -> tuple[pd.DataFrame, dict]:
     """Small immune-like and large tumour-like round cells with small gaps."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
     centers = _lattice_with_gaps(extent_um, spacing_um, jitter_frac, rngs["geo"],
@@ -438,7 +470,8 @@ def mixed_sizes(*, seed: int, dataset_id: str, tier: str = "quick",
         interior_margin=radius_large_um + 5.0, r_nucleus=r_nucleus_um,
         bg_frac=bg_frac, bg_xy=bg_xy, bg_genes=bg_genes,
         scale_um=float(np.sqrt(np.mean(radius ** 2))),
-        notes="bimodal radii (3 um immune-like, 8.8 um tumour-like), small gaps")
+        notes="bimodal radii (3 um immune-like, 8.8 um tumour-like), small gaps",
+        prior_opts=prior_opts)
 
 
 def sparse_noisy(*, seed: int, dataset_id: str, tier: str = "quick",
@@ -448,7 +481,8 @@ def sparse_noisy(*, seed: int, dataset_id: str, tier: str = "quick",
                  bg_frac: float = 0.25, r_nucleus_um: float = 3.0,
                  mean_molecules: float = 140.0, molecules_sigma: float = 0.35,
                  markers_per_type: int = 8,
-                 marker_mass: float = 0.55) -> tuple[pd.DataFrame, dict]:
+                 marker_mass: float = 0.55, prior_opts: dict | None = None
+                 ) -> tuple[pd.DataFrame, dict]:
     """Sparse cells over a large area with 20-30% uniform background noise."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
     centers = common.hex_centers(extent_um, spacing_um, jitter_frac, rngs["geo"],
@@ -478,7 +512,8 @@ def sparse_noisy(*, seed: int, dataset_id: str, tier: str = "quick",
         type_of_cell=type_of_cell, type_names=[f"ct{t}" for t in range(n_types)],
         interior_margin=radius_um + 5.0, r_nucleus=r_nucleus_um, bg_frac=bg_frac,
         bg_xy=bg_xy, bg_genes=bg_genes, scale_um=radius_um,
-        notes=f"sparse packing, {bg_frac:.0%} uniform background (cell = 0)")
+        notes=f"sparse packing, {bg_frac:.0%} uniform background (cell = 0)",
+        prior_opts=prior_opts)
 
 
 def circles_gaps_3d(*, seed: int, dataset_id: str, tier: str = "quick",
@@ -489,7 +524,8 @@ def circles_gaps_3d(*, seed: int, dataset_id: str, tier: str = "quick",
                     r_nucleus_um: float = 3.0, min_gap_um: float = 2.0,
                     mean_molecules: float = 140.0, molecules_sigma: float = 0.35,
                     markers_per_type: int = 8,
-                    marker_mass: float = 0.55) -> tuple[pd.DataFrame, dict]:
+                    marker_mass: float = 0.55, prior_opts: dict | None = None
+                    ) -> tuple[pd.DataFrame, dict]:
     """3D variant: spheres in a thin slab; cells are cut by the section."""
     rngs = common.child_rngs(seed, _RNG_STREAMS)
     centers = _lattice_with_gaps(extent_um, spacing_um, jitter_frac, rngs["geo"],
@@ -522,7 +558,80 @@ def circles_gaps_3d(*, seed: int, dataset_id: str, tier: str = "quick",
         type_of_cell=type_of_cell, type_names=[f"ct{t}" for t in range(n_types)],
         interior_margin=radius_um + 5.0, r_nucleus=r_nucleus_um, bg_frac=bg_frac,
         bg_xy=bg_xy, bg_genes=bg_genes, scale_um=radius_um,
-        notes=f"spheres in a {slab_um:g} um slab; cells cut by the section")
+        notes=f"spheres in a {slab_um:g} um slab; cells cut by the section",
+        prior_opts=prior_opts)
+
+
+def elongated_gaps(*, seed: int, dataset_id: str, tier: str = "quick",
+                   n_genes: int = 100, extent_um: float = 420.0,
+                   spacing_um: float = 27.0, jitter_frac: float = 0.12,
+                   semi_major_fibro_um: float = 8.0,
+                   semi_minor_fibro_um: float = 3.0,
+                   semi_major_neuron_um: float = 11.0,
+                   semi_minor_neuron_um: float = 2.4,
+                   p_fibro: float = 0.55, min_gap_um: float = 2.0,
+                   bg_frac: float = 0.02, r_nucleus_um: float = 3.0,
+                   mean_molecules: float = 140.0,
+                   molecules_sigma: float = 0.35,
+                   markers_per_type: int = 6, marker_mass: float = 0.6,
+                   prior_opts: dict | None = None
+                   ) -> tuple[pd.DataFrame, dict]:
+    """Irregular-shape cells: fibroblast-like (8 x 3 um) and neuron-like
+    (11 x 2.4 um) elongated ellipses, random orientation per cell, with clear
+    gaps between cells (the lattice keeps every centre pair at least
+    ``2 * max(semi-major) + min_gap`` apart, so the conservative circular
+    envelopes never overlap).
+
+    Composition alone cannot explain the contacts the way round cells do, so
+    the scenario exercises shape-aware segmentation; the nucleus prior remains
+    a round 3 um disc at the ellipse centre.
+    """
+    rngs = common.child_rngs(seed, _RNG_STREAMS)
+    a_max = max(semi_major_fibro_um, semi_major_neuron_um)
+    centers = _lattice_with_gaps(extent_um, spacing_um, jitter_frac, rngs["geo"],
+                                 min_edge_dist_um=a_max, min_gap_um=min_gap_um,
+                                 max_radius_um=a_max)
+    n_cells = len(centers)
+    is_fibro = rngs["types"].random(n_cells) < p_fibro
+    type_of_cell = np.where(is_fibro, 0, 1).astype(np.int32)
+    theta = rngs["types"].uniform(0.0, np.pi, size=n_cells)
+    a = np.where(is_fibro, semi_major_fibro_um, semi_major_neuron_um)
+    b = np.where(is_fibro, semi_minor_fibro_um, semi_minor_neuron_um)
+    proportions = np.array([p_fibro, 1.0 - p_fibro])
+    profiles = common.expression_profiles(2, n_genes, rngs["profiles"],
+                                          markers_per_type=markers_per_type,
+                                          marker_mass=marker_mass)
+    n_c = common.sample_counts(n_cells, rngs["counts"], median=mean_molecules,
+                               sigma=molecules_sigma, lo=50, hi=300)
+    repeats = np.repeat(np.arange(n_cells), n_c)
+    m = int(n_c.sum())
+    # uniform in the unit disc -> scale by the cell's semi-axes (uniform in
+    # the ellipse, the map is area-preserving up to the constant a*b) ->
+    # rotate by the per-cell orientation
+    disc = common.sample_in_discs_variable(np.zeros((m, 2)), np.ones(m), rngs["pos"])
+    ac, bc = a[repeats], b[repeats]
+    th = theta[repeats]
+    mol_xy = centers[repeats] + np.column_stack([
+        ac * disc[:, 0] * np.cos(th) - bc * disc[:, 1] * np.sin(th),
+        ac * disc[:, 0] * np.sin(th) + bc * disc[:, 1] * np.cos(th)])
+    mol_cell = repeats.astype(np.int32)
+    mol_genes = _emit_genes(mol_cell, type_of_cell, profiles, n_genes, rngs["genes"])
+    pooled = common.pooled_profile(profiles, proportions)
+    n_bg = int(round(bg_frac / (1.0 - bg_frac) * n_c.sum()))
+    bg_xy, bg_genes = _bg_molecules(n_bg, extent_um, None, pooled,
+                                    _gene_names(n_genes), rngs["bg"])
+    params = _capture_params(elongated_gaps, locals(), seed, dataset_id, tier)
+    return _assemble(
+        dataset_id=dataset_id, tier=tier, scenario="elongated_gaps", seed=seed,
+        params=params, extent_um=extent_um, slab_um=None, centers=centers,
+        mol_xy=mol_xy, mol_cell=mol_cell, mol_genes=mol_genes,
+        type_of_cell=type_of_cell, type_names=["fibro", "neuron"],
+        interior_margin=a_max + 5.0, r_nucleus=r_nucleus_um,
+        bg_frac=bg_frac, bg_xy=bg_xy, bg_genes=bg_genes,
+        scale_um=float(np.sqrt(np.mean(a * b))),
+        notes="elongated fibroblast-like (8 x 3 um) and neuron-like "
+              "(11 x 2.4 um) cells, random orientation, clear gaps",
+        prior_opts=prior_opts)
 
 
 SCENARIOS = {
@@ -532,6 +641,7 @@ SCENARIOS = {
     "mixed_sizes": mixed_sizes,
     "sparse_noisy": sparse_noisy,
     "circles_gaps_3d": circles_gaps_3d,
+    "elongated_gaps": elongated_gaps,
 }
 
 
@@ -574,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="output directory ($BAYSOR_BENCH_DATA/sim/<id>)")
     for name, prm in inspect.signature(fn).parameters.items():
         if prm.default is inspect.Parameter.empty:
+            continue
+        if prm.default is None:       # structured options (prior_opts): not a flag
             continue
         flag = "--" + name.replace("_", "-")
         if isinstance(prm.default, bool):

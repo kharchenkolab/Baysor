@@ -22,6 +22,7 @@ TINY = {
     "mixed_sizes": dict(extent_um=180.0, spacing_um=20.5),
     "sparse_noisy": dict(extent_um=220.0, spacing_um=40.0),
     "circles_gaps_3d": dict(extent_um=160.0, spacing_um=16.0, radius_um=6.1),
+    "elongated_gaps": dict(extent_um=200.0, spacing_um=27.0),
 }
 
 
@@ -71,6 +72,12 @@ def reconstruct_centers(scenario: str, meta: dict):
             min_edge_dist_um=p.get("radius_um", p.get("radius_large_um")),
             min_gap_um=p["min_gap_um"],
             max_radius_um=p.get("radius_um", p.get("radius_large_um")))
+    elif scenario == "elongated_gaps":
+        a_max = max(p["semi_major_fibro_um"], p["semi_major_neuron_um"])
+        centers = trivial._lattice_with_gaps(
+            p["extent_um"], p["spacing_um"], p["jitter_frac"], rngs["geo"],
+            min_edge_dist_um=a_max, min_gap_um=p["min_gap_um"],
+            max_radius_um=a_max)
     else:
         centers = trivial.common.hex_centers(
             p["extent_um"], p["spacing_um"], p["jitter_frac"], rngs["geo"])
@@ -274,3 +281,65 @@ def test_expression_profiles_few_markers_per_type():
 def test_tier_budget_enforced():
     with pytest.raises(ValueError, match="exceeds quick budget"):
         build("circles_gaps", tier="quick", extent_um=1400.0)
+
+
+# ---------------------------------------------------------------------------
+# elongated (irregular-shape) cells and imperfect-prior variants
+# ---------------------------------------------------------------------------
+
+def test_elongated_geometry_gaps_and_ellipse_containment():
+    df, meta = build("elongated_gaps")
+    centers, rngs, p = reconstruct_centers("elongated_gaps", meta)
+    a_max = max(p["semi_major_fibro_um"], p["semi_major_neuron_um"])
+
+    # clear gaps: conservative circular envelopes never overlap
+    d, _ = cKDTree(centers).query(centers, k=2)
+    assert d[:, 1].min() >= 2 * a_max + p["min_gap_um"] - 1e-6
+
+    sub = df[df.cell > 0]
+    cid = sub["cell"].to_numpy() - 1
+    ct = sub["celltype"].to_numpy()
+    assert set(ct) <= {"fibro", "neuron"}
+    a = np.where(ct == "fibro", p["semi_major_fibro_um"],
+                 p["semi_major_neuron_um"])
+    b = np.where(ct == "fibro", p["semi_minor_fibro_um"],
+                 p["semi_minor_neuron_um"])
+
+    # replay the per-cell orientation (types stream: shape draw, then theta;
+    # proportions are fixed, no dirichlet draw in this scenario)
+    rngs2 = trivial.common.child_rngs(meta["truth"]["seed"], RNG_STREAMS)
+    n_cells = len(centers)
+    rngs2["types"].random(n_cells)          # p_fibro draw
+    theta = rngs2["types"].uniform(0.0, np.pi, size=n_cells)
+    th = theta[cid]
+    d = sub[["x", "y"]].to_numpy() - centers[cid]
+    u = d[:, 0] * np.cos(th) + d[:, 1] * np.sin(th)
+    v = -d[:, 0] * np.sin(th) + d[:, 1] * np.cos(th)
+    inside = (u / a) ** 2 + (v / b) ** 2 <= 1.0 + 1e-9
+    assert inside.all(), "molecules outside their ellipse"
+    # genuinely elongated
+    assert p["semi_major_fibro_um"] / p["semi_minor_fibro_um"] >= 2.5
+    assert p["semi_major_neuron_um"] / p["semi_minor_neuron_um"] >= 4.0
+
+
+def test_imprior_keeps_truth_and_degrades_prior():
+    opts = {"kind": "imperfect", "seed": 7701, "base": "t_base",
+            "miss_frac": 0.2, "shift_um": [1.0, 2.0], "merge_frac": 0.05}
+    df0, meta0 = build("circles_gaps", prior_opts=None)
+    df1, meta1 = build("circles_gaps", prior_opts=opts)
+    # truth columns byte-identical
+    for col in ("x", "y", "gene", "cell", "interior", "celltype"):
+        assert (df0[col].to_numpy() == df1[col].to_numpy()).all(), col
+    # prior degraded but still only nucleus labels or 0
+    info = meta1["truth"]["prior"]
+    n_cells = meta1["stats"]["n_true_cells"]
+    assert info["n_missed"] == round(0.2 * n_cells)
+    assert info["n_merge_sources"] == round(0.05 * n_cells)
+    assert set(np.unique(df1["prior"])) <= set(range(0, n_cells + 1))
+    assert (df1["prior"] > 0).mean() < (df0["prior"] > 0).mean()
+    # perfect-prior dataset records no such block (schema stability)
+    assert "prior" not in meta0["truth"]
+    # determinism
+    df2, meta2 = build("circles_gaps", prior_opts=opts)
+    pd.testing.assert_frame_equal(df1, df2)
+    assert meta1 == meta2

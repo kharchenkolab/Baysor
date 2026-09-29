@@ -312,6 +312,106 @@ def nucleus_prior(xy: np.ndarray, centers: np.ndarray,
     return label, idx.astype(np.int32)
 
 
+def imperfect_nucleus_prior(xy: np.ndarray, centers: np.ndarray,
+                            radius_um: np.ndarray | float, *, seed: int,
+                            miss_frac: float = 0.2,
+                            shift_um: tuple[float, float] = (1.0, 2.0),
+                            merge_frac: float = 0.05
+                            ) -> tuple[np.ndarray, dict]:
+    """Prior label per molecule from an *imperfect* nucleus segmentation.
+
+    Models a realistic vendor nucleus segmentation with three defects,
+    applied in this order (all draws from an RNG seeded by ``seed``, so
+    molecule placement elsewhere is unaffected):
+
+    1. **missed nuclei** — ``miss_frac`` of the cells get no nucleus at all
+       (no prior label anywhere in that cell);
+    2. **shifted nuclei** — every remaining nucleus centre is displaced by a
+       random direction and a magnitude drawn uniformly from ``shift_um``
+       (default 1–2 µm);
+    3. **merged nuclei** — ``merge_frac`` of the cells have their prior label
+       remapped onto their nearest *unmerged* kept neighbour, i.e. one prior
+       label covers two adjacent nuclei (sources are chosen first, targets
+       only among non-sources, so the remap has no chains/cycles).
+
+    Returns ``(label, info)``: the 1-based original cell id of the nucleus
+    that claims the molecule (0 = no prior), and a dict describing the
+    applied defects (recorded in ``meta.truth``).  Ground truth elsewhere is
+    untouched: the returned labels are the *prior column only*.
+    """
+    from scipy.spatial import cKDTree
+
+    if not (0.0 <= miss_frac < 1.0):
+        raise ValueError("miss_frac must be in [0, 1)")
+    if not (0.0 <= merge_frac < 1.0):
+        raise ValueError("merge_frac must be in [0, 1)")
+    if not (0.0 <= shift_um[0] <= shift_um[1]):
+        raise ValueError("shift_um must be an ordered non-negative pair")
+    n = len(centers)
+    rng = np.random.default_rng(seed)
+
+    # 1) missed nuclei
+    kept = np.ones(n, dtype=bool)
+    n_miss = int(round(miss_frac * n))
+    n_miss = min(n_miss, max(n - 2, 0))  # keep >= 2 nuclei for merging
+    if n_miss:
+        kept[rng.choice(n, n_miss, replace=False)] = False
+    idx_kept = np.nonzero(kept)[0]
+
+    # 2) shifted nuclei (applied to every centre; missed ones are unused).
+    #    The shift lies in the x-y plane (nuclei slide within the section);
+    #    z components, if any, stay put.
+    theta = rng.uniform(0.0, 2.0 * np.pi, size=n)
+    mag = rng.uniform(shift_um[0], shift_um[1], size=n)
+    dim = np.asarray(centers).shape[1]
+    shift = np.zeros((n, dim), dtype=np.float64)
+    shift[:, 0] = np.cos(theta) * mag
+    shift[:, 1] = np.sin(theta) * mag
+    shifted = np.asarray(centers, dtype=np.float64) + shift
+
+    r = np.broadcast_to(np.asarray(radius_um, dtype=np.float64), (n,))
+    tree = cKDTree(shifted[idx_kept])
+    dist, j = tree.query(xy, k=1)
+    label = np.where(dist <= r[idx_kept][j], idx_kept[j] + 1, 0).astype(np.int32)
+
+    # 3) merged nuclei: source labels are remapped onto their nearest kept,
+    #    unmerged neighbour (targets are never sources -> no chains)
+    n_merge = int(round(merge_frac * n))
+    n_merge = min(n_merge, max(len(idx_kept) - 2, 0))
+    merge_src: np.ndarray = np.empty(0, dtype=np.int64)
+    n_merged = 0
+    if n_merge:
+        merge_src = rng.choice(idx_kept, size=n_merge, replace=False)
+        src_set = set(int(i) for i in merge_src)
+        remap = np.arange(n + 1, dtype=np.int64)  # 1-based labels; 0 stays 0
+        other_tree = cKDTree(shifted)
+        for s in merge_src:
+            _, order = other_tree.query(shifted[s], k=n)
+            target = next((int(order[k]) for k in range(n)
+                           if order[k] != s and int(order[k]) not in src_set
+                           and kept[order[k]]), None)
+            if target is None:  # no valid neighbour (tiny fields)
+                continue
+            remap[int(s) + 1] = target + 1
+        label = remap[label].astype(np.int32)
+        n_merged = int(np.sum(remap[1:] != np.arange(1, n + 1)))
+
+    info = {
+        "kind": "imperfect_nucleus",
+        "seed": int(seed),
+        "miss_frac": float(miss_frac),
+        "n_nuclei": int(n),
+        "n_missed": int(n_miss),
+        "shift_um": [float(shift_um[0]), float(shift_um[1])],
+        "merge_frac": float(merge_frac),
+        "n_merge_sources": int(len(merge_src)),
+        "n_merged": n_merged,
+        "nucleus_radius_um": (float(radius_um) if np.isscalar(radius_um)
+                              else np.asarray(radius_um, dtype=float).tolist()),
+    }
+    return label, info
+
+
 # ---------------------------------------------------------------------------
 # Contract assembly / IO
 # ---------------------------------------------------------------------------
