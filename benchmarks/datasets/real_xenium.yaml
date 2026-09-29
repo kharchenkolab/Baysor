@@ -1,0 +1,431 @@
+schema_version: 1
+group: real_xenium
+kind: real
+platform: Xenium
+retrieved: '2026-09-29'
+defaults:
+  min_qv: 20
+  baysor:
+    config: configs/xenium.toml
+    scale_std: 25%
+    min_molecules_per_cell: 50
+    prior: column
+    prior_confidence: 0.5
+    # our prior column is numeric (0 = no prior); configs/xenium.toml sets
+    # unassigned_label = UNASSIGNED which would make label 0 a real segment
+    extra_args:
+    - -x
+    - x
+    - -y
+    - y
+    - -g
+    - gene
+    - --qv-column
+    - qv
+    - --unassigned-prior-label
+    - '0'
+datasets:
+- id: xenium_pancreas_377_full
+  tissue: pancreas (FFPE)
+  tier: full
+  source:
+    name: Xenium_V1_human_Pancreas_FFPE
+    version: 2.0.0
+    url: https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Pancreas_FFPE/Xenium_V1_human_Pancreas_FFPE_outs.zip
+    zip_bytes: 5690354514
+    original_dataset: FFPE Human Pancreas with Xenium Multimodal Cell Segmentation
+    page: https://www.10xgenomics.com/datasets/ffpe-human-pancreas-with-xenium-multimodal-cell-segmentation-1-standard
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  # multi-file OME focus image: channel N lives in file NNNN
+  # (0000 = DAPI, 0001 = boundary stain ATP1A1/CD45/E-Cadherin)
+  images:
+    focus_members:
+    - morphology_focus/morphology_focus_0000.ome.tif
+    - morphology_focus/morphology_focus_0001.ome.tif
+    - morphology_focus/morphology_focus_0002.ome.tif
+    - morphology_focus/morphology_focus_0003.ome.tif
+    channels:
+      dapi: 0
+      boundary: 1
+  crop:
+    bbox_um:
+    - 4350.0
+    - 400.0
+    - 6350.0
+    - 2400.0
+    within: null
+    target_molecules: 2000000
+    min_molecules: 1000000
+    max_molecules: 3000000
+    min_cells: 1000
+    min_coverage: 0.75
+    density_hint: any
+    note: 'Full crop of the multimodal-segmentation FFPE pancreas section: the densest
+      continuous tissue block with 1-3M filtered molecules, chosen on the vendor density
+      histogram to avoid empty gaps; the quick pancreas crop is nested inside it.'
+    pick:
+      mols: 1999991
+      cells: 39309
+      coverage: 1.0
+      cells_per_mm2: 9827.2
+      density_hint: any
+      relaxed_density: false
+- id: xenium_pancreas_377_quick
+  tissue: pancreas (FFPE)
+  tier: quick
+  source:
+    name: Xenium_V1_human_Pancreas_FFPE
+    version: 2.0.0
+    url: https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_human_Pancreas_FFPE/Xenium_V1_human_Pancreas_FFPE_outs.zip
+    zip_bytes: 5690354514
+    original_dataset: FFPE Human Pancreas with Xenium Multimodal Cell Segmentation
+    page: https://www.10xgenomics.com/datasets/ffpe-human-pancreas-with-xenium-multimodal-cell-segmentation-1-standard
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  # multi-file OME focus image: channel N lives in file NNNN
+  # (0000 = DAPI, 0001 = boundary stain ATP1A1/CD45/E-Cadherin)
+  images:
+    focus_members:
+    - morphology_focus/morphology_focus_0000.ome.tif
+    - morphology_focus/morphology_focus_0001.ome.tif
+    - morphology_focus/morphology_focus_0002.ome.tif
+    - morphology_focus/morphology_focus_0003.ome.tif
+    channels:
+      dapi: 0
+      boundary: 1
+  crop:
+    bbox_um:
+    - 4750.0
+    - 1200.0
+    - 5225.0
+    - 1675.0
+    within: xenium_pancreas_377_full
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 150
+    min_coverage: 0.75
+    density_hint: any
+    note: Quick crop nested inside the full pancreas crop, dense acinar tissue with
+      at least 150 vendor cells; carries the DAPI and boundary-stain image crops for
+      cellAdmix membrane scoring.
+    pick:
+      mols: 130001
+      cells: 2444
+      coverage: 1.0
+      cells_per_mm2: 10832.1
+      density_hint: any
+      relaxed_density: false
+- id: xenium_breast_rep1_dense_full
+  tissue: breast cancer Rep1 (FFPE)
+  tier: full
+  source:
+    name: Xenium_FFPE_Human_Breast_Cancer_Rep1
+    version: 1.0.1
+    url: https://cf.10xgenomics.com/samples/xenium/1.0.1/Xenium_FFPE_Human_Breast_Cancer_Rep1/Xenium_FFPE_Human_Breast_Cancer_Rep1_outs.zip
+    zip_bytes: 9861155708
+    original_dataset: FFPE Human Breast Cancer, Rep1 (Janesick et al. 2023)
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: outs/transcripts.parquet
+    cells: outs/cells.parquet
+    cell_boundaries: outs/cell_boundaries.parquet
+    nucleus_boundaries: outs/nucleus_boundaries.parquet
+    experiment: outs/experiment.xenium
+    gene_panel: outs/gene_panel.json
+  crop:
+    bbox_um:
+    - 150.0
+    - 1875.0
+    - 1325.0
+    - 3050.0
+    within: null
+    target_molecules: 2000000
+    min_molecules: 1000000
+    max_molecules: 3000000
+    min_cells: 2000
+    min_coverage: 0.75
+    density_hint: dense
+    note: 'Dense tumour region of breast cancer Rep1: vendor-cell density at or above
+      7000 cells/mm2 with continuous tissue, 1-3M filtered molecules.'
+    pick:
+      mols: 1991578
+      cells: 9666
+      coverage: 1.0
+      cells_per_mm2: 7001.2
+      density_hint: dense
+      relaxed_density: false
+- id: xenium_breast_rep1_dense_quick
+  tissue: breast cancer Rep1 (FFPE)
+  tier: quick
+  source:
+    name: Xenium_FFPE_Human_Breast_Cancer_Rep1
+    version: 1.0.1
+    url: https://cf.10xgenomics.com/samples/xenium/1.0.1/Xenium_FFPE_Human_Breast_Cancer_Rep1/Xenium_FFPE_Human_Breast_Cancer_Rep1_outs.zip
+    zip_bytes: 9861155708
+    original_dataset: FFPE Human Breast Cancer, Rep1 (Janesick et al. 2023)
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: outs/transcripts.parquet
+    cells: outs/cells.parquet
+    cell_boundaries: outs/cell_boundaries.parquet
+    nucleus_boundaries: outs/nucleus_boundaries.parquet
+    experiment: outs/experiment.xenium
+    gene_panel: outs/gene_panel.json
+  crop:
+    bbox_um:
+    - 900.0
+    - 2200.0
+    - 1175.0
+    - 2475.0
+    within: xenium_breast_rep1_dense_full
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 150
+    min_coverage: 0.7
+    density_hint: dense
+    note: Quick sub-crop of the dense breast tumour region, at least 150 vendor cells;
+      paired with the dense full crop for quick/full comparisons.
+    pick:
+      mols: 130055
+      cells: 550
+      coverage: 1.0
+      cells_per_mm2: 7272.7
+      density_hint: dense
+      relaxed_density: false
+- id: xenium_breast_rep1_stroma_quick
+  tissue: breast cancer Rep1 (FFPE)
+  tier: quick
+  source:
+    name: Xenium_FFPE_Human_Breast_Cancer_Rep1
+    version: 1.0.1
+    url: https://cf.10xgenomics.com/samples/xenium/1.0.1/Xenium_FFPE_Human_Breast_Cancer_Rep1/Xenium_FFPE_Human_Breast_Cancer_Rep1_outs.zip
+    zip_bytes: 9861155708
+    original_dataset: FFPE Human Breast Cancer, Rep1 (Janesick et al. 2023)
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: outs/transcripts.parquet
+    cells: outs/cells.parquet
+    cell_boundaries: outs/cell_boundaries.parquet
+    nucleus_boundaries: outs/nucleus_boundaries.parquet
+    experiment: outs/experiment.xenium
+    gene_panel: outs/gene_panel.json
+  crop:
+    bbox_um:
+    - 2725.0
+    - 4475.0
+    - 3275.0
+    - 5025.0
+    within: null
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 150
+    min_coverage: 0.8
+    density_hint: stromal
+    note: Sparser stromal region outside the tumour core (1000-7000 cells/mm2) with
+      continuous tissue coverage; contrast partner to the dense tumour crops so the
+      breast set is not only dense tumour.
+    pick:
+      mols: 130000
+      cells: 432
+      coverage: 1.0
+      cells_per_mm2: 1428.1
+      density_hint: stromal
+      relaxed_density: false
+- id: xenium_mouse_brain_ff_quick
+  tissue: mouse brain (fresh frozen)
+  tier: quick
+  source:
+    name: Xenium_V1_FF_Mouse_Brain_Coronal_Subset_CTX_HP
+    version: 1.0.2
+    url: https://cf.10xgenomics.com/samples/xenium/1.0.2/Xenium_V1_FF_Mouse_Brain_Coronal_Subset_CTX_HP/Xenium_V1_FF_Mouse_Brain_Coronal_Subset_CTX_HP_outs.zip
+    zip_bytes: 3479544713
+    original_dataset: Xenium V1 Fresh Frozen Mouse Brain Coronal Subset (CTX+HP),
+      248-gene panel
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  crop:
+    bbox_um:
+    - 2825.0
+    - 275.0
+    - 3600.0
+    - 1050.0
+    within: null
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 150
+    min_coverage: 0.7
+    density_hint: any
+    note: Fresh-frozen mouse brain, sparse tissue region with at least 150 vendor
+      cells, so the Xenium set is not all dense tumour tissue.
+    pick:
+      mols: 130000
+      cells: 492
+      coverage: 0.8241
+      cells_per_mm2: 819.1
+      density_hint: any
+      relaxed_density: false
+- id: xenium_prime5k_ovarian_full
+  tissue: ovarian cancer (FFPE, Xenium Prime 5K)
+  tier: full
+  source:
+    name: Xenium_Prime_Ovarian_Cancer_FFPE_XRrun
+    version: 3.0.0
+    url: https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Ovarian_Cancer_FFPE_XRrun/Xenium_Prime_Ovarian_Cancer_FFPE_XRrun_outs.zip
+    zip_bytes: 26685479459
+    original_dataset: Xenium Prime 5K Human Ovarian Cancer FFPE (the cellAdmix example
+      dataset)
+    page: https://www.10xgenomics.com/datasets/xenium-prime-ffpe-human-ovarian-cancer
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  crop:
+    bbox_um:
+    - 1825.0
+    - 4925.0
+    - 3500.0
+    - 6600.0
+    within: null
+    target_molecules: 2000000
+    min_molecules: 1000000
+    max_molecules: 3000000
+    min_cells: 2000
+    min_coverage: 0.75
+    density_hint: any
+    note: 'Full crop of the Xenium Prime 5K ovarian cancer section: continuous tissue
+      with 1-3M filtered molecules over the ~5000-gene panel, chosen on the vendor
+      density histogram.'
+    pick:
+      mols: 1999997
+      cells: 11033
+      coverage: 0.9483
+      cells_per_mm2: 3932.5
+      density_hint: any
+      relaxed_density: false
+- id: xenium_prime5k_ovarian_quick
+  tissue: ovarian cancer (FFPE, Xenium Prime 5K)
+  tier: quick
+  source:
+    name: Xenium_Prime_Ovarian_Cancer_FFPE_XRrun
+    version: 3.0.0
+    url: https://cf.10xgenomics.com/samples/xenium/3.0.0/Xenium_Prime_Ovarian_Cancer_FFPE_XRrun/Xenium_Prime_Ovarian_Cancer_FFPE_XRrun_outs.zip
+    zip_bytes: 26685479459
+    original_dataset: Xenium Prime 5K Human Ovarian Cancer FFPE (the cellAdmix example
+      dataset)
+    page: https://www.10xgenomics.com/datasets/xenium-prime-ffpe-human-ovarian-cancer
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  crop:
+    bbox_um:
+    - 2875.0
+    - 5275.0
+    - 3275.0
+    - 5675.0
+    within: xenium_prime5k_ovarian_full
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 100
+    min_coverage: 0.7
+    density_hint: any
+    note: Quick crop nested inside the full Prime 5K crop; at 150k molecules it contains
+      far fewer cells than the V1 panels, kept above ~100 vendor cells as required
+      for the 5K quick tier.
+    pick:
+      mols: 130000
+      cells: 838
+      coverage: 1.0
+      cells_per_mm2: 5237.5
+      density_hint: any
+      relaxed_density: false
+- id: xenium_lung_cancer_quick
+  tissue: lung cancer (FFPE)
+  tier: quick
+  source:
+    name: Xenium_V1_humanLung_Cancer_FFPE
+    version: 2.0.0
+    url: https://cf.10xgenomics.com/samples/xenium/2.0.0/Xenium_V1_humanLung_Cancer_FFPE/Xenium_V1_humanLung_Cancer_FFPE_outs.zip
+    zip_bytes: 7987586561
+    original_dataset: Xenium V1 Human Lung Cancer FFPE (optional extra; no 1.5.0 lung
+      sample URL exists in the 10x CDN index, 2.0.0 used instead)
+    license: 10x Genomics terms of use (https://www.10xgenomics.com/legal/terms-of-use)
+    doi: null
+    retrieved: '2026-09-29'
+  members:
+    transcripts: transcripts.parquet
+    cells: cells.parquet
+    cell_boundaries: cell_boundaries.parquet
+    nucleus_boundaries: nucleus_boundaries.parquet
+    experiment: experiment.xenium
+    gene_panel: gene_panel.json
+  crop:
+    bbox_um:
+    - 8900.0
+    - 1175.0
+    - 9350.0
+    - 1625.0
+    within: null
+    target_molecules: 130000
+    min_molecules: 60000
+    max_molecules: 150000
+    min_cells: 150
+    min_coverage: 0.7
+    density_hint: any
+    note: 'Optional extra: lung cancer FFPE, dense region of the section with at
+      least 150 vendor cells, used by st-recoverability-style analyses.'
+    pick:
+      mols: 130000
+      cells: 2060
+      coverage: 1.0
+      cells_per_mm2: 10172.8
+      density_hint: any
+      relaxed_density: false
