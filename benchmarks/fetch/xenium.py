@@ -4,18 +4,28 @@
 Subcommands (all read ``benchmarks/datasets/real_xenium.yaml`` by default):
 
 ``verify``
-    HEAD-check every source zip URL and compare its size with the manifest.
+    HEAD-check every source zip URL and compare its size with the manifest,
+    then verify the recorded sha256 of every cached member (``downloaded_members``)
+    and of every built dataset's ``molecules.parquet``/``meta.json`` (``outputs``).
 ``fetch``
     Download the manifest-listed members of each source zip into the cache
-    with :mod:`remotezip` (never the whole zip).
+    with :mod:`remotezip` (never the whole zip) through the shared
+    :mod:`download` helper; size + sha256 of every member are recorded under
+    ``downloaded_members`` and verified on reuse.
 ``pick``
     Choose crop boxes (``crop.bbox_um``) for entries that do not have one yet,
-    from the molecule/cell density histograms of the source bundle.  With
+    from the molecule/cell density histograms of the source bundle, applying
+    the per-crop ``crop.criteria`` (see README).  With
     ``--write`` the chosen boxes are saved into the manifest.
 ``build``
     Build ``$BAYSOR_BENCH_DATA/real/<id>/`` per the dataset contract:
     ``molecules.parquet``, ``meta.json``, ``reference/`` boundaries, cropped
-    focus images where applicable, and a provenance ``README.md``.
+    focus images where applicable, the nucleus-label image prior where
+    applicable, and a provenance ``README.md``.  sha256 of the two contract
+    files are recorded into the manifest (``outputs``).
+``record-hashes``
+    Record/refresh the ``outputs`` sha256 of already-built datasets without
+    rebuilding them.
 ``report``
     Print the dataset inventory table (reads ``meta.json`` files and, when
     present, the timing of the sanity Baysor runs).
@@ -72,6 +82,14 @@ def _source_members(ds: dict, include_images: bool = True) -> list[str]:
     return members
 
 
+def _group_members(group: list[dict], include_images: bool = True) -> list[str]:
+    """Union of the member paths of every dataset in a source group."""
+    members: list[str] = []
+    for ds in group:
+        members += _source_members(ds, include_images=include_images)
+    return members
+
+
 def _source_with_members(ds: dict) -> dict:
     """The dataset's source dict plus its member paths (for the helpers)."""
     return {**ds["source"], "members": ds["members"]}
@@ -118,36 +136,118 @@ def _load_cells(source: dict):
     return pq.read_table(str(cp), columns=use).to_pandas()
 
 
+def _vendor_cluster_hists(url: str, group: list[dict], cells, bounds,
+                          bin_um: float) -> list | None:
+    """Per-cluster vendor cell histograms (composition criterion) or None."""
+    member = next(
+        (ds["members"].get("clusters") for ds in group
+         if ds["members"].get("clusters")),
+        None,
+    )
+    if member is None:
+        return None
+    clusters = xc.load_cell_clusters(xc.member_cache_path(url, member), cells)
+    labels = np.unique(clusters)
+    labels = labels[labels >= 0]
+    if len(labels) == 0:
+        return None
+    print(f"  vendor clusters: {len(labels)} (from {member})")
+    return [
+        xc.cells_histogram(cells, bounds, bin_um, mask=(clusters == k))
+        for k in labels
+    ]
+
+
 # ---------------------------------------------------------------------------
 # subcommands
 # ---------------------------------------------------------------------------
 
 
 def cmd_verify(args, manifest) -> int:
+    """Check source URLs, cached-member hashes and built-dataset hashes."""
     ok = True
-    for src in xc.unique_sources(manifest):
-        status, length = xc.head_info(src["url"])
-        expected = src.get("zip_bytes")
-        verdict = "OK"
-        if status != 200:
-            verdict, ok = "FAIL (not reachable)", False
-        elif expected and length != expected:
-            verdict = f"SIZE MISMATCH (manifest {expected})"
-            ok = False
-        print(f"[{status}] {length or '?':>13} bytes  {verdict:24}  {src['url']}")
+    if not args.skip_urls:
+        for src in xc.unique_sources(manifest):
+            status, length = xc.head_info(src["url"])
+            expected = src.get("zip_bytes")
+            verdict = "OK"
+            if status != 200:
+                verdict, ok = "FAIL (not reachable)", False
+            elif expected and length != expected:
+                verdict = f"SIZE MISMATCH (manifest {expected})"
+                ok = False
+            print(f"[{status}] {length or '?':>13} bytes  {verdict:24}  {src['url']}")
+
+    n_members = n_outputs = 0
+    for zip_name, members in sorted(
+        (manifest.get("downloaded_members") or {}).items()
+    ):
+        for member, spec in sorted(members.items()):
+            path = xc.cache_root() / zip_name / member
+            tag = f"member {zip_name}/{member}"
+            if not path.exists():
+                print(f"[skip] {tag}: not cached")
+                continue
+            n_members += 1
+            size = path.stat().st_size
+            if size != spec["bytes"]:
+                print(f"[FAIL] {tag}: size {size} != {spec['bytes']}")
+                ok = False
+                continue
+            digest = xc.download.sha256_file(path)
+            if digest != spec["sha256"]:
+                print(f"[FAIL] {tag}: sha256 {digest} != {spec['sha256']}")
+                ok = False
+            else:
+                print(f"[ ok ] {tag}: sha256 {digest[:12]}… ({size} bytes)")
+
+    root = Path(args.data_root) / "real" if args.data_root \
+        else xc.data_root() / "real"
+    for ds in manifest["datasets"]:
+        for fname, want in sorted((ds.get("outputs") or {}).items()):
+            path = root / ds["id"] / fname
+            tag = f"output {ds['id']}/{fname}"
+            if not path.exists():
+                if args.require_built:
+                    print(f"[FAIL] {tag}: missing")
+                    ok = False
+                else:
+                    print(f"[skip] {tag}: not built")
+                continue
+            n_outputs += 1
+            digest = xc.download.sha256_file(path)
+            if digest != want:
+                print(f"[FAIL] {tag}: sha256 {digest} != {want}")
+                ok = False
+            else:
+                print(f"[ ok ] {tag}: sha256 {digest[:12]}…")
+    print(f"verified {n_members} cached member(s), {n_outputs} output file(s)"
+          + ("" if ok else " — FAILURES ABOVE"))
     return 0 if ok else 1
 
 
 def cmd_fetch(args, manifest) -> int:
     datasets = _datasets(manifest, args.ids)
+    hashes = manifest.setdefault("downloaded_members", {})
+    changed = False
     total = 0
     for url, group in _group_by_source(datasets).items():
         print(f"source {url}", flush=True)
-        members = _source_members(group[0])
-        for ds in group[1:]:
-            members += _source_members(ds)
-        paths = xc.fetch_members(url, members)
+        zip_name = Path(url).name[:-4]
+        record: dict = {}
+        paths = xc.fetch_members(
+            url, _group_members(group),
+            expected=dict(hashes.get(zip_name, {})), record=record,
+        )
+        merged = dict(hashes.get(zip_name, {}))
+        merged.update(record)
+        if hashes.get(zip_name) != merged:
+            hashes[zip_name] = merged
+            changed = True
         total += sum(p.stat().st_size for p in set(paths.values()))
+    if changed:
+        xc.save_manifest(manifest, args.manifest)
+        print(f"manifest member hashes updated: {args.manifest}")
     print(f"fetched/verified {total / 1e6:.1f} MB (cumulative cache: "
           f"{xc.cached_bytes() / 1e9:.2f} GB)")
     return 0
@@ -164,15 +264,20 @@ def cmd_pick(args, manifest) -> int:
         needs_hist = [d for d in group if not d["crop"].get("bbox_um")]
         # source members must exist for hist + pick
         any_ds = group[0]
-        xc.fetch_members(url, _source_members(any_ds, include_images=False))
+        xc.fetch_members(url, _group_members(group, include_images=False))
         cells = _load_cells(_source_with_members(any_ds))
         if not needs_hist:
             continue
         mol, cel, bounds, bin_um = _hist_cache(
             _source_with_members(any_ds), cells, manifest["defaults"]["min_qv"], bin_um
         )
+        cluster_hists = None
+        if any(d["crop"].get("criteria", {}).get("min_clusters")
+               for d in needs_hist):
+            cluster_hists = _vendor_cluster_hists(url, group, cells, bounds, bin_um)
         for ds in needs_hist:
             crop = ds["crop"]
+            criteria = dict(crop.get("criteria") or {})
             within = None
             if crop.get("within"):
                 ref = crop["within"]
@@ -181,6 +286,11 @@ def cmd_pick(args, manifest) -> int:
                     raise SystemExit(
                         f"{ds['id']}: within={ref} has no bbox yet; list it first"
                     )
+            if criteria.get("min_clusters") and cluster_hists is None:
+                raise SystemExit(
+                    f"{ds['id']}: criteria.min_clusters needs a 'clusters' "
+                    f"member for this source"
+                )
             res = xc.pick_bbox(
                 mol, cel, bin_um, bounds,
                 target=crop["target_molecules"],
@@ -191,18 +301,26 @@ def cmd_pick(args, manifest) -> int:
                 density_hint=crop.get("density_hint", "any"),
                 within=within,
                 seed=args.seed,
+                cluster_hists=(cluster_hists if criteria.get("min_clusters")
+                               else None),
+                criteria=criteria,
             )
             print(
                 f"{ds['id']}: bbox={res['bbox_um']} mols={res['mols']} "
                 f"cells={res['cells']} cov={res['coverage']:.2f} "
                 f"dens={res['cells_per_mm2']:.0f}/mm2 hint={res['density_hint']}"
+                + (f" ncl={res['n_clusters']}" if "n_clusters" in res else "")
+                + (f" empty_border={res['empty_border']}"
+                   if "empty_border" in res else "")
                 + (" RELAXED" if res["relaxed_density"] else "")
             )
             crop["bbox_um"] = res["bbox_um"]
             crop["pick"] = {
                 k: res[k]
                 for k in ("mols", "cells", "coverage", "cells_per_mm2",
-                          "density_hint", "relaxed_density")
+                          "density_hint", "relaxed_density", "n_clusters",
+                          "empty_border")
+                if k in res
             }
             bbox_by_id[ds["id"]] = res["bbox_um"]
             changed = True
@@ -218,11 +336,15 @@ def cmd_build(args, manifest) -> int:
     datasets = _datasets(manifest, args.ids)
     defaults = manifest["defaults"]
     min_qv = defaults["min_qv"]
+    out_base = Path(args.out_root) if args.out_root \
+        else xc.data_root() / "real"
+    record = not args.no_record_hashes and not args.out_root
     built = []
+    changed = False
     for url, group in _group_by_source(datasets).items():
         any_ds = group[0]
         print(f"source {url}", flush=True)
-        xc.fetch_members(url, _source_members(any_ds))
+        xc.fetch_members(url, _group_members(group))
         for ds in group:
             if not ds["crop"].get("bbox_um"):
                 raise SystemExit(
@@ -233,25 +355,88 @@ def cmd_build(args, manifest) -> int:
             url, _source_with_members(any_ds)["members"]["transcripts"]
         )
         bboxes = [ds["crop"]["bbox_um"] for ds in group]
-        print(f"  reading {len(bboxes)} crop(s) from transcripts ...", flush=True)
-        crops = xc.read_transcript_crops(tp, bboxes, min_qv)
+        with_z = any(ds["crop"].get("keep_z") for ds in group)
+        print(f"  reading {len(bboxes)} crop(s) from transcripts"
+              + (" (with z)" if with_z else "") + " ...", flush=True)
+        crops = xc.read_transcript_crops(tp, bboxes, min_qv, with_z=with_z)
         for ds, crop_tbl in zip(group, crops):
-            built.append(_build_one(ds, crop_tbl, cells, defaults))
+            built.append(_build_one(ds, crop_tbl, cells, defaults,
+                                    out_base=out_base))
+            if record:
+                ds_dir = out_base / ds["id"]
+                outs = {
+                    fname: xc.download.sha256_file(ds_dir / fname)
+                    for fname in ("molecules.parquet", "meta.json")
+                }
+                if ds.get("outputs") != outs:
+                    ds["outputs"] = outs
+                    changed = True
     print(f"built {len(built)} dataset(s):")
     for line in built:
         print("  " + line)
+    if changed:
+        xc.save_manifest(manifest, args.manifest)
+        print(f"manifest output hashes updated: {args.manifest}")
+    elif args.out_root and not args.no_record_hashes:
+        print("note: --out-root given, output hashes not recorded")
     return 0
 
 
-def _build_one(ds: dict, crop_tbl, cells, defaults: dict) -> str:
+def cmd_record_hashes(args, manifest) -> int:
+    """Record sha256 of each built dataset's molecules.parquet and meta.json."""
+    root = Path(args.data_root) / "real" if args.data_root \
+        else xc.data_root() / "real"
+    ids = set(args.ids)
+    changed = False
+    recorded = missing = 0
+    for ds in manifest["datasets"]:
+        if ids and ds["id"] not in ids:
+            continue
+        files = {name: root / ds["id"] / name
+                 for name in ("molecules.parquet", "meta.json")}
+        absent = [name for name, path in files.items() if not path.is_file()]
+        if absent:
+            missing += 1
+            msg = f"{ds['id']}: not built ({', '.join(absent)})"
+            print(f"[skip] {msg}")
+            if args.require_built:
+                raise SystemExit(msg)
+            continue
+        outs = {name: xc.download.sha256_file(path)
+                for name, path in files.items()}
+        if ds.get("outputs") != outs:
+            ds["outputs"] = outs
+            changed = True
+        recorded += 1
+        print(f"[ ok ] {ds['id']}: "
+              + " ".join(f"{n}={h[:12]}…" for n, h in outs.items()))
+    if changed:
+        xc.save_manifest(manifest, args.manifest)
+        print(f"manifest output hashes updated: {args.manifest}")
+    else:
+        print("manifest output hashes unchanged")
+    print(f"recorded {recorded} dataset(s), {missing} not built")
+    return 0
+
+
+def _build_one(ds: dict, crop_tbl, cells, defaults: dict,
+               out_base: Path) -> str:
     import pyarrow.parquet as pq
 
     src = ds["source"]
     bbox = ds["crop"]["bbox_um"]
-    ds_dir = xc.data_root() / "real" / ds["id"]
+    ds_dir = out_base / ds["id"]
     ds_dir.mkdir(parents=True, exist_ok=True)
 
-    mol = xc.build_molecule_table(crop_tbl, bbox)
+    keep_z = bool(ds["crop"].get("keep_z"))
+    mol = xc.build_molecule_table(crop_tbl, bbox, keep_z=keep_z)
+    z_range = z_std = None
+    if keep_z and "z" in mol.column_names:
+        z = np.asarray(mol["z"].to_numpy(zero_copy_only=False), dtype=np.float64)
+        z = z[np.isfinite(z)]
+        if len(z):
+            z_range = (float(z.min()), float(z.max()))
+            z_std = float(z.std())
     n_vendor = len(xc.cells_in_bbox(cells, bbox))
     stats = xc.molecule_stats(mol, bbox, n_vendor)
     scale_um, scale_method = xc.estimate_scale_um(cells, bbox)
@@ -271,22 +456,50 @@ def _build_one(ds: dict, crop_tbl, cells, defaults: dict) -> str:
     # focus images (if the manifest asks for them)
     images = []
     if ds.get("images"):
-        images = _build_images(ds, bbox)
+        images = _build_images(ds, bbox, out_base)
 
+    # image prior: vendor nucleus boundaries rasterised into the crop's
+    # pixel frame (1 µm/px, absolute origin) - see rasterize_nucleus_labels
+    if ds.get("prior_image"):
+        spec_in = ds["prior_image"]
+        member_key = spec_in.get("from", "nucleus_boundaries")
+        rel = spec_in.get("file", "images/nuclei_labels.tif")
+        bp = xc.member_cache_path(src["url"], ds["members"][member_key])
+        raster = xc.rasterize_nucleus_labels(bp, bbox, ds_dir / rel)
+        images.append({
+            "name": "nuclei_labels",
+            "file": rel,
+            "pixel_size_um": raster["pixel_size_um"],
+            "origin_um": raster["origin_um"],
+            "source": (f"{member_key} of the source bundle rasterised at "
+                       f"1 µm/px over the absolute coordinate origin; "
+                       f"{raster['n_labels']} labels, "
+                       f"{raster['n_labelled_pixels']} labelled pixels"),
+        })
+        print(f"  prior image {rel}: {raster['width']}x{raster['height']} "
+              f"{raster['n_labels']} labels, "
+              f"{raster['n_labelled_pixels']} labelled px")
+
+    note = ds["crop"]["note"]
+    if z_range is not None:
+        note += (f"; keeps z: {z_range[0]:.2f}-{z_range[1]:.2f} µm "
+                 f"(std {z_std:.2f} µm over {stats['n_molecules']} molecules)")
+    baysor = {**defaults["baysor"], **(ds.get("baysor") or {})}
     meta = xc.build_meta(
         dataset_id=ds["id"],
         tier=ds["tier"],
         source=src,
         bbox=bbox,
-        note=ds["crop"]["note"],
+        note=note,
         stats=stats,
         panel_genes=panel_genes,
         scale_um=scale_um,
         scale_method=scale_method,
-        baysor=defaults["baysor"],
+        baysor=baysor,
         images=images,
         retrieved=src.get("retrieved", manifest_retrieved),
-        difficulty_notes=ds.get("difficulty_notes", ds["crop"]["note"]),
+        difficulty_notes=ds.get("difficulty_notes", note),
+        z_range=z_range,
     )
     with open(ds_dir / "meta.json", "w") as fh:
         json.dump(meta, fh, indent=2)
@@ -313,7 +526,7 @@ def _build_one(ds: dict, crop_tbl, cells, defaults: dict) -> str:
     )
 
 
-def _build_images(ds: dict, bbox: Sequence) -> list[dict]:
+def _build_images(ds: dict, bbox: Sequence, out_base: Path) -> list[dict]:
     src = ds["source"]
     spec = ds["images"]
     paths = [
@@ -338,7 +551,7 @@ def _build_images(ds: dict, bbox: Sequence) -> list[dict]:
     out = []
     for name, ch in channels.items():
         arr = xc.read_image_window(paths[0], ch, bbox, px)
-        xc.write_tif(xc.data_root() / "real" / ds["id"] / "images" / f"{name}.tif", arr)
+        xc.write_tif(out_base / ds["id"] / "images" / f"{name}.tif", arr)
         ch_name = info["channels"][ch] if ch < len(info["channels"]) else ch
         out.append({
             "name": name,
@@ -418,7 +631,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-m", "--manifest", default=str(xc.DEFAULT_MANIFEST))
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("verify", help="HEAD-check source URLs")
+    p = sub.add_parser("verify",
+                       help="HEAD-check source URLs and verify recorded hashes")
+    p.add_argument("--skip-urls", action="store_true",
+                   help="skip the network URL checks (hash checks only)")
+    p.add_argument("--require-built", action="store_true",
+                   help="fail when a dataset with recorded outputs is not built")
+    p.add_argument("--data-root", default=None,
+                   help="data root containing real/<id>/ (default: $BAYSOR_BENCH_DATA)")
 
     p = sub.add_parser("fetch", help="download manifest members into the cache")
     p.add_argument("ids", nargs="*", help="dataset ids (default: all)")
@@ -431,6 +651,21 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("build", help="build dataset directories")
     p.add_argument("ids", nargs="*", help="dataset ids (default: all)")
+    p.add_argument("--out-root", default=None,
+                   help="write datasets under this directory instead of "
+                        "<data>/real (also disables output-hash recording)")
+    p.add_argument("--no-record-hashes", action="store_true",
+                   help="do not update output sha256 hashes in the manifest")
+
+    p = sub.add_parser(
+        "record-hashes",
+        help="record sha256 of built molecules.parquet/meta.json in the manifest",
+    )
+    p.add_argument("ids", nargs="*", help="dataset ids (default: all)")
+    p.add_argument("--data-root", default=None,
+                   help="data root containing real/<id>/ (default: $BAYSOR_BENCH_DATA)")
+    p.add_argument("--require-built", action="store_true",
+                   help="fail instead of skipping datasets that are not built")
 
     p = sub.add_parser("report", help="dataset inventory table")
     p.add_argument("--run-id", default="sanity_realx")
@@ -444,6 +679,7 @@ def main(argv: list[str] | None = None) -> int:
         "fetch": cmd_fetch,
         "pick": cmd_pick,
         "build": cmd_build,
+        "record-hashes": cmd_record_hashes,
         "report": cmd_report,
     }[args.cmd](args, manifest)
 

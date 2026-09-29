@@ -2,6 +2,11 @@
 # Run the Release Baysor binary on a built benchmark dataset and record
 # wall time, peak RSS and output presence (BENCH-REALX sanity check).
 #
+# The command line is assembled from the dataset's meta.json the way the
+# harness assembles it: config, extra_args (e.g. -z z for 3D crops), scale,
+# prior (`column` -> :prior, `image:<path>` -> the label TIFF, `none` ->
+# no positional), prior confidence and min-molecules-per-cell.
+#
 # Usage: benchmarks/fetch/sanity_run.sh <dataset_id>
 # Env:   BAYSOR_BIN, BAYSOR_BENCH_DATA, RUN_ID (default sanity_realx),
 #        N_THREADS (default 6, the shared-machine limit for this suite).
@@ -18,20 +23,65 @@ id=${1:?usage: sanity_run.sh <dataset_id>}
 ds=$BAYSOR_BENCH_DATA/real/$id
 out=$BAYSOR_BENCH_DATA/runs/$RUN_ID/$id
 test -f "$ds/molecules.parquet" || { echo "missing $ds/molecules.parquet" >&2; exit 1; }
+test -f "$ds/meta.json" || { echo "missing $ds/meta.json" >&2; exit 1; }
 mkdir -p "$out"
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 
-# scale_um from the dataset meta, as the harness would pass it
-scale=$("$BENCH_PY" -c "import json;print(json.load(open('$ds/meta.json'))['baysor']['scale_um'])")
+# options and prior positional, derived from meta.json (one per line)
+mapfile -t baysor_opts < <("$BENCH_PY" - "$ds" <<'PYEOF'
+import json, sys
+from pathlib import Path
 
-echo "== baysor run: $id -> $out (OMP_NUM_THREADS=$N_THREADS, scale=$scale)"
+cfg = json.load(open(Path(sys.argv[1]) / "meta.json")).get("baysor", {})
+opts = []
+if cfg.get("config"):
+    opts += ["-c", str(cfg["config"])]
+if cfg.get("scale_um") is not None:
+    opts += ["--scale", str(cfg["scale_um"])]
+if cfg.get("scale_std") is not None:
+    opts += ["--scale-std", str(cfg["scale_std"])]
+if cfg.get("min_molecules_per_cell") is not None:
+    opts += ["-m", str(cfg["min_molecules_per_cell"])]
+prior = cfg.get("prior") or "none"
+if prior != "none" and cfg.get("prior_confidence") is not None:
+    opts += ["--prior-segmentation-confidence", str(cfg["prior_confidence"])]
+opts += [str(a) for a in (cfg.get("extra_args") or [])]
+print("\n".join(opts))
+PYEOF
+)
+if [ ${#baysor_opts[@]} -eq 0 ]; then
+  echo "failed to derive baysor options from $ds/meta.json" >&2
+  exit 1
+fi
+prior_arg=$("$BENCH_PY" - "$ds" <<'PYEOF'
+import json, sys
+from pathlib import Path
+
+ds = Path(sys.argv[1])
+prior = json.load(open(ds / "meta.json")).get("baysor", {}).get("prior") or "none"
+if prior == "column":
+    print(":prior")
+elif prior.startswith("image:"):
+    img = ds / prior[len("image:"):]
+    if not img.is_file():
+        raise SystemExit(f"prior image not found: {img}")
+    print(img)
+elif prior in ("none", ""):
+    print("")
+else:
+    raise SystemExit(f"unsupported baysor.prior: {prior!r}")
+PYEOF
+)
+
+echo "== baysor run: $id -> $out (OMP_NUM_THREADS=$N_THREADS)"
+cmd=("$BAYSOR_BIN" run "${baysor_opts[@]}" -o "$out" "$ds/molecules.parquet")
+if [ -n "$prior_arg" ]; then
+  cmd+=("$prior_arg")
+fi
 OMP_NUM_THREADS=$N_THREADS /usr/bin/time -v -o "$out/time.txt" \
-  "$BAYSOR_BIN" run -c configs/xenium.toml \
-  -x x -y y -g gene --qv-column qv --unassigned-prior-label 0 --scale "$scale" \
-  -o "$out" "$ds/molecules.parquet" :prior \
-  >"$out/stdout.log" 2>"$out/stderr.log"
+  "${cmd[@]}" >"$out/stdout.log" 2>"$out/stderr.log"
 
 # Extract wall time and peak RSS into timing.json for the inventory report.
 "$BENCH_PY" - "$out" <<'PYEOF'

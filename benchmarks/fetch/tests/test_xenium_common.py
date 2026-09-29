@@ -493,3 +493,277 @@ def test_molecule_stats():
     assert stats["area_um2"] == 10000.0
     assert stats["n_genes"] == len(set(t["gene"].to_pylist()))
     assert stats["vendor_cells_per_mm2"] == pytest.approx(50 * 1e6 / 1e4)
+
+
+# ---------------------------------------------------------------------------
+# crop-selection criteria (composition / tissue edge)
+# ---------------------------------------------------------------------------
+
+
+def test_pick_bbox_min_clusters_criterion():
+    mol, cells = _synthetic_hists()
+    # two fake cluster histograms: cluster0 only in the dense patch,
+    # cluster1 only outside it
+    cl0 = np.zeros_like(cells)
+    cl0[30:70, 30:70] = cells[30:70, 30:70]
+    cl1 = cells - cl0
+    res = xc.pick_bbox(
+        mol, cells, 25.0, (0, 0, 2500, 2500),
+        target=20000, min_mols=5000, max_mols=30000,
+        min_cells=50, min_coverage=0.7,
+        cluster_hists=[cl0, cl1],
+        criteria={"min_clusters": 2},
+    )
+    assert res["n_clusters"] >= 2
+    # raising the bar beyond the available clusters fails loudly
+    with pytest.raises(RuntimeError, match="min_clusters"):
+        xc.pick_bbox(
+            mol, cells, 25.0, (0, 0, 2500, 2500),
+            target=20000, min_mols=5000, max_mols=30000,
+            min_cells=50, min_coverage=0.7,
+            cluster_hists=[cl0],
+            criteria={"min_clusters": 2},
+        )
+
+
+def test_pick_bbox_min_clusters_without_hists_raises():
+    mol, cells = _synthetic_hists()
+    with pytest.raises(RuntimeError, match="cluster"):
+        xc.pick_bbox(
+            mol, cells, 25.0, (0, 0, 2500, 2500),
+            target=20000, min_mols=5000, max_mols=30000,
+            min_cells=50, min_coverage=0.7,
+            criteria={"min_clusters": 1},
+        )
+
+
+def test_pick_bbox_edge_criteria():
+    mol, cells = _synthetic_hists()
+    res = xc.pick_bbox(
+        mol, cells, 25.0, (0, 0, 2500, 2500),
+        target=12000, min_mols=4000, max_mols=40000,
+        min_cells=50, min_coverage=0.4,
+        criteria={"max_coverage": 0.8, "min_empty_border": 0.15},
+    )
+    assert res["coverage"] <= 0.8
+    assert res["empty_border"] >= 0.15
+
+
+def test_pick_bbox_edge_criteria_impossible_raises():
+    mol, cells = _synthetic_hists()
+    # every candidate box in the fully occupied area has coverage 1.0
+    mol2 = np.full_like(mol, 5)
+    cells2 = np.full_like(cells, 1)
+    with pytest.raises(RuntimeError, match="no crop box found"):
+        xc.pick_bbox(
+            mol2, cells2, 25.0, (0, 0, 2500, 2500),
+            target=20000, min_mols=5000, max_mols=30000,
+            min_cells=50, min_coverage=0.7,
+            criteria={"max_coverage": 0.8},
+        )
+
+
+# ---------------------------------------------------------------------------
+# vendor clusters
+# ---------------------------------------------------------------------------
+
+
+def test_load_cell_clusters_numeric(tmp_path):
+    import pandas as pd
+
+    p = tmp_path / "clusters.csv"
+    p.write_text("Barcode,Cluster\n1,9\n3,7\n4,9\n")
+    cells = pd.DataFrame({"cell_id": [1, 2, 3, 4, 5]})
+    got = xc.load_cell_clusters(p, cells)
+    assert got.tolist() == [9, -1, 7, 9, -1]
+
+
+def test_load_cell_clusters_string_ids(tmp_path):
+    import pandas as pd
+
+    p = tmp_path / "clusters.csv"
+    p.write_text("Barcode,Cluster\na-1,2\nb-1,3\n")
+    cells = pd.DataFrame({"cell_id": ["a-1", "b-1", "c-1"]})
+    got = xc.load_cell_clusters(p, cells)
+    assert got.tolist() == [2, 3, -1]
+
+
+def test_cells_histogram_mask():
+    import pandas as pd
+
+    cells = pd.DataFrame({"x_centroid": [10.0, 10.0, 90.0],
+                          "y_centroid": [10.0, 90.0, 90.0]})
+    allh = xc.cells_histogram(cells, (0, 0, 100, 100), bin_um=50)
+    one = xc.cells_histogram(cells, (0, 0, 100, 100), bin_um=50,
+                             mask=np.array([True, False, False]))
+    assert allh.sum() == 3
+    assert one.sum() == 1
+
+
+# ---------------------------------------------------------------------------
+# z (3D) support
+# ---------------------------------------------------------------------------
+
+
+def test_read_transcript_crops_with_z(transcripts_v1):
+    # add a z_location column by rewriting the fixture file
+    t = pq.read_table(transcripts_v1)
+    t = t.append_column("z_location", pa.array(np.arange(t.num_rows) * 0.5,
+                                               pa.float32()))
+    pq.write_table(t, transcripts_v1)
+    (out,) = xc.read_transcript_crops(transcripts_v1, [(0, 0, 100, 100)],
+                                      min_qv=20, with_z=True)
+    assert "z_location" in out.column_names
+    (out0,) = xc.read_transcript_crops(transcripts_v1, [(0, 0, 100, 100)],
+                                       min_qv=20)
+    assert "z_location" not in out0.column_names
+
+
+def test_build_molecule_table_keep_z():
+    rng = np.random.default_rng(0)
+    n = 20
+    tbl = pa.table({
+        "x_location": pa.array(rng.uniform(0, 100, n), pa.float32()),
+        "y_location": pa.array(rng.uniform(0, 100, n), pa.float32()),
+        "z_location": pa.array(rng.uniform(0, 20, n), pa.float32()),
+        "qv": pa.array(rng.uniform(20, 40, n), pa.float32()),
+        "feature_name": pa.array(["A"] * n, pa.string()),
+        "cell_id": pa.array(np.ones(n, dtype=np.int32), pa.int32()),
+        "overlaps_nucleus": pa.array(np.ones(n, dtype=np.uint8), pa.uint8()),
+    })
+    t2 = xc.build_molecule_table(tbl, keep_z=True)
+    assert t2.column_names == ["x", "y", "z", "gene", "qv", "prior", "cell_vendor"]
+    assert t2.schema.field("z").type == pa.float64()
+    z = np.asarray(t2["z"].to_numpy(zero_copy_only=False))
+    assert np.all((z >= 0) & (z <= 20))
+    t0 = xc.build_molecule_table(tbl, keep_z=False)
+    assert "z" not in t0.column_names
+
+
+def test_build_meta_z_range():
+    stats = {"n_molecules": 10, "n_genes": 5, "area_um2": 100.0,
+             "molecules_per_um2": 0.1, "n_vendor_cells": 5,
+             "vendor_cells_per_mm2": 50000.0}
+    common = dict(dataset_id="x", tier="quick",
+                  source={"url": "u", "license": "L", "original_dataset": "O",
+                          "doi": None},
+                  bbox=(0, 0, 100, 100), note="n", stats=stats,
+                  panel_genes=100, scale_um=5.0, scale_method="m",
+                  baysor={"config": "c", "prior": "column",
+                          "prior_confidence": 0.5, "scale_std": "25%",
+                          "min_molecules_per_cell": 50, "extra_args": []},
+                  images=[], retrieved="2026-09-29")
+    assert xc.build_meta(**common)["crop"]["z_range_um"] is None
+    meta = xc.build_meta(**common, z_range=(3.14159, 19.9))
+    assert meta["crop"]["z_range_um"] == [3.142, 19.9]
+
+
+# ---------------------------------------------------------------------------
+# image prior rasterisation
+# ---------------------------------------------------------------------------
+
+
+def _write_boundaries(tmp_path, objects):
+    rows = {"cell_id": [], "vertex_x": [], "vertex_y": []}
+    for cid, verts in objects:
+        for x, y in verts:
+            rows["cell_id"].append(cid)
+            rows["vertex_x"].append(float(x))
+            rows["vertex_y"].append(float(y))
+    p = tmp_path / "b.parquet"
+    pq.write_table(pa.table({
+        "cell_id": pa.array(rows["cell_id"], pa.int32()),
+        "vertex_x": pa.array(rows["vertex_x"], pa.float64()),
+        "vertex_y": pa.array(rows["vertex_y"], pa.float64()),
+    }), p)
+    return p
+
+
+def test_rasterize_nucleus_labels_frame_and_mapping(tmp_path):
+    import tifffile
+
+    # a square nucleus at (10..16, 30..36) um and one straddling the box edge
+    objects = [
+        (7, [(10, 30), (16, 30), (16, 36), (10, 36)]),
+        (9, [(18, 30), (26, 30), (26, 36), (18, 36)]),
+    ]
+    bp = _write_boundaries(tmp_path, objects)
+    bbox = (0.0, 0.0, 40.0, 50.0)  # frame: ceil(x1) x ceil(y1)
+    out = tmp_path / "labels.tif"
+    spec = xc.rasterize_nucleus_labels(bp, bbox, out)
+
+    assert spec["width"] == 40 and spec["height"] == 50
+    assert spec["pixel_size_um"] == 1.0 and spec["origin_um"] == [0.0, 0.0]
+    labels = tifffile.imread(str(out))
+    assert labels.shape == (50, 40)
+    assert labels.dtype == np.uint16
+    assert spec["n_labels"] == 2
+
+    # Baysor mapping: pixel = (round(x) - 1, round(y) - 1)
+    def pix(x, y):
+        return labels[int(round(y)) - 1, int(round(x)) - 1]
+
+    # every molecule inside nucleus A lands on a labelled pixel of A
+    assert pix(12.4, 33.0) != 0
+    assert pix(10.2, 30.4) != 0
+    # nucleus B (ids sorted -> label 1 = cell 7, label 2 = cell 9)
+    assert pix(20.0, 33.0) == pix(10.0, 33.0) + 1
+    # far background stays 0
+    assert pix(35.0, 45.0) == 0
+
+
+def test_rasterize_nucleus_labels_absolute_origin(tmp_path):
+    import tifffile
+
+    # crop far from the origin: the raster still spans [0, ceil(x1)) so the
+    # absolute round(x)-1 pixel index lands inside the image
+    objects = [(3, [(105, 130), (111, 130), (111, 136), (105, 136)])]
+    bp = _write_boundaries(tmp_path, objects)
+    out = tmp_path / "labels.tif"
+    spec = xc.rasterize_nucleus_labels(bp, (100.0, 125.0, 120.0, 140.0), out)
+    labels = tifffile.imread(str(out))
+    assert spec["width"] == 120 and spec["height"] == 140
+    assert labels[round(133) - 1, round(108) - 1] != 0
+    assert labels[5, 5] == 0  # absolute origin region is background
+
+
+def test_rasterize_nucleus_labels_empty_raises(tmp_path):
+    objects = [(1, [(0, 0), (2, 0), (2, 2)])]
+    bp = _write_boundaries(tmp_path, objects)
+    with pytest.raises(ValueError, match="no boundary objects"):
+        xc.rasterize_nucleus_labels(bp, (100.0, 100.0, 110.0, 110.0),
+                                    tmp_path / "l.tif")
+
+
+# ---------------------------------------------------------------------------
+# fetch_members wrapper (download helper integration)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_members_records_and_verifies(http_server, tmp_path):
+    base, state = http_server
+    members = {"outs/a.bin": b"a" * 5000, "outs/b.bin": b"b" * 700}
+    path = state.make_zip("x.zip", members)
+    url = base + path
+    cache = tmp_path / "cache"
+
+    record: dict = {}
+    paths = xc.fetch_members(url, list(members), cache=cache, record=record)
+    for name, data in members.items():
+        assert paths[name].read_bytes() == data
+        assert record[name]["bytes"] == len(data)
+        assert record[name]["sha256"] == xc.download.sha256_file(paths[name])
+
+    # second pass with the recorded expectations: offline + corrupt -> refetch
+    hits = state.hits[path]
+    record2: dict = {}
+    xc.fetch_members(url, list(members), cache=cache,
+                     expected=record, record=record2)
+    assert record2 == record
+    assert state.hits[path] == hits
+
+    paths["outs/a.bin"].write_bytes(b"z" * 5000)
+    xc.fetch_members(url, list(members), cache=cache,
+                     expected=record, record=record2)
+    assert paths["outs/a.bin"].read_bytes() == members["outs/a.bin"]
+    assert state.hits[path] > hits
