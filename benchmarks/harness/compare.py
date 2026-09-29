@@ -15,6 +15,9 @@ Three expectation modes:
   * provenance gates fail on thread-count or binary/threads mismatches and on
     differing dataset content hashes (``inputs.molecules_sha256`` /
     ``inputs.meta_sha256``);
+  * a real dataset in the baseline with fewer than 2 successful replicates
+    is an error (exit 2): replicate-agreement gates cannot be evaluated
+    against a single-segmentation baseline and no thresholds are invented;
   * only a few **primary** metrics gate the verdict —
     sim: one-to-one accuracy, ARI over assigned molecules, recovery fraction,
     cell-count ratio; real: ARI over assigned molecules, matched-cell
@@ -29,13 +32,20 @@ Three expectation modes:
   Improvement must exceed the noise:
   * the mean gain in primary sim accuracy (one-to-one) across sim datasets
     must exceed both 2 standard errors (from the per-dataset replicate SDs)
-    and a minimum effect (0.005);
+    and a minimum effect (0.005); when the baseline or the run has no sim
+    datasets this gate is ``skip``;
   * no sim dataset may regress beyond its tolerance in one-to-one accuracy,
     assigned-ARI, recovery or the over-segmentation rate;
   * on real data the cellAdmix ``total_admixture_rate`` must be
-    <= baseline + k*SD(baseline audit replicates), gated only when the audit
-    status is ``ok`` on both sides and the baseline crop has >= 2000 cells;
-    otherwise it is reported as ``unavailable`` (never as 0).
+    <= baseline + max(k*SD(baseline audit replicates), floor), floored by
+    ``--admixture-tolerance`` (default 0.0025, calibrated from
+    ``celladmix/results/harness_baysor_sd.json``), gated only when the audit
+    status is ``ok`` on both sides, the dataset is ``admixture_capable`` and
+    the baseline crop has >= 2000 cells; with fewer than 2 baseline audit
+    replicates the floor alone is used (with a warning). Otherwise it is
+    reported as ``unavailable`` (never as 0);
+  * when neither gate evaluates anything, the comparison fails with a
+    ``nothing to evaluate`` message.
 
 Runtime and peak-RSS changes are reported; slowdowns or RSS growth beyond
 20% are warnings. Failures/timeouts and missing datasets fail the comparison.
@@ -88,15 +98,14 @@ REAL_FLOORS = {
     "cell_count_ratio": 0.03,
 }
 DEFAULT_REAL_FLOOR = 0.05
-# absolute fallbacks when a baseline has no replicate agreement at all
-REAL_ABS_MIN = {
-    "ari_assigned": 0.90,
-    "frac_cells_matched": 0.75,
-}
 
 K_DEFAULT = 3.0
 MIN_EFFECT_ACCURACY = 0.005     # --expect improved: minimum mean gain
 ADMIXTURE_MIN_CELLS = 2000      # admixture gate only on crops with >= cells
+# calibrated floor for --admixture-tolerance: 3 x SD of the Baysor replicate
+# audit on xenium_lung_cancer_quick (0.000844, celladmix/results/
+# harness_baysor_sd.json); also covers baselines with < 2 audit replicates
+DEFAULT_ADMIXTURE_TOLERANCE = 0.0025
 SLOWDOWN_WARN = 0.20
 RSS_GROWTH_WARN = 0.20
 
@@ -505,17 +514,13 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                           abs(r_val - center) <= tol,
                           detail="deviation from baseline replicate agreement")
             else:
-                floor_abs = REAL_ABS_MIN.get(metric)
-                if floor_abs is None:
-                    rep.check("real", ds_id, metric, "skip",
-                              detail="baseline has no replicate agreement")
-                    continue
-                rep.warn(f"{ds_id}: baseline has no replicate agreement "
-                         f"(single replicate); using absolute fallback")
-                rep.check("real", ds_id, metric,
-                          "pass" if r_val >= floor_abs else "fail",
-                          run_vs_baseline_mean=r_val, required_min=floor_abs,
-                          detail="absolute fallback (no baseline replicates)")
+                # unreachable: main() rejects same-mode comparisons whose
+                # real baseline has < 2 successful replicates (exit 2)
+                rep.check("real", ds_id, metric, "fail",
+                          run_vs_baseline_mean=r_val,
+                          detail="baseline has no replicate agreement "
+                                 "(needs >=2 successful replicates; should "
+                                 "have been rejected with exit 2)")
 
         for metric in REAL_INFO:
             if metric not in pairs[0]:
@@ -551,6 +556,13 @@ def check_real_admixture(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                     + ("both sides" if not _finite(base_rate) and not _finite(run_rate)
                        else ("baseline" if not _finite(base_rate) else "run")))
         return
+    # the audit must be able to detect admixture at all (FIX-A2's flag;
+    # falls back to the cell-count rule when the flag was not recorded)
+    if base_cam.get("admixture_capable") is False \
+            or run_cam.get("admixture_capable") is False:
+        unavailable("dataset is not admixture_capable "
+                    f"(crop < {ADMIXTURE_MIN_CELLS} cells)")
+        return
     # gate only on crops large enough for the audit to have statistical power
     base_cells = [r.get("n_cells") for r in base_m.get("reps", [])
                   if r.get("status") == "ok" and _finite(r.get("n_cells"))]
@@ -561,16 +573,26 @@ def check_real_admixture(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         return
     rates = [t for t in (base_cam.get("per_rep_total") or [])
              if _finite(t)]
-    sd = _sd(rates) if len(rates) > 1 else 0.0
-    tol = max(k * sd, tolerance_floor)
+    if len(rates) >= 2:
+        sd = _sd(rates)
+        tol = max(k * sd, tolerance_floor)
+    else:
+        # <2 baseline audit replicates: no SD can be estimated — use the
+        # calibrated floor only, and say so
+        sd = None
+        tol = tolerance_floor
+        rep.warn(f"{ds_id}: baseline audit has {len(rates)} replicate(s) "
+                 f"(<2); using --admixture-tolerance floor "
+                 f"{tolerance_floor:g}")
     allowed = float(base_rate) + tol
     ok = float(run_rate) <= allowed
     rep.check("real", ds_id, "total_admixture_rate", "pass" if ok else "fail",
               baseline_mean=float(base_rate), run_mean=float(run_rate),
               baseline_sd=sd, tolerance=tol, allowed_max=allowed,
-              n_cells=n_cells, false_alarm_p=_one_sided_alpha(tol, sd),
-              detail=None if ok else "admixture rate rose beyond k*SD of the "
-                                     "baseline audit replicates")
+              n_cells=n_cells, false_alarm_p=_one_sided_alpha(tol, sd or 0.0),
+              detail=(None if ok else
+                      "admixture rate rose beyond tolerance "
+                      "(max(k*SD of baseline audit replicates, floor))"))
 
 
 # ---------------------------------------------------------------------------
@@ -579,14 +601,27 @@ def check_real_admixture(rep: Report, ds_id: str, run_m: dict, base_m: dict,
 
 def check_improved_aggregate(rep: Report, run_metrics: dict[str, dict],
                              base_metrics: dict[str, dict], k: float):
-    """Mean one-to-one accuracy gain must exceed 2 SE and a minimum effect."""
-    sim_ids = [d for d, mm in base_metrics.items()
-               if (mm.get("dataset") or {}).get("kind") == "sim"
-               or mm.get("kind") == "sim"]
-    if not sim_ids:
-        rep.check("sim", "*", "aggregate_accuracy_1to1", "fail",
+    """Mean one-to-one accuracy gain must exceed 2 SE and a minimum effect.
+
+    Skips (rather than fails) when either side has no sim datasets — e.g. a
+    real-only baseline whose improvement is judged on the admixture gate.
+    """
+    def sim_ids(metrics):
+        return [d for d, mm in metrics.items()
+                if (mm.get("dataset") or {}).get("kind") == "sim"
+                or mm.get("kind") == "sim"]
+
+    base_sim = sim_ids(base_metrics)
+    run_sim = sim_ids(run_metrics)
+    if not base_sim:
+        rep.check("sim", "*", "aggregate_accuracy_1to1", "skip",
                   detail="baseline contains no sim datasets")
         return
+    if not run_sim:
+        rep.check("sim", "*", "aggregate_accuracy_1to1", "skip",
+                  detail="run contains no sim datasets")
+        return
+    sim_ids_eval = [d for d in base_sim if d in run_sim]
 
     def stats(metrics, ds):
         block = ((metrics.get(ds) or {}).get("sim")) or {}
@@ -598,7 +633,7 @@ def check_improved_aggregate(rep: Report, run_metrics: dict[str, dict],
 
     gains, variances = [], []
     used = []
-    for ds in sim_ids:
+    for ds in sim_ids_eval:
         rm, rs, rn = stats(run_metrics, ds)
         bm, bs, bn = stats(base_metrics, ds)
         if not (_finite(rm) and _finite(bm)):
@@ -821,10 +856,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--k", type=float, default=K_DEFAULT,
                     help="tolerance multiplier on the pooled baseline SD "
                          "(default 3)")
-    ap.add_argument("--admixture-tolerance", type=float, default=0.0,
+    ap.add_argument("--admixture-tolerance", type=float,
+                    default=DEFAULT_ADMIXTURE_TOLERANCE,
                     help="minimum admixture tolerance floor; the actual "
                          "tolerance is max(k*SD of the baseline audit "
-                         "replicates, floor) (default 0)")
+                         "replicates, floor), or the floor alone with "
+                         "<2 baseline audit replicates (default "
+                         f"{DEFAULT_ADMIXTURE_TOLERANCE}, = 3x the measured "
+                         "Baysor replicate audit SD)")
     ap.add_argument("--report-md", default=None)
     ap.add_argument("--report-json", default=None)
     args = ap.parse_args(argv)
@@ -854,6 +893,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not base_metrics:
         print(f"error: baseline '{args.baseline}' has no metrics", file=sys.stderr)
         return 2
+
+    # 'same' needs a real baseline with replicate agreement: with a single
+    # successful replicate there is no noise floor to compare against and no
+    # threshold may be invented (the old absolute fallback wrongly failed
+    # run-vs-baseline ARI ~0.83 against a required 0.90)
+    if args.expect == "same":
+        for ds_id in sorted(set(run_metrics) & set(base_metrics)):
+            bm = base_metrics[ds_id]
+            bkind = (bm.get("dataset") or {}).get("kind") or bm.get("kind")
+            if bkind != "real":
+                continue
+            ok_reps = [r for r in bm.get("reps", [])
+                       if r.get("status") == "ok"]
+            if len(ok_reps) < 2:
+                print(f"error: {ds_id}: baseline needs >=3 replicates for "
+                      f"real same-mode checks "
+                      f"(found {len(ok_reps)} successful replicate(s))",
+                      file=sys.stderr)
+                return 2
 
     rep = Report(args.run_id, args.baseline, args.expect)
 
@@ -928,6 +986,16 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.expect == "improved":
         check_improved_aggregate(rep, run_metrics, base_metrics, args.k)
+        # both gates skipped -> nothing was actually evaluated
+        evaluated = any(c["scope"] in ("sim", "real")
+                        and c["status"] in ("pass", "fail")
+                        for c in rep.checks)
+        if not evaluated:
+            rep.check("run", "*", "evaluation", "fail",
+                      detail="nothing to evaluate: no sim datasets for the "
+                             "accuracy gate and no evaluable "
+                             "admixture-capable real datasets for the audit "
+                             "gate")
 
     compare_runtime(rep, run_metrics, base_metrics)
     if args.expect in ("same", "improved"):

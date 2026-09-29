@@ -524,3 +524,151 @@ def test_false_alarm_alpha():
     assert compare._two_sided_alpha(3.0, 1.0) == pytest.approx(0.0027, rel=1e-3)
     assert compare._one_sided_alpha(3.0, 1.0) == pytest.approx(0.00135, rel=1e-3)
     assert compare._two_sided_alpha(0.02, 0.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# round-2 integration fixes (single-replicate baselines, skip semantics)
+# ---------------------------------------------------------------------------
+
+def _setup_real_single_rep(tmp_path, *, base_rates=None, run_rates=None,
+                           n_cells=2000):
+    """Real-only baseline + candidate, each with a single replicate."""
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    real_dir = make_real_dataset(root / "real" / "real_a",
+                                 n_cells=n_cells, per_cell=1, noise=50)
+    cells = pd.read_parquet(real_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", real_dir, [cells], celladmix_rates=base_rates)
+    make_run(root, "rnew", real_dir, [cells], celladmix_rates=run_rates)
+    assert baseline.create("rbase", "btest", root, baselines,
+                           force=True, allow_incomplete=True) == 0
+    return root, baselines
+
+
+def test_same_real_baseline_without_replicates_exits_2(tmp_path, capsys):
+    """A 1-replicate real baseline has no noise floor: same-mode must error
+    instead of inventing an absolute threshold."""
+    root, baselines = _setup_real_single_rep(tmp_path)
+    rc = _compare(root, baselines, "same")
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "baseline needs >=3 replicates for real same-mode checks" in err
+    assert "real_a" in err
+
+
+def test_same_two_replicate_real_baseline_runs(tmp_path):
+    """2 successful replicates give one agreement pair -> no exit 2."""
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    real_dir = make_real_dataset(root / "real" / "real_a")
+    cells = pd.read_parquet(real_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", real_dir, [cells, cells.copy()])
+    make_run(root, "rnew", real_dir, [cells, cells.copy()])
+    assert baseline.create("rbase", "btest", root, baselines,
+                           force=True, allow_incomplete=True) == 0
+    assert _compare(root, baselines, "same") == 0
+
+
+def test_same_single_rep_sim_baseline_still_runs(tmp_path):
+    """Sim same-mode checks work from pooled SDs/floors without replicates."""
+    root, baselines = _setup_identical(tmp_path, reps=1)
+    # _setup_identical builds a 1-replicate baseline with --allow-incomplete
+    assert _compare(root, baselines, "same") == 0
+
+
+def test_admixture_single_baseline_replicate_uses_floor(tmp_path):
+    """<2 baseline audit replicates: tolerance = --admixture-tolerance floor
+    (default 0.0025) with a warning, not SD=0."""
+    root, baselines = _setup_real_single_rep(
+        tmp_path, base_rates=[0.05], run_rates=[0.052])
+    assert _compare(root, baselines, "improved",
+                    admixture_tolerance=compare.DEFAULT_ADMIXTURE_TOLERANCE) == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_improved.json")
+    adm = [c for c in report["checks"]
+           if c["metric"] == "total_admixture_rate"]
+    assert adm and adm[0]["status"] == "pass"
+    assert adm[0]["tolerance"] == pytest.approx(0.0025)
+    assert adm[0]["allowed_max"] == pytest.approx(0.05 + 0.0025)
+    assert adm[0]["baseline_sd"] is None
+    assert any("floor" in w for w in report["warnings"])
+    # a rise beyond the floor still fails
+    root, baselines = _setup_real_single_rep(
+        tmp_path / "b", base_rates=[0.05], run_rates=[0.054])
+    assert _compare(root, baselines, "improved",
+                    admixture_tolerance=compare.DEFAULT_ADMIXTURE_TOLERANCE) == 1
+
+
+def test_admixture_default_floor_is_calibrated():
+    assert compare.DEFAULT_ADMIXTURE_TOLERANCE == 0.0025
+
+
+def test_admixture_not_capable_unavailable():
+    rep = compare.Report("r", "b", "improved")
+    base = _adm_metrics("ok", 0.05, 2500)
+    base["real"]["celladmix"]["admixture_capable"] = False
+    compare.check_real_admixture(rep, "d", _adm_metrics("ok", 0.05, 2500),
+                                 base, 3.0, 0.0025)
+    assert rep.checks[0]["status"] == "skip"
+    assert "not admixture_capable" in rep.checks[0]["detail"]
+
+
+def test_improved_real_only_baseline_skips_sim_aggregate(tmp_path):
+    """Real-only baseline: the sim aggregate gate is skip, the admixture
+    gate decides (issue: it used to fail with 'no sim datasets')."""
+    root, baselines = _setup_real_single_rep(
+        tmp_path, base_rates=[0.05], run_rates=[0.05])
+    assert _compare(root, baselines, "improved") == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_improved.json")
+    agg = [c for c in report["checks"]
+           if c["metric"] == "aggregate_accuracy_1to1"]
+    assert agg and agg[0]["status"] == "skip"
+    assert "no sim datasets" in agg[0]["detail"]
+    adm = [c for c in report["checks"]
+           if c["metric"] == "total_admixture_rate"]
+    assert adm and adm[0]["status"] == "pass"
+
+
+def test_improved_nothing_to_evaluate_fails(tmp_path):
+    """Real-only baseline without any audit: nothing is evaluated ->
+    clear failure instead of a green run."""
+    root, baselines = _setup_real_single_rep(tmp_path)  # no audit rates
+    assert _compare(root, baselines, "improved") == 1
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_improved.json")
+    agg = [c for c in report["checks"]
+           if c["metric"] == "aggregate_accuracy_1to1"]
+    assert agg and agg[0]["status"] == "skip"
+    adm = [c for c in report["checks"]
+           if c["metric"] == "total_admixture_rate"]
+    assert adm and adm[0]["status"] == "skip"
+    nothing = [c for c in report["checks"] if c["metric"] == "evaluation"]
+    assert nothing and nothing[0]["status"] == "fail"
+    assert "nothing to evaluate" in nothing[0]["detail"]
+
+
+def test_improved_run_without_sim_skips_aggregate(tmp_path):
+    """Baseline has sim datasets, run does not -> aggregate is skip."""
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    sim_dir = make_sim_dataset(root / "sim" / "sim_a")
+    truth = pd.read_parquet(sim_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", sim_dir, [corrupt(truth, 0.2, seed=5)] * 3)
+    real_dir = make_real_dataset(root / "real" / "real_a")
+    cells = pd.read_parquet(real_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", real_dir, [cells] * 3)
+    make_run(root, "rnew", real_dir, [cells] * 3)
+    assert baseline.create("rbase", "btest", root, baselines,
+                           force=True) == 0
+    assert _compare(root, baselines, "improved") == 1  # presence fail: sim_a
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_improved.json")
+    agg = [c for c in report["checks"]
+           if c["metric"] == "aggregate_accuracy_1to1"]
+    assert agg and agg[0]["status"] == "skip"
+    assert "run contains no sim datasets" in agg[0]["detail"]

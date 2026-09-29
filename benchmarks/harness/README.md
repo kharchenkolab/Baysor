@@ -414,7 +414,11 @@ Provenance gates (fail, not warn):
 * `inputs.molecules_sha256` / `inputs.meta_sha256` must match when
   recorded on both sides (recorded by the runner; `recompute_metrics.py`
   backfills them). Missing hashes → `skip` + warning, never a pass silently
-  waved through.
+  waved through;
+* a real dataset in the baseline with **fewer than 2 successful replicates**
+  is a usage error (**exit 2**, `baseline needs >=3 replicates for real
+  same-mode checks`): a single segmentation has no replicate agreement to
+  measure the noise floor against, and no threshold is invented for it.
 
 Metric gates — only the **primary** metrics can fail the run, everything
 else is informational:
@@ -429,9 +433,9 @@ else is informational:
   means; real: replicate-pair agreement SDs);
 * real checks measure the run-vs-baseline agreement (all run-rep ×
   baseline-rep pairs) against the baseline's replicate agreement (and the
-  cell-count ratio against 1.0); a single-replicate baseline without
-  replicate agreement falls back to absolute minima (ARI ≥ 0.90, matched ≥
-  0.75) with a warning;
+  cell-count ratio against 1.0); a real baseline with < 2 successful
+  replicates never reaches this point (exit 2 above) — with ≥ 2 the
+  replicate agreement always exists;
 * **false-alarm budget**: every gated check carries its normal-approximation
   tail probability at the used tolerance; the report sums them
   (`false-alarm budget: ~0.009 expected false failures across 16 gated
@@ -444,20 +448,26 @@ Improvement must exceed the noise:
 * the mean gain in `accuracy_1to1` over the baseline's sim datasets must
   exceed **both** 2 standard errors (SE of the mean gain computed from the
   per-dataset replicate SDs, `SE = sqrt(Σ(sd_r²/n_r + sd_b²/n_b))/D`) **and**
-  a minimum effect of 0.005;
+  a minimum effect of 0.005; when the baseline *or* the run contains no sim
+  datasets the gate is `skip` (e.g. a real-only baseline judged on the
+  admixture audit);
 * no individual sim dataset may regress beyond `max(k·SD_pooled, floor)` in
   `accuracy_1to1`, `ari_assigned`, `recovery_rate` or
   `over_segmentation_rate`;
 * on real data: `total_admixture_rate ≤ baseline + max(k·SD, floor)`, where
-  SD is taken over the *baseline's* audit replicates (`--admixture-tolerance`
-  sets the floor, default 0). The check is gated **only** when the audit
-  status is `ok` in both run and baseline *and* the baseline crop has
-  ≥ 2000 cells; otherwise it is reported as `unavailable` (`skip`), never as
-  0;
+  SD is taken over the *baseline's* audit replicates and the floor is
+  `--admixture-tolerance` (**default 0.0025** = 3 × the measured Baysor
+  replicate audit SD, `../celladmix/results/harness_baysor_sd.json`); with
+  fewer than 2 baseline audit replicates the floor alone is used, with a
+  warning. The check is gated **only** when the audit status is `ok` in both
+  run and baseline, the dataset is `admixture_capable` and the baseline crop
+  has ≥ 2000 cells; otherwise it is reported as `unavailable` (`skip`),
+  never as 0;
 * an unchanged binary therefore cannot pass: +0.0001 mean gain ≪ 0.005
   (verified on `rev-same-sim`, see calibration);
-* a baseline without sim datasets fails this mode — improvement cannot be
-  demonstrated without sim truth.
+* if neither gate evaluates anything (no sim datasets *and* no evaluable
+  admixture-capable real dataset), the comparison **fails** with a
+  `nothing to evaluate` message instead of passing vacuously.
 
 All modes fail on: replicate failures/timeouts, datasets in the baseline
 missing from the run, and (in `same`) missing baseline assignment tables.
