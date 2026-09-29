@@ -1,0 +1,22 @@
+name: baysor-bench
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - pandas
+  - pyarrow
+  - scikit-learn
+  - matplotlib
+  - anndata
+  - scanpy
+  - h5py
+  - zarr
+  - shapely
+  - tifffile
+  - pyyaml
+  - requests
+  - pip
+  - pip:
+      - remotezip

@@ -31,3 +31,4 @@ cpp/build*/
 cpp/tmp/
 gh_key.sh
 /.deps/
+/.bench-data/
