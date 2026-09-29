@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-t1",
+  "dataset": {
+    "id": "merfish_ileum_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick",
+    "n_molecules": 149356,
+    "n_genes": 239
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick/molecules.parquet",
+    "molecules_sha256": "2e9ef7bb7cb07e5c3d30e515801cbd13d75d79eefe7754288f6a1301de4970ba",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick/meta.json",
+    "meta_sha256": "56877f1c5dae0c966809db14eaa3c3c9ed509ed0a1675c4a7a60baea82c223a2"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 1,
+  "replicates": 1,
+  "created": "2026-09-29T19:37:14+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-z",
+        "z",
+        "-g",
+        "gene",
+        "-s",
+        "3.42",
+        "--scale-std",
+        "50%",
+        "-m",
+        "30",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/merfish_ileum_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick/molecules.parquet -x x -y y -z z -g gene -s 3.42 --scale-std 50% -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/merfish_ileum_quick/rep0/seg",
+      "wall_s": 87.767,
+      "wall_s_time_v": 87.76,
+      "peak_rss_kb": 215616,
+      "threads": 1,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/merfish_ileum_quick/molecules.parquet -x x -y y -z z -g gene -s 3.42 --scale-std 50% -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/merfish_ileum_quick/rep0/seg\"\n\tUser time (seconds): 87.57\n\tSystem time (seconds): 0.17\n\tPercent of CPU this job got: 99%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 1:27.76\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 215616\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 56237\n\tVoluntary context switches: 54\n\tInvoluntary context switches: 419\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 16800\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "18a20227da4764899defc7cf8018c1915ed37fecae50ef69f7afdaed75496c26",
+      "n_cells": 1673,
+      "n_assigned": 148975,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "disabled"
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      87.767
+    ],
+    "peak_rss_kb": [
+      215616
+    ],
+    "wall_s_mean": 87.767,
+    "wall_s_sd": 0.0,
+    "peak_rss_kb_mean": 215616.0,
+    "peak_rss_kb_sd": 0.0
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {},
+    "n_metric_reps": 1,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.001823038266087966,
+          "ari_assigned": 0.38726760172422187,
+          "assigned_agreement": 0.5280203004901042,
+          "assigned_fraction_candidate": 0.9974490479123704,
+          "assigned_fraction_reference": 0.525911245614505,
+          "noise_precision": 0.9133858267716536,
+          "noise_recall": 0.004914698904078635,
+          "frac_cells_matched": 0.04224376731301939,
+          "median_jaccard": 0.12701662943658476,
+          "cell_count_ratio": 1.1585872576177285,
+          "median_mpc_rel_change": 1.0357142857142858,
+          "n_cells_reference": 1444.0,
+          "n_cells_candidate": 1673.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.38726760172422187,
+        "assigned_agreement": 0.5280203004901042,
+        "assigned_fraction_candidate": 0.9974490479123704,
+        "assigned_fraction_reference": 0.525911245614505,
+        "cell_count_ratio": 1.1585872576177285,
+        "frac_cells_matched": 0.04224376731301939,
+        "median_jaccard": 0.12701662943658476,
+        "median_mpc_rel_change": 1.0357142857142858,
+        "molecule_ari": 0.001823038266087966,
+        "n_cells_candidate": 1673.0,
+        "n_cells_reference": 1444.0,
+        "noise_precision": 0.9133858267716536,
+        "noise_recall": 0.004914698904078635
+      },
+      "sd": {
+        "ari_assigned": 0.0,
+        "assigned_agreement": 0.0,
+        "assigned_fraction_candidate": 0.0,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.0,
+        "frac_cells_matched": 0.0,
+        "median_jaccard": 0.0,
+        "median_mpc_rel_change": 0.0,
+        "molecule_ari": 0.0,
+        "n_cells_candidate": 0.0,
+        "n_cells_reference": 0.0,
+        "noise_precision": 0.0,
+        "noise_recall": 0.0
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "disabled",
+          "reason": null
+        }
+      ],
+      "status": "disabled",
+      "typing": null,
+      "admixture_capable": null,
+      "mean_total": null,
+      "sd_total": null,
+      "per_rep_total": [
+        null
+      ]
+    }
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e-t1",
+    "run_id": "benchbase-t1",
+    "created": "2026-09-29T19:52:10+00:00",
+    "flavour": "identical",
+    "identical": true,
+    "noise_floor_replicates": 1,
+    "noise_floor_valid": false,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/merfish_ileum_quick/",
+    "assignment_sha256": {
+      "0": "18a20227da4764899defc7cf8018c1915ed37fecae50ef69f7afdaed75496c26"
+    },
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

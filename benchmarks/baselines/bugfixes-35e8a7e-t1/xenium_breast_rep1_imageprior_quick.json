@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-t1",
+  "dataset": {
+    "id": "xenium_breast_rep1_imageprior_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick",
+    "n_molecules": 129992,
+    "n_genes": 315
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/molecules.parquet",
+    "molecules_sha256": "039c4d35dc0e4b9e13a9e495cc7888af2e5748a60afa65d98b14ea451d496c14",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/meta.json",
+    "meta_sha256": "0c9dc241d479b700e119a2c1836d5f40b2b64d31005f16ac28c058d1157e120e"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 1,
+  "replicates": 1,
+  "created": "2026-09-29T19:42:17+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/molecules.parquet",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/images/nuclei_labels.tif",
+        "-s",
+        "6.35",
+        "--scale-std",
+        "25%",
+        "--prior-segmentation-confidence",
+        "0.5",
+        "-m",
+        "50",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/xenium.toml",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "--qv-column",
+        "qv",
+        "--unassigned-prior-label",
+        "0",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/xenium_breast_rep1_imageprior_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/molecules.parquet /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/images/nuclei_labels.tif -s 6.35 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/xenium.toml -x x -y y -g gene --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/xenium_breast_rep1_imageprior_quick/rep0/seg",
+      "wall_s": 67.424,
+      "wall_s_time_v": 67.42,
+      "peak_rss_kb": 203412,
+      "threads": 1,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/molecules.parquet /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_breast_rep1_imageprior_quick/images/nuclei_labels.tif -s 6.35 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/xenium.toml -x x -y y -g gene --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/xenium_breast_rep1_imageprior_quick/rep0/seg\"\n\tUser time (seconds): 67.23\n\tSystem time (seconds): 0.18\n\tPercent of CPU this job got: 99%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 1:07.42\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 203412\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 62504\n\tVoluntary context switches: 42\n\tInvoluntary context switches: 365\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 11488\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "a5e334819a2bc976551e0e11137cdbedcbee6323ee784958b0911be40d219193",
+      "n_cells": 525,
+      "n_assigned": 127561,
+      "n_loader_filtered": 319,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "disabled"
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      67.424
+    ],
+    "peak_rss_kb": [
+      203412
+    ],
+    "wall_s_mean": 67.424,
+    "wall_s_sd": 0.0,
+    "peak_rss_kb_mean": 203412.0,
+    "peak_rss_kb_sd": 0.0
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {},
+    "n_metric_reps": 1,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.6053975259738992,
+          "ari_assigned": 0.6471862767460234,
+          "assigned_agreement": 0.9819988922395224,
+          "assigned_fraction_candidate": 0.9812988491599482,
+          "assigned_fraction_reference": 0.9991614868607299,
+          "noise_precision": 0.04113533525298231,
+          "noise_recall": 0.9174311926605505,
+          "frac_cells_matched": 0.6414728682170543,
+          "median_jaccard": 0.5823586744639376,
+          "cell_count_ratio": 1.0174418604651163,
+          "median_mpc_rel_change": -0.15098468271334792,
+          "n_cells_reference": 516.0,
+          "n_cells_candidate": 525.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.6471862767460234,
+        "assigned_agreement": 0.9819988922395224,
+        "assigned_fraction_candidate": 0.9812988491599482,
+        "assigned_fraction_reference": 0.9991614868607299,
+        "cell_count_ratio": 1.0174418604651163,
+        "frac_cells_matched": 0.6414728682170543,
+        "median_jaccard": 0.5823586744639376,
+        "median_mpc_rel_change": -0.15098468271334792,
+        "molecule_ari": 0.6053975259738992,
+        "n_cells_candidate": 525.0,
+        "n_cells_reference": 516.0,
+        "noise_precision": 0.04113533525298231,
+        "noise_recall": 0.9174311926605505
+      },
+      "sd": {
+        "ari_assigned": 0.0,
+        "assigned_agreement": 0.0,
+        "assigned_fraction_candidate": 0.0,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.0,
+        "frac_cells_matched": 0.0,
+        "median_jaccard": 0.0,
+        "median_mpc_rel_change": 0.0,
+        "molecule_ari": 0.0,
+        "n_cells_candidate": 0.0,
+        "n_cells_reference": 0.0,
+        "noise_precision": 0.0,
+        "noise_recall": 0.0
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "disabled",
+          "reason": null
+        }
+      ],
+      "status": "disabled",
+      "typing": null,
+      "admixture_capable": null,
+      "mean_total": null,
+      "sd_total": null,
+      "per_rep_total": [
+        null
+      ]
+    }
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e-t1",
+    "run_id": "benchbase-t1",
+    "created": "2026-09-29T19:52:11+00:00",
+    "flavour": "identical",
+    "identical": true,
+    "noise_floor_replicates": 1,
+    "noise_floor_valid": false,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/xenium_breast_rep1_imageprior_quick/",
+    "assignment_sha256": {
+      "0": "a5e334819a2bc976551e0e11137cdbedcbee6323ee784958b0911be40d219193"
+    },
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

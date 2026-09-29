@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-t1",
+  "dataset": {
+    "id": "sim_circles_gaps_g100_noprior",
+    "kind": "sim",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior",
+    "n_molecules": 92296,
+    "n_genes": 100
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior/molecules.parquet",
+    "molecules_sha256": "aa331ba75aa50e3f85ea9cec760e70fd6461fe05786f36ce1c79229ef0722a20",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior/meta.json",
+    "meta_sha256": "0751eeacebf3fdb19007194b4f1239e64ff08b757a79c065ffd36a5e4746b963"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 1,
+  "replicates": 1,
+  "created": "2026-09-29T18:23:08+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "6.1",
+        "--scale-std",
+        "25%",
+        "-m",
+        "20",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_circles_gaps_g100_noprior/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior/molecules.parquet -x x -y y -g gene -s 6.1 --scale-std 25% -m 20 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_circles_gaps_g100_noprior/rep0/seg",
+      "wall_s": 48.227,
+      "wall_s_time_v": 48.22,
+      "peak_rss_kb": 176536,
+      "threads": 1,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_circles_gaps_g100_noprior/molecules.parquet -x x -y y -g gene -s 6.1 --scale-std 25% -m 20 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_circles_gaps_g100_noprior/rep0/seg\"\n\tUser time (seconds): 47.96\n\tSystem time (seconds): 0.18\n\tPercent of CPU this job got: 99%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:48.22\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 176536\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 50632\n\tVoluntary context switches: 39\n\tInvoluntary context switches: 547\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 8144\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "9155eadf52331273d9d4e75f8ed7550bdc25ee85a85d6f77c7574a573607403a",
+      "n_cells": 626,
+      "n_assigned": 92229,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet"
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      48.227
+    ],
+    "peak_rss_kb": [
+      176536
+    ],
+    "wall_s_mean": 48.227,
+    "wall_s_sd": 0.0,
+    "peak_rss_kb_mean": 176536.0,
+    "peak_rss_kb_sd": 0.0
+  },
+  "failures": [],
+  "sim": {
+    "oracle_accuracy": null,
+    "per_rep": [
+      {
+        "accuracy_1to1": 0.9880866257496908,
+        "matched_accuracy": 0.9885183542974493,
+        "ari": 0.9637621728201458,
+        "ari_assigned": 0.9955868053947047,
+        "ami": 0.9866793765742989,
+        "ami_assigned": 0.9973840412074326,
+        "assigned_agreement": 0.9907353387318849,
+        "assigned_fraction_pred": 0.9995916081304987,
+        "assigned_fraction_truth": 0.9903269468623837,
+        "noise_precision": NaN,
+        "noise_recall": 0.04221954161640531,
+        "cell_count_ratio": 1.0277777777777777,
+        "over_segmentation_rate": 0.0,
+        "under_segmentation_rate": 0.0033783783783783786,
+        "recovery_rate": 1.0,
+        "median_matched_jaccard": 0.9880595950955233,
+        "oracle_gap": NaN
+      }
+    ],
+    "mean": {
+      "accuracy_1to1": 0.9880866257496908,
+      "ami": 0.9866793765742989,
+      "ami_assigned": 0.9973840412074326,
+      "ari": 0.9637621728201458,
+      "ari_assigned": 0.9955868053947047,
+      "assigned_agreement": 0.9907353387318849,
+      "assigned_fraction_pred": 0.9995916081304987,
+      "assigned_fraction_truth": 0.9903269468623837,
+      "cell_count_ratio": 1.0277777777777777,
+      "matched_accuracy": 0.9885183542974493,
+      "median_matched_jaccard": 0.9880595950955233,
+      "noise_precision": NaN,
+      "noise_recall": 0.04221954161640531,
+      "oracle_gap": NaN,
+      "over_segmentation_rate": 0.0,
+      "recovery_rate": 1.0,
+      "under_segmentation_rate": 0.0033783783783783786
+    },
+    "sd": {
+      "accuracy_1to1": 0.0,
+      "ami": 0.0,
+      "ami_assigned": 0.0,
+      "ari": 0.0,
+      "ari_assigned": 0.0,
+      "assigned_agreement": 0.0,
+      "assigned_fraction_pred": 0.0,
+      "assigned_fraction_truth": 0.0,
+      "cell_count_ratio": 0.0,
+      "matched_accuracy": 0.0,
+      "median_matched_jaccard": 0.0,
+      "noise_precision": NaN,
+      "noise_recall": 0.0,
+      "oracle_gap": NaN,
+      "over_segmentation_rate": 0.0,
+      "recovery_rate": 0.0,
+      "under_segmentation_rate": 0.0
+    },
+    "n_metric_reps": 1
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e-t1",
+    "run_id": "benchbase-t1",
+    "created": "2026-09-29T19:52:10+00:00",
+    "flavour": "identical",
+    "identical": true,
+    "noise_floor_replicates": 1,
+    "noise_floor_valid": false,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/sim_circles_gaps_g100_noprior/",
+    "assignment_sha256": {
+      "0": "9155eadf52331273d9d4e75f8ed7550bdc25ee85a85d6f77c7574a573607403a"
+    },
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

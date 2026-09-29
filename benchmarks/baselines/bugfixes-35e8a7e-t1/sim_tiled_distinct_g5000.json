@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-t1",
+  "dataset": {
+    "id": "sim_tiled_distinct_g5000",
+    "kind": "sim",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000",
+    "n_molecules": 115904,
+    "n_genes": 4557
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000/molecules.parquet",
+    "molecules_sha256": "7fa096c56d3396f3cd8cb0951db642f4410ed11d3131c1110b81d88583e7e3c4",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000/meta.json",
+    "meta_sha256": "528b34671cb08aec40effa8cf74654b18c75658cf62718c487f9f4015e42bcc1"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 1,
+  "replicates": 1,
+  "created": "2026-09-29T18:56:07+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "7.676466498576571",
+        "--scale-std",
+        "25%",
+        "--prior-segmentation-confidence",
+        "0.5",
+        "-m",
+        "20",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_tiled_distinct_g5000/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000/molecules.parquet :prior -x x -y y -g gene -s 7.676466498576571 --scale-std 25% --prior-segmentation-confidence 0.5 -m 20 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_tiled_distinct_g5000/rep0/seg",
+      "wall_s": 312.042,
+      "wall_s_time_v": 312.03,
+      "peak_rss_kb": 780236,
+      "threads": 1,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/sim/sim_tiled_distinct_g5000/molecules.parquet :prior -x x -y y -g gene -s 7.676466498576571 --scale-std 25% --prior-segmentation-confidence 0.5 -m 20 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/sim_tiled_distinct_g5000/rep0/seg\"\n\tUser time (seconds): 310.07\n\tSystem time (seconds): 1.88\n\tPercent of CPU this job got: 99%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 5:12.03\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 780236\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 827525\n\tVoluntary context switches: 40\n\tInvoluntary context switches: 2204\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 13632\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "4028d731d5701c8fef83904b0cb47b0b96bec6982d7071f7933ba1d762aaa34c",
+      "n_cells": 1310,
+      "n_assigned": 115883,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet"
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      312.042
+    ],
+    "peak_rss_kb": [
+      780236
+    ],
+    "wall_s_mean": 312.042,
+    "wall_s_sd": 0.0,
+    "peak_rss_kb_mean": 780236.0,
+    "peak_rss_kb_sd": 0.0
+  },
+  "failures": [],
+  "sim": {
+    "oracle_accuracy": null,
+    "per_rep": [
+      {
+        "accuracy_1to1": 0.814836990689459,
+        "matched_accuracy": 0.9879551736869941,
+        "ari": 0.8148105543492145,
+        "ari_assigned": 0.850018138305109,
+        "ami": 0.9476818917084271,
+        "ami_assigned": 0.9590516727923298,
+        "assigned_agreement": 0.9899809398357433,
+        "assigned_fraction_pred": 1.0,
+        "assigned_fraction_truth": 0.9899809398357433,
+        "noise_precision": NaN,
+        "noise_recall": 0.0,
+        "cell_count_ratio": 1.672082717872969,
+        "over_segmentation_rate": 0.41654357459379615,
+        "under_segmentation_rate": 0.0017667844522968198,
+        "recovery_rate": 0.9734121122599705,
+        "median_matched_jaccard": 0.8585858585858586,
+        "oracle_gap": NaN
+      }
+    ],
+    "mean": {
+      "accuracy_1to1": 0.814836990689459,
+      "ami": 0.9476818917084271,
+      "ami_assigned": 0.9590516727923298,
+      "ari": 0.8148105543492145,
+      "ari_assigned": 0.850018138305109,
+      "assigned_agreement": 0.9899809398357433,
+      "assigned_fraction_pred": 1.0,
+      "assigned_fraction_truth": 0.9899809398357433,
+      "cell_count_ratio": 1.672082717872969,
+      "matched_accuracy": 0.9879551736869941,
+      "median_matched_jaccard": 0.8585858585858586,
+      "noise_precision": NaN,
+      "noise_recall": 0.0,
+      "oracle_gap": NaN,
+      "over_segmentation_rate": 0.41654357459379615,
+      "recovery_rate": 0.9734121122599705,
+      "under_segmentation_rate": 0.0017667844522968198
+    },
+    "sd": {
+      "accuracy_1to1": 0.0,
+      "ami": 0.0,
+      "ami_assigned": 0.0,
+      "ari": 0.0,
+      "ari_assigned": 0.0,
+      "assigned_agreement": 0.0,
+      "assigned_fraction_pred": 0.0,
+      "assigned_fraction_truth": 0.0,
+      "cell_count_ratio": 0.0,
+      "matched_accuracy": 0.0,
+      "median_matched_jaccard": 0.0,
+      "noise_precision": NaN,
+      "noise_recall": 0.0,
+      "oracle_gap": NaN,
+      "over_segmentation_rate": 0.0,
+      "recovery_rate": 0.0,
+      "under_segmentation_rate": 0.0
+    },
+    "n_metric_reps": 1
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e-t1",
+    "run_id": "benchbase-t1",
+    "created": "2026-09-29T19:52:11+00:00",
+    "flavour": "identical",
+    "identical": true,
+    "noise_floor_replicates": 1,
+    "noise_floor_valid": false,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/sim_tiled_distinct_g5000/",
+    "assignment_sha256": {
+      "0": "4028d731d5701c8fef83904b0cb47b0b96bec6982d7071f7933ba1d762aaa34c"
+    },
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

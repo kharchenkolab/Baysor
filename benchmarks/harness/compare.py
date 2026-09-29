@@ -8,7 +8,9 @@ Three expectation modes:
   dataset the ``assignment_sha256`` recorded per replicate in ``metrics.json``
   must match; on a mismatch the comparison fails and reports the metric
   deltas. Baysor is bitwise-deterministic at 1 thread, so a no-behaviour-change
-  refactor must reproduce the baseline assignments exactly.
+  refactor must reproduce the baseline assignments exactly. A run-id of
+  >= 18 characters triggers a warning: the binary's output-path-length
+  sensitivity (see "Determinism findings" in the README) can flip results.
 
 ``--expect same``
   The algorithm must not have changed beyond the measurement noise:
@@ -964,6 +966,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.expect == "improved" and run_sha != base_sha:
         rep.meta["binary sha note"] = ("differs from baseline (expected for an "
                                        "algorithm change)")
+    if args.expect == "identical" and len(args.run_id) >= 18:
+        rep.warn(f"run-id '{args.run_id}' is {len(args.run_id)} characters; the "
+                 "known 1-thread output-path-length sensitivity (see harness "
+                 "README, determinism findings) can flip bitwise results on "
+                 "iss/osmfish — use a run-id of <= 17 characters for "
+                 "identical comparisons")
 
     # run health
     collect_run_failures(rep, run_metrics)

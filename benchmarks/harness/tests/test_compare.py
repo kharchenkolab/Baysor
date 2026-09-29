@@ -790,3 +790,23 @@ def test_record_selection_merges_invocations(tmp_path):
     assert [i["spec"] for i in sel["invocations"]] == ["quick", "full"]
     assert sel["invocations"][1]["scale_factor"] == 0.9
     assert compare.load_run_selection(run_root) == {"a", "b", "c"}
+
+
+def test_identical_warns_on_long_run_id(tmp_path, capsys):
+    """Known 1-thread path-length sensitivity: warn for run-ids >= 18 chars."""
+    root, baselines = _setup_identical(tmp_path)
+    long_id = "averylongrunid123"            # 17 chars: no warning
+    import shutil
+    shutil.copytree(root / "runs" / "rnew", root / "runs" / long_id)
+    assert _compare_raw(root, baselines, run_id=long_id, expect="identical") == 0
+    rep = common.read_json(
+        root / "runs" / long_id / "compare_btest_identical.json")
+    assert not any("path-length" in w or "characters" in w
+                   for w in rep.get("warnings", []))
+
+    too_long = "averylongrunid1234"          # 18 chars: warning
+    shutil.copytree(root / "runs" / "rnew", root / "runs" / too_long)
+    assert _compare_raw(root, baselines, run_id=too_long, expect="identical") == 0
+    rep = common.read_json(
+        root / "runs" / too_long / "compare_btest_identical.json")
+    assert any("characters" in w for w in rep.get("warnings", []))

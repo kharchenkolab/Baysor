@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-t1",
+  "dataset": {
+    "id": "cosmx_wtx_colon_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick",
+    "n_molecules": 149771,
+    "n_genes": 17533
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick/molecules.parquet",
+    "molecules_sha256": "b107f5066064967bddae2122efc311fbf00cb6e664ab91bff206ba8ef0bdaee3",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick/meta.json",
+    "meta_sha256": "1178bcfc2a5e189efa2f093429f8cccf81b7b54e15629c123851ac1d166386b2"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 1,
+  "replicates": 1,
+  "created": "2026-09-29T19:35:45+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "4.424",
+        "--scale-std",
+        "25%",
+        "-m",
+        "20",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml",
+        "--cluster-method",
+        "louvain",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/cosmx_wtx_colon_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick/molecules.parquet -x x -y y -g gene -s 4.424 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --cluster-method louvain --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/cosmx_wtx_colon_quick/rep0/seg",
+      "wall_s": 455.834,
+      "wall_s_time_v": 455.83,
+      "peak_rss_kb": 1759388,
+      "threads": 1,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_wtx_colon_quick/molecules.parquet -x x -y y -g gene -s 4.424 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --cluster-method louvain --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-t1/cosmx_wtx_colon_quick/rep0/seg\"\n\tUser time (seconds): 451.56\n\tSystem time (seconds): 4.09\n\tPercent of CPU this job got: 99%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 7:35.83\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 1759388\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 2100798\n\tVoluntary context switches: 45\n\tInvoluntary context switches: 5607\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 11760\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "56cdd0995ed89b24011b511e097005de74a46c739ecc441dd4e25b06ffb50c70",
+      "n_cells": 431,
+      "n_assigned": 147893,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "disabled"
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      455.834
+    ],
+    "peak_rss_kb": [
+      1759388
+    ],
+    "wall_s_mean": 455.834,
+    "wall_s_sd": 0.0,
+    "peak_rss_kb_mean": 1759388.0,
+    "peak_rss_kb_sd": 0.0
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {},
+    "n_metric_reps": 1,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.21467858530270284,
+          "ari_assigned": 0.25742293943046585,
+          "assigned_agreement": 0.9309145295150597,
+          "assigned_fraction_candidate": 0.9874608569082132,
+          "assigned_fraction_reference": 0.9356016852394656,
+          "noise_precision": 0.31309904153354634,
+          "noise_recall": 0.060964230171073094,
+          "frac_cells_matched": 0.16831683168316833,
+          "median_jaccard": 0.31343283582089554,
+          "cell_count_ratio": 4.267326732673268,
+          "median_mpc_rel_change": -0.7085470085470086,
+          "n_cells_reference": 101.0,
+          "n_cells_candidate": 431.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.25742293943046585,
+        "assigned_agreement": 0.9309145295150597,
+        "assigned_fraction_candidate": 0.9874608569082132,
+        "assigned_fraction_reference": 0.9356016852394656,
+        "cell_count_ratio": 4.267326732673268,
+        "frac_cells_matched": 0.16831683168316833,
+        "median_jaccard": 0.31343283582089554,
+        "median_mpc_rel_change": -0.7085470085470086,
+        "molecule_ari": 0.21467858530270284,
+        "n_cells_candidate": 431.0,
+        "n_cells_reference": 101.0,
+        "noise_precision": 0.31309904153354634,
+        "noise_recall": 0.060964230171073094
+      },
+      "sd": {
+        "ari_assigned": 0.0,
+        "assigned_agreement": 0.0,
+        "assigned_fraction_candidate": 0.0,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.0,
+        "frac_cells_matched": 0.0,
+        "median_jaccard": 0.0,
+        "median_mpc_rel_change": 0.0,
+        "molecule_ari": 0.0,
+        "n_cells_candidate": 0.0,
+        "n_cells_reference": 0.0,
+        "noise_precision": 0.0,
+        "noise_recall": 0.0
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "disabled",
+          "reason": null
+        }
+      ],
+      "status": "disabled",
+      "typing": null,
+      "admixture_capable": null,
+      "mean_total": null,
+      "sd_total": null,
+      "per_rep_total": [
+        null
+      ]
+    }
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e-t1",
+    "run_id": "benchbase-t1",
+    "created": "2026-09-29T19:52:10+00:00",
+    "flavour": "identical",
+    "identical": true,
+    "noise_floor_replicates": 1,
+    "noise_floor_valid": false,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/cosmx_wtx_colon_quick/",
+    "assignment_sha256": {
+      "0": "56cdd0995ed89b24011b511e097005de74a46c739ecc441dd4e25b06ffb50c70"
+    },
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

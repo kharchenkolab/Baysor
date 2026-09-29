@@ -350,6 +350,28 @@ metric across the baseline's datasets of the same kind** (a single
 3-replicate SD has a 95% CI of [0.52σ, 6.3σ] and cannot be trusted
 alone).
 
+* **Output-path/argv-length sensitivity at 1 thread (found 2026-09-29,
+  BENCH-BASELINE).** 1-thread determinism is *not* absolute on this
+  binary: whether a run reproduces a stored assignment depends on the
+  length of the `-o` output path (the `--run-id` is the only argv element
+  that varies between otherwise identical invocations). Measured matrix on
+  `iss_mouse_hippocampus_quick` (identical inputs, flags and env;
+  `OMP_DISPLAY_ENV` verified `OMP_NUM_THREADS=1`): run-ids of 11–17
+  characters reproduce the baseline assignment bitwise (7 runs), run-ids of
+  18–19 characters deterministically produce a *different* segmentation
+  (4 runs, all agreeing with each other; 10024 → 10051 cells).
+  `osmfish_somatosensory_quick` flips the same way, while the other eight
+  datasets of a 10-dataset subset were stable at every tested length. The
+  divergence begins inside the stochastic E-step (after up to 25 identical
+  logged iterations), i.e. the global RNG stream state has already
+  diverged — consistent with a layout-dependent read (uninitialized memory
+  or address-dependent ordering) inside the binary, not with the harness
+  (the raw `seg/molecules.parquet` differs between the two outcomes).
+  **Practical rule: use `--run-id` ≤ 17 characters for `--expect
+  identical` comparisons** — the harness default `bench-YYYYmmdd-HHMMSS`
+  (20 chars) flips the two sensitive datasets; `compare.py` warns about
+  this. Filed as a Baysor follow-up.
+
 ### Measured noise floor (6 threads, 3 replicates, this binary)
 
 Numbers below are from `recompute_metrics.py` with the current metric
