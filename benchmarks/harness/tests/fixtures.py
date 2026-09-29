@@ -355,5 +355,8 @@ def make_run(root: Path, run_id: str, ds_dir: Path,
             "molecules_sha256": common.sha256_file(ds_dir / "molecules.parquet"),
             "meta_sha256": common.sha256_file(ds_dir / "meta.json"),
         }
+    elif inputs is None:
+        # Simulate a pre-provenance run: run.py now records the hashes itself.
+        mjson.pop("inputs", None)
     common.write_json(root / "runs" / run_id / ds.id / "metrics.json", mjson)
     return mjson
