@@ -29,6 +29,14 @@ benchmarks/
   baselines/             committed baseline metrics (small JSON/CSV per dataset)
 ```
 
+## Workflow
+
+See [`harness/README.md`](harness/README.md) for the benchmark workflow:
+running datasets (`run.py`), metric definitions, baselines and the measured
+noise floor (including Baysor's determinism findings), and the
+`--expect same` / `--expect improved` comparison (`compare.py`, one-shot
+`bench.sh`).
+
 ## Data location
 
 All data lives under `$BAYSOR_BENCH_DATA` (default: `<repo>/.bench-data`,

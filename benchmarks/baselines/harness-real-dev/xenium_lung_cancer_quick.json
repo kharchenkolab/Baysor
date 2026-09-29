@@ -1,0 +1,351 @@
+{
+  "schema": 1,
+  "run_id": "harness-val3",
+  "dataset": {
+    "id": "xenium_lung_cancer_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick",
+    "n_molecules": 130000,
+    "n_genes": 377
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "b3d170b634080dd1ba21723c47f465c55703988b+dirty",
+  "threads": 6,
+  "replicates": 3,
+  "created": "2026-09-29T12:11:23+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "3.91",
+        "--scale-std",
+        "25%",
+        "--prior-segmentation-confidence",
+        "0.5",
+        "-m",
+        "50",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml",
+        "--qv-column",
+        "qv",
+        "--unassigned-prior-label",
+        "0",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep0/seg",
+      "wall_s": 36.573,
+      "wall_s_time_v": 36.56,
+      "peak_rss_kb": 262252,
+      "threads": 6,
+      "scale_factor": 1.0,
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep0/seg\"\n\tUser time (seconds): 113.34\n\tSystem time (seconds): 0.32\n\tPercent of CPU this job got: 310%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:36.56\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 262252\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 85096\n\tVoluntary context switches: 7084\n\tInvoluntary context switches: 1415\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 13608\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "368f88e234073e4eb964cfcf8fd544450e037ab4c0e2b3edd9377bc041da9ebb",
+      "n_cells": 2603,
+      "n_assigned": 128525,
+      "n_loader_filtered": 234,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "absent"
+      }
+    },
+    {
+      "rep": 1,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "3.91",
+        "--scale-std",
+        "25%",
+        "--prior-segmentation-confidence",
+        "0.5",
+        "-m",
+        "50",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml",
+        "--qv-column",
+        "qv",
+        "--unassigned-prior-label",
+        "0",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep1/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep1/seg",
+      "wall_s": 35.651,
+      "wall_s_time_v": 35.64,
+      "peak_rss_kb": 270220,
+      "threads": 6,
+      "scale_factor": 1.0,
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep1/seg\"\n\tUser time (seconds): 112.52\n\tSystem time (seconds): 0.27\n\tPercent of CPU this job got: 316%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:35.64\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 270220\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 64593\n\tVoluntary context switches: 7050\n\tInvoluntary context switches: 1281\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 13312\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep1/assignment.parquet",
+      "assignment_sha256": "28b6c70c004b03ac992282edfd755d0085e87a8ccc85b806a24cf4d3c92aadc2",
+      "n_cells": 2596,
+      "n_assigned": 128520,
+      "n_loader_filtered": 234,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "absent"
+      }
+    },
+    {
+      "rep": 2,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "3.91",
+        "--scale-std",
+        "25%",
+        "--prior-segmentation-confidence",
+        "0.5",
+        "-m",
+        "50",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml",
+        "--qv-column",
+        "qv",
+        "--unassigned-prior-label",
+        "0",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep2/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep2/seg",
+      "wall_s": 35.968,
+      "wall_s_time_v": 35.96,
+      "peak_rss_kb": 275296,
+      "threads": 6,
+      "scale_factor": 1.0,
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/xenium_lung_cancer_quick/molecules.parquet :prior -x x -y y -g gene -s 3.91 --scale-std 25% --prior-segmentation-confidence 0.5 -m 50 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_inupyc3dim-1/Baysor/configs/xenium.toml --qv-column qv --unassigned-prior-label 0 --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/harness-val3/xenium_lung_cancer_quick/rep2/seg\"\n\tUser time (seconds): 113.46\n\tSystem time (seconds): 0.26\n\tPercent of CPU this job got: 316%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:35.96\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 275296\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 64492\n\tVoluntary context switches: 7046\n\tInvoluntary context switches: 2163\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 13168\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep2/assignment.parquet",
+      "assignment_sha256": "47e90d693280779cdbf51df6bf1c257d9920270087860f1d818be23ab0c82a83",
+      "n_cells": 2592,
+      "n_assigned": 128495,
+      "n_loader_filtered": 234,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "status": "absent"
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      36.573,
+      35.651,
+      35.968
+    ],
+    "peak_rss_kb": [
+      262252,
+      270220,
+      275296
+    ],
+    "wall_s_mean": 36.064,
+    "wall_s_sd": 0.4684367620074224,
+    "peak_rss_kb_mean": 269256.0,
+    "peak_rss_kb_sd": 6575.215281646678
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {
+      "pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "per_pair": [
+        {
+          "molecule_ari": 0.8573460826958886,
+          "assigned_agreement": 0.9997153846153846,
+          "frac_cells_matched": 0.8843641951594314,
+          "median_jaccard": 0.825,
+          "cell_count_ratio": 0.9973107952362659,
+          "median_mpc_rel_change": 0.011627906976744186,
+          "n_cells_reference": 2603.0,
+          "n_cells_candidate": 2596.0
+        },
+        {
+          "molecule_ari": 0.8573204057950872,
+          "assigned_agreement": 0.9995538461538461,
+          "frac_cells_matched": 0.8901267767960046,
+          "median_jaccard": 0.8333333333333334,
+          "cell_count_ratio": 0.9957741067998463,
+          "median_mpc_rel_change": 0.023255813953488372,
+          "n_cells_reference": 2603.0,
+          "n_cells_candidate": 2592.0
+        },
+        {
+          "molecule_ari": 0.8553687165038076,
+          "assigned_agreement": 0.9995615384615385,
+          "frac_cells_matched": 0.8852080123266564,
+          "median_jaccard": 0.8301886792452831,
+          "cell_count_ratio": 0.9984591679506933,
+          "median_mpc_rel_change": 0.011494252873563218,
+          "n_cells_reference": 2596.0,
+          "n_cells_candidate": 2592.0
+        }
+      ],
+      "mean": {
+        "assigned_agreement": 0.9996102564102564,
+        "cell_count_ratio": 0.9971813566622685,
+        "frac_cells_matched": 0.8865663280940308,
+        "median_jaccard": 0.8295073375262053,
+        "median_mpc_rel_change": 0.015459324601265258,
+        "molecule_ari": 0.8566784016649279,
+        "n_cells_candidate": 2593.3333333333335,
+        "n_cells_reference": 2600.6666666666665
+      },
+      "sd": {
+        "assigned_agreement": 9.112490073800196e-05,
+        "cell_count_ratio": 0.001347202324922204,
+        "frac_cells_matched": 0.0031121701548061436,
+        "median_jaccard": 0.004208239657472963,
+        "median_mpc_rel_change": 0.0067522885394005906,
+        "molecule_ari": 0.0011342932785450512,
+        "n_cells_candidate": 2.309401076758503,
+        "n_cells_reference": 4.041451884327381
+      }
+    },
+    "n_metric_reps": 3,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.021538121100484725,
+          "assigned_agreement": 0.8253230769230769,
+          "frac_cells_matched": 0.6027204502814258,
+          "median_jaccard": 0.5555555555555556,
+          "cell_count_ratio": 1.2209193245778611,
+          "median_mpc_rel_change": 0.075,
+          "n_cells_reference": 2132.0,
+          "n_cells_candidate": 2603.0
+        },
+        {
+          "molecule_ari": 0.021504025383649462,
+          "assigned_agreement": 0.8253461538461538,
+          "frac_cells_matched": 0.5956848030018762,
+          "median_jaccard": 0.5517241379310345,
+          "cell_count_ratio": 1.2176360225140712,
+          "median_mpc_rel_change": 0.0875,
+          "n_cells_reference": 2132.0,
+          "n_cells_candidate": 2596.0
+        },
+        {
+          "molecule_ari": 0.021777286181215494,
+          "assigned_agreement": 0.8254923076923077,
+          "frac_cells_matched": 0.6022514071294559,
+          "median_jaccard": 0.5527385537013265,
+          "cell_count_ratio": 1.2157598499061915,
+          "median_mpc_rel_change": 0.1,
+          "n_cells_reference": 2132.0,
+          "n_cells_candidate": 2592.0
+        }
+      ],
+      "mean": {
+        "assigned_agreement": 0.8253871794871795,
+        "cell_count_ratio": 1.2181050656660413,
+        "frac_cells_matched": 0.6002188868042526,
+        "median_jaccard": 0.5533394157293056,
+        "median_mpc_rel_change": 0.08749999999999998,
+        "molecule_ari": 0.02160647755511656,
+        "n_cells_candidate": 2597.0,
+        "n_cells_reference": 2132.0
+      },
+      "sd": {
+        "assigned_agreement": 9.177194958040374e-05,
+        "cell_count_ratio": 0.0026115217461678717,
+        "frac_cells_matched": 0.003933629026081618,
+        "median_jaccard": 0.0019851238338887125,
+        "median_mpc_rel_change": 0.012500000000000004,
+        "molecule_ari": 0.00014890372573908797,
+        "n_cells_candidate": 5.5677643628300215,
+        "n_cells_reference": 0.0
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "absent",
+          "reason": null
+        },
+        {
+          "status": "absent",
+          "reason": null
+        },
+        {
+          "status": "absent",
+          "reason": null
+        }
+      ],
+      "status": "failed",
+      "mean_total": null,
+      "per_rep_total": []
+    }
+  },
+  "baseline": {
+    "name": "harness-real-dev",
+    "run_id": "harness-val3",
+    "created": "2026-09-29T12:11:35+00:00",
+    "noise_floor_replicates": 3,
+    "noise_floor_valid": true,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/harness-real-dev/xenium_lung_cancer_quick/",
+    "assignment_sha256": {
+      "0": "368f88e234073e4eb964cfcf8fd544450e037ab4c0e2b3edd9377bc041da9ebb",
+      "1": "28b6c70c004b03ac992282edfd755d0085e87a8ccc85b806a24cf4d3c92aadc2",
+      "2": "47e90d693280779cdbf51df6bf1c257d9920270087860f1d818be23ab0c82a83"
+    }
+  }
+}

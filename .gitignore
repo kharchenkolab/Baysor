@@ -33,3 +33,5 @@ gh_key.sh
 /.deps/
 /.bench-data/
 __pycache__/
+.pytest_cache/
+*.pyc

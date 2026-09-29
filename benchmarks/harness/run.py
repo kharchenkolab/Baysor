@@ -1,0 +1,516 @@
+#!/usr/bin/env python3
+"""Run a Baysor binary over benchmark datasets and collect metrics.
+
+For every selected dataset and replicate this runner
+
+* builds the ``baysor run`` command from the dataset's ``meta.json``,
+* executes it under ``/usr/bin/time -v`` (wall time, peak RSS) with
+  ``OMP_NUM_THREADS`` pinned to ``--threads``,
+* normalizes the segmentation output into ``assignment.parquet``
+  (molecule index in input order, cell id with 0 = unassigned/noise,
+  assignment confidence),
+* records command, exit code, binary sha256, version info and git label, and
+* computes per-dataset metrics into ``metrics.json`` (sim vs truth, real
+  replicate-vs-replicate agreement, optional cellAdmix audit).
+
+Outputs live under ``$BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/``.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import common                      # noqa: E402
+import metrics as m                # noqa: E402
+import celladmix as camix          # noqa: E402
+
+DEFAULT_THREADS = 6
+
+
+# ---------------------------------------------------------------------------
+# binary probing / command construction
+# ---------------------------------------------------------------------------
+
+def probe_binary(baysor: Path) -> dict:
+    """Capture ``baysor run --help`` / ``baysor --help`` and detect flags."""
+    def _help(args):
+        try:
+            p = subprocess.run([str(baysor)] + args, capture_output=True, text=True,
+                               timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise SystemExit(f"failed to probe {baysor} {' '.join(args)}: {exc}")
+        return (p.stdout or "") + (p.stderr or "")
+
+    help_run = _help(["run", "--help"])
+    help_main = _help(["--help"])
+    flags = {name: (f"--{name}" in help_run) for name in (
+        "output-style", "prior-segmentation-confidence", "scale-std",
+        "skip-ncv-color", "force-2d")}
+    version_lines = [ln for ln in help_main.splitlines() if ln.strip()][:6]
+    return {
+        "path": str(baysor),
+        "sha256": common.sha256_file(baysor),
+        "version_info": "\n".join(version_lines) or None,
+        "help_run": help_run,
+        "flags": flags,
+        "probed_at": common.utc_now(),
+    }
+
+
+def build_command(baysor: Path, ds: common.Dataset, seg_dir: Path,
+                  probe: dict, repo: Path, scale_factor: float = 1.0) -> list[str]:
+    """Assemble the ``baysor run`` command line from ``meta.json``.
+
+    ``scale_factor`` multiplies ``baysor.scale_um`` (used to build degraded
+    runs for validation; must stay 1.0 for normal benchmark runs).
+
+    ``baysor.extra_args`` is appended verbatim after ``-c <config>`` (so the
+    dataset's explicit flags override the config); the builder skips any of
+    its own flags that ``extra_args`` already provides, keeping each option
+    exactly once as CLI11 requires.
+    """
+    cfg = ds.baysor_cfg
+    extra = list(cfg.get("extra_args") or [])
+    extra_flags = {tok.split("=", 1)[0] for tok in extra if tok.startswith("-")}
+    cmd: list[str] = [str(baysor), "run", str(ds.molecules_path)]
+
+    def provided(flag_group) -> bool:
+        return bool(set(flag_group) & extra_flags)
+
+    def add(flag_group, *values) -> None:
+        if provided(flag_group):
+            return   # extra_args carries it (verbatim, after -c)
+        cmd.extend([next(iter(flag_group)), *map(str, values)])
+
+    prior = cfg.get("prior", "none")
+    prior = "none" if prior in (None, "") else str(prior)
+    if prior == "column":
+        cmd.append(":prior")
+    elif prior.startswith("image:"):
+        img = ds.path / prior[len("image:"):]
+        if not img.is_file():
+            raise FileNotFoundError(f"prior image for {ds.id} not found: {img}")
+        cmd.append(str(img))
+    elif prior != "none":
+        raise ValueError(f"{ds.id}: unsupported baysor.prior value {prior!r}")
+
+    add(("-x", "--x-column"), "x")
+    add(("-y", "--y-column"), "y")
+    if ds.has_z:
+        add(("-z", "--z-column"), "z")
+    add(("-g", "--gene-column"), "gene")
+
+    if cfg.get("scale_um") is not None:
+        scale = float(cfg["scale_um"]) * scale_factor
+        add(("-s", "--scale"), scale)
+    if cfg.get("scale_std") is not None:
+        add(("--scale-std",), cfg["scale_std"])
+    if prior != "none" and cfg.get("prior_confidence") is not None:
+        if probe["flags"].get("prior-segmentation-confidence", True):
+            add(("--prior-segmentation-confidence",), cfg["prior_confidence"])
+    if cfg.get("min_molecules_per_cell") is not None:
+        add(("-m", "--min-molecules-per-cell"), cfg["min_molecules_per_cell"])
+    if cfg.get("config"):
+        cfg_path = repo / str(cfg["config"])
+        if not cfg_path.is_file():
+            raise FileNotFoundError(f"{ds.id}: config {cfg_path} not found")
+        add(("-c", "--config"), cfg_path)
+    cmd += extra
+
+    if probe["flags"].get("output-style", False):
+        add(("--output-style",), "parquet")
+    add(("-o", "--output"), seg_dir)
+    return cmd
+
+
+# ---------------------------------------------------------------------------
+# process execution with timeout + /usr/bin/time -v
+# ---------------------------------------------------------------------------
+
+def _parse_elapsed(text: str) -> Optional[float]:
+    """Parse GNU time 'h:mm:ss' / 'm:ss' / 'ss.cc' elapsed strings."""
+    parts = text.split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + float(parts[1])
+        return float(parts[0])
+    except ValueError:
+        return None
+
+
+def parse_time_v(stderr: str) -> dict:
+    """Extract wall time and peak RSS from ``/usr/bin/time -v`` output."""
+    out: dict = {"wall_s": None, "peak_rss_kb": None, "exit_status": None}
+    mo = re.search(r"Maximum resident set size \(kbytes\): (\d+)", stderr)
+    if mo:
+        out["peak_rss_kb"] = int(mo.group(1))
+    mo = re.search(r"Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): (\S+)", stderr)
+    if mo:
+        out["wall_s"] = _parse_elapsed(mo.group(1))
+    mo = re.search(r"Exit status: (\d+)", stderr)
+    if mo:
+        out["exit_status"] = int(mo.group(1))
+    return out
+
+
+def execute(cmd: list[str], env: dict, timeout: Optional[float]) -> dict:
+    """Run ``cmd`` in its own process group, killing it on timeout."""
+    start = time.monotonic()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, start_new_session=True, env=env)
+    timed_out = False
+    try:
+        out, err = proc.communicate(timeout=timeout if timeout else None)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = proc.communicate()
+        timed_out = True
+    wall = time.monotonic() - start
+    return {"returncode": proc.returncode, "stdout": out or "", "stderr": err or "",
+            "wall_s": wall, "timed_out": timed_out}
+
+
+# ---------------------------------------------------------------------------
+# one replicate
+# ---------------------------------------------------------------------------
+
+def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
+                  probe: dict, args, repo: Path) -> dict:
+    """Run one replicate; returns the rep record for metrics.json."""
+    seg_dir = rep_dir / "seg"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    cmd = build_command(baysor, ds, seg_dir, probe, repo,
+                        scale_factor=args.scale_factor)
+    full_cmd = ["/usr/bin/time", "-v"] + cmd
+    env = os.environ.copy()
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS"):
+        env[var] = str(args.threads)
+
+    print(f"[{ds.id}] rep{rep}: {shlex.join(cmd)}", flush=True)
+    res = execute(full_cmd, env, args.timeout)
+    tv = parse_time_v(res["stderr"])
+    if res["timed_out"]:
+        status = "timeout"
+    elif res["returncode"] == 0:
+        status = "ok"
+    else:
+        status = "failed"
+
+    record = {
+        "rep": rep,
+        "status": status,
+        "exit_code": res["returncode"],
+        "command": cmd,
+        "command_str": shlex.join(cmd),
+        "wall_s": round(res["wall_s"], 3),
+        "wall_s_time_v": tv["wall_s"],
+        "peak_rss_kb": tv["peak_rss_kb"],
+        "threads": args.threads,
+        "scale_factor": args.scale_factor,
+        "stderr_tail": res["stderr"][-8000:],
+    }
+
+    if status == "ok":
+        assign_df = common.normalize_assignment(ds.path, seg_dir)
+        assign_path = rep_dir / "assignment.parquet"
+        assign_df.to_parquet(assign_path, index=False)
+        cells = assign_df["cell"].to_numpy(np.int64)
+        record["assignment"] = str(assign_path.relative_to(rep_dir.parent))
+        record["assignment_sha256"] = common.sha256_file(assign_path)
+        record["n_cells"] = int(len(np.unique(cells[cells > 0])))
+        record["n_assigned"] = int((cells > 0).sum())
+        # molecules without a segmentation row were dropped by Baysor's loader
+        record["n_loader_filtered"] = int(assign_df["confidence"].isna().sum())
+        seg_file = common._find_segmentation_file(seg_dir)
+        record["seg_source"] = seg_file.name
+        # the cellAdmix admixture audit applies to real data only
+        if ds.kind == "real" and camix.audit_available(repo) \
+                and not args.no_celladmix:
+            image = None
+            images = ds.meta.get("images") or []
+            if images:
+                cand = ds.path / images[0].get("file", "")
+                if cand.is_file():
+                    image = cand
+            record["celladmix"] = camix.run_audit(
+                ds.molecules_path, assign_path, rep_dir / "celladmix.json",
+                image=image, repo=repo)
+        elif ds.kind == "real" and args.no_celladmix:
+            record["celladmix"] = {"status": camix.STATUS_DISABLED}
+        elif ds.kind == "real":
+            record["celladmix"] = {"status": camix.STATUS_ABSENT}
+
+    common.write_json(rep_dir / "run.json", record)
+    print(f"[{ds.id}] rep{rep}: {status} "
+          f"exit={record['exit_code']} wall={record['wall_s']}s "
+          f"rss={record['peak_rss_kb']}kB", flush=True)
+    return record
+
+
+# ---------------------------------------------------------------------------
+# metrics aggregation
+# ---------------------------------------------------------------------------
+
+def _mean_sd(values: list[float]) -> tuple[float, float]:
+    arr = np.asarray([v for v in values if v is not None], dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if len(arr) == 0:
+        return float("nan"), float("nan")
+    mean = float(arr.mean())
+    sd = float(arr.std(ddof=1)) if len(arr) > 1 else 0.0
+    return mean, sd
+
+
+def _aggregate_dicts(dicts: list[dict]) -> dict:
+    keys = sorted({k for d in dicts for k in d})
+    mean, sd = {}, {}
+    for k in keys:
+        vals = [d.get(k) for d in dicts]
+        mean[k], sd[k] = _mean_sd([v for v in vals])
+    return mean, sd
+
+
+def vendor_labels(molecules: pd.DataFrame) -> Optional[np.ndarray]:
+    """Factorize the ``cell_vendor`` column to int64 labels (0 = unassigned)."""
+    if "cell_vendor" not in molecules.columns:
+        return None
+    raw = molecules["cell_vendor"].fillna("").astype(str).str.strip()
+    uniq = sorted(v for v in raw.unique() if v != "")
+    mapping = {v: i + 1 for i, v in enumerate(uniq)}
+    return np.array([mapping.get(v, 0) for v in raw], dtype=np.int64)
+
+
+def aggregate_dataset(ds: common.Dataset, run_id: str, rep_records: list[dict],
+                      binary: dict, threads: int) -> dict:
+    """Runtime / provenance part of metrics.json (no quality metrics yet)."""
+    molecules = pd.read_parquet(ds.molecules_path)
+    ok = [r for r in rep_records if r["status"] == "ok"]
+    out: dict = {
+        "schema": 1,
+        "run_id": run_id,
+        "dataset": {
+            "id": ds.id, "kind": ds.kind, "tier": ds.tier, "path": str(ds.path),
+            "n_molecules": int(len(molecules)),
+            "n_genes": int(molecules["gene"].nunique()) if "gene" in molecules else None,
+        },
+        "binary": {k: binary.get(k) for k in ("path", "sha256", "version_info")},
+        "label": binary.get("label"),
+        "threads": threads,
+        "replicates": len(rep_records),
+        "created": common.utc_now(),
+        "reps": rep_records,
+        "runtime": {
+            "wall_s": [r.get("wall_s") for r in rep_records],
+            "peak_rss_kb": [r.get("peak_rss_kb") for r in rep_records],
+        },
+        "failures": [r for r in rep_records if r["status"] != "ok"],
+    }
+    wall_ok = [r.get("wall_s") for r in ok if r.get("wall_s") is not None]
+    rss_ok = [r.get("peak_rss_kb") for r in ok if r.get("peak_rss_kb") is not None]
+    out["runtime"]["wall_s_mean"], out["runtime"]["wall_s_sd"] = _mean_sd(wall_ok)
+    out["runtime"]["peak_rss_kb_mean"], out["runtime"]["peak_rss_kb_sd"] = _mean_sd(rss_ok)
+    return out
+
+
+def compute_dataset_metrics(ds: common.Dataset, run_id: str, rep_dir_for,
+                            rep_records: list[dict], binary: dict,
+                            threads: int) -> dict:
+    """Full metrics.json: runtime info + sim or real metric blocks."""
+    out = aggregate_dataset(ds, run_id, rep_records, binary, threads)
+    ok = [r for r in rep_records if r["status"] == "ok"]
+    if not ok:
+        return out
+    molecules = pd.read_parquet(ds.molecules_path)
+    cells = [common.assignment_cells(rep_dir_for(r) / "assignment.parquet")
+             for r in ok]
+
+    if ds.kind == "sim":
+        truth = molecules["cell"].to_numpy(np.int64)
+        interior = (molecules["interior"].to_numpy(bool)
+                    if "interior" in molecules.columns else None)
+        truth_meta = ds.meta.get("truth") or {}
+        oracle = truth_meta.get("oracle_accuracy")
+        per_rep = [m.sim_metrics(c, truth, interior, oracle) for c in cells]
+        mean, sd = _aggregate_dicts(per_rep)
+        out["sim"] = {
+            "oracle_accuracy": oracle,
+            "per_rep": per_rep,
+            "mean": mean,
+            "sd": sd,
+            "n_metric_reps": len(per_rep),
+        }
+    else:
+        pairs, per_pair = [], []
+        ok_reps = [(r["rep"], c) for r, c in zip(ok, cells)]
+        for i in range(len(ok_reps)):
+            for j in range(i + 1, len(ok_reps)):
+                pairs.append([ok_reps[i][0], ok_reps[j][0]])
+                per_pair.append(m.real_pair_metrics(ok_reps[j][1], ok_reps[i][1]))
+        real: dict = {
+            "rep_agreement": {},
+            "n_metric_reps": len(ok_reps),
+        }
+        if per_pair:
+            mean, sd = _aggregate_dicts(per_pair)
+            real["rep_agreement"] = {"pairs": pairs, "per_pair": per_pair,
+                                     "mean": mean, "sd": sd}
+        vend = vendor_labels(molecules)
+        if vend is not None:
+            per_rep_v = [m.real_pair_metrics(c, vend) for c in cells]
+            vm, vsd = _aggregate_dicts(per_rep_v)
+            real["vs_vendor"] = {"per_rep": per_rep_v, "mean": vm, "sd": vsd,
+                                 "information_only": True}
+        cam = [{"status": r.get("celladmix", {}).get("status", camix.STATUS_DISABLED)}
+               for r in ok]
+        totals = []
+        for r, c in zip(ok, cam):
+            audit = r.get("celladmix") or {}
+            if audit.get("status") == camix.STATUS_OK:
+                c.update({k: v for k, v in audit.items() if k != "status"})
+                totals.append(audit.get("total_admixture_rate"))
+            else:
+                c["reason"] = audit.get("reason")
+        totals_f = [t for t in totals if t is not None and not np.isnan(float(t))]
+        real["celladmix"] = {"per_rep": cam,
+                             "status": (camix.STATUS_OK
+                                        if len(totals_f) == len(ok) and ok
+                                        else camix.STATUS_FAILED),
+                             "mean_total": (_mean_sd(totals_f)[0]
+                                            if totals_f else None),
+                             "per_rep_total": totals}
+        out["real"] = real
+    return out
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main(argv: Optional[list[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--baysor", required=True, help="path to the Baysor binary")
+    ap.add_argument("--datasets", required=True,
+                    help="dataset ids/globs (comma-separated) or tier: quick|full|all")
+    ap.add_argument("--kind", choices=["sim", "real"],
+                    help="restrict to sim or real datasets")
+    ap.add_argument("--run-id", required=True, help="name of the run (output folder)")
+    ap.add_argument("--threads", type=int, default=DEFAULT_THREADS,
+                    help=f"threads for Baysor (OMP_NUM_THREADS; default {DEFAULT_THREADS})")
+    ap.add_argument("--replicates", type=int, default=1,
+                    help="number of repeated runs per dataset (default 1)")
+    ap.add_argument("--timeout", type=float, default=0,
+                    help="per-replicate timeout in seconds (0 = none)")
+    ap.add_argument("--data-root", default=None,
+                    help="data root (default $BAYSOR_BENCH_DATA or <repo>/.bench-data)")
+    ap.add_argument("--label", default=None,
+                    help="git SHA recorded with the run (default: current HEAD)")
+    ap.add_argument("--no-celladmix", action="store_true",
+                    help="skip the cellAdmix admixture audit")
+    ap.add_argument("--scale-factor", type=float, default=1.0,
+                    help="multiply baysor.scale_um from meta.json (degraded-"
+                         "run experiments only; default 1.0)")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="skip replicates that already have a successful run.json")
+    args = ap.parse_args(argv)
+
+    if args.replicates < 1:
+        ap.error("--replicates must be >= 1")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.run_id):
+        ap.error("--run-id may only contain letters, digits, '.', '_', '-'")
+
+    repo = common.repo_root()
+    root = common.data_root(args.data_root)
+    baysor = Path(args.baysor).expanduser().resolve()
+    if not baysor.is_file():
+        ap.error(f"baysor binary not found: {baysor}")
+    if not os.access(baysor, os.X_OK):
+        ap.error(f"baysor binary not executable: {baysor}")
+
+    try:
+        selected = common.select_datasets(root, args.datasets, kind=args.kind)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if not selected:
+        ap.error(f"no datasets matched {args.datasets!r} under {root}")
+
+    label = args.label or _default_label(repo)
+    probe = probe_binary(baysor)
+    probe["label"] = label
+
+    run_root = root / "runs" / args.run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    common.write_json(run_root / "_binary.json", probe)
+
+    any_failure = False
+    for ds in selected:
+        ds_root = run_root / ds.id
+        rep_records = []
+        for k in range(args.replicates):
+            rep_dir = ds_root / f"rep{k}"
+            existing = rep_dir / "run.json"
+            if args.skip_existing and existing.is_file():
+                prev = common.read_json(existing)
+                if prev.get("status") == "ok":
+                    print(f"[{ds.id}] rep{k}: reusing existing run", flush=True)
+                    rep_records.append(prev)
+                    continue
+            rep_dir.mkdir(parents=True, exist_ok=True)
+            rec = run_replicate(ds, k, rep_dir, baysor, probe, args, repo)
+            rep_records.append(rec)
+        if any(r["status"] != "ok" for r in rep_records):
+            any_failure = True
+
+        def rep_dir_for(rec, _ds_root=ds_root):
+            return _ds_root / f"rep{rec['rep']}"
+
+        mjson = compute_dataset_metrics(ds, args.run_id, rep_dir_for, rep_records,
+                                        probe, args.threads)
+        common.write_json(ds_root / "metrics.json", mjson)
+        kind = ds.kind
+        if kind == "sim" and mjson.get("sim"):
+            acc = mjson["sim"]["mean"].get("matched_accuracy")
+            print(f"[{ds.id}] matched_accuracy mean={acc:.4f} "
+                  f"sd={mjson['sim']['sd'].get('matched_accuracy'):.4f} "
+                  f"({mjson['sim']['n_metric_reps']} reps)", flush=True)
+        elif kind == "real" and mjson.get("real", {}).get("rep_agreement"):
+            ra = mjson["real"]["rep_agreement"]["mean"]
+            print(f"[{ds.id}] rep agreement: ari={ra.get('molecule_ari'):.4f} "
+                  f"assigned={ra.get('assigned_agreement'):.4f}", flush=True)
+
+    print(f"run '{args.run_id}': "
+          f"{'OK' if not any_failure else 'FINISHED WITH FAILURES'} -> {run_root}")
+    return 0 if not any_failure else 1
+
+
+def _default_label(repo: Path) -> str:
+    try:
+        sha = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
+                               capture_output=True, text=True, timeout=30).stdout
+        return sha + ("+dirty" if dirty.strip() else "")
+    except OSError:
+        return "unknown"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
