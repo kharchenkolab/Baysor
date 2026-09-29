@@ -1,0 +1,191 @@
+{
+  "task": "celladmix-admixture-audit",
+  "schema_version": 1,
+  "created": "2026-09-29T12:29:48+00:00",
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/cache/celladmix/datasets/pancreas_crop_quick/molecules.parquet",
+    "molecules_sha256": "6fa0ef738a95ad17a4f11e9a25e9fba037820ea736e37ef603150b7960792cc4",
+    "molecules_bytes": 2390448,
+    "celltypes": null,
+    "celltypes_sha256": null,
+    "image": null,
+    "image_note": "recorded for membrane scoring; not used by the audit itself",
+    "assignment": {
+      "kind": "assignment_file",
+      "path": "/home/vpetukhov/Projects/Baysor/.bench-data/cache/celladmix/work/validation/border30.assignment.parquet",
+      "column": "cell",
+      "label_column": "cell_label",
+      "sha256": "696462f5485ec0ed77c4506a749f05fd2f2d32edf657d277aa7f7a9aeb7ec401"
+    }
+  },
+  "celladmix": {
+    "repo": "https://github.com/kharchenkolab/cellAdmix-core",
+    "commit": "7d3fe7ae70c61d2b9e57469d38d9a88fcf6ac14d",
+    "commit_verified_against_source_clone": true,
+    "package_version": "0.0.1",
+    "core_version": "0.0.1"
+  },
+  "parameters": {
+    "seed": 1,
+    "threads": 6,
+    "typing": "quick_cluster",
+    "cluster_resolution": 1.0,
+    "cluster_min_molecules": 1,
+    "nmf_n_runs": 1,
+    "fit": {
+      "rank": 11,
+      "nmf_variant": "ls_nmf",
+      "nmf_init": "auto",
+      "seed": 1,
+      "ncv_k": 20,
+      "graph_k": 10
+    },
+    "audit": {
+      "neighbor_k": 15,
+      "n_pool": 60,
+      "q_thresh": 0.01,
+      "min_excess": 200,
+      "min_target_cells": 200,
+      "min_reference_cells": 100
+    },
+    "top_pairs": 20
+  },
+  "filters": {
+    "unassigned_molecules_dropped": 21340,
+    "malformed_rows_dropped": 0,
+    "untyped_cell_molecules_dropped": 0
+  },
+  "counts": {
+    "n_molecules_input": 141351,
+    "n_molecules_written": 120011,
+    "n_molecules_used": 120011,
+    "n_cells": 2863,
+    "n_genes": 376,
+    "n_cell_types": 9
+  },
+  "metrics": {
+    "total_admixture_rate": 0.11714759480380965,
+    "total_admixture_molecules": 14059.0,
+    "n_pairs_evaluated": 37,
+    "n_pairs_detected": 8,
+    "status": "ok"
+  },
+  "pairs_top": [
+    {
+      "source": "cluster_2",
+      "target": "cluster_1",
+      "rate": 0.07195086049864198,
+      "admixed_molecules": 3255.0,
+      "excess": 1571.0,
+      "coverage": 0.4825714010344716,
+      "q_value": 3.7940081862070123e-126,
+      "n_exposed": 608,
+      "n_reference": 100,
+      "n_markers": 42,
+      "n_strict": 11
+    },
+    {
+      "source": "cluster_5",
+      "target": "cluster_2",
+      "rate": 0.07740618234027907,
+      "admixed_molecules": 2409.0,
+      "excess": 1776.0,
+      "coverage": 0.7371304217319525,
+      "q_value": 2.4012216785527694e-125,
+      "n_exposed": 384,
+      "n_reference": 285,
+      "n_markers": 21,
+      "n_strict": 5
+    },
+    {
+      "source": "cluster_5",
+      "target": "cluster_1",
+      "rate": 0.04060223883431749,
+      "admixed_molecules": 1837.0,
+      "excess": 1354.0,
+      "coverage": 0.7371304217319524,
+      "q_value": 1.7922661160629112e-17,
+      "n_exposed": 594,
+      "n_reference": 114,
+      "n_markers": 21,
+      "n_strict": 4
+    },
+    {
+      "source": "cluster_5",
+      "target": "cluster_9",
+      "rate": 0.13405500951797056,
+      "admixed_molecules": 1766.0,
+      "excess": 1302.0,
+      "coverage": 0.7371304217319525,
+      "q_value": 1.1869002666692762e-181,
+      "n_exposed": 215,
+      "n_reference": 132,
+      "n_markers": 21,
+      "n_strict": 8
+    },
+    {
+      "source": "cluster_9",
+      "target": "cluster_1",
+      "rate": 0.036787463958363326,
+      "admixed_molecules": 1664.0,
+      "excess": 273.0,
+      "coverage": 0.16407376489337477,
+      "q_value": 2.1415748266873947e-31,
+      "n_exposed": 415,
+      "n_reference": 293,
+      "n_markers": 30,
+      "n_strict": 5
+    },
+    {
+      "source": "cluster_7",
+      "target": "cluster_9",
+      "rate": 0.1161283415368087,
+      "admixed_molecules": 1530.0,
+      "excess": 494.0,
+      "coverage": 0.3229982964224873,
+      "q_value": 2.3486489791427393e-81,
+      "n_exposed": 227,
+      "n_reference": 120,
+      "n_markers": 60,
+      "n_strict": 24
+    },
+    {
+      "source": "cluster_2",
+      "target": "cluster_9",
+      "rate": 0.09508636315481883,
+      "admixed_molecules": 1253.0,
+      "excess": 605.0,
+      "coverage": 0.4825714010344716,
+      "q_value": 1.1142039743646092e-133,
+      "n_exposed": 211,
+      "n_reference": 136,
+      "n_markers": 42,
+      "n_strict": 18
+    },
+    {
+      "source": "cluster_5",
+      "target": "cluster_7",
+      "rate": 0.11749649367896872,
+      "admixed_molecules": 345.0,
+      "excess": 254.0,
+      "coverage": 0.7371304217319525,
+      "q_value": 5.713212935135063e-76,
+      "n_exposed": 116,
+      "n_reference": 133,
+      "n_markers": 21,
+      "n_strict": 13
+    }
+  ],
+  "runtime_seconds": {
+    "load": 0.116,
+    "store": 0.144,
+    "typing": 0.765,
+    "fit": 1.877,
+    "audit": 1.528,
+    "total": 4.593
+  },
+  "environment": {
+    "python": "3.11.16",
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43"
+  }
+}

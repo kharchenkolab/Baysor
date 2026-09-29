@@ -22,3 +22,7 @@ dependencies:
   - pip:
       - remotezip
       - pyflakes
+      # build deps for the cellAdmix Python bindings; the bindings themselves
+      # are installed from the pinned+patched source by benchmarks/celladmix/install.sh
+      - scikit-build-core
+      - pybind11

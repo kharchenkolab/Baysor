@@ -1,0 +1,64 @@
+diff --git a/python/src/celladmix/_core_bindings.cpp b/python/src/celladmix/_core_bindings.cpp
+index dbd3d09..3bd7740 100644
+--- a/python/src/celladmix/_core_bindings.cpp
++++ b/python/src/celladmix/_core_bindings.cpp
+@@ -551,6 +551,59 @@ PYBIND11_MODULE(_core, m) {
+       py::arg("num_threads") = 1,
+       py::arg("parquet_row_group_size") = 65536);
+ 
++  m.def(
++      "build_tabular_store",
++      [](const std::string& molecules_path,
++         const std::string& store_dir,
++         const std::string& x_col,
++         const std::string& y_col,
++         const std::string& gene_col,
++         const std::string& cell_id_col,
++         double min_qv,
++         bool keep_unassigned,
++         bool materialize_molecules,
++         bool force,
++         int num_threads,
++         int parquet_row_group_size) {
++        celladmix::TabularSourceSpec source;
++        source.molecules_path = molecules_path;
++        source.x_col = x_col;
++        source.y_col = y_col;
++        source.gene_col = gene_col;
++        source.cell_id_col = cell_id_col;
++
++        celladmix::TabularLoadOptions load_options;
++        load_options.min_qv = min_qv;
++        load_options.keep_unassigned = keep_unassigned;
++
++        celladmix::InputStoreBuildOptions store_options;
++        store_options.store_dir = store_dir;
++        store_options.materialize_molecules = materialize_molecules;
++        store_options.force = force;
++        store_options.num_threads = num_threads;
++        store_options.parquet_row_group_size = parquet_row_group_size;
++
++        celladmix::InputStoreManifest manifest;
++        {
++          py::gil_scoped_release release;
++          manifest =
++              celladmix::build_tabular_input_store(source, load_options, store_options);
++        }
++        return input_manifest_to_dict(manifest);
++      },
++      py::arg("molecules_path"),
++      py::arg("store_dir"),
++      py::arg("x_col") = "x",
++      py::arg("y_col") = "y",
++      py::arg("gene_col") = "gene",
++      py::arg("cell_id_col") = "cell",
++      py::arg("min_qv") = -1.0,
++      py::arg("keep_unassigned") = false,
++      py::arg("materialize_molecules") = true,
++      py::arg("force") = false,
++      py::arg("num_threads") = 1,
++      py::arg("parquet_row_group_size") = 65536);
++
+   m.def(
+       "read_input_store_manifest",
+       [](const std::string& store_dir) {

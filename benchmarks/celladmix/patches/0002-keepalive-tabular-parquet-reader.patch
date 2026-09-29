@@ -1,0 +1,22 @@
+diff --git a/src/input_store.cpp b/src/input_store.cpp
+index be12ea0..ace3f1c 100644
+--- a/src/input_store.cpp
++++ b/src/input_store.cpp
+@@ -1782,6 +1782,9 @@ EncodedMoleculeStore build_xenium_encoded_store_from_parquet(
+ 
+ struct TabularStreamSource {
+   std::shared_ptr<arrow::RecordBatchReader> reader;
++  // Keep the parquet FileReader alive for as long as the record-batch reader
++  // that was derived from it may still be consumed.
++  std::shared_ptr<void> reader_keepalive;
+   bool used_parquet = false;
+   bool has_z = false;
+   bool has_qv = false;
+@@ -1904,6 +1907,7 @@ TabularStreamSource make_tabular_stream_source(
+     out.reader = arrow_unwrap(
+         reader->GetRecordBatchReader(row_groups, projected),
+         "Create tabular parquet batch reader");
++    out.reader_keepalive = std::shared_ptr<void>(reader.release(), [](void*) {});
+     return out;
+   }
+ 
