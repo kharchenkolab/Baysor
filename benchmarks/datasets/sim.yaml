@@ -1,0 +1,166 @@
+# Simulated datasets of the Baysor benchmark suite (contract: benchmarks/README.md).
+#
+# Regenerate everything with:
+#   BAYSOR_BENCH_DATA=... .deps/bench/bin/python benchmarks/simulate/generate_all.py
+# Regenerate one dataset and verify byte-identity:
+#   ... generate_all.py --verify <id>
+#
+# Design notes:
+# * The trivial panel variants (g100/g1000/g5000) and the tiled pair share one
+#   seed, so they share geometry and molecule counts; only the gene panel (and
+#   for tiled_distinct the type profiles) changes — a controlled panel ablation.
+# * st-recoverability datasets are a design over the three factors (packing,
+#   displacement sigma, expression model), not the full cartesian product;
+#   dense + sigma=2 + realistic is covered by strec_dense_s2_merfish and
+#   strec_dense_s2_xenium.
+# * All datasets are quick tier (<= ~150k molecules) except the single
+#   full-tier tiled_distinct at 1000 genes (~1M molecules).
+
+version: 1
+
+generators:
+  trivial:
+    entry: benchmarks/simulate/trivial.py
+    generator_version: 1
+    note: in-repo scenarios with exact ground truth (no displacement noise)
+  strec:
+    entry: benchmarks/simulate/strec.py
+    generator_version: 1
+    external:
+      name: st-recoverability
+      repo: https://github.com/RuiYamasaki/st-recoverability
+      commit: e85faeccfb58e0bef05d76817e98c79abff6bf51
+      license: MIT
+      cache: cache/sim/st-recoverability
+      imported_modules: [generator, expression, oracle, config]
+    references:
+      merfish: squidpy MERFISH_0.24.h5ad mirror, figshare file 40038538
+      xenium: Xenium_FFPE_Human_Breast_Cancer_Rep1 (10x release 1.0.1),
+        cell_feature_matrix.h5 + cells.parquet fetched from outs.zip via remotezip
+
+datasets:
+  # --- trivial: circles_gaps panel ablation (shared geometry) --------------
+  - id: sim_circles_gaps_g100
+    generator: trivial
+    scenario: circles_gaps
+    tier: quick
+    seed: 1201
+    params: {n_genes: 100}
+  - id: sim_circles_gaps_g1000
+    generator: trivial
+    scenario: circles_gaps
+    tier: quick
+    seed: 1201
+    params: {n_genes: 1000}
+  - id: sim_circles_gaps_g5000
+    generator: trivial
+    scenario: circles_gaps
+    tier: quick
+    seed: 1201
+    params: {n_genes: 5000}
+
+  # --- trivial: tiled boundaries resolvable by composition only ------------
+  - id: sim_tiled_distinct_g100
+    generator: trivial
+    scenario: tiled_distinct
+    tier: quick
+    seed: 1201
+    params: {n_genes: 100}
+  - id: sim_tiled_distinct_g1000
+    generator: trivial
+    scenario: tiled_distinct
+    tier: quick
+    seed: 1201
+    params: {n_genes: 1000}
+  - id: sim_tiled_distinct_g5000
+    generator: trivial
+    scenario: tiled_distinct
+    tier: quick
+    seed: 1201
+    params: {n_genes: 5000}
+  - id: sim_tiled_distinct_g1000_full
+    generator: trivial
+    scenario: tiled_distinct
+    tier: full
+    seed: 1201
+    params: {n_genes: 1000, extent_um: 1100.0}
+
+  # --- trivial: hard control, single type ----------------------------------
+  - id: sim_tiled_same_g100
+    generator: trivial
+    scenario: tiled_same
+    tier: quick
+    seed: 1201
+    params: {n_genes: 100}
+
+  # --- trivial: other scenarios --------------------------------------------
+  - id: sim_mixed_sizes_g100
+    generator: trivial
+    scenario: mixed_sizes
+    tier: quick
+    seed: 1202
+    params: {n_genes: 100}
+  - id: sim_sparse_noisy_g100
+    generator: trivial
+    scenario: sparse_noisy
+    tier: quick
+    seed: 1203
+    params: {n_genes: 100}
+  - id: sim_circles_gaps_3d_g100
+    generator: trivial
+    scenario: circles_gaps_3d
+    tier: quick
+    seed: 1204
+    params: {n_genes: 100}
+
+  # --- st-recoverability design -------------------------------------------
+  - id: strec_sparse_s1_disjoint
+    generator: strec
+    tier: quick
+    seed: 910001
+    params: {packing: 2575, sigma: 1.0, model: disjoint}
+  - id: strec_sparse_s2_disjoint
+    generator: strec
+    tier: quick
+    seed: 910002
+    params: {packing: 2575, sigma: 2.0, model: disjoint}
+  - id: strec_sparse_s2_merfish
+    generator: strec
+    tier: quick
+    seed: 910003
+    params: {packing: 2575, sigma: 2.0, model: merfish}
+  - id: strec_medium_s2_disjoint
+    generator: strec
+    tier: quick
+    seed: 910004
+    params: {packing: 6000, sigma: 2.0, model: disjoint}
+  - id: strec_medium_s3_xenium
+    generator: strec
+    tier: quick
+    seed: 910005
+    params: {packing: 6000, sigma: 3.0, model: xenium}
+  - id: strec_dense_s1_disjoint
+    generator: strec
+    tier: quick
+    seed: 910006
+    params: {packing: 13625, sigma: 1.0, model: disjoint}
+  - id: strec_dense_s2_disjoint
+    generator: strec
+    tier: quick
+    seed: 910007
+    params: {packing: 13625, sigma: 2.0, model: disjoint}
+  - id: strec_dense_s3_disjoint
+    generator: strec
+    tier: quick
+    seed: 910008
+    params: {packing: 13625, sigma: 3.0, model: disjoint}
+  - id: strec_dense_s2_merfish
+    generator: strec
+    tier: quick
+    seed: 910009
+    params: {packing: 13625, sigma: 2.0, model: merfish}
+  - id: strec_dense_s2_xenium
+    generator: strec
+    tier: quick
+    seed: 910010
+    params: {packing: 13625, sigma: 2.0, model: xenium}
