@@ -836,6 +836,24 @@ def load_assignments(paths: list[Path]) -> list[np.ndarray]:
     return [common.assignment_cells(p) for p in paths]
 
 
+def load_run_selection(run_root: Path) -> set[str]:
+    """Dataset ids the run intended to execute (run.py ``_selection.json``).
+
+    Returns an empty set for legacy runs; an empty set means "unknown
+    selection" and keeps the strict presence behaviour (every baseline
+    dataset must be present in the run).
+    """
+    p = run_root / "_selection.json"
+    if not p.is_file():
+        return set()
+    try:
+        sel = common.read_json(p)
+    except (OSError, ValueError):
+        return set()
+    ids = sel.get("datasets") if isinstance(sel, dict) else None
+    return set(ids) if isinstance(ids, list) else set()
+
+
 def record_gate_info(pooled_sim: dict[str, float], pooled_real: dict[str, float],
                      k: float) -> list[dict]:
     """Tolerance table for the report (same / improved gates)."""
@@ -950,8 +968,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     # run health
     collect_run_failures(rep, run_metrics)
 
-    # dataset coverage
+    # dataset coverage: a baseline dataset missing from the run fails —
+    # unless the run recorded an explicit selection that excludes it
+    # (deliberate subset run; run.py's _selection.json), which is reported
+    # as skipped instead. Legacy runs without a selection file keep the
+    # strict behaviour.
+    selection = load_run_selection(run_root)
     for ds_id in sorted(set(base_metrics) - set(run_metrics)):
+        if selection and ds_id not in selection:
+            rep.warn(f"{ds_id}: in the baseline but not in this run's "
+                     "dataset selection (skipped)")
+            continue
         rep.check("run", ds_id, "presence", "fail",
                   detail="dataset in baseline but missing from run")
     for ds_id in sorted(set(run_metrics) - set(base_metrics)):

@@ -115,6 +115,8 @@ Each replicate executes under `/usr/bin/time -v` in its own process group
 
 ```
 $BAYSOR_BENCH_DATA/runs/<run_id>/_binary.json          # sha256, baysor --help, label
+$BAYSOR_BENCH_DATA/runs/<run_id>/_selection.json       # merged dataset selection of
+                                                       # every invocation of this run-id
 $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/
     seg/                     # raw Baysor output (parquet style)
     assignment.parquet       # normalized per-molecule assignment
@@ -389,6 +391,14 @@ compare.py --run-id R --baseline NAME [--expect {identical,same,improved}]
 Exit code **0 = pass, 1 = fail, 2 = usage/setup error**. Reports are written
 to `runs/<R>/compare_<NAME>_<expect>.{md,json}` and the Markdown is printed.
 `--expect` defaults to **`identical`**, the default refactor gate.
+
+**Dataset coverage.** Every baseline dataset must be present in the run.
+The one exception is a *deliberate subset run*: `run.py` records its
+selection in `runs/<R>/_selection.json` (merged across invocations), and
+`compare.py` reports baseline datasets outside that selection as skipped
+warnings instead of failing. Legacy runs without a selection file keep the
+strict behaviour; a dataset that *was* selected but has no `metrics.json`
+always fails.
 
 ### `--expect identical` (default; the refactor gate)
 

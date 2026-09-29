@@ -610,6 +610,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     run_root = root / "runs" / args.run_id
     run_root.mkdir(parents=True, exist_ok=True)
     common.write_json(run_root / "_binary.json", probe)
+    record_selection(run_root, selected, args)
 
     typing = None
     if args.celltypes_from:
@@ -661,6 +662,34 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"run '{args.run_id}': "
           f"{'OK' if not any_failure else 'FINISHED WITH FAILURES'} -> {run_root}")
     return 0 if not any_failure else 1
+
+
+def record_selection(run_root: Path, selected: list, args) -> dict:
+    """Merge this invocation's dataset selection into ``_selection.json``.
+
+    ``compare.py`` reads it so that a deliberate subset run does not fail on
+    baseline datasets outside its selection (they are reported as skipped),
+    while a dataset the run *intended* to execute but that has no
+    ``metrics.json`` still fails the comparison.
+    """
+    sel_path = run_root / "_selection.json"
+    try:
+        sel = common.read_json(sel_path) if sel_path.is_file() else {}
+    except (OSError, ValueError):
+        sel = {}
+    if not isinstance(sel, dict):
+        sel = {}
+    sel["datasets"] = sorted(set(sel.get("datasets") or [])
+                             | {d.id for d in selected})
+    inv = sel.get("invocations") or []
+    if not isinstance(inv, list):
+        inv = []
+    inv.append({"spec": args.datasets, "kind": args.kind,
+                "replicates": args.replicates, "threads": args.threads,
+                "scale_factor": args.scale_factor, "at": common.utc_now()})
+    sel["invocations"] = inv
+    common.write_json(sel_path, sel)
+    return sel
 
 
 def _default_label(repo: Path) -> str:

@@ -724,3 +724,69 @@ def test_same_self_comparison_with_noisy_replicates_passes(tmp_path):
     row = [c for c in report["checks"] if c["metric"] == "ari_assigned"]
     assert row and row[0]["status"] == "pass"
     assert row[0]["run_vs_baseline_mean"] > row[0]["baseline_rep_mean"]
+
+
+# ---------------------------------------------------------------------------
+# run selection (_selection.json): deliberate subset runs
+# ---------------------------------------------------------------------------
+
+def _write_selection(run_root, ids, spec="custom"):
+    import json
+    with open(run_root / "_selection.json", "w") as fh:
+        json.dump({"datasets": sorted(ids),
+                   "invocations": [{"spec": spec, "kind": None}]}, fh)
+
+
+def test_subset_run_skips_unselected_baseline_datasets(tmp_path):
+    root, baselines = _setup(tmp_path)
+    sim_b = make_sim_dataset(root / "sim" / "sim_b")
+    truth_b = pd.read_parquet(sim_b / "molecules.parquet")["cell"].to_numpy(np.int64)
+    make_run(root, "rbase", sim_b, [truth_b] * 3)
+    assert baseline.create("rbase", "btest", root, baselines, force=True) == 0
+    # rnew covers only sim_a and says so: sim_b must be skipped, not failed
+    _write_selection(root / "runs" / "rnew", ["sim_a"])
+    assert _compare(root, baselines, "same") == 0
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    assert not any(c["metric"] == "presence" and c["status"] == "fail"
+                   for c in report["checks"])
+    assert any("not in this run's dataset selection" in w
+               for w in report.get("warnings", []))
+
+
+def test_selected_dataset_missing_from_run_still_fails(tmp_path):
+    root, baselines = _setup(tmp_path)
+    sim_b = make_sim_dataset(root / "sim" / "sim_b")
+    truth_b = pd.read_parquet(sim_b / "molecules.parquet")["cell"].to_numpy(np.int64)
+    make_run(root, "rbase", sim_b, [truth_b] * 3)
+    assert baseline.create("rbase", "btest", root, baselines, force=True) == 0
+    # the selection claims sim_b, but its metrics.json is absent -> fail
+    _write_selection(root / "runs" / "rnew", ["sim_a", "sim_b"])
+    assert _compare(root, baselines, "same") == 1
+    report = common.read_json(
+        root / "runs" / "rnew" / "compare_btest_same.json")
+    assert any(c["metric"] == "presence" and c["status"] == "fail"
+               for c in report["checks"])
+
+
+def test_record_selection_merges_invocations(tmp_path):
+    import argparse
+    import run as runner
+    run_root = tmp_path / "runs" / "rx"
+    run_root.mkdir(parents=True)
+
+    class DS:
+        def __init__(self, i):
+            self.id = i
+
+    args = argparse.Namespace(datasets="quick", kind=None, replicates=3,
+                              threads=6, scale_factor=1.0)
+    runner.record_selection(run_root, [DS("a"), DS("b")], args)
+    args2 = argparse.Namespace(datasets="full", kind="real", replicates=1,
+                               threads=1, scale_factor=0.9)
+    runner.record_selection(run_root, [DS("b"), DS("c")], args2)
+    sel = common.read_json(run_root / "_selection.json")
+    assert sel["datasets"] == ["a", "b", "c"]
+    assert [i["spec"] for i in sel["invocations"]] == ["quick", "full"]
+    assert sel["invocations"][1]["scale_factor"] == 0.9
+    assert compare.load_run_selection(run_root) == {"a", "b", "c"}
