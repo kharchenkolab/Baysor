@@ -10,7 +10,7 @@ Runner, metrics, baselines and comparison for the Baysor benchmark suite
 | `baseline.py` | create/list committed baselines from a run |
 | `compare.py` | compare a run with a baseline (`identical`/`same`/`improved`), Markdown + JSON report, exit code |
 | `recompute_metrics.py` | recompute `metrics.json` from stored `assignment.parquet` files (no Baysor rerun) |
-| `bench.sh` | one command: run → compare → print report |
+| `bench.sh` | one command: run → compare (`compare.py` prints the report once); `--preset refactor\|algorithm` |
 | `celladmix.py` | optional adapter for the cellAdmix audit (`../celladmix/audit.py`) |
 | `tests/` | pytest suite incl. contract-conformant fixture datasets |
 
@@ -45,7 +45,23 @@ benchmarks/harness/bench.sh --baysor /path/to/baysor --baseline mybase \
 ```
 
 `bench.sh --create-baseline NAME` bootstraps a baseline after the run instead
-of comparing. `BENCH_PY` overrides the interpreter, `BAYSOR_BIN` the binary.
+of comparing (adds `--allow-incomplete` for < 3 replicates and `--identical`
+when `--expect identical`). `BENCH_PY` overrides the interpreter,
+`BAYSOR_BIN` the binary; without `BENCH_PY` it looks for
+`$REPO/.deps/bench/bin/python`, then `$BAYSOR_BENCH_DATA/../.deps/bench/bin/python`,
+then `python3`.
+
+Presets set defaults that explicit flags override:
+
+| preset | threads | replicates | expect |
+|---|---|---|---|
+| `refactor` | 1 | 1 | `identical` (exact refactor gate) |
+| `algorithm` | 6 | 3 | `improved` (algorithm gate) |
+
+```bash
+benchmarks/harness/bench.sh --baysor $B --preset refactor --datasets quick \
+    --baseline mybase --celltypes-from mybase
+```
 
 ## Dataset selection (`--datasets`)
 
@@ -61,8 +77,16 @@ of comparing. `BENCH_PY` overrides the interpreter, `BAYSOR_BIN` the binary.
 run.py --baysor PATH --datasets SPEC --run-id ID
        [--kind sim|real] [--threads 6] [--replicates 1] [--timeout S]
        [--data-root PATH] [--label SHA] [--no-celladmix] [--skip-existing]
-       [--scale-factor F]
+       [--celltypes-from BASELINE] [--scale-factor F]
 ```
+
+`--celltypes-from BASELINE` transfers the baseline's saved cell types onto
+every replicate (via `celladmix/transfer.py`) and audits the baseline's
+fixed pair set, so `total_admixture_rate` is comparable across runs; the
+baseline must have been created from a run with audit cell types (the
+runner validates this upfront). Without it the run is anchored on replicate
+0's quick clustering (reps >= 1 reuse rep0's typing via transfer) and the
+mode is recorded as `quick_cluster` in `metrics.json`.
 
 For each dataset × replicate the command is built from `meta.json`:
 
@@ -94,11 +118,25 @@ $BAYSOR_BENCH_DATA/runs/<run_id>/_binary.json          # sha256, baysor --help, 
 $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/
     seg/                     # raw Baysor output (parquet style)
     assignment.parquet       # normalized per-molecule assignment
+    baysor.log               # Baysor's full stdout + stderr (+ /usr/bin/time -v)
     run.json                 # command, exit code, wall time, peak RSS,
-                             # binary sha256, version info, --label git SHA
+                             # binary sha256, threads, scale factor,
+                             # version info, --label git SHA
+    celltypes.parquet        # typing used for the audit (saved or transferred)
+    celltypes_transfer.json  # transfer statistics (when typed by transfer)
     celladmix.json           # real datasets only, when the audit exists
 $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/metrics.json
 ```
+
+**Provenance.** `metrics.json` records `inputs.molecules_sha256` and
+`inputs.meta_sha256` (the dataset content the run used), plus the binary
+sha256 and label; every rep record carries its own `binary_sha256`,
+`threads`, `scale_factor` and `assignment_sha256`. `--skip-existing` reuses
+a replicate only when its `run.json` says `status: ok` **and** its binary
+sha256, thread count and scale factor match the current invocation
+(per replicate and dataset); anything else is rerun from a clean rep
+directory. Comparisons can therefore rely on run and baseline seeing the
+same `molecules.parquet`.
 
 **Assignment table.** `assignment.parquet` has exactly three columns:
 `mol_index` (int64, row order of the input `molecules.parquet`), `cell`
@@ -110,12 +148,13 @@ NaN confidence; `run.json` records `n_loader_filtered`. Row mapping is
 positional (verified against gene + coordinates) with a coordinate/gene join
 as fallback; output rows that match no input molecule abort the run.
 
-**`metrics.json`** aggregates per dataset: provenance (binary sha256, label,
-threads, replicates), runtime (wall/RSS per rep + mean/SD), sim metrics
-(`sim.per_rep/mean/sd`), real replicate-vs-replicate agreement over all
-replicate pairs (`real.rep_agreement`), the same metrics against
-`cell_vendor` (`real.vs_vendor`, information only), the cellAdmix audit
-(`real.celladmix`) and any failures/timeouts.
+**`metrics.json`** aggregates per dataset: input provenance (`inputs.*_sha256`),
+binary provenance (sha256, label, threads, replicates), runtime (wall/RSS per
+rep + mean/SD), sim metrics (`sim.per_rep/mean/sd`), real replicate-vs-replicate
+agreement over all replicate pairs (`real.rep_agreement`), the same metrics
+against `cell_vendor` (`real.vs_vendor`, information only), the cellAdmix audit
+(`real.celladmix`, incl. the typing mode and `admixture_capable`) and any
+failures/timeouts.
 
 ## Metrics (`metrics.py`)
 
@@ -215,15 +254,45 @@ information only.
 Optional and pluggable: when `benchmarks/celladmix/audit.py` (BENCH-CELLADMIX)
 exists, every real replicate is audited as
 `python .../audit.py --molecules <parquet> --assignment <parquet> --out <json>
-[--image ...]` and `total_admixture_rate` is stored per replicate and as a
-mean. `--no-celladmix` disables it; a missing or crashing module degrades to
-`{"status": "absent" | "failed"}` and comparisons skip the check with a
-warning instead of failing.
+--threads <N> [--image ...] [--celltypes <parquet>] [--fixed-pairs <json>]
+[--save-celltypes <parquet>]` (the harness `--threads` is passed through).
+
+`harness/celladmix.py` normalizes the audit's JSON onto the contract the
+rest of the harness reads: the rate comes from **`metrics.
+total_admixture_rate`**, pair data from **`pairs_top`**, plus
+`n_pairs_evaluated`, `n_pairs_detected`, `n_cells`, `admixture_capable`
+(>= 2000 cells) and the audit's own `typing`. An audit whose status is not
+`ok`, that evaluated no pairs, or whose rate is null becomes
+`{"status": "unavailable", "total_admixture_rate": null}` — **never 0.0**.
+A `tests/test_celladmix.py` contract test runs the *real* `audit.py` on a
+synthetic fixture so the layout cannot silently drift again.
+
+Typing and pair set:
+
+* `--celltypes-from BASELINE` — `transfer.py` maps the baseline's types
+  (clustered once when the baseline was created) onto each replicate's
+  segmentation; the baseline's `fixed_pairs.json` is passed as
+  `--fixed-pairs`, so every run scores the same cell-type pairs.
+* without a baseline — replicate 0 quick-clusters once
+  (`--save-celltypes`), replicates >= 1 transfer rep0's typing; the run is
+  marked `typing.mode: quick_cluster` in `metrics.json`.
+
+Per-replicate results land in `metrics.json` as `real.celladmix.per_rep`
+(with `typing_source`), aggregated into `status` (`ok` / `partial` /
+`unavailable` / `failed` / `absent` / `disabled`), `mean_total` /
+`sd_total` (None when nothing was scored), `admixture_capable` and
+`typing`. `--no-celladmix` disables the audit; a missing or crashing module
+degrades to `{"status": "absent" | "failed"}` and comparisons skip the
+check with a warning instead of failing. Measured noise floor and the
+recommended admixture tolerance live in
+[`../celladmix/README.md`](../celladmix/README.md) ("Validation on the
+harness datasets").
 
 ## Baselines and the noise floor
 
 ```bash
 $PY benchmarks/harness/baseline.py create --run-id R --name NAME [--force]
+    [--allow-incomplete | --identical]
 $PY benchmarks/harness/baseline.py list
 ```
 
@@ -231,9 +300,20 @@ $PY benchmarks/harness/baseline.py list
 * assignment tables are copied to
   `$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>/rep<k>/assignment.parquet`
   (never committed; their sha256 is recorded in the JSON);
-* a baseline normally requires ≥ 3 replicates (`--allow-incomplete`
-  overrides, for deterministic 1-thread runs and fixtures), because the
-  binary is stochastic above one thread (below).
+* for real datasets with audit typing, the baseline also stores
+  `celltypes.parquet` (rep0's typing) and `fixed_pairs.json` (the pair set
+  taken from rep0's audit `pairs_top`) under the same data directory — these
+  are what `run.py --celltypes-from` consumes; their sha256 are recorded in
+  the committed JSON;
+* only **successful** replicates count: a normal baseline requires ≥ 3 of
+  them (`--allow-incomplete` overrides, for fixtures and smoke baselines),
+  because the binary is stochastic above one thread (below);
+* `--identical` creates the exact-baseline flavour for `--expect identical`:
+  it requires a 1-thread run (bitwise-deterministic) with ≥ 1 successful
+  replicate and records `flavour: identical` in the JSON;
+* everything is staged in temp directories and swapped in atomically: an
+  error — including a failed `--force` overwrite — never deletes or
+  corrupts the previous baseline and leaves no stale files behind.
 
 ### Determinism findings (code inspection + experiment, 2026-09-29)
 
@@ -479,3 +559,12 @@ cd benchmarks/harness/tests
 Tests generate their own contract-conformant fixtures in tmp dirs
 (`fixtures.py`); the end-to-end test additionally needs the Baysor binary
 (`BAYSOR_BIN` overrides the default path) and is skipped when it is absent.
+The cellAdmix contract tests additionally need the installed cellAdmix
+bindings (`celladmix/INSTALL.md`); they skip when only the package metadata
+is missing.
+
+Run each suite in its **own pytest process** (`harness/tests`,
+`celladmix/tests`, `fetch/tests`, `simulate/tests`): the suites share
+top-level module names (`common.py`, ...) and collide when co-run —
+`simulate/trivial.py` then imports the harness's `common` and fails with
+`AttributeError: module 'common' has no attribute 'child_rngs'`.

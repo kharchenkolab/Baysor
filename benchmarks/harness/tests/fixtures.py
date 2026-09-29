@@ -130,6 +130,102 @@ def make_real_dataset(path: Path, *, ds_id: str = None, n_cells: int = 6,
     return _write(path, df, meta)
 
 
+def make_audit_fixture(path: Path, *, seed: int = 0) -> dict:
+    """Small synthetic dataset the real cellAdmix audit can score (~3 s).
+
+    48 cells in four 2x2 type blocks (48 genes, type-specific expression,
+    350 molecules/cell + 800 background). Leakage is injected with an
+    exposure gradient: cells near a block seam receive source-type marker
+    molecules proportional to the number of source-type cells among their
+    16 nearest neighbours, so exposed bins carry significantly more source
+    markers than the zero-exposure baseline and pairs get *detected*.
+
+    Writes ``molecules.parquet``, ``assignment.parquet`` (mol_index, cell,
+    confidence; 0 = unassigned) and ``celltypes.parquet``; returns their paths.
+    """
+    from scipy.spatial import cKDTree
+
+    rng = np.random.default_rng(seed)
+    n_types, cells_per_type = 4, 12
+    per_cell, genes_per_type = 350, 12
+    n_genes = n_types * genes_per_type
+    centers, cell_type = {}, {}
+    cid = 0
+    for t in range(n_types):
+        bx, by = (t % 2) * 40.0, (t // 2) * 40.0
+        for i in range(4):
+            for j in range(3):
+                cid += 1
+                centers[cid] = (bx + 5 + i * 9 + rng.uniform(-1, 1),
+                                by + 5 + j * 11 + rng.uniform(-1, 1))
+                cell_type[cid] = t
+    prefer = {t: np.arange(t * genes_per_type, (t + 1) * genes_per_type)
+              for t in range(n_types)}
+    rows, labels = [], []
+    for c, (cx, cy) in centers.items():
+        w = np.full(n_genes, 1.0)
+        w[prefer[cell_type[c]]] = 8.0
+        p = w / w.sum()
+        g = rng.choice(n_genes, size=per_cell, p=p)
+        rows.extend(zip(cx + rng.normal(0, 2.5, per_cell),
+                        cy + rng.normal(0, 2.5, per_cell),
+                        [f"g{i}" for i in g]))
+        labels.extend([c] * per_cell)
+    df = pd.DataFrame(rows, columns=["x", "y", "gene"])
+    df["cell"] = labels
+
+    # exposure-correlated leakage across block seams (16-NN, self excluded)
+    cids = sorted(centers)
+    tree = cKDTree(np.array([centers[c] for c in cids]))
+    _, idx = tree.query(np.array([centers[c] for c in cids]), k=16)
+    leak_rows, leak_labels = [], []
+    for ci, c in enumerate(cids):
+        neigh = [cids[j] for j in idx[ci] if cids[j] != c][:15]
+        expo: dict[int, int] = {}
+        for nn in neigh:
+            s = cell_type[nn]
+            if s != cell_type[c]:
+                expo[s] = expo.get(s, 0) + 1
+        cx, cy = centers[c]
+        for s, e in expo.items():
+            n_leak = int(round(8 * e))
+            if n_leak <= 0:
+                continue
+            w = np.zeros(n_genes)
+            w[prefer[s]] = 1.0
+            g = rng.choice(n_genes, size=n_leak, p=w / w.sum())
+            leak_rows.extend(zip(cx + rng.normal(0, 1.5, n_leak),
+                                 cy + rng.normal(0, 1.5, n_leak),
+                                 [f"g{i}" for i in g]))
+            leak_labels.extend([c] * n_leak)
+    leak = pd.DataFrame(leak_rows, columns=["x", "y", "gene"])
+    leak["cell"] = leak_labels
+    df = pd.concat([df, leak], ignore_index=True)
+
+    nb = 800
+    bg = pd.DataFrame({"x": rng.uniform(0, 80, nb), "y": rng.uniform(0, 80, nb),
+                       "gene": [f"g{i}" for i in rng.integers(0, n_genes, nb)],
+                       "cell": [0] * nb})
+    df = pd.concat([df, bg], ignore_index=True)
+    df = df.sort_values(["y", "x"]).reset_index(drop=True)
+
+    path.mkdir(parents=True, exist_ok=True)
+    df[["x", "y", "gene"]].to_parquet(path / "molecules.parquet", index=False)
+    pd.DataFrame({
+        "mol_index": np.arange(len(df), dtype=np.int64),
+        "cell": df["cell"].astype(np.int64),
+        "confidence": np.full(len(df), 0.9),
+    }).to_parquet(path / "assignment.parquet", index=False)
+    pd.DataFrame({
+        "cell": [str(c) for c in sorted(centers)],
+        "celltype": [f"type{cell_type[c]}" for c in sorted(centers)],
+    }).to_parquet(path / "celltypes.parquet", index=False)
+    return {"dir": path,
+            "molecules": path / "molecules.parquet",
+            "assignment": path / "assignment.parquet",
+            "celltypes": path / "celltypes.parquet"}
+
+
 def corrupt(cells: np.ndarray, fraction: float, seed: int = 7) -> np.ndarray:
     """Randomly reassign ``fraction`` of molecules to wrong cells."""
     rng = np.random.default_rng(seed)
@@ -229,6 +325,8 @@ def make_run(root: Path, run_id: str, ds_dir: Path,
             "command": ["baysor", "run"], "command_str": "baysor run",
             "assignment": f"rep{k}/assignment.parquet",
             "threads": threads,
+            "binary_sha256": dict(FAKE_BINARY, **(binary or {}))["sha256"],
+            "scale_factor": 1.0,
         }
         if status == "ok":
             rec["assignment_sha256"] = common.sha256_file(

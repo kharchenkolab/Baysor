@@ -60,14 +60,21 @@ def load_assignment_table(molecules_path: Path | str, cell_column: str) -> pd.Da
 
 
 def cell_codes(labels: np.ndarray) -> tuple[np.ndarray, dict[str, int]]:
-    """Map cell id strings to int codes (0 = unassigned); codes start at 1."""
+    """Map cell id strings to int codes (0 = unassigned); codes start at 1.
+
+    Implemented with a single ``factorize`` pass — the obvious loop over the
+    unique labels compares the full array once per label and is
+    O(n_cells * n_molecules) on real crops.
+    """
     labels = np.asarray(labels, dtype=object)
-    codes = np.zeros(len(labels), dtype=np.int32)
-    mapping: dict[str, int] = {}
     order = sorted(pd.unique(labels[labels != ""]).tolist())
-    for i, label in enumerate(order, start=1):
-        mapping[str(label)] = i
-        codes[labels == label] = i
+    raw_map = {label: i + 1 for i, label in enumerate(order)}
+    mapping: dict[str, int] = {str(k): v for k, v in raw_map.items()}
+    codes_u, uniques = pd.factorize(labels)
+    remap = np.zeros(max(len(uniques), 1), dtype=np.int32)
+    for i, u in enumerate(uniques):
+        remap[i] = raw_map.get(u, 0)     # "" (and any oddity) -> unassigned
+    codes = np.where(codes_u < 0, 0, remap[np.maximum(codes_u, 0)]).astype(np.int32)
     return codes, mapping
 
 
@@ -98,19 +105,24 @@ def border_reassign(xy: np.ndarray, labels: np.ndarray, fraction: float) -> tupl
         neigh = neigh[:, None]
 
     # For each molecule, the nearest neighbour owned by a different cell.
+    # Vectorized over all molecules: `neigh` is distance-ordered per row, so
+    # the first foreign label per row is the nearest foreign molecule (the
+    # original per-molecule loop did exactly this scan).
+    row_labels = local_labels[neigh]                      # (n, k)
+    foreign = row_labels != local_labels[:, None]         # (n, k)
+    has_foreign = foreign.any(axis=1)
+    first = np.argmax(foreign, axis=1)
+    rows = np.flatnonzero(has_foreign)
+    cols = first[rows]
     best_d = np.full(n_assigned, np.inf)
     best_cell = np.full(n_assigned, "", dtype=object)
-    for i in range(n_assigned):
-        row_labels = local_labels[neigh[i]]
-        foreign = np.flatnonzero(row_labels != local_labels[i])
-        if len(foreign):
-            j = foreign[0]  # neighbours are distance-ordered
-            best_d[i] = float(dists[i, j])
-            best_cell[i] = row_labels[j]
+    best_d[rows] = dists[rows, cols]
+    best_cell[rows] = row_labels[rows, cols]
 
     n_reassign = int(round(fraction * n_assigned))
     order = np.lexsort((idx_assigned, best_d))  # distance asc, then row index
-    take = [i for i in order if np.isfinite(best_d[i])][:n_reassign]
+    finite = order[np.isfinite(best_d[order])]
+    take = finite[:n_reassign]
 
     out = labels.copy()
     for i in take:
@@ -118,7 +130,7 @@ def border_reassign(xy: np.ndarray, labels: np.ndarray, fraction: float) -> tupl
     reassigned = np.zeros(len(labels), dtype=bool)
     reassigned[idx_assigned[take]] = True
     changed = reassigned & (out != labels)
-    cut_d = float(np.max(best_d[take])) if take else None
+    cut_d = float(np.max(best_d[take])) if len(take) else None
     stats = {
         "mode": "border",
         "fraction_requested": fraction,
@@ -139,9 +151,24 @@ def dilate_cells(xy: np.ndarray, labels: np.ndarray, distance: float = 2.0) -> t
     cell_values = sorted(pd.unique(labels[labels != ""]).tolist())
     cell_index = {c: i for i, c in enumerate(cell_values)}
     hulls = []
-    for cell in cell_values:
-        pts = xy[labels == cell]
-        hulls.append(shapely.MultiPoint(pts).convex_hull if len(pts) else None)
+    if cell_values:
+        # group row indices per label in one pass (the per-label boolean scan
+        # over all molecules is what made this O(n_cells * n_molecules))
+        codes, uniques = pd.factorize(labels)
+        uniques = np.asarray(uniques, dtype=object)
+        inv = np.argsort(codes, kind="stable")
+        srt = codes[inv]
+        starts = np.searchsorted(srt, np.arange(len(uniques)), side="left")
+        ends = np.searchsorted(srt, np.arange(len(uniques)), side="right")
+        grouped = {str(u): inv[s:e]
+                   for u, s, e in zip(uniques, starts, ends)}
+        hulls_arr = np.full(len(cell_values), None, dtype=object)
+        for cell in cell_values:
+            idx = grouped.get(str(cell))
+            if idx is not None and len(idx):
+                hulls_arr[cell_index[cell]] = shapely.MultiPoint(
+                    xy[idx]).convex_hull
+        hulls = list(hulls_arr)
     if not hulls:
         return labels.copy(), {"mode": "dilate", "n_reassigned": 0, "n_absorbed_background": 0}
 
@@ -151,31 +178,40 @@ def dilate_cells(xy: np.ndarray, labels: np.ndarray, distance: float = 2.0) -> t
     pt_idx, geom_idx = tree.query(points, predicate="dwithin", distance=float(distance))
     hull_arr = np.array(hulls, dtype=object)
     d = shapely.distance(points[pt_idx], hull_arr[geom_idx])
-    own = np.array([cell_index.get(lab, -1) for lab in labels], dtype=int)
+    # own[p] = cell index of the molecule's own cell (-1 = background/unknown)
+    own_codes = np.array([-1 if str(lab) not in cell_index else cell_index[str(lab)]
+                          for lab in labels], dtype=int)
 
     # Best *other* cell per molecule: smallest distance to its hull, ties
     # broken by cell index. Excluding the molecule's own cell is what makes
     # this a dilation: the band within `distance` inside a cell's border is
-    # claimed by the neighbouring cell whose hull reaches it.
-    best: dict[int, tuple[float, int]] = {}
-    for g, p, dist in zip(geom_idx.tolist(), pt_idx.tolist(), d.tolist()):
-        if g == own[p]:
-            continue
-        prev = best.get(p)
-        if prev is None or (dist, g) < prev:
-            best[p] = (dist, g)
+    # claimed by the neighbouring cell whose hull reaches it first.
+    other = geom_idx != own_codes[pt_idx]
+    p, g, dd = pt_idx[other], geom_idx[other], d[other]
+    if len(p):
+        # min per molecule by (distance, cell index), fully vectorized
+        order = np.lexsort((g, dd, p))       # primary p, then dd, then g
+        p_sorted = p[order]
+        first = np.empty(len(order), dtype=bool)
+        first[0] = True
+        first[1:] = p_sorted[1:] != p_sorted[:-1]
+        sel = order[first]
+        best_p, best_g = p[sel], g[sel]
+    else:
+        best_p = np.empty(0, dtype=np.int64)
+        best_g = np.empty(0, dtype=np.int64)
 
     out = labels.copy()
     n_flip = 0
     n_absorb = 0
-    for p, (dist, g) in best.items():
-        target = cell_values[g]
-        if out[p] == "":
-            out[p] = target
-            n_absorb += 1
-        elif out[p] != target:
-            out[p] = target
-            n_flip += 1
+    if len(best_p):
+        target = np.asarray(cell_values, dtype=object)[best_g]
+        current = out[best_p]
+        absorb_mask = current == ""
+        flip_mask = (~absorb_mask) & (current != target)
+        n_absorb = int(absorb_mask.sum())
+        n_flip = int(flip_mask.sum())
+        out[best_p] = target
     stats = {
         "mode": "dilate",
         "distance_um": distance,

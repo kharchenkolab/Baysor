@@ -1,0 +1,73 @@
+{
+  "selection_crop": "real/xenium_lung_cancer_quick",
+  "criterion": [
+    "strictly monotone vendor < border10 < border30 < dilate2 chain",
+    "every fixed pair detected in every variant and mean relative marker-pool coverage spread across variants <= 0.10 (small n_pool reshuffles the pool under perturbation)",
+    "tie-break: largest minimal consecutive margin, then smaller n_pool"
+  ],
+  "candidates": [
+    {
+      "n_pool": 20,
+      "chain": {
+        "vendor": 0.05057821116215277,
+        "border10": 0.057868087065167356,
+        "border30": 0.06526129883794117,
+        "dilate2": 0.0716396737202979
+      },
+      "monotone": true,
+      "min_margin": 0.0063783748823567354,
+      "n_fixed_pairs": 3,
+      "fixed_pairs_undetected_somewhere": 0,
+      "mean_coverage_spread": 0.2949,
+      "passes": false
+    },
+    {
+      "n_pool": 40,
+      "chain": {
+        "vendor": 0.05371586393484204,
+        "border10": 0.054580127572828305,
+        "border30": 0.06516735713816006,
+        "dilate2": 0.07405468393764883
+      },
+      "monotone": true,
+      "min_margin": 0.000864263637986265,
+      "n_fixed_pairs": 4,
+      "fixed_pairs_undetected_somewhere": 1,
+      "mean_coverage_spread": 0.0621,
+      "passes": false
+    },
+    {
+      "n_pool": 60,
+      "chain": {
+        "vendor": 0.04721509830998882,
+        "border10": 0.049920619263684955,
+        "border30": 0.05736080188634933,
+        "dilate2": 0.0656021481769206
+      },
+      "monotone": true,
+      "min_margin": 0.002705520953696132,
+      "n_fixed_pairs": 4,
+      "fixed_pairs_undetected_somewhere": 0,
+      "mean_coverage_spread": 0.0526,
+      "passes": true
+    },
+    {
+      "n_pool": 80,
+      "chain": {
+        "vendor": 0.04721509830998882,
+        "border10": 0.049920619263684955,
+        "border30": 0.05736080188634933,
+        "dilate2": 0.06517994359346765
+      },
+      "monotone": true,
+      "min_margin": 0.002705520953696132,
+      "n_fixed_pairs": 4,
+      "fixed_pairs_undetected_somewhere": 0,
+      "mean_coverage_spread": 0.0482,
+      "passes": true
+    }
+  ],
+  "chosen_n_pool": 60,
+  "chosen_min_margin": 0.002705520953696132,
+  "held_out_crop": "real/xenium_pancreas_377_full"
+}

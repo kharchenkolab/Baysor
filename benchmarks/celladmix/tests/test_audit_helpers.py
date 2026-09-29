@@ -12,8 +12,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from audit import (AUDIT_PARAM_DEFAULTS, UNASSIGNED_TOKENS, compute_metrics,
-                   filter_rows, resolve_assignment, seed_id, sha256_file,
+from audit import (ADMIXTURE_MIN_CELLS, AUDIT_PARAM_DEFAULTS,
+                   UNASSIGNED_TOKENS, compute_metrics, filter_rows,
+                   load_fixed_pairs, resolve_assignment, seed_id, sha256_file,
                    top_pairs, write_audit_molecules)
 
 
@@ -37,18 +38,70 @@ def test_compute_metrics_total_is_sum_over_detected():
     assert m["status"] == "ok"
 
 
-def test_compute_metrics_degenerate_cases():
+def test_compute_metrics_degenerate_cases_never_return_zero():
+    """No evaluated pairs / nothing detected must be `unavailable` with a
+    null rate — 0.0 would read as a perfect score."""
     empty = compute_metrics(make_pairs([]), 100.0)
-    assert empty["total_admixture_rate"] == 0.0
-    assert empty["status"] == "no_pairs_evaluated"
+    assert empty["total_admixture_rate"] is None
+    assert empty["status"] == "unavailable"
+    assert empty["n_pairs_evaluated"] == 0
     none_detected = compute_metrics(
         make_pairs([("A", "B", 0.1, 10.0, 5.0, 0.5, 0.4, False, 1, 1, 5, 2)]), 100.0)
-    assert none_detected["total_admixture_rate"] == 0.0
+    assert none_detected["total_admixture_rate"] is None
     assert none_detected["status"] == "no_detected_pairs"
+    assert none_detected["n_pairs_evaluated"] == 1
+    # A non-ok status is never accompanied by a numeric rate.
+    for m in (empty, none_detected):
+        assert m["status"] != "ok"
+        assert m["total_admixture_molecules"] is None
     # Denominator is guarded against zero.
     zero = compute_metrics(
         make_pairs([("A", "B", 0.1, 10.0, 5.0, 0.5, 0.001, True, 1, 1, 5, 2)]), 0.0)
     assert np.isfinite(zero["total_admixture_rate"])
+
+
+def test_compute_metrics_fixed_pairs_are_detection_independent():
+    pairs = make_pairs([
+        ("A", "B", 0.1, 100.0, 50.0, 0.5, 0.4, False, 10, 5, 20, 8),
+        ("B", "A", 0.2, 300.0, 60.0, 0.2, 0.001, True, 12, 6, 20, 4),
+        ("A", "C", 0.0, 0.0, 0.0, 0.3, 0.5, False, 3, 9, 20, 2),
+    ])
+    # the non-detected pair still contributes its raw estimate
+    m = compute_metrics(pairs, 10_000.0, fixed_pairs=[("A", "B"), ("B", "A")])
+    assert m["status"] == "ok"
+    assert m["total_admixture_molecules"] == 400.0
+    assert m["total_admixture_rate"] == pytest.approx(0.04)
+    assert m["n_pairs_evaluated"] == 2
+    assert m["n_pairs_detected"] == 1
+    assert m["n_pairs_fixed"] == 2
+    # a fixed pair the audit could not evaluate is excluded, not zero-scored
+    m = compute_metrics(pairs, 10_000.0, fixed_pairs=[("A", "Z")])
+    assert m["status"] == "unavailable"
+    assert m["total_admixture_rate"] is None
+    assert m["n_pairs_evaluated"] == 0
+    assert m["n_pairs_fixed"] == 1
+    # detected-only scoring still applies when no fixed list is given
+    m = compute_metrics(pairs, 10_000.0)
+    assert m["status"] == "ok"
+    assert m["total_admixture_molecules"] == 300.0
+
+
+def test_load_fixed_pairs_formats(tmp_path):
+    p = tmp_path / "pairs.json"
+    p.write_text('[{"source": "A", "target": "B"}, ["B", "A"], {"source": "A", "target": "B"}]')
+    assert load_fixed_pairs(p) == [("A", "B"), ("B", "A")]
+    p.write_text('{"pairs": [["A", "B"]]}')
+    assert load_fixed_pairs(p) == [("A", "B")]
+    p.write_text('{"pairs": "nope"}')
+    with pytest.raises(SystemExit):
+        load_fixed_pairs(p)
+    p.write_text('["just-a-string"]')
+    with pytest.raises(SystemExit):
+        load_fixed_pairs(p)
+
+
+def test_admixture_min_cells_constant():
+    assert ADMIXTURE_MIN_CELLS == 2000
 
 
 def test_top_pairs_orders_by_admixed_molecules_and_limits():

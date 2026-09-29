@@ -16,6 +16,10 @@ Usage:
         --target-assignment baysor.parquet \
         --baseline-celltypes vendor_celltypes.parquet \
         --out baysor_celltypes.parquet --report transfer.json
+
+When the baseline segmentation lives in a harness assignment table instead of
+a molecules column, give ``--baseline-assignment`` (row-aligned per-molecule
+``cell`` ints, 0 = unassigned) instead of ``--baseline-cell-column``.
 """
 
 from __future__ import annotations
@@ -154,6 +158,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--molecules", type=Path, required=True)
     parser.add_argument("--baseline-cell-column", default="cell_vendor")
+    parser.add_argument("--baseline-assignment", type=Path,
+                        help="baseline segmentation assignment parquet (row-aligned "
+                             "int 'cell' column); alternative to --baseline-cell-column")
     parser.add_argument("--target-assignment", type=Path,
                         help="target segmentation assignment parquet (int 'cell' column)")
     parser.add_argument("--target-cell-column",
@@ -165,10 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
+    if args.baseline_assignment is not None and args.baseline_cell_column != "cell_vendor":
+        parser.error("--baseline-assignment and --baseline-cell-column are mutually exclusive")
 
-    baseline_cells = pd.read_parquet(
-        args.molecules, columns=[args.baseline_cell_column]
-    )[args.baseline_cell_column].fillna("").astype(str).to_numpy()
+    if args.baseline_assignment is not None:
+        baseline_cells = read_target_cells(
+            args.molecules, assignment=args.baseline_assignment, cell_column=None)
+    else:
+        baseline_cells = pd.read_parquet(
+            args.molecules, columns=[args.baseline_cell_column]
+        )[args.baseline_cell_column].fillna("").astype(str).to_numpy()
     baseline_types = read_celltypes(args.baseline_celltypes,
                                     cell_col=args.celltype_cell_col,
                                     type_col=args.celltype_type_col)
@@ -181,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
                                       min_votes=args.min_votes)
     stats.update({
         "molecules": str(args.molecules),
-        "baseline_cell_column": args.baseline_cell_column,
+        "baseline_cell_column": args.baseline_cell_column if args.baseline_assignment is None else None,
+        "baseline_assignment": str(args.baseline_assignment) if args.baseline_assignment is not None else None,
         "baseline_celltypes": str(args.baseline_celltypes),
         "target": str(args.target_assignment or args.target_cell_column),
     })

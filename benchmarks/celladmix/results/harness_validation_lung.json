@@ -1,0 +1,113 @@
+{
+  "results": {
+    "vendor": {
+      "variant": "vendor",
+      "total_admixture_rate": 0.04721509830998882,
+      "total_admixture_molecules": 5026.0,
+      "n_pairs_detected": 4,
+      "n_pairs_evaluated": 4,
+      "n_cells": 2132,
+      "n_molecules_used": 106449,
+      "n_cell_types": 9,
+      "typing": "celltypes",
+      "seed": 1,
+      "runtime_seconds": 2.169,
+      "status": "ok"
+    },
+    "border10": {
+      "variant": "border10",
+      "total_admixture_rate": 0.049920619263684955,
+      "total_admixture_molecules": 5314.0,
+      "n_pairs_detected": 4,
+      "n_pairs_evaluated": 4,
+      "n_cells": 2132,
+      "n_molecules_used": 106449,
+      "n_cell_types": 9,
+      "typing": "celltypes",
+      "seed": 1,
+      "runtime_seconds": 1.987,
+      "status": "ok"
+    },
+    "border30": {
+      "variant": "border30",
+      "total_admixture_rate": 0.05736080188634933,
+      "total_admixture_molecules": 6106.0,
+      "n_pairs_detected": 4,
+      "n_pairs_evaluated": 4,
+      "n_cells": 2131,
+      "n_molecules_used": 106449,
+      "n_cell_types": 9,
+      "typing": "celltypes",
+      "seed": 1,
+      "runtime_seconds": 1.877,
+      "status": "ok"
+    },
+    "dilate2": {
+      "variant": "dilate2",
+      "total_admixture_rate": 0.0656021481769206,
+      "total_admixture_molecules": 7769.0,
+      "n_pairs_detected": 4,
+      "n_pairs_evaluated": 4,
+      "n_cells": 2132,
+      "n_molecules_used": 118426,
+      "n_cell_types": 9,
+      "typing": "celltypes",
+      "seed": 1,
+      "runtime_seconds": 2.23,
+      "status": "ok"
+    }
+  },
+  "checks": {
+    "border_degradation_monotone": {
+      "chain": [
+        "vendor",
+        "border10",
+        "border30"
+      ],
+      "checked": true,
+      "values": {
+        "vendor": 0.04721509830998882,
+        "border10": 0.049920619263684955,
+        "border30": 0.05736080188634933
+      },
+      "steps": [
+        {
+          "from": "vendor",
+          "to": "border10",
+          "rate_from": 0.04721509830998882,
+          "rate_to": 0.049920619263684955,
+          "increased": true
+        },
+        {
+          "from": "border10",
+          "to": "border30",
+          "rate_from": 0.049920619263684955,
+          "rate_to": 0.05736080188634933,
+          "increased": true
+        }
+      ],
+      "passed": true
+    },
+    "dilation_worse_than_vendor": {
+      "chain": [
+        "vendor",
+        "dilate2"
+      ],
+      "checked": true,
+      "values": {
+        "vendor": 0.04721509830998882,
+        "dilate2": 0.0656021481769206
+      },
+      "steps": [
+        {
+          "from": "vendor",
+          "to": "dilate2",
+          "rate_from": 0.04721509830998882,
+          "rate_to": 0.0656021481769206,
+          "increased": true
+        }
+      ],
+      "passed": true
+    }
+  }
+}

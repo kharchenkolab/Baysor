@@ -21,6 +21,7 @@ import argparse
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -191,8 +192,65 @@ def execute(cmd: list[str], env: dict, timeout: Optional[float]) -> dict:
 # one replicate
 # ---------------------------------------------------------------------------
 
+def prepare_typing(ds: common.Dataset, rep: int, rep_dir: Path, assign_path: Path,
+                   args, repo: Path, root: Path) -> dict:
+    """Resolve the cell typing passed to the audit for this replicate.
+
+    Returns ``{"celltypes": Path|None, "fixed_pairs": Path|None,
+    "save_celltypes": Path|None, "source": str, "error": str|None}``.
+
+    * ``--celltypes-from BASELINE``: transfer the baseline's saved types
+      (clustered once when the baseline was created) onto this replicate's
+      segmentation with ``transfer.py`` and score the baseline's fixed pair
+      set, so rates are comparable across runs.
+    * otherwise: replicate 0 is quick-clustered once (``--save-celltypes``)
+      and replicates >= 1 reuse that typing via transfer; the run is marked
+      ``quick_cluster``-anchored in metrics.json.
+    """
+    out = {"celltypes": None, "fixed_pairs": None, "save_celltypes": None,
+           "source": "quick_cluster", "error": None}
+    if args.celltypes_from:
+        out["source"] = "baseline_transferred"
+        base_dir = root / "baselines" / args.celltypes_from / ds.id
+        tr = camix.run_transfer(
+            ds.molecules_path, base_dir / "rep0" / "assignment.parquet",
+            base_dir / "celltypes.parquet", assign_path,
+            rep_dir / "celltypes.parquet",
+            report=rep_dir / "celltypes_transfer.json", repo=repo)
+        if tr.get("status") == camix.STATUS_OK:
+            out["celltypes"] = rep_dir / "celltypes.parquet"
+        else:
+            out["error"] = "baseline typing transfer failed: " + str(
+                tr.get("reason") or (tr.get("stderr_tail") or "")[-400:])
+            return out
+        fixed = base_dir / "fixed_pairs.json"
+        if fixed.is_file():
+            out["fixed_pairs"] = fixed
+        return out
+    if rep == 0:
+        out["save_celltypes"] = rep_dir / "celltypes.parquet"
+        return out
+    # replicates >= 1: anchor on replicate 0's typing instead of re-clustering
+    run_root = root / "runs" / args.run_id / ds.id
+    anchor_types = run_root / "rep0" / "celltypes.parquet"
+    anchor_assign = run_root / "rep0" / "assignment.parquet"
+    if anchor_types.is_file() and anchor_assign.is_file():
+        tr = camix.run_transfer(ds.molecules_path, anchor_assign, anchor_types,
+                                assign_path, rep_dir / "celltypes.parquet",
+                                report=rep_dir / "celltypes_transfer.json",
+                                repo=repo)
+        if tr.get("status") == camix.STATUS_OK:
+            out["celltypes"] = rep_dir / "celltypes.parquet"
+            out["source"] = "run_rep0"
+        else:
+            # fall back to quick clustering for this replicate; the audit's
+            # parameters.typing records which path was taken
+            pass
+    return out
+
+
 def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
-                  probe: dict, args, repo: Path) -> dict:
+                  probe: dict, args, repo: Path, root: Path) -> dict:
     """Run one replicate; returns the rep record for metrics.json."""
     seg_dir = rep_dir / "seg"
     seg_dir.mkdir(parents=True, exist_ok=True)
@@ -207,6 +265,12 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
     print(f"[{ds.id}] rep{rep}: {shlex.join(cmd)}", flush=True)
     res = execute(full_cmd, env, args.timeout)
     tv = parse_time_v(res["stderr"])
+    log_path = rep_dir / "baysor.log"
+    with open(log_path, "w") as fh:
+        fh.write(f"# command: {shlex.join(full_cmd)}\n"
+                 f"# exit: {res['returncode']} timed_out: {res['timed_out']}\n"
+                 f"--- stdout ---\n{res['stdout']}\n"
+                 f"--- stderr ---\n{res['stderr']}\n")
     if res["timed_out"]:
         status = "timeout"
     elif res["returncode"] == 0:
@@ -224,7 +288,9 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
         "wall_s_time_v": tv["wall_s"],
         "peak_rss_kb": tv["peak_rss_kb"],
         "threads": args.threads,
+        "binary_sha256": probe["sha256"],
         "scale_factor": args.scale_factor,
+        "log": "baysor.log",
         "stderr_tail": res["stderr"][-8000:],
     }
 
@@ -250,9 +316,22 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
                 cand = ds.path / images[0].get("file", "")
                 if cand.is_file():
                     image = cand
-            record["celladmix"] = camix.run_audit(
-                ds.molecules_path, assign_path, rep_dir / "celladmix.json",
-                image=image, repo=repo)
+            typing = prepare_typing(ds, rep, rep_dir, assign_path, args, repo, root)
+            if typing["error"]:
+                record["celladmix"] = {"status": camix.STATUS_UNAVAILABLE,
+                                       "reason": typing["error"],
+                                       "typing_source": typing["source"]}
+            else:
+                audit = camix.run_audit(
+                    ds.molecules_path, assign_path, rep_dir / "celladmix.json",
+                    image=image, repo=repo, threads=args.threads,
+                    celltypes=typing["celltypes"],
+                    fixed_pairs=typing["fixed_pairs"],
+                    save_celltypes=typing["save_celltypes"])
+                audit["typing_source"] = typing["source"]
+                audit["fixed_pairs"] = str(typing["fixed_pairs"]) \
+                    if typing["fixed_pairs"] else None
+                record["celladmix"] = audit
         elif ds.kind == "real" and args.no_celladmix:
             record["celladmix"] = {"status": camix.STATUS_DISABLED}
         elif ds.kind == "real":
@@ -263,6 +342,24 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
           f"exit={record['exit_code']} wall={record['wall_s']}s "
           f"rss={record['peak_rss_kb']}kB", flush=True)
     return record
+
+
+def reusable_run(prev: dict, probe: dict, args) -> tuple[bool, str]:
+    """Whether an existing run.json may be reused by ``--skip-existing``.
+
+    The check is per replicate: status, binary sha256, thread count and
+    scale factor must all match the current invocation, otherwise the
+    replicate is rerun.
+    """
+    if prev.get("status") != "ok":
+        return False, f"status={prev.get('status')}"
+    if prev.get("binary_sha256") != probe["sha256"]:
+        return False, "binary sha256 differs"
+    if prev.get("threads") != args.threads:
+        return False, f"threads {prev.get('threads')} != {args.threads}"
+    if prev.get("scale_factor") != args.scale_factor:
+        return False, f"scale factor {prev.get('scale_factor')} != {args.scale_factor}"
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +408,12 @@ def aggregate_dataset(ds: common.Dataset, run_id: str, rep_records: list[dict],
             "n_molecules": int(len(molecules)),
             "n_genes": int(molecules["gene"].nunique()) if "gene" in molecules else None,
         },
+        "inputs": {
+            "molecules": str(ds.molecules_path),
+            "molecules_sha256": common.sha256_file(ds.molecules_path),
+            "meta": str(ds.path / "meta.json"),
+            "meta_sha256": common.sha256_file(ds.path / "meta.json"),
+        },
         "binary": {k: binary.get(k) for k in ("path", "sha256", "version_info")},
         "label": binary.get("label"),
         "threads": threads,
@@ -332,7 +435,7 @@ def aggregate_dataset(ds: common.Dataset, run_id: str, rep_records: list[dict],
 
 def compute_dataset_metrics(ds: common.Dataset, run_id: str, rep_dir_for,
                             rep_records: list[dict], binary: dict,
-                            threads: int) -> dict:
+                            threads: int, typing: Optional[dict] = None) -> dict:
     """Full metrics.json: runtime info + sim or real metric blocks."""
     out = aggregate_dataset(ds, run_id, rep_records, binary, threads)
     ok = [r for r in rep_records if r["status"] == "ok"]
@@ -378,24 +481,48 @@ def compute_dataset_metrics(ds: common.Dataset, run_id: str, rep_dir_for,
             vm, vsd = _aggregate_dicts(per_rep_v)
             real["vs_vendor"] = {"per_rep": per_rep_v, "mean": vm, "sd": vsd,
                                  "information_only": True}
-        cam = [{"status": r.get("celladmix", {}).get("status", camix.STATUS_DISABLED)}
-               for r in ok]
-        totals = []
-        for r, c in zip(ok, cam):
+        cam = []
+        totals: list = []
+        capable: list = []
+        for r in ok:
             audit = r.get("celladmix") or {}
+            entry = {"status": audit.get("status", camix.STATUS_DISABLED)}
+            if audit.get("typing_source"):
+                entry["typing_source"] = audit["typing_source"]
             if audit.get("status") == camix.STATUS_OK:
-                c.update({k: v for k, v in audit.items() if k != "status"})
+                entry.update({k: v for k, v in audit.items()
+                              if k not in ("status", "typing_source")})
                 totals.append(audit.get("total_admixture_rate"))
+                capable.append(audit.get("admixture_capable"))
             else:
-                c["reason"] = audit.get("reason")
-        totals_f = [t for t in totals if t is not None and not np.isnan(float(t))]
-        real["celladmix"] = {"per_rep": cam,
-                             "status": (camix.STATUS_OK
-                                        if len(totals_f) == len(ok) and ok
-                                        else camix.STATUS_FAILED),
-                             "mean_total": (_mean_sd(totals_f)[0]
-                                            if totals_f else None),
-                             "per_rep_total": totals}
+                entry["reason"] = audit.get("reason")
+                totals.append(None)   # aligned with `ok` run replicates; never 0.0
+            cam.append(entry)
+        statuses = [c["status"] for c in cam]
+        if statuses and all(s == camix.STATUS_OK for s in statuses):
+            ad_status = camix.STATUS_OK
+        elif any(s == camix.STATUS_FAILED for s in statuses):
+            ad_status = camix.STATUS_FAILED
+        elif statuses and all(s == statuses[0] for s in statuses):
+            ad_status = statuses[0]
+        elif any(s == camix.STATUS_OK for s in statuses):
+            ad_status = "partial"
+        else:
+            ad_status = statuses[0] if statuses else camix.STATUS_DISABLED
+        totals_f = [float(t) for t in totals if t is not None
+                    and not np.isnan(float(t))]
+        cap_f = [bool(c) for c in capable if c is not None]
+        real["celladmix"] = {
+            "per_rep": cam,
+            "status": ad_status,
+            "typing": typing,
+            # True only when every scored replicate has >= 2000 cells;
+            # comparisons should gate admixture on this flag
+            "admixture_capable": (all(cap_f) if cap_f else None),
+            "mean_total": (_mean_sd(totals_f)[0] if totals_f else None),
+            "sd_total": (_mean_sd(totals_f)[1] if totals_f else None),
+            "per_rep_total": totals,
+        }
         out["real"] = real
     return out
 
@@ -425,6 +552,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="git SHA recorded with the run (default: current HEAD)")
     ap.add_argument("--no-celladmix", action="store_true",
                     help="skip the cellAdmix admixture audit")
+    ap.add_argument("--celltypes-from", default=None, metavar="BASELINE",
+                    help="transfer this baseline's saved cell types onto every "
+                         "replicate (transfer.py) and audit the baseline's fixed "
+                         "pair set; without it the run is quick-cluster-anchored "
+                         "and marked as such in metrics.json")
     ap.add_argument("--scale-factor", type=float, default=1.0,
                     help="multiply baysor.scale_um from meta.json (degraded-"
                          "run experiments only; default 1.0)")
@@ -452,6 +584,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not selected:
         ap.error(f"no datasets matched {args.datasets!r} under {root}")
 
+    if args.celltypes_from and not args.no_celladmix:
+        base_root = root / "baselines" / args.celltypes_from
+        if not base_root.is_dir():
+            ap.error(f"baseline '{args.celltypes_from}' not found at {base_root} "
+                     f"(create it with baseline.py create)")
+        missing = []
+        for ds in selected:
+            if ds.kind != "real":
+                continue
+            if not (base_root / ds.id / "celltypes.parquet").is_file():
+                missing.append(f"{ds.id}: {base_root / ds.id / 'celltypes.parquet'}")
+            if not (base_root / ds.id / "rep0" / "assignment.parquet").is_file():
+                missing.append(f"{ds.id}: rep0 assignment table")
+        if missing:
+            ap.error("baseline '" + args.celltypes_from + "' lacks typing for:\n  "
+                     + "\n  ".join(missing)
+                     + "\nrecreate it from a run whose real datasets have audit "
+                       "celltypes, or drop --celltypes-from")
+
     label = args.label or _default_label(repo)
     probe = probe_binary(baysor)
     probe["label"] = label
@@ -459,6 +610,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     run_root = root / "runs" / args.run_id
     run_root.mkdir(parents=True, exist_ok=True)
     common.write_json(run_root / "_binary.json", probe)
+
+    typing = None
+    if args.celltypes_from:
+        typing = {"mode": "baseline_transferred", "baseline": args.celltypes_from}
+    elif any(ds.kind == "real" for ds in selected) and not args.no_celladmix:
+        typing = {"mode": "quick_cluster", "baseline": None}
 
     any_failure = False
     for ds in selected:
@@ -469,12 +626,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             existing = rep_dir / "run.json"
             if args.skip_existing and existing.is_file():
                 prev = common.read_json(existing)
-                if prev.get("status") == "ok":
+                ok_reuse, why = reusable_run(prev, probe, args)
+                if ok_reuse:
                     print(f"[{ds.id}] rep{k}: reusing existing run", flush=True)
                     rep_records.append(prev)
                     continue
+                print(f"[{ds.id}] rep{k}: not reusing existing run ({why}); "
+                      f"rerunning", flush=True)
+            if rep_dir.exists():
+                shutil.rmtree(rep_dir)   # never mix artifacts of two binaries
             rep_dir.mkdir(parents=True, exist_ok=True)
-            rec = run_replicate(ds, k, rep_dir, baysor, probe, args, repo)
+            rec = run_replicate(ds, k, rep_dir, baysor, probe, args, repo, root)
             rep_records.append(rec)
         if any(r["status"] != "ok" for r in rep_records):
             any_failure = True
@@ -483,7 +645,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             return _ds_root / f"rep{rec['rep']}"
 
         mjson = compute_dataset_metrics(ds, args.run_id, rep_dir_for, rep_records,
-                                        probe, args.threads)
+                                        probe, args.threads, typing=typing)
         common.write_json(ds_root / "metrics.json", mjson)
         kind = ds.kind
         if kind == "sim" and mjson.get("sim"):

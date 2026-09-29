@@ -1,0 +1,23 @@
+diff --git a/python/src/celladmix/audit.py b/python/src/celladmix/audit.py
+index d558360..643c619 100644
+--- a/python/src/celladmix/audit.py
++++ b/python/src/celladmix/audit.py
+@@ -85,7 +85,8 @@ class CellAdmixAudit:
+     """Per-cell-type-pair admixture estimates and cleanup verification."""
+ 
+     def __init__(self, fit, *, neighbor_k=15, n_pool=20, q_thresh=0.01,
+-                 min_excess=200, min_target_cells=200, min_reference_cells=100):
++                 min_excess=200, min_target_cells=200, min_reference_cells=100,
++                 min_pool_markers=3):
+         from ._score_utils import source_exposure_counts
+ 
+         annotation = getattr(getattr(fit, "dataset", None), "annotation", None)
+@@ -138,7 +139,7 @@ class CellAdmixAudit:
+                 baseline = _pseudobulk(self._matrix, self._cells, T_cells[expo == 0])
+                 pool = _marker_pool(profiles, self._types, source,
+                     np.nan_to_num(baseline), n_pool=n_pool)
+-                if len(pool) < 3:
++                if len(pool) < min_pool_markers:
+                     continue
+                 strict = pool[np.nan_to_num(baseline)[pool] <
+                     0.05 * profiles[pool, s_idx]]

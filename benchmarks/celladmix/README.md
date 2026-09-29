@@ -17,7 +17,7 @@ total_admixture_rate = Σ_pairs A_{S→T} / M          (over detected pairs)
 
 | file | what |
 |---|---|
-| `install.sh`, `INSTALL.md` | build/install of the pinned cellAdmix Python bindings (+3 committed patches) |
+| `install.sh`, `INSTALL.md` | build/install of the pinned cellAdmix Python bindings (+4 committed patches) |
 | `fetch_pancreas.py` | download the 10x Xenium pancreas FFPE members (remotezip, ~155 MB) and cut contract-format crops |
 | `audit.py` | **the CLI**: cellAdmix audit → `result.json` |
 | `degrade.py` | deliberate degradation (border reassignment, dilation) → assignment parquet |
@@ -27,6 +27,7 @@ total_admixture_rate = Σ_pairs A_{S→T} / M          (over detected pairs)
 | `summarize.py` | validation summary table + monotonicity checks |
 | `run_validation.sh` | end-to-end validation (vendor vs degraded, seeds, runtime) |
 | `run_baysor_validation.sh` | Baysor segmentation of the same crop → audit + comparison |
+| `validate_harness.sh` | re-validation on the *harness* datasets: n_pool selection on `xenium_lung_cancer_quick`, held-out chain on `xenium_pancreas_377_full`, Baysor replicate SD |
 | `tests/` | pytest tests for the non-trivial logic |
 | `results/` | committed baselines: `summary.{json,md}` + one audit JSON per variant |
 
@@ -65,17 +66,29 @@ python -m pytest tests/
 --cluster-resolution 1.0             quick-clustering resolution (= number of types)
 --min-target-cells 200 --min-reference-cells 100 --n-pool 60 --neighbor-k 15
                                      audit parameters (defaults shown)
+--fixed-pairs pairs.json             score this fixed (source, target) pair
+                                     list instead of only the detected pairs;
+                                     the rate is then comparable across runs
 --save-celltypes out.parquet         write the typing actually used
 ```
 
-Output JSON: `total_admixture_rate`, `total_admixture_molecules`,
+Output JSON: headline numbers under **`metrics`** — `status`,
+`total_admixture_rate`, `total_admixture_molecules`, `n_pairs_evaluated`,
+`n_pairs_detected`, `admixture_capable` (crop has >= 2000 cells) — plus
 `pairs_top` (top-20 detected pairs by estimated admixed molecules, with
 per-pair `rate`, `coverage`, `q_value`, exposure/reference counts), counts
-(molecules input/written/used, cells, genes, cell types, pairs
-evaluated/detected), `filters`, all parameters (seed, threads, typing,
-cluster resolution, fit parameters from the run manifest, audit parameters),
-the pinned cellAdmix commit (+ verification against the source clone), input
-sha256, and per-stage runtimes. Unassigned molecules are dropped exactly like
+(molecules input/written/used, cells, genes, cell types), `filters`, all
+parameters (seed, threads, typing, cluster resolution, fit parameters from
+the run manifest, audit parameters incl. `min_pool_markers`), the pinned
+cellAdmix commit (+ verification against the source clone), input sha256
+(molecules, celltypes, fixed pairs) and per-stage runtimes.
+
+**Status contract.** Any situation the audit cannot score — no evaluated
+pairs, nothing detected in detected-only mode, a fixed pair set none of
+whose pairs survived evaluation — yields `metrics.status != "ok"` and
+`metrics.total_admixture_rate = null`, **never 0.0** (0.0 would read as a
+perfect score). Consumers (the harness adapter) must map non-`ok` to
+"unavailable". Unassigned molecules are dropped exactly like
 `keep_unassigned = FALSE` (the loader's token set — `""`, `"0"`, `"NA"`,
 `"NaN"`, `"null"`, `"UNASSIGNED"`, `"unassigned"`, `"cell_0"` — is mirrored
 in `audit.py`).
@@ -89,7 +102,32 @@ perturbations and the pool's transcriptome coverage — the extrapolation
 factor — swings between segmentations (observed: 0.500 → 0.018 for one pair,
 which dropped it out of detection and inverted the metric's ordering).
 With `n_pool=60` the dominant high-share markers stay in the pool and the
-metric is stable; `--n-pool 20` is still available.
+metric is stable; `--n-pool 20` is still available. Re-measured on the
+harness crop `xenium_lung_cancer_quick` (see
+`validate_harness.sh`/`results/harness_npool_selection.json`): with
+`n_pool=20` the fixed pairs' pool `coverage` swings by 29% across mildly
+perturbed segmentations vs. 5% with `n_pool=60`.
+
+### Fixed pair set (`--fixed-pairs`) and the marker-pool gate
+
+The detected-only total depends on statistical power: fewer cells or types
+means fewer *detected* pairs and a lower total for the *same* segmentation.
+`--fixed-pairs pairs.json` (produced by the harness baseline from a baseline
+audit's `pairs_top`) scores a fixed pair list instead: the sum runs over
+every fixed pair the audit evaluated, detected or not, so the rate is
+comparable across runs. `metrics.n_pairs_evaluated` reports how many of the
+fixed pairs survived; `n_pairs_fixed` is the set size.
+
+Fixed-pair scoring also relaxes cellAdmix's `len(pool) < 3` marker-pool gate
+to `min_pool_markers = 1` (cellAdmix **patch 0004**, applied by
+`install.sh`; `audit.py` refuses `--fixed-pairs` on an unpatched install
+with a clear message). The gate is segmentation-dependent — on
+`xenium_pancreas_377_full` a rare type with only 3 marker genes loses one
+gene to a top-expression flip under 10% border reassignment, which dropped
+*all* its pairs out of the table and made the degraded segmentation score
+*better* than the vendor one (0.106 vs 0.156 over the same nominal pair
+set). With the relaxed gate all 20 fixed pairs stay evaluated in every
+variant. Detected-only (legacy) runs keep the upstream gate unchanged.
 
 ## Cell typing and comparability
 
@@ -130,7 +168,7 @@ Two further typing details:
   single-threaded (clustering takes < 1 s on the crop), which made every
   repeated run bit-identical.
 
-## Validation on the real pancreas crop
+## Validation on the original cellAdmix pancreas crop
 
 Dataset: `cache/celladmix/datasets/pancreas_crop_quick` — Xenium V1 FFPE
 human pancreas, 450×450 µm densest-window crop, **141,351 molecules, 376
@@ -185,14 +223,86 @@ where noted):
   on this crop Baysor's segmentation is markedly cleaner by the audit's own
   (reference-free) measure.
 
+## Validation on the harness datasets
+
+`validate_harness.sh` re-runs the audit validation on the datasets the
+benchmark actually scores (`$BAYSOR_BENCH_DATA/real/...` through
+`fetch/xenium.py`), **not** on the self-made `pancreas_crop_quick`. The old
+runs also used different Baysor settings; here everything goes through the
+harness's typing flow (vendor quick-clustering saved once, transferred to
+every variant; a fixed pair set taken from the vendor audit).
+
+### 1. `n_pool` selection on `xenium_lung_cancer_quick` (held-out rule)
+
+The crop has 130,000 molecules / 377 genes / 2,131 vendor cells (9 quick-
+cluster types, `admixture_capable`). Candidates are run through the full
+chain (vendor → border10 → border30 → dilate2, fixed typing + that
+candidate's fixed pair set). The recorded criterion
+(`results/harness_npool_selection.json`): strictly monotone chain, every
+fixed pair detected in every variant, mean relative marker-pool `coverage`
+spread across variants <= 0.10, then largest minimal margin, then smaller
+pool:
+
+| n_pool | chain | min margin | coverage spread | fixed pairs lost | verdict |
+|---|---|---|---|---|---|
+| 20 | monotone | 0.0064 | **0.295** | 0 | rejected: pool reshuffles under perturbation |
+| 40 | monotone | 0.0009 | 0.062 | 1 | rejected: a fixed pair is undetected in one variant |
+| 60 | monotone | 0.0027 | 0.053 | 0 | **chosen** |
+| 80 | monotone | 0.0027 | 0.048 | 0 | passes, loses the tie-break |
+
+Chosen chain on the selection crop (`n_pool=60`):
+vendor 0.04722 < border10 0.04992 < border30 0.05736 < dilate2 0.06560.
+
+### 2. Held-out validation on `xenium_pancreas_377_full`
+
+Full tier: 1,999,991 molecules / 377 genes / **39,544 cells** in the vendor
+audit (18 quick-cluster types), `admixture_capable = true`, audits 24–38 s
+at 6 threads. With the chosen `n_pool=60` and the fixed 20-pair set
+(taken from this crop's own vendor audit):
+
+| variant | total_admixture_rate | evaluated/detected pairs |
+|---|---|---|
+| vendor | **0.155925** | 20/20 |
+| border 10% | 0.157050 | 20/19 |
+| border 30% | 0.181670 | 20/19 |
+| dilate 2 µm | 0.216188 | 20/19 |
+
+**Monotone, min margin 0.001125** (`results/harness_validation_pancreas.md`).
+For contrast, *detected-only* scoring on the same crop fails the chain
+(vendor 0.262167 vs border10 0.201511) because degradation itself changes
+which pairs are detectable — the reason the fixed pair set exists.
+
+### 3. Audit SD across Baysor replicates (admixture tolerance input)
+
+`validate_harness.sh --baysor-sd` on `xenium_lung_cancer_quick`, 6 threads:
+a 1-replicate run is frozen as baseline `a2-admx-xenium_lung_cancer_quick`
+(cell types + fixed pair set), then `run.py --replicates 3 --celltypes-from`
+transfers that typing to every replicate:
+
+| typing | rates (3 replicates) | mean | SD |
+|---|---|---|---|
+| baseline-transferred + baseline pair set | 0.054406 / 0.055588 / 0.053954 | 0.054649 | **0.000844** |
+| run-local (rep0 quick cluster, transferred to rep1/2) | 0.052737 / 0.053679 / 0.052068 | 0.052828 | 0.000809 |
+| *old* behaviour: independent quick clustering per replicate (review measurement) | 0.055 / 0.075 / 0.061 | — | ~0.010 |
+
+**Recommended `--admixture-tolerance` for `compare.py`: 3 x 0.000844 ≈ 0.0025**
+(`results/harness_baysor_sd.json`), i.e. four times tighter than the current
+fixed 0.01 default — and unlike it, derived from the measured noise floor.
+`run.py` no longer produces the old spread: with no `--celltypes-from` it
+clusters replicate 0 once and transfers that typing to the other replicates
+(`typing_source: quick_cluster / run_rep0` in `metrics.json`).
+
 ## Regenerating everything
 
 ```bash
-./install.sh                                        # cellAdmix bindings
+./install.sh                                        # cellAdmix bindings (+4 patches)
 python fetch_pancreas.py                            # raw zip members + crop
 ./run_validation.sh                                 # degradations + audits + results/
 ./run_baysor_validation.sh                          # Baysor variant + final summary
-python -m pytest tests/                             # 34 tests
+./validate_harness.sh --all                         # harness-dataset validation:
+                                                    #   n_pool selection, held-out
+                                                    #   chain, Baysor replicate SD
+python -m pytest tests/                             # 37 tests
 ```
 
 All randomness is seeded (`--seed`, default 1); crop selection is
@@ -208,10 +318,16 @@ $BAYSOR_BENCH_DATA/cache/celladmix/
   datasets/pancreas_crop_quick/ 2.3 MB   molecules.parquet (141,351 rows, 376 genes)
                                     + meta.json
   work/validation/          90 MB   input stores, runs, assignment parquets, baysor_seg/
+  work/harness-validation/ 835 MB   harness-dataset validation: input stores +
+                                    fits for lung + pancreas_full chains
   src/                     1.1 GB   pinned cellAdmix-core clone + C++ test build tree
 ```
 
-Total ≈ 1.35 GB (task budget: 150 GB). The committed `results/` files are
+Total ≈ 2.2 GB (task budget: 150 GB). The harness runs from
+`validate_harness.sh --baysor-sd` live under
+`$BAYSOR_BENCH_DATA/runs/a2-admx-*` (~130 MB) and
+`$BAYSOR_BENCH_DATA/baselines/a2-admx-*` + the committed
+`benchmarks/baselines/a2-admx-xenium_lung_cancer_quick/`. The committed `results/` files are
 ≈ 45 KB of JSON/Markdown; no data is committed.
 
 ## Known issues found along the way
@@ -225,3 +341,13 @@ Total ≈ 1.35 GB (task budget: 150 GB). The committed `results/` files are
 3. **Pool-cutoff instability** on small panels: see `n_pool` above.
 4. `tests/test_bridge.cpp` missing `#include <algorithm>` (gcc 15), patched
    locally as patch 0003 so the C++ tests build.
+5. **Marker-pool gate is segmentation-dependent** (`len(pool) < 3` drops a
+   pair when a rare type's marker gene flips under mild degradation): made
+   configurable as `min_pool_markers` in patch 0004; `--fixed-pairs` relaxes
+   it to 1 so baseline pairs stay measurable. See "Fixed pair set" above.
+6. **`degrade.py` was O(n_cells x n_molecules)** (per-label full-array scans
+   in `cell_codes`, per-molecule Python loop in `border_reassign`): 26 min
+   per border variant on the full tier. Vectorized (single `factorize`
+   pass, row-wise nearest-foreign-neighbour scan, vectorized per-molecule
+   dilation argmin): **10 s / 10 s / 20 s** for border10 / border30 /
+   dilate2 on `xenium_pancreas_377_full`, byte-identical outputs.

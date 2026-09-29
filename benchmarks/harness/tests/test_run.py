@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import celladmix as camix
 import common
 import run as runner
 from fixtures import make_sim_dataset, make_real_dataset
@@ -346,3 +347,113 @@ def test_vendor_labels(tmp_path):
     assert labels.dtype == np.int64
     assert labels[df["cell_vendor"] == ""].max() == 0
     assert set(np.unique(labels)) - {0} == {1, 2, 3, 4, 5, 6}
+
+
+# ---------------------------------------------------------------------------
+# provenance, skip-existing reuse, celladmix aggregation
+# ---------------------------------------------------------------------------
+
+def _args_ns(**kw):
+    import argparse
+    base = dict(threads=6, scale_factor=1.0, timeout=0, no_celladmix=False,
+                celltypes_from=None, run_id="r", replicates=1)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_reusable_run_checks_status_binary_threads_scale(tmp_path):
+    probe = {"sha256": "abc"}
+    prev = {"status": "ok", "binary_sha256": "abc", "threads": 6,
+            "scale_factor": 1.0}
+    ok, why = runner.reusable_run(prev, probe, _args_ns())
+    assert ok and why == ""
+    ok, why = runner.reusable_run(dict(prev, status="failed"), probe, _args_ns())
+    assert not ok and "status" in why
+    ok, why = runner.reusable_run(dict(prev, binary_sha256="def"), probe,
+                                  _args_ns())
+    assert not ok and "sha256" in why
+    ok, why = runner.reusable_run(dict(prev, threads=1), probe, _args_ns())
+    assert not ok and "threads" in why
+    ok, why = runner.reusable_run(dict(prev, scale_factor=0.9), probe,
+                                  _args_ns())
+    assert not ok and "scale factor" in why
+    # run.json from before provenance was recorded cannot be reused
+    ok, why = runner.reusable_run({"status": "ok", "threads": 6}, probe,
+                                  _args_ns())
+    assert not ok and "sha256" in why
+
+
+def test_metrics_record_input_and_rep_provenance(tmp_path):
+    from fixtures import make_run
+    root = tmp_path / "data"
+    ds_dir = make_sim_dataset(root / "sim" / "prov")
+    cells = pd.read_parquet(ds_dir / "molecules.parquet")["cell"].to_numpy(np.int64)
+    make_run(root, "runprov", ds_dir, [cells] * 3, threads=6)
+    m = common.read_json(root / "runs" / "runprov" / "prov" / "metrics.json")
+    assert m["inputs"]["molecules_sha256"] == \
+        common.sha256_file(ds_dir / "molecules.parquet")
+    assert m["inputs"]["meta_sha256"] == common.sha256_file(ds_dir / "meta.json")
+    for rec in m["reps"]:
+        assert rec["threads"] == 6
+        assert rec["binary_sha256"] == "0" * 64
+        assert rec["assignment_sha256"]
+
+
+def test_celladmix_aggregation_statuses(tmp_path):
+    """Metrics derived from the adapter's normalized rep blocks: ok rates are
+    averaged, unavailable audits keep the rate None (never 0.0)."""
+    from fixtures import make_run, write_assignment, FAKE_BINARY
+    root = tmp_path / "data"
+    ds_dir = make_real_dataset(root / "real" / "agg")
+    cells = pd.read_parquet(ds_dir / "molecules.parquet")["cell"].to_numpy(np.int64)
+
+    # all ok: mean/sd over the rep rates
+    m = make_run(root, "ag1", ds_dir, [cells] * 3,
+                 celladmix_rates=[0.05, 0.06, 0.07])
+    cm = m["real"]["celladmix"]
+    assert cm["status"] == camix.STATUS_OK
+    assert cm["mean_total"] == pytest.approx(0.06)
+    assert cm["sd_total"] == pytest.approx(0.01)
+    assert cm["per_rep_total"] == [0.05, 0.06, 0.07]
+
+    # one replicate's audit is unavailable (small crop / no evaluated pairs)
+    ds = common.load_dataset(ds_dir)
+    dirs, records = {}, []
+    for k in range(3):
+        rep_dir = root / "runs" / "ag2" / ds.id / f"rep{k}"
+        write_assignment(rep_dir, cells)
+        records.append({
+            "rep": k, "status": "ok", "exit_code": 0, "wall_s": 1.0,
+            "peak_rss_kb": 1, "command": [], "command_str": "",
+            "assignment": f"rep{k}/assignment.parquet",
+            "assignment_sha256": common.sha256_file(rep_dir / "assignment.parquet"),
+            "threads": 6, "binary_sha256": "0" * 64,
+        })
+        dirs[k] = rep_dir
+    records[0]["celladmix"] = {"status": "ok", "total_admixture_rate": 0.05,
+                               "admixture_capable": True}
+    records[1]["celladmix"] = {"status": camix.STATUS_UNAVAILABLE,
+                               "reason": "audit status 'no_detected_pairs'"}
+    records[2]["celladmix"] = {"status": "ok", "total_admixture_rate": 0.07,
+                               "admixture_capable": True}
+    out = runner.compute_dataset_metrics(
+        ds, "ag2", lambda r: dirs[r["rep"]], records, dict(FAKE_BINARY), 6,
+        typing={"mode": "quick_cluster", "baseline": None})
+    cm = out["real"]["celladmix"]
+    assert cm["status"] == "partial"
+    assert cm["mean_total"] == pytest.approx(0.06)   # None not averaged as 0
+    assert cm["per_rep_total"] == [0.05, None, 0.07]
+    assert cm["admixture_capable"] is True
+    assert cm["typing"]["mode"] == "quick_cluster"
+    assert cm["per_rep"][1]["status"] == camix.STATUS_UNAVAILABLE
+    assert cm["per_rep"][1]["reason"]
+
+    # no audit scored at all -> unavailable, rate None
+    for rec in records:
+        rec["celladmix"] = {"status": camix.STATUS_UNAVAILABLE, "reason": "x"}
+    out2 = runner.compute_dataset_metrics(ds, "ag3",
+                                          lambda r: dirs[r["rep"]], records,
+                                          dict(FAKE_BINARY), 6)
+    cm2 = out2["real"]["celladmix"]
+    assert cm2["status"] == camix.STATUS_UNAVAILABLE
+    assert cm2["mean_total"] is None

@@ -1,0 +1,37 @@
+{
+  "dataset": "xenium_lung_cancer_quick",
+  "threads": 6,
+  "replicates": 3,
+  "transferred_typing": {
+    "per_rep": [
+      0.05440610045519978,
+      0.05558797668790899,
+      0.05395395161729576
+    ],
+    "mean": 0.05464934292013485,
+    "sd": 0.0008437325733956855,
+    "typing": {
+      "mode": "baseline_transferred",
+      "baseline": "a2-admx-xenium_lung_cancer_quick"
+    },
+    "status": "ok"
+  },
+  "quick_cluster_per_rep": {
+    "per_rep": [
+      0.05273682163003307,
+      0.05367869036133329,
+      0.05206809623105412
+    ],
+    "mean": 0.05282786940747349,
+    "sd": 0.0008091480930306017,
+    "typing": {
+      "mode": "quick_cluster",
+      "baseline": null
+    },
+    "status": "ok"
+  },
+  "tolerance_input": {
+    "recommended_admixture_tolerance": 0.002531,
+    "rule": "3 x SD of the baseline-transferred audit over 3 replicates"
+  }
+}

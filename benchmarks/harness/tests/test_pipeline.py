@@ -64,6 +64,12 @@ def test_run_outputs(pipeline):
             assert rec["wall_s"] > 0
             assert rec["peak_rss_kb"] and rec["peak_rss_kb"] > 0
             assert "-s" in rec["command"]
+            # Baysor stdout/stderr are kept for auditing, with provenance
+            assert (rep / "baysor.log").is_file()
+            assert rec["binary_sha256"] == m["binary"]["sha256"]
+            assert rec["threads"] == 2
+        assert m["inputs"]["molecules_sha256"]
+        assert m["inputs"]["meta_sha256"]
     m = common.read_json(root / "runs" / "p1" / "sim_pipe" / "metrics.json")
     assert m["sim"]["mean"]["matched_accuracy"] > 0.85
     assert m["sim"]["n_metric_reps"] == 3

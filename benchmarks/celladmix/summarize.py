@@ -44,11 +44,19 @@ def row(name: str, data: dict) -> dict:
 
 
 def monotone(results: dict[str, dict], chain: list[str]) -> dict:
-    """Check a strict increasing chain of total_admixture_rate."""
+    """Check a strict increasing chain of total_admixture_rate.
+
+    Unavailable rates (None) make the chain unchecked: a missing score is not
+    a zero score.
+    """
     missing = [n for n in chain if n not in results]
     if missing:
         return {"chain": chain, "checked": False, "missing": missing}
     values = [results[n]["total_admixture_rate"] for n in chain]
+    if any(v is None for v in values):
+        return {"chain": chain, "checked": False, "values": dict(zip(chain, values)),
+                "reason": "unavailable rate(s): "
+                          + ", ".join(n for n, v in zip(chain, values) if v is None)}
     steps = [{"from": a, "to": b, "rate_from": va, "rate_to": vb, "increased": vb > va}
              for a, b, va, vb in zip(chain, chain[1:], values, values[1:])]
     return {
@@ -67,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="named audit result JSON (repeatable)")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--markdown", type=Path)
+    parser.add_argument("--title",
+                        default="cellAdmix admixture audit — validation on the "
+                                "pancreas Xenium crop",
+                        help="Markdown report title")
     args = parser.parse_args(argv)
 
     named: dict[str, Path] = {}
@@ -84,20 +96,21 @@ def main(argv: list[str] | None = None) -> int:
     if "vendor" in results and "vendor_seed2" in results:
         a = results["vendor"]["total_admixture_rate"]
         b = results["vendor_seed2"]["total_admixture_rate"]
-        checks["seed_stochasticity"] = {
-            "rate_seed1": a,
-            "rate_seed2": b,
-            "abs_difference": abs(a - b),
-            "relative_difference": abs(a - b) / max(a, 1e-12),
-            "note": "two full runs with different --seed (the seed reaches the NMF "
-                    "fit; the audit is factorization-independent) plus a fresh "
-                    "quick-clustering draw; this sets the comparison tolerance",
-        }
+        if a is not None and b is not None:
+            checks["seed_stochasticity"] = {
+                "rate_seed1": a,
+                "rate_seed2": b,
+                "abs_difference": abs(a - b),
+                "relative_difference": abs(a - b) / max(a, 1e-12),
+                "note": "two full runs with different --seed (the seed reaches the "
+                        "NMF fit; the audit is factorization-independent) plus a fresh "
+                        "quick-clustering draw; this sets the comparison tolerance",
+            }
     if "vendor" in results and "vendor_repeat" in results:
-        checks["same_seed_deterministic"] = {
-            "abs_difference": abs(results["vendor"]["total_admixture_rate"]
-                                  - results["vendor_repeat"]["total_admixture_rate"]),
-        }
+        a = results["vendor"]["total_admixture_rate"]
+        b = results["vendor_repeat"]["total_admixture_rate"]
+        if a is not None and b is not None:
+            checks["same_seed_deterministic"] = {"abs_difference": abs(a - b)}
     if "border30" in results and "border30_recluster" in results:
         checks["transfer_vs_recluster_typing"] = {
             "transfer_rate": results["border30"]["total_admixture_rate"],
@@ -113,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.markdown:
         lines = [
-            "# cellAdmix admixture audit — validation on the pancreas Xenium crop",
+            f"# {args.title}",
             "",
             "Lower total admixture = cleaner segmentation.",
             "",
@@ -121,9 +134,13 @@ def main(argv: list[str] | None = None) -> int:
             "|---|---|---|---|---|---|---|---|---|",
         ]
         for name, r in results.items():
+            rate = r["total_admixture_rate"]
+            rate_txt = f"{rate:.6f}" if rate is not None else "unavailable"
+            mol = r["total_admixture_molecules"]
+            mol_txt = f"{mol:.0f}" if mol is not None else "-"
             lines.append(
-                f"| {name} | {r['typing']} | {r['seed']} | {r['total_admixture_rate']:.6f} "
-                f"| {r['total_admixture_molecules']:.0f} "
+                f"| {name} | {r['typing']} | {r['seed']} | {rate_txt} "
+                f"| {mol_txt} "
                 f"| {r['n_pairs_detected']}/{r['n_pairs_evaluated']} "
                 f"| {r['n_cells']} | {r['n_molecules_used']} | {r['runtime_seconds']:.1f} |")
         lines += ["", "## Checks", ""]

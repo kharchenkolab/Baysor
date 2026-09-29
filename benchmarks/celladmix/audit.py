@@ -61,6 +61,15 @@ AUDIT_PARAM_DEFAULTS = {
     "min_reference_cells": 100,
 }
 
+# Below this many cells an audit is not statistically meaningful; the harness
+# uses the flag to skip admixture gating on small crops.
+ADMIXTURE_MIN_CELLS = 2000
+
+# Upstream's marker-pool gate (CellAdmixAudit) and the relaxed value used for
+# --fixed-pairs scoring (cellAdmix patch 0004 makes the gate configurable).
+MIN_POOL_MARKERS_DEFAULT = 3
+MIN_POOL_MARKERS_FIXED = 1
+
 
 def sha256_file(path: Path, chunk: int = 1 << 22) -> str:
     digest = hashlib.sha256()
@@ -166,25 +175,95 @@ def top_pairs(pairs: pd.DataFrame, n: int) -> list[dict]:
     return records
 
 
-def compute_metrics(pairs: pd.DataFrame, total_molecules: float) -> dict:
-    """Dataset-wide totals from the per-pair audit table."""
-    if pairs.empty or "detected" not in pairs.columns:
+def load_fixed_pairs(path: Path | str) -> list[tuple[str, str]]:
+    """Read a fixed (source, target) pair list produced from a baseline audit.
+
+    Accepted layouts: a JSON list of ``{"source": ..., "target": ...}``
+    objects (as stored by the harness baseline), a JSON list of ``[source,
+    target]`` pairs, or an object wrapping either of those under ``"pairs"``.
+    Duplicates are dropped, order preserved.
+    """
+    with open(path) as fh:
+        data = json.load(fh)
+    if isinstance(data, dict):
+        data = data.get("pairs")
+    if not isinstance(data, list):
+        raise SystemExit(f"--fixed-pairs {path}: expected a JSON list of pairs")
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in data:
+        if isinstance(item, dict):
+            pair = (str(item["source"]), str(item["target"]))
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            pair = (str(item[0]), str(item[1]))
+        else:
+            raise SystemExit(f"--fixed-pairs {path}: bad pair entry {item!r}")
+        if pair not in seen:
+            seen.add(pair)
+            out.append(pair)
+    return out
+
+
+def compute_metrics(pairs: pd.DataFrame, total_molecules: float,
+                    fixed_pairs: list[tuple[str, str]] | None = None) -> dict:
+    """Dataset-wide totals from the per-pair audit table.
+
+    Two scoring modes:
+
+    * ``fixed_pairs`` given — sum the estimated admixed molecules over that
+      fixed pair list (detection-independent), so the rate is comparable
+      across runs regardless of how many pairs happened to be *detected.
+      Pairs from the list that the audit could not evaluate (cell type
+      missing, too few cells) are excluded and reported via
+      ``n_pairs_evaluated``.
+    * otherwise (legacy) — sum only the *detected* pairs; this depends on
+      statistical power, so it is only valid when at least one pair is
+      detected.
+
+    Any situation that cannot be scored (no evaluated pairs, nothing
+    detected in legacy mode) yields ``status`` != ``"ok"`` and a ``None``
+    rate — never 0.0, which would read as a perfect score.
+    """
+    empty = {
+        "total_admixture_rate": None,
+        "total_admixture_molecules": None,
+        "n_pairs_evaluated": 0,
+        "n_pairs_detected": 0,
+    }
+    if pairs is None or pairs.empty or "detected" not in pairs.columns:
+        return {**empty, "status": "unavailable",
+                "reason": "no_pairs_evaluated"}
+    denom = max(float(total_molecules), 1.0)
+    if fixed_pairs is not None:
+        wanted = set(fixed_pairs)
+        keep = [(str(s), str(t)) in wanted
+                for s, t in zip(pairs["source"], pairs["target"])]
+        sub = pairs[keep]
+        if sub.empty:
+            return {**empty, "n_pairs_fixed": len(wanted),
+                    "status": "unavailable",
+                    "reason": "fixed_pairs_not_evaluated"}
+        total = float(sub["admixed_molecules"].sum())
         return {
-            "total_admixture_rate": 0.0,
-            "total_admixture_molecules": 0.0,
-            "n_pairs_evaluated": 0,
-            "n_pairs_detected": 0,
-            "status": "no_pairs_evaluated",
+            "total_admixture_rate": total / denom,
+            "total_admixture_molecules": total,
+            "n_pairs_evaluated": int(len(sub)),
+            "n_pairs_detected": int(sub["detected"].sum()),
+            "n_pairs_fixed": len(wanted),
+            "status": "ok",
         }
     det = pairs[pairs["detected"]]
-    total = float(det["admixed_molecules"].sum()) if len(det) else 0.0
-    denom = max(float(total_molecules), 1.0)
+    if det.empty:
+        return {**empty, "n_pairs_evaluated": int(len(pairs)),
+                "status": "no_detected_pairs",
+                "reason": "no_pairs_detected"}
+    total = float(det["admixed_molecules"].sum())
     return {
         "total_admixture_rate": total / denom,
         "total_admixture_molecules": total,
         "n_pairs_evaluated": int(len(pairs)),
         "n_pairs_detected": int(len(det)),
-        "status": "ok" if len(det) else "no_detected_pairs",
+        "status": "ok",
     }
 
 
@@ -308,7 +387,8 @@ def run_audit(args) -> dict:
 
     # --- audit -----------------------------------------------------------
     t0 = time.perf_counter()
-    audit = fit.audit_admixture(
+    fixed = load_fixed_pairs(args.fixed_pairs) if args.fixed_pairs else None
+    audit_kwargs = dict(
         neighbor_k=args.neighbor_k,
         n_pool=args.n_pool,
         q_thresh=args.q_thresh,
@@ -316,12 +396,30 @@ def run_audit(args) -> dict:
         min_target_cells=args.min_target_cells,
         min_reference_cells=args.min_reference_cells,
     )
+    if fixed is not None:
+        # Fixed-pair scoring must keep every baseline pair measurable:
+        # upstream's >= 3-marker pool gate drops pairs whose marker genes
+        # shift under a mildly different segmentation (README, "marker pool
+        # gate"), which would silently exclude them from the fixed sum and
+        # bias the rate downward. Requires cellAdmix patch 0004.
+        import inspect
+
+        import celladmix.audit as ca_audit_mod
+        if "min_pool_markers" not in inspect.signature(
+                ca_audit_mod.CellAdmixAudit.__init__).parameters:
+            raise SystemExit(
+                "--fixed-pairs requires the min_pool_markers gate "
+                "(patch 0004); re-run benchmarks/celladmix/install.sh to "
+                "upgrade the installed cellAdmix bindings")
+        audit_kwargs["min_pool_markers"] = MIN_POOL_MARKERS_FIXED
+    audit = fit.audit_admixture(**audit_kwargs)
     pairs = audit.pairs()
     matrix, genes, cells = fit.counts()
     timings["audit"] = time.perf_counter() - t0
 
     total_molecules = float(matrix.sum())
-    metrics = compute_metrics(pairs, total_molecules)
+    metrics = compute_metrics(pairs, total_molecules, fixed_pairs=fixed)
+    metrics["admixture_capable"] = int(len(cells)) >= ADMIXTURE_MIN_CELLS
     top = top_pairs(pairs, args.top_pairs)
 
     used_types = annotation.reindex([str(c) for c in cells])
@@ -361,6 +459,8 @@ def run_audit(args) -> dict:
             "molecules_bytes": molecules_path.stat().st_size,
             "celltypes": str(args.celltypes) if args.celltypes else None,
             "celltypes_sha256": sha256_file(args.celltypes) if args.celltypes else None,
+            "fixed_pairs": str(args.fixed_pairs) if args.fixed_pairs else None,
+            "fixed_pairs_sha256": sha256_file(args.fixed_pairs) if args.fixed_pairs else None,
             "image": str(args.image) if args.image else None,
             "image_note": "recorded for membrane scoring; not used by the audit itself",
             **assignment_info,
@@ -388,7 +488,10 @@ def run_audit(args) -> dict:
                 "min_excess": args.min_excess,
                 "min_target_cells": args.min_target_cells,
                 "min_reference_cells": args.min_reference_cells,
+                "min_pool_markers": (MIN_POOL_MARKERS_FIXED if args.fixed_pairs
+                                     else MIN_POOL_MARKERS_DEFAULT),
             },
+            "fixed_pairs": (str(args.fixed_pairs) if args.fixed_pairs else None),
             "top_pairs": args.top_pairs,
         },
         "filters": filters,
@@ -433,6 +536,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="cell -> type table for fixed typing (else quick clustering)")
     parser.add_argument("--celltype-cell-col")
     parser.add_argument("--celltype-type-col")
+    parser.add_argument("--fixed-pairs", type=Path,
+                        help="JSON list of (source, target) pairs taken from a baseline "
+                             "audit; the rate is then computed over this fixed pair set "
+                             "(detection-independent) and is comparable across runs")
     parser.add_argument("--image", type=Path,
                         help="optional membrane-stain image (recorded, not used by the audit)")
     parser.add_argument("--seed", type=int, default=1)
@@ -480,7 +587,9 @@ def main(argv: list[str] | None = None) -> int:
         "status": result["metrics"]["status"],
         "total_admixture_rate": result["metrics"]["total_admixture_rate"],
         "total_admixture_molecules": result["metrics"]["total_admixture_molecules"],
+        "n_pairs_evaluated": result["metrics"]["n_pairs_evaluated"],
         "n_pairs_detected": result["metrics"]["n_pairs_detected"],
+        "admixture_capable": result["metrics"].get("admixture_capable"),
         "n_cells": result["counts"]["n_cells"],
         "n_molecules_used": result["counts"]["n_molecules_used"],
         "n_cell_types": result["counts"]["n_cell_types"],
