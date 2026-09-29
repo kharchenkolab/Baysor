@@ -26,3 +26,5 @@ dependencies:
       # are installed from the pinned+patched source by benchmarks/celladmix/install.sh
       - scikit-build-core
       - pybind11
+      - playwright   # headless Firefox fetcher for bot-walled data hosts
+                    # (one-time: python -m playwright install firefox)
