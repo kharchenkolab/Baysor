@@ -486,12 +486,15 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
         b_mean = base_agr.get("mean") or {}
         has_floor = bool(b_mean)
 
-        def gated_row(metric, r_val, center, tol, ok, **extra):
-            alpha = _two_sided_alpha(tol, pooled.get(metric, 0.0))
+        def gated_row(metric, r_val, center, tol, ok, deviation, *,
+                      two_sided=True, **extra):
+            sd = pooled.get(metric, 0.0)
+            alpha = (_two_sided_alpha(tol, sd) if two_sided
+                     else _one_sided_alpha(tol, sd))
             rep.check("real", ds_id, metric, "pass" if ok else "fail",
                       baseline_rep_mean=center, run_vs_baseline_mean=r_val,
-                      deviation=abs(r_val - center) if _finite(r_val) else None,
-                      tolerance=tol, false_alarm_p=alpha, **extra)
+                      deviation=deviation, tolerance=tol,
+                      false_alarm_p=alpha, **extra)
 
         for metric in REAL_PRIMARY_SAME:
             r_val = _mean([p.get(metric) for p in pairs])
@@ -505,14 +508,24 @@ def check_real_dataset(rep: Report, ds_id: str, run_m: dict, base_m: dict,
                 continue
             if metric == "cell_count_ratio":
                 # run and baseline must segment about the same number of
-                # cells: deviation of the mean ratio from 1
-                gated_row(metric, r_val, 1.0, tol, abs(r_val - 1.0) <= tol,
+                # cells: deviation of the mean ratio from 1 (two-sided —
+                # both over- and under-segmentation are regressions)
+                dev = abs(r_val - 1.0)
+                gated_row(metric, r_val, 1.0, tol, dev <= tol, dev,
                           detail="|ratio - 1| vs tolerance")
             elif has_floor and _finite(b_mean.get(metric)):
                 center = float(b_mean[metric])
-                gated_row(metric, r_val, center, tol,
-                          abs(r_val - center) <= tol,
-                          detail="deviation from baseline replicate agreement")
+                # one-sided: the run must not agree *less* with the baseline
+                # than the baseline's own replicates agree with each other.
+                # Agreement above that level is fine — a self-comparison
+                # (run = the baseline's source) contains identity pairs and
+                # systematically exceeds the centre, which a two-sided gate
+                # would fail.
+                dev = center - r_val
+                gated_row(metric, r_val, center, tol, dev <= tol, dev,
+                          two_sided=False,
+                          detail="run-vs-baseline agreement vs baseline "
+                                 "replicate agreement (one-sided)")
             else:
                 # unreachable: main() rejects same-mode comparisons whose
                 # real baseline has < 2 successful replicates (exit 2)

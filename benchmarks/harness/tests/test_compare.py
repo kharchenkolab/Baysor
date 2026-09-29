@@ -672,3 +672,55 @@ def test_improved_run_without_sim_skips_aggregate(tmp_path):
            if c["metric"] == "aggregate_accuracy_1to1"]
     assert agg and agg[0]["status"] == "skip"
     assert "run contains no sim datasets" in agg[0]["detail"]
+
+
+def test_same_self_comparison_with_noisy_replicates_passes(tmp_path):
+    """Self-comparison (run = baseline's source) must pass even when the
+    baseline's own replicates disagree.
+
+    The run x baseline pair set contains identity pairs, so its mean sits
+    systematically above the replicate-agreement centre by ~(1-centre)/3;
+    the real agreement gates are therefore one-sided (a run must not agree
+    *less* than the baseline's replicates agree with each other). The three
+    replicates below disagree pairwise by a similar amount (low centre, low
+    spread), which is exactly the situation the old two-sided gate failed
+    and the root cause of the flaky pipeline self-comparison at >1 thread.
+    """
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    real_dir = make_real_dataset(root / "real" / "real_a")
+    cells = pd.read_parquet(real_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    # each replicate perturbs a disjoint ~10% of molecules: all three pairs
+    # disagree by nearly the same amount -> low centre, tiny spread
+    rng = np.random.default_rng(7)
+    order = rng.permutation(len(cells))
+    chunk = len(cells) // 10
+    chunks = [order[k * chunk:(k + 1) * chunk] for k in range(3)]
+    others = np.unique(cells[cells > 0])
+
+    def variant(k):
+        out = cells.copy()
+        for i in chunks[k]:
+            cand = others[others != out[i]]
+            out[i] = int(rng.choice(cand if len(cand) else others))
+        return out
+
+    noisy = [variant(0), variant(1), variant(2)]
+    make_run(root, "rbase", real_dir, noisy)
+    assert baseline.create("rbase", "btest", root, baselines,
+                           force=True) == 0
+    m = common.read_json(root / "runs" / "rbase" / "real_a" / "metrics.json")
+    center = m["real"]["rep_agreement"]["mean"]["ari_assigned"]
+    tol = max(3.0 * m["real"]["rep_agreement"]["sd"]["ari_assigned"],
+              compare.REAL_FLOORS["ari_assigned"])
+    # the old two-sided gate would have failed: mean - centre = (1-c)/3
+    assert (1.0 - center) / 3.0 > tol
+    assert center < 0.95
+    # the self-comparison still passes
+    assert _compare(root, baselines, "same", run_id_new="rbase") == 0
+    report = common.read_json(
+        root / "runs" / "rbase" / "compare_btest_same.json")
+    row = [c for c in report["checks"] if c["metric"] == "ari_assigned"]
+    assert row and row[0]["status"] == "pass"
+    assert row[0]["run_vs_baseline_mean"] > row[0]["baseline_rep_mean"]

@@ -37,7 +37,9 @@ def pipeline(tmp_path_factory):
         "--datasets", "quick",
         "--run-id", "p1",
         "--replicates", "3",
-        "--threads", "2",
+        # 1 thread: Baysor is bitwise-deterministic, so the whole pipeline
+        # (replicate agreement, baseline, self-comparison) is deterministic
+        "--threads", "1",
         "--data-root", str(root),
     ])
     assert rc == 0
@@ -67,7 +69,7 @@ def test_run_outputs(pipeline):
             # Baysor stdout/stderr are kept for auditing, with provenance
             assert (rep / "baysor.log").is_file()
             assert rec["binary_sha256"] == m["binary"]["sha256"]
-            assert rec["threads"] == 2
+            assert rec["threads"] == 1
         assert m["inputs"]["molecules_sha256"]
         assert m["inputs"]["meta_sha256"]
     m = common.read_json(root / "runs" / "p1" / "sim_pipe" / "metrics.json")

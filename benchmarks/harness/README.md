@@ -432,8 +432,12 @@ else is informational:
   the baseline's datasets of the same kind (sim: replicate SDs of the
   means; real: replicate-pair agreement SDs);
 * real checks measure the run-vs-baseline agreement (all run-rep ×
-  baseline-rep pairs) against the baseline's replicate agreement (and the
-  cell-count ratio against 1.0); a real baseline with < 2 successful
+  baseline-rep pairs) **one-sided**: it must be ≥ the baseline's own
+  replicate agreement − tolerance (the cell-count ratio stays two-sided
+  around 1.0). Agreement *above* the baseline's replicate level is fine —
+  a self-comparison (run = the baseline's source) contains identity pairs
+  and systematically sits above it, which a two-sided gate would fail;
+  a real baseline with < 2 successful
   replicates never reaches this point (exit 2 above) — with ≥ 2 the
   replicate agreement always exists;
 * **false-alarm budget**: every gated check carries its normal-approximation
