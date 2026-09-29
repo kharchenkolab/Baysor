@@ -20,6 +20,7 @@ files are.
 ```
 benchmarks/
   README.md              this file: layout and the dataset contract
+  DATASETS.md            generated inventory of every dataset + coverage matrix
   environment.yml        Python environment for the suite
   datasets/              manifests: one YAML per dataset group (sim, real_xenium, real_other)
   simulate/              generators for simulated datasets
@@ -29,6 +30,28 @@ benchmarks/
   baselines/             committed baseline metrics (small JSON/CSV per dataset)
 ```
 
+## Dataset inventory
+
+[`DATASETS.md`](DATASETS.md) lists every dataset (id, kind, tier,
+platform/generator, tissue/scenario, genes, molecules, area, cells/mm²,
+density and gene-panel class, 2D/3D, prior, images, `admixture_capable`,
+source, notes) grouped by kind and platform, plus the density × gene-panel
+coverage matrix per kind. Regenerate it with:
+
+```bash
+$PY benchmarks/harness/inventory.py            # writes benchmarks/DATASETS.md
+$PY benchmarks/harness/inventory.py --check    # exit 1 when stale
+```
+
+Validate the datasets against this contract (columns/dtypes/sort, meta
+fields and enums, stats consistency, image/prior/config references,
+manifest sha256) with:
+
+```bash
+$PY benchmarks/harness/validate_datasets.py    # exit 1 on metadata errors
+$PY benchmarks/harness/validate_datasets.py --strict   # data findings too
+```
+
 ## Workflow
 
 See [`harness/README.md`](harness/README.md) for the benchmark workflow:
@@ -36,6 +59,80 @@ running datasets (`run.py`), metric definitions, baselines and the measured
 noise floor (including Baysor's determinism findings), and the
 `--expect same` / `--expect improved` comparison (`compare.py`, one-shot
 `bench.sh`).
+
+## How to test a change
+
+Official baselines of the current algorithm:
+
+| baseline | flavor | contents |
+|---|---|---|
+| [`baselines/bugfixes-35e8a7e-t1`](baselines/bugfixes-35e8a7e-t1/) | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix |
+| [`baselines/bugfixes-35e8a7e`](baselines/bugfixes-35e8a7e/) | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
+
+Setup used by every command below:
+
+```bash
+export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
+PY=.deps/bench/bin/python
+B=/path/to/baysor                 # your build of the same sources
+```
+
+### Refactoring (results must not change)
+
+```bash
+# 1. exact gate: 1 thread, 1 replicate, bitwise-identical assignments
+benchmarks/harness/bench.sh --baysor $B --preset refactor \
+    --datasets quick --timeout 1800 --run-id refactor-t1 \
+    --baseline bugfixes-35e8a7e-t1
+
+# 2. noise gate at the comparison thread count: same within the SD floor
+benchmarks/harness/bench.sh --baysor $B --preset algorithm --expect same \
+    --datasets quick --timeout 1800 --run-id refactor-6t \
+    --celltypes-from bugfixes-35e8a7e --baseline bugfixes-35e8a7e
+```
+
+Both exit 0 on pass, 1 on a real regression, 2 on setup errors. The
+`identical` run must use `--threads 1` / 1 replicate (bitwise determinism);
+the `same` run must reuse the baseline's thread count.
+
+### Algorithm change (accuracy must improve)
+
+```bash
+benchmarks/harness/bench.sh --baysor $B --preset algorithm --datasets all \
+    --timeout 5400 --run-id algo-improved \
+    --celltypes-from bugfixes-35e8a7e --baseline bugfixes-35e8a7e
+```
+
+`--preset algorithm` = 6 threads, 3 replicates, `--expect improved`.
+Timeouts can be tiered instead (quick `--timeout 1800`, full
+`--timeout 5400`) by calling `run.py` twice with the same `--run-id`
+(`--skip-existing` on the second call) and then `compare.py` once. On real
+data the verdict is the cellAdmix gate: `total_admixture_rate` must not rise
+above the baseline's noise floor (`--admixture-tolerance`, default 0.0025).
+
+### Updating the baselines after an accepted change
+
+```bash
+# rerun both configurations with the new binary
+$PY benchmarks/harness/run.py --baysor $B --datasets quick --run-id benchbase-b \
+    --replicates 3 --threads 6 --timeout 1800 --skip-existing \
+    --celltypes-from bugfixes-35e8a7e --label <new-sha>
+$PY benchmarks/harness/run.py --baysor $B --datasets quick --run-id benchbase-t1 \
+    --replicates 1 --threads 1 --timeout 1800 --no-celladmix \
+    --skip-existing --label <new-sha>
+# freeze them (adds --allow-incomplete/--identical as needed; see baseline.py)
+$PY benchmarks/harness/baseline.py create --run-id benchbase-b \
+    --name bugfixes-<new-sha> --force
+$PY benchmarks/harness/baseline.py create --run-id benchbase-t1 \
+    --name bugfixes-<new-sha>-t1 --force --identical
+$PY benchmarks/harness/baseline_summary.py --baseline bugfixes-<new-sha>
+```
+
+(`--skip-existing` only reuses replicates whose binary sha256, thread
+count and scale factor match, so a new binary reruns everything; the full
+tier runs are appended by repeating the command with `--datasets full`
+`--timeout 5400`.) See [`baselines/bugfixes-35e8a7e/README.md`](baselines/bugfixes-35e8a7e/README.md)
+for the exact official-baseline invocations of this binary.
 
 ## Data location
 

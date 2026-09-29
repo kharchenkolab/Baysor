@@ -201,6 +201,11 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
 
     written: list[Path] = []
     problems: list[str] = []
+    # carry over hand-written docs (README.md, ...) across recreations:
+    # the atomic swap replaces the whole directory
+    if out_dir.is_dir():
+        for extra in out_dir.glob("README*"):
+            shutil.copy2(extra, json_tmp / extra.name)
     try:
         for mf in metrics_files:
             ds_id = common.read_json(mf)["dataset"]["id"]
