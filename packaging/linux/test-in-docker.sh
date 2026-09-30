@@ -11,7 +11,7 @@
 #      AVX or FMA), in a Debian container that only adds qemu-user.
 #
 # Set BAYSOR_SMOKE_DATA=/path/to/molecules.parquet (sim_circles_gaps_g100 from
-# benchmarks/) to run the benchmark dataset instead of the synthetic grid.
+# github.com/VPetukhov/baysor-benchmarks) to run it instead of the synthetic grid.
 # BAYSOR_TEST_STAGES selects stages (default: "native old-distros qemu").
 set -euo pipefail
 

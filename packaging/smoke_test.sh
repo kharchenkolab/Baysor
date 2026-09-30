@@ -13,8 +13,8 @@
 # Environment:
 #   BAYSOR_SMOKE_WRAPPER  command prefix, e.g. "qemu-x86_64 -cpu qemu64"
 #   BAYSOR_SMOKE_DATA     molecules.parquet of the sim_circles_gaps_g100
-#                         benchmark dataset (see benchmarks/): run on it
-#                         instead of the synthetic grid
+#                         dataset from github.com/VPetukhov/baysor-benchmarks:
+#                         run on it instead of the synthetic grid
 #   BAYSOR_SMOKE_KEEP=1   keep the temporary work directory
 set -euo pipefail
 
@@ -53,7 +53,7 @@ say "--help: OK"
 # --- baysor run ---------------------------------------------------------------
 if [[ -n "${BAYSOR_SMOKE_DATA:-}" ]]; then
     [[ -f "$BAYSOR_SMOKE_DATA" ]] || die "BAYSOR_SMOKE_DATA not found: $BAYSOR_SMOKE_DATA"
-    # Same arguments as benchmarks/harness/run.py builds from the dataset's
+    # Same arguments as baysor-benchmarks harness/run.py builds from the dataset's
     # meta.json (sim_circles_gaps_g100: 621 true cells).
     run_args=("$BAYSOR_SMOKE_DATA" :prior -x x -y y -g gene -s 6.1 --scale-std 25%
               --prior-segmentation-confidence 0.5 -m 20)
