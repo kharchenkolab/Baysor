@@ -20,16 +20,18 @@ Each archive contains a single top-level directory
 
 ```text
 baysor-<version>-<platform>/
-  bin/baysor        # bin/baysor.exe on Windows
-  lib/              # optional bundled runtime libraries
+  bin/baysor        # bin/baysor.exe (+ bundled DLLs) on Windows
   LICENSE
   README.md
 ```
 
 The binaries are built against generic CPU baselines (plain x86-64 / arm64),
 so they run on any CPU of their architecture — no AVX2-class CPU is required.
-Linux binaries only need glibc 2.28 or newer <!-- GLIBC_FLOOR --> and no
-additional system libraries. `baysor --version` prints the release version.
+They need no additional system libraries: the Linux binary only needs glibc
+2.28 or newer <!-- GLIBC_FLOOR --> (e.g. RHEL/Alma/Rocky 8+, Debian 10+,
+Ubuntu 18.10+), the macOS binary needs macOS 12 or newer on Apple silicon,
+and the Windows archive carries the DLLs it needs next to `baysor.exe`
+(64-bit Windows 10 or newer). `baysor --version` prints the release version.
 
 Example on Linux:
 

@@ -31,6 +31,18 @@
       "dependencies": [
         "gtest"
       ]
+    },
+    "release": {
+      "description": "Extra settings for the portable release binaries (packaging/): GMP with run-time CPU dispatch on x86_64 Linux.",
+      "dependencies": [
+        {
+          "name": "gmp",
+          "features": [
+            "fat"
+          ],
+          "platform": "linux & x64"
+        }
+      ]
     }
   }
 }

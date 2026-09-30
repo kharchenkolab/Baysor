@@ -373,6 +373,13 @@ TEST(Cov5CliHelp, RunSubcommandHelpListsRunOptions) {
     EXPECT_NE(r.out.find("--nuclei-genes"), std::string::npos);
 }
 
+TEST(Cov5CliHelp, VersionFlagPrintsProjectVersion) {
+    TempDir tmp("version");
+    auto r = run_cli(tmp, "--version");
+    EXPECT_EQ(r.exit_code, 0) << r.err;
+    EXPECT_EQ(r.out, std::string("baysor ") + BAYSOR_VERSION + "\n");
+}
+
 TEST(Cov5CliParse, RequiresExactlyOneSubcommand) {
     TempDir tmp("parse_no_sub");
     auto r = run_cli(tmp, "");

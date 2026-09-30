@@ -699,6 +699,8 @@ int cmd_segfree(
 
 int main(int argc, char* argv[]) {
     CLI::App app{"Baysor — Bayesian cell segmentation of spatial transcriptomics data"};
+    app.set_version_flag("--version", std::string("baysor ") + BAYSOR_VERSION,
+                         "Print the Baysor version and exit");
     app.require_subcommand(1);
 
     // Pre-scan argv for -c/--config so we can load config before CLI11 registers

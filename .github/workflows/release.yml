@@ -1,0 +1,243 @@
+name: release
+
+# Builds portable Baysor binaries for a GitHub release and attaches them to it:
+#   baysor-<version>-linux-x86_64.tar.gz, baysor-<version>-macos-arm64.tar.gz,
+#   baysor-<version>-windows-x86_64.zip and SHA256SUMS.
+# The build scripts live in packaging/; see RELEASING.md.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)build binaries for, e.g. cpp-0.8.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  VCPKG_DISABLE_METRICS: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [[ -z "$TAG" ]]; then
+            echo "::error::no release tag"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+
+      - name: Check that the release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft
+
+      - name: Derive and check version
+        id: version
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          version="$(packaging/release_version.sh "$TAG")"
+          echo "Release $TAG -> version $version"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-24.04
+            archive: tar.gz
+          - platform: macos-arm64
+            os: macos-14
+            archive: tar.gz
+          - platform: windows-x86_64
+            os: windows-2022
+            archive: zip
+    env:
+      ASSET: baysor-${{ needs.version.outputs.version }}-${{ matrix.platform }}
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.version.outputs.tag }}
+
+      # vcpkg binary packages (and the macOS static libomp). The key covers
+      # everything that changes package ABIs; a hit turns the build into a
+      # Baysor-only compile. Restore and save are separate steps so that the
+      # packages built by a failed run (a cold build takes hours) are still
+      # saved and reused by the rerun.
+      - name: Compute cache key
+        id: cache-key
+        shell: bash
+        run: echo "prefix=release-${{ matrix.platform }}-${{ hashFiles('packaging/vcpkg-ref', 'packaging/vcpkg-triplets/**', 'vcpkg.json', 'packaging/linux/Dockerfile', 'packaging/build_release.py') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .release-cache/vcpkg-bincache
+            .release-cache/libomp-*
+          key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ steps.cache-key.outputs.prefix }}-
+            release-${{ matrix.platform }}-
+
+      - name: Build (Linux, manylinux_2_28 container)
+        if: runner.os == 'Linux'
+        run: BAYSOR_JOBS="$(nproc)" packaging/linux/build-in-docker.sh
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja autoconf autoconf-archive automake libtool pkgconf
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: python3 packaging/build_release.py --platform macos-arm64 --jobs "$(sysctl -n hw.ncpu)"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python packaging/build_release.py --platform windows-x86_64 --jobs $env:NUMBER_OF_PROCESSORS
+
+      - name: Save build cache
+        if: always() && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .release-cache/vcpkg-bincache
+            .release-cache/libomp-*
+          key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Check archive name
+        shell: bash
+        run: |
+          ls -l dist
+          test -f "dist/$ASSET.${{ matrix.archive }}"
+
+      - name: Smoke test (Linux; native, almalinux:8, debian:10, qemu64)
+        if: runner.os == 'Linux'
+        run: packaging/linux/test-in-docker.sh "dist/$ASSET.tar.gz"
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          tar -xzf "dist/$ASSET.tar.gz" -C "$RUNNER_TEMP/smoke"
+          packaging/smoke_test.sh "$RUNNER_TEMP/smoke/$ASSET/bin/baysor" "$VERSION"
+
+      - name: Extract archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -Path "dist/$env:ASSET.zip" -DestinationPath "$env:RUNNER_TEMP/smoke"
+
+      # A minimal PATH, so that DLLs missing from the archive cannot be picked
+      # up from tools installed on the runner.
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          smoke_dir="$(cygpath -u "$RUNNER_TEMP")/smoke/$ASSET"
+          PATH="/usr/bin:/c/Windows/System32:/c/Windows" \
+            bash packaging/smoke_test.sh "$smoke_dir/bin/baysor.exe" "$VERSION"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: dist/${{ env.ASSET }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # Runs even if some platforms failed: the archives that were built are
+  # attached, and the job then fails, listing the missing platforms, so the
+  # run stays red until they are rebuilt (workflow_dispatch with the tag).
+  publish:
+    name: Upload to release
+    needs: [version, build]
+    if: always() && needs.version.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: baysor-${{ needs.version.outputs.version }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        id: sums
+        run: |
+          mkdir -p dist
+          cd dist
+          expected=(
+            "baysor-$VERSION-linux-x86_64.tar.gz"
+            "baysor-$VERSION-macos-arm64.tar.gz"
+            "baysor-$VERSION-windows-x86_64.zip"
+          )
+          present=()
+          missing=()
+          for f in "${expected[@]}"; do
+            if [[ -f "$f" ]]; then present+=("$f"); else missing+=("$f"); fi
+          done
+          if (( ${#present[@]} == 0 )); then
+            echo "::error::no archives were built"
+            exit 1
+          fi
+          sha256sum "${present[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: dist
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            baysor-"$VERSION"-* SHA256SUMS
+
+      - name: Fail if a platform is missing
+        if: steps.sums.outputs.missing != ''
+        env:
+          MISSING: ${{ steps.sums.outputs.missing }}
+        run: |
+          echo "::error::not attached to the release (build failed): $MISSING"
+          exit 1

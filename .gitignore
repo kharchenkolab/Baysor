@@ -36,3 +36,7 @@ gh_key.sh
 __pycache__/
 .pytest_cache/
 *.pyc
+
+# Release packaging (packaging/)
+/.release-cache/
+/dist/

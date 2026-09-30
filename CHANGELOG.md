@@ -6,6 +6,16 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Added
 
+- Prebuilt binaries for every published GitHub release, built by the
+  `release` GitHub Actions workflow: `baysor-<version>-linux-x86_64.tar.gz`,
+  `baysor-<version>-macos-arm64.tar.gz`, `baysor-<version>-windows-x86_64.zip`
+  and `SHA256SUMS`. They need no extra packages and run on any CPU of their
+  architecture: Linux x86_64 with glibc 2.28 or newer, macOS 12 or newer on
+  Apple silicon, 64-bit Windows 10 or newer.
+- `baysor --version` prints the version.
+- `packaging/`: the release build scripts; the Linux binary can be rebuilt
+  locally in Docker with `packaging/linux/build-in-docker.sh`. The release
+  procedure is described in `RELEASING.md`.
 - A versioned documentation site (MkDocs + Material, versioned with `mike`):
   `mkdocs.yml`, rewritten `docs/` pages, and the `docs` GitHub workflow that
   builds the site strictly on docs changes and deploys one site version per
@@ -29,6 +39,13 @@ All notable changes to the C++ line of Baysor are documented here.
 - The documentation pages were rewritten against the C++ implementation
   (required `--min-molecules-per-cell`, actual option defaults, complete
   config-key reference, corrected output-file descriptions).
+
+### Fixed
+
+- CLI help: `--tol` now shows its actual default (`0`), and `preview`/`segfree`
+  `-o` is described as an output file rather than a file or directory;
+  `configs/example_config.toml` shows the actual `max_plot_size` default
+  (3000).
 
 
 ## [cpp-0.8.3] — 2026-07-31
