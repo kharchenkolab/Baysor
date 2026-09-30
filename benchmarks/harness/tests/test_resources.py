@@ -147,9 +147,9 @@ def test_formatters():
 
 
 def test_committed_resources_csv_is_complete():
-    """The committed table exists, parses and covers the whole inventory."""
-    csv_path = common.repo_root() / "benchmarks" / "baselines" / \
-        "bugfixes-35e8a7e" / "resources.csv"
+    """The resources table exists in the local data dir, parses and covers
+    the whole inventory."""
+    csv_path = common.baselines_root() / "bugfixes-35e8a7e" / "resources.csv"
     table = resources.load_csv(csv_path)
     assert len(table) == 78
     for row in table.values():

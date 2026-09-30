@@ -17,7 +17,8 @@ Manifest schema (all keys except ``name``/``datasets``/``expect``/
       regular:
         description: ...
         budget_minutes: 20
-        resources: baselines/bugfixes-35e8a7e/resources.csv   # estimates
+        resources: baselines/bugfixes-35e8a7e/resources.csv   # estimates,
+                                                   # relative to $BAYSOR_BENCH_DATA
         steps:
           - name: exact
             group: exact                # default: the step name
@@ -83,7 +84,7 @@ class Suite:
     name: str
     description: str
     budget_minutes: Optional[float]
-    resources: Optional[str]      # CSV path relative to benchmarks/
+    resources: Optional[str]      # CSV path relative to the data root
     steps: tuple
 
 
@@ -243,16 +244,19 @@ def expand_strict(root: Path, spec: str) -> list[str]:
     return [d.id for d in common.select_datasets(root, spec)]
 
 
-def resources_path(suite: Suite, repo: Optional[Path] = None) -> Optional[Path]:
+def resources_path(suite: Suite, root: Optional[Path] = None) -> Optional[Path]:
+    """Absolute path of the suite's resources CSV: ``suite.resources`` is
+    relative to the data root (``$BAYSOR_BENCH_DATA``), e.g.
+    ``baselines/bugfixes-35e8a7e/resources.csv``."""
     if not suite.resources:
         return None
-    repo = repo or common.repo_root()
-    return repo / "benchmarks" / suite.resources
+    root = root or common.data_root()
+    return root / suite.resources
 
 
 def estimate(suite: Suite, root: Path,
              resources_csv: Optional[Path]) -> dict:
-    """Estimated wall/CPU seconds per step from the committed resources CSV.
+    """Estimated wall/CPU seconds per step from the resources CSV.
 
     Wall = measured Baysor wall per replicate x replicates + cellAdmix audit
     time (steps with ``celladmix``); CPU = measured CPU time (user+sys) the
@@ -355,6 +359,28 @@ def membership(root: Path, repo: Optional[Path] = None,
     return out
 
 
+def check_baselines(suite: Suite, root: Path) -> int:
+    """Print where every baseline of the suite resolves under ``root`` and
+    return 2 when one is missing (used by ``bench.sh --dry-run``)."""
+    base_root = root / "baselines"
+    names = list(dict.fromkeys(
+        [s.baseline for s in suite.steps]
+        + [s.celltypes_from for s in suite.steps if s.celltypes_from]))
+    missing = []
+    for name in names:
+        d = base_root / name
+        ok = d.is_dir() and any(d.glob("*.json"))
+        print(f"baseline {name}: {d} ({'ok' if ok else 'MISSING'})")
+        if not ok:
+            missing.append(name)
+    if missing:
+        print(f"error: missing baseline(s) under {base_root}: "
+              f"{', '.join(missing)} (create with baseline.py create)",
+              file=sys.stderr)
+        return 2
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -369,11 +395,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--run-id", default="RUNID",
                     help="base run id used in the plan (default RUNID)")
     ap.add_argument("--data-root", default=None)
+    ap.add_argument("--check-baselines", action="store_true",
+                    help="verify that every baseline referenced by --suite "
+                         "exists under <data-root>/baselines and exit")
     ap.add_argument("--json", action="store_true",
                     help="emit the plan as JSON")
     args = ap.parse_args(argv)
 
     try:
+        if args.check_baselines:
+            if not args.suite:
+                ap.error("--check-baselines requires --suite")
+            suite = resolve(args.suite, args.manifest)
+            root = common.data_root(args.data_root)
+            return check_baselines(suite, root)
         if args.list or not args.suite:
             for name in list_suites(args.manifest):
                 print(name)

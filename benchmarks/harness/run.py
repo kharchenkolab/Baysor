@@ -664,7 +664,7 @@ def run_suite(args, ap, repo: Path, root: Path) -> int:
         selections = {st.name: [d.id for d in sel]
                       for st, _, sel in prepared}
         print(suites.plan_text(suite, args.run_id, selections,
-                               resources_csv=suites.resources_path(suite, repo),
+                               resources_csv=suites.resources_path(suite, root),
                                run_ids=group_ids, root=root))
         return 0
     baysor = _resolve_baysor(args, ap)

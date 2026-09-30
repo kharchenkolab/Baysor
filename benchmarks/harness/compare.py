@@ -41,7 +41,7 @@ Three expectation modes:
   * on real data the cellAdmix ``total_admixture_rate`` must be
     <= baseline + max(k*SD(baseline audit replicates), floor), floored by
     ``--admixture-tolerance`` (default 0.0025, calibrated from
-    ``celladmix/results/harness_baysor_sd.json``), gated only when the audit
+    ``$BAYSOR_BENCH_DATA/results/celladmix/harness_baysor_sd.json``), gated only when the audit
     status is ``ok`` on both sides, the dataset is ``admixture_capable`` and
     the baseline crop has >= 2000 cells; with fewer than 2 baseline audit
     replicates the floor alone is used (with a warning). Otherwise it is
@@ -105,8 +105,8 @@ K_DEFAULT = 3.0
 MIN_EFFECT_ACCURACY = 0.005     # --expect improved: minimum mean gain
 ADMIXTURE_MIN_CELLS = 2000      # admixture gate only on crops with >= cells
 # calibrated floor for --admixture-tolerance: 3 x SD of the Baysor replicate
-# audit on xenium_lung_cancer_quick (0.000844, celladmix/results/
-# harness_baysor_sd.json); also covers baselines with < 2 audit replicates
+# audit on xenium_lung_cancer_quick (0.000844, $BAYSOR_BENCH_DATA/results/
+# celladmix/harness_baysor_sd.json); also covers baselines with < 2 audit replicates
 DEFAULT_ADMIXTURE_TOLERANCE = 0.0025
 SLOWDOWN_WARN = 0.20
 RSS_GROWTH_WARN = 0.20
@@ -968,7 +968,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--baseline", default=None,
-                    help="baseline name under benchmarks/baselines "
+                    help="baseline name under <data-root>/baselines "
                          "(required unless --suite)")
     ap.add_argument("--expect", choices=list(MODES), default=None,
                     help="identical = bitwise check at 1 thread/1 replicate "
@@ -985,7 +985,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "datasets/suites.yaml)")
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--baselines-dir", default=None,
-                    help="default <repo>/benchmarks/baselines")
+                    help="default <data-root>/baselines")
     ap.add_argument("--k", type=float, default=K_DEFAULT,
                     help="tolerance multiplier on the pooled baseline SD "
                          "(default 3)")
@@ -1008,10 +1008,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.expect is None:
         args.expect = "identical"
 
-    repo = common.repo_root()
     root = common.data_root(args.data_root)
     baselines_dir = Path(args.baselines_dir) if args.baselines_dir \
-        else repo / "benchmarks" / "baselines"
+        else root / "baselines"
     run_root = root / "runs" / args.run_id
     base_dir = baselines_dir / args.baseline
 

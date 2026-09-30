@@ -4,11 +4,19 @@
 # repeat it).
 #
 #   bench.sh --baysor PATH [--baseline NAME] [--expect same|improved|identical]
-#            [--preset regular|release|refactor|algorithm]
+#            [--preset regular|release|refactor|algorithm | --suite NAME]
 #            [--datasets quick|full|all|<ids/globs>] [--kind sim|real]
 #            [--replicates N] [--threads N] [--run-id ID] [--timeout S]
 #            [--data-root PATH] [--celltypes-from NAME]
-#            [--create-baseline NAME]
+#            [--create-baseline NAME] [--dry-run]
+#
+# --create-baseline NAME: instead of comparing, freeze the run as a
+#            baseline under $BAYSOR_BENCH_DATA/baselines/NAME. With a suite
+#            run every group is frozen: the multi-thread group as NAME, the
+#            1-thread bitwise group as NAME-t1 (identical flavour).
+# --dry-run: resolve and print the plan (datasets, run-ids, baseline and
+#            resources-CSV locations under $BAYSOR_BENCH_DATA) without
+#            running Baysor; --baysor is not needed.
 #
 # Presets:
 #   regular    suite `regular` from datasets/suites.yaml: runs the 1-thread
@@ -59,6 +67,7 @@ TIMEOUT=""
 DATA_ROOT=""
 CREATE_BASELINE=""
 CELLTYPES_FROM=""
+DRY_RUN=0
 PY="${BENCH_PY:-}"
 
 # Preset pre-scan: applied as defaults, explicit flags below still win.
@@ -88,6 +97,7 @@ while [[ $# -gt 0 ]]; do
     --baseline)         BASELINE="$2"; shift 2 ;;
     --expect)           EXPECT="$2"; shift 2 ;;
     --preset)           shift 2 ;;          # handled in the pre-scan
+    --suite)            SUITE="$2"; shift 2 ;;
     --datasets)         DATASETS="$2"; shift 2 ;;
     --kind)             KIND="$2"; shift 2 ;;
     --replicates)       REPLICATES="$2"; shift 2 ;;
@@ -97,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     --data-root)        DATA_ROOT="$2"; shift 2 ;;
     --celltypes-from)   CELLTYPES_FROM="$2"; shift 2 ;;
     --create-baseline)  CREATE_BASELINE="$2"; shift 2 ;;
+    --dry-run)          DRY_RUN=1; shift ;;
     -h|--help)          grep '^# ' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -107,14 +118,11 @@ if [[ -n "$SUITE" && $EXPL_CONFIG -eq 1 ]]; then
   echo "       step by the suite manifest (benchmarks/datasets/suites.yaml)" >&2
   exit 2
 fi
-if [[ -n "$SUITE" && -n "$CREATE_BASELINE" ]]; then
-  echo "error: --create-baseline needs a single run; with a suite run" >&2
-  echo "       baseline.py create --run-id <id> yourself afterwards" >&2
-  exit 2
-fi
 
-[[ -n "$BAYSOR" ]] || { echo "error: give --baysor PATH or set BAYSOR_BIN" >&2; exit 2; }
-[[ -x "$BAYSOR" ]] || { echo "error: not executable: $BAYSOR" >&2; exit 2; }
+if [[ $DRY_RUN -eq 0 ]]; then
+  [[ -n "$BAYSOR" ]] || { echo "error: give --baysor PATH or set BAYSOR_BIN" >&2; exit 2; }
+  [[ -x "$BAYSOR" ]] || { echo "error: not executable: $BAYSOR" >&2; exit 2; }
+fi
 if [[ -z "$PY" ]]; then
   if [[ -x "$REPO/.deps/bench/bin/python" ]]; then
     PY="$REPO/.deps/bench/bin/python"
@@ -130,6 +138,42 @@ fi
 # the 1-thread (identical) group and suffixes the other groups.
 [[ -z "$RUN_ID" ]] && RUN_ID="b$(date +%y%m%d%H%M%S)"
 
+if [[ $DRY_RUN -eq 1 ]]; then
+  # resolve the plan without running Baysor: datasets, run-ids, the
+  # celltypes-from baseline and the resources CSV come from the data dir
+  DARGS=()
+  [[ -n "$DATA_ROOT" ]] && DARGS+=(--data-root "$DATA_ROOT")
+  if [[ -n "$SUITE" ]]; then
+    echo "== dry run: suite $SUITE (run-id base $RUN_ID) =="
+    "$PY" "$HERE/run.py" --suite "$SUITE" --run-id "$RUN_ID" --dry-run \
+      "${DARGS[@]}" || exit 2
+    "$PY" "$HERE/suites.py" --suite "$SUITE" --check-baselines \
+      "${DARGS[@]}" || exit 2
+    exit 0
+  fi
+  echo "== dry run: $RUN_ID (datasets=$DATASETS threads=$THREADS) =="
+  RARGS=(--datasets "$DATASETS" --run-id "$RUN_ID"
+         --replicates "$REPLICATES" --threads "$THREADS" --dry-run)
+  [[ -n "$KIND" ]]     && RARGS+=(--kind "$KIND")
+  [[ -n "$TIMEOUT" ]]  && RARGS+=(--timeout "$TIMEOUT")
+  [[ -n "$CELLTYPES_FROM" ]] && RARGS+=(--celltypes-from "$CELLTYPES_FROM")
+  "$PY" "$HERE/run.py" "${RARGS[@]}" "${DARGS[@]}" || exit 2
+  if [[ -n "$BASELINE" ]]; then
+    "$PY" - "$HERE" "$BASELINE" ${DATA_ROOT:+"$DATA_ROOT"} <<'PYEOF' || exit 2
+import sys
+from pathlib import Path
+here, name = sys.argv[1], sys.argv[2]
+sys.path.insert(0, str(Path(here)))
+import common
+d = common.baselines_root(sys.argv[3] if len(sys.argv) > 3 else None) / name
+ok = d.is_dir() and any(d.glob("*.json"))
+print(f"baseline {name}: {d} ({'ok' if ok else 'MISSING'})")
+sys.exit(0 if ok else 2)
+PYEOF
+  fi
+  exit 0
+fi
+
 if [[ -n "$SUITE" ]]; then
   ARGS=(--baysor "$BAYSOR" --suite "$SUITE" --run-id "$RUN_ID")
   [[ -n "$KIND" ]]             && ARGS+=(--kind "$KIND")
@@ -139,6 +183,21 @@ if [[ -n "$SUITE" ]]; then
   echo "== run: suite $SUITE (run-id base $RUN_ID) =="
   "$PY" "$HERE/run.py" "${ARGS[@]}"
   RUN_RC=$?
+
+  if [[ -n "$CREATE_BASELINE" ]]; then
+    if [[ $RUN_RC -ne 0 ]]; then
+      echo "note: suite run reported failures (rc=$RUN_RC);" >&2
+      echo "      baseline creation may fail or be incomplete" >&2
+    fi
+    # freeze every group: the multi-thread group as NAME, the 1-thread
+    # bitwise group as NAME-t1 (--create-baseline implies --force: it is
+    # an explicit (re)create, swapped in atomically by baseline.py)
+    SCARGS=(create-suite --suite "$SUITE" --name "$CREATE_BASELINE"
+            --run-id "$RUN_ID")
+    [[ -n "$DATA_ROOT" ]] && SCARGS+=(--data-root "$DATA_ROOT")
+    "$PY" "$HERE/baseline.py" "${SCARGS[@]}"
+    exit $?
+  fi
 
   CARGS=(--run-id "$RUN_ID" --suite "$SUITE")
   [[ -n "$BASELINE" ]]       && CARGS+=(--baseline "$BASELINE")
@@ -166,7 +225,9 @@ echo "== run: $RUN_ID (datasets=$DATASETS replicates=$REPLICATES threads=$THREAD
 RUN_RC=$?
 
 if [[ -n "$CREATE_BASELINE" ]]; then
-  BARGS=(create --run-id "$RUN_ID" --name "$CREATE_BASELINE")
+  # --create-baseline implies --force: an explicit (re)create, swapped in
+  # atomically by baseline.py (the old baseline is kept on any error)
+  BARGS=(create --run-id "$RUN_ID" --name "$CREATE_BASELINE" --force)
   [[ -n "$DATA_ROOT" ]] && BARGS+=(--data-root "$DATA_ROOT")
   # single-replicate / identical runs legitimately have no noise floor
   [[ "$REPLICATES" -lt 3 ]] && BARGS+=(--allow-incomplete)

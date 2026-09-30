@@ -204,6 +204,30 @@ def test_baseline_without_audit_records_no_typing(tmp_path):
     assert m["baseline"]["fixed_pairs_sha256"] is None
 
 
+def test_create_default_layout_is_merged(tmp_path):
+    """Without --baselines-dir the metric JSONs and the assignment data share
+    one directory under <data-root>/baselines/ (the local results store);
+    hand-written docs survive a forced recreation, only JSONs are replaced."""
+    root = tmp_path / "data"
+    _sim_run(root)
+    assert baseline.main(["create", "--run-id", "run1", "--name", "dflt",
+                          "--data-root", str(root)]) == 0
+    bdir = root / "baselines" / "dflt"
+    assert (bdir / "sim_a.json").is_file()
+    assert (bdir / "sim_a" / "rep0" / "assignment.parquet").is_file()
+    m = common.read_json(bdir / "sim_a.json")
+    assert m["baseline"]["name"] == "dflt"
+    (bdir / "SUMMARY.md").write_text("# s\n")
+    (bdir / "resources.csv").write_text("dataset\n")
+    assert baseline.main(["create", "--run-id", "run1", "--name", "dflt",
+                          "--data-root", str(root), "--force"]) == 0
+    assert (bdir / "SUMMARY.md").read_text() == "# s\n"
+    assert (bdir / "resources.csv").read_text() == "dataset\n"
+    assert (bdir / "sim_a.json").is_file()
+    assert not [p for p in (root / "baselines").iterdir()
+                if p.name.startswith(".")]
+
+
 def test_create_over_docs_only_dir_preserves_readme(tmp_path):
     """A baseline dir that only holds a hand-written README is not a
     baseline yet: create must succeed without --force and keep the README."""
@@ -223,3 +247,73 @@ def test_create_over_docs_only_dir_preserves_readme(tmp_path):
     assert baseline.create("rx", "mybase", root, baselines) == 2
     assert baseline.create("rx", "mybase", root, baselines, force=True) == 0
     assert (out / "README.md").is_file()
+
+
+# ---------------------------------------------------------------------------
+# create-suite: freeze every group of a suite run
+# ---------------------------------------------------------------------------
+
+SUITE_MANIFEST = """
+suites:
+  t:
+    steps:
+      - name: exact
+        group: exact
+        datasets: quick
+        threads: 1
+        replicates: 1
+        celladmix: false
+        expect: identical
+        baseline: b1
+      - name: noise
+        group: noise
+        datasets: quick
+        threads: 6
+        replicates: 3
+        celladmix: false
+        expect: same
+        baseline: b2
+"""
+
+
+def test_create_suite_freezes_each_group(tmp_path):
+    """create-suite freezes the multi-thread group as NAME and the 1-thread
+    bitwise group as NAME-t1 (identical flavour) under <data-root>/baselines."""
+    import textwrap
+    root = tmp_path / "data"
+    ds = make_sim_dataset(root / "sim" / "sim_a")
+    cells = pd.read_parquet(ds / "molecules.parquet")["cell"].to_numpy(np.int64)
+    make_run(root, "sr1", ds, [cells], threads=1)          # exact group
+    make_run(root, "sr1-noise", ds, [cells] * 3, threads=6)  # noise group
+    manifest = tmp_path / "suites.yaml"
+    manifest.write_text(textwrap.dedent(SUITE_MANIFEST))
+
+    rc = baseline.main(["create-suite", "--suite", "t", "--name", "pair",
+                        "--run-id", "sr1", "--data-root", str(root),
+                        "--manifest", str(manifest)])
+    assert rc == 0
+    t1 = common.read_json(root / "baselines" / "pair-t1" / "sim_a.json")
+    assert t1["baseline"]["identical"] is True
+    assert t1["baseline"]["run_id"] == "sr1"
+    n = common.read_json(root / "baselines" / "pair" / "sim_a.json")
+    assert n["baseline"]["identical"] is False
+    assert n["baseline"]["run_id"] == "sr1-noise"
+    assert n["baseline"]["noise_floor_replicates"] == 3
+    # assignment data sits next to the metric JSONs (merged layout)
+    assert (root / "baselines" / "pair-t1" / "sim_a" / "rep0" /
+            "assignment.parquet").is_file()
+    assert not [p for p in (root / "baselines").iterdir()
+                if p.name.startswith(".")]
+    # rerun is an explicit (re)create: force is implied, docs survive
+    (root / "baselines" / "pair" / "README.md").write_text("# n\n")
+    rc = baseline.main(["create-suite", "--suite", "t", "--name", "pair",
+                        "--run-id", "sr1", "--data-root", str(root),
+                        "--manifest", str(manifest)])
+    assert rc == 0
+    assert (root / "baselines" / "pair" / "README.md").read_text() == "# n\n"
+
+
+def test_create_suite_unknown_suite_is_setup_error(tmp_path):
+    root = tmp_path / "data"
+    assert baseline.main(["create-suite", "--suite", "nope", "--name", "x",
+                          "--run-id", "r", "--data-root", str(root)]) == 2

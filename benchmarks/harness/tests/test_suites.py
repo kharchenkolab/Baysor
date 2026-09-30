@@ -71,8 +71,9 @@ def test_unknown_suite_lists_available():
 
 def test_committed_resources_cover_release_suite():
     """Every dataset of the release suite has measured resources, and the
-    regular suite is a subset of release (no guessed or stray entries)."""
-    table = resources.load_csv(REPO / "benchmarks" / "baselines" /
+    regular suite is a subset of release (no guessed or stray entries).
+    The CSV lives in the local data dir (``<data-root>/baselines/...``)."""
+    table = resources.load_csv(common.baselines_root() /
                                "bugfixes-35e8a7e" / "resources.csv")
     regular = suites.resolve("regular", str(MANIFEST))
     release = suites.resolve("release", str(MANIFEST))
@@ -239,3 +240,33 @@ def test_membership_tolerates_partial_root(tmp_path):
     path = _write_manifest(tmp_path, CUSTOM)
     out = suites.membership(root, manifest_path=str(path))
     assert out["t"] == {"ds_a"}
+
+
+def test_resources_path_is_data_root_relative(tmp_path):
+    """`resources:` in the manifest resolves against the data root, not the
+    repo (the CSV lives in <data-root>/baselines/<name>/)."""
+    t = suites.resolve("t", str(_write_manifest(tmp_path, CUSTOM)))
+    assert suites.resources_path(t, tmp_path) == \
+        tmp_path / "nowhere" / "resources.csv"
+    reg = suites.resolve("regular", str(MANIFEST))
+    assert suites.resources_path(reg, tmp_path) == \
+        tmp_path / "baselines" / "bugfixes-35e8a7e" / "resources.csv"
+    assert suites.resources_path(reg) == \
+        common.data_root() / "baselines" / "bugfixes-35e8a7e" / "resources.csv"
+
+
+def test_check_baselines_reports_location_and_missing(tmp_path, capsys):
+    path = _write_manifest(tmp_path, CUSTOM)
+    t = suites.resolve("t", str(path))
+    root = tmp_path / "data"
+    # neither b1 nor b2 exists yet
+    assert suites.check_baselines(t, root) == 2
+    out = capsys.readouterr().out
+    assert str(root / "baselines" / "b1") in out and "MISSING" in out
+    for name in ("b1", "b2"):
+        d = root / "baselines" / name
+        d.mkdir(parents=True)
+        (d / "x.json").write_text("{}\n")
+    assert suites.check_baselines(t, root) == 0
+    out = capsys.readouterr().out
+    assert "(ok)" in out and "MISSING" not in out

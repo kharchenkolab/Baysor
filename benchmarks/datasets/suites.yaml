@@ -5,7 +5,7 @@
 # same runs/<id> folder (one comparison per group in compare.py --suite).
 #
 # `regular` — run on every change/PR. Measured cost of the dataset list at
-#   6 threads (baselines/bugfixes-35e8a7e/resources.csv): the 24 noise-step
+#   6 threads ($BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv): the 24 noise-step
 #   datasets sum to ~831 s Baysor wall + ~25 s cellAdmix audit per replicate;
 #   the 4 exact-step datasets cost ~226 s at 1 thread. One replicate per step
 #   (the `same` gates tolerate a single run replicate: the tolerances are

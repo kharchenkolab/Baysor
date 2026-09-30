@@ -68,7 +68,7 @@ echo "=== audit: baysor"
   --variant "baysor=$WORK/baysor.json" \
   --out "$WORK/summary.json" --markdown "$WORK/summary.md"
 
-RES="$ROOT/results"
+RES="$DATA/results/celladmix"
 mkdir -p "$RES"
 cp "$WORK/summary.json" "$WORK/summary.md" "$RES/"
 for name in vendor vendor_seed2 vendor_repeat border10 border30 dilate2 border30_recluster baysor; do

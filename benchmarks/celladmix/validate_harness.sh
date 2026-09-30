@@ -271,7 +271,7 @@ EOF
 }
 
 copy_results() {
-  local res="$ROOT/results"
+  local res="$DATA/results/celladmix"
   mkdir -p "$res"
   local n=${NPOOL_PANCREAS:-}
   [[ -n "$n" ]] || n=$("$PY" -c "import json;print(json.load(open('$WORKBASE/npool_selection.json'))['chosen_n_pool'])")

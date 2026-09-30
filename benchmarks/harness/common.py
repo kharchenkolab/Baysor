@@ -39,6 +39,13 @@ def data_root(cli_value: Optional[str] = None) -> Path:
     return repo_root() / ".bench-data"
 
 
+def baselines_root(cli_value: Optional[str] = None) -> Path:
+    """Baseline store ``<data-root>/baselines``: per-dataset metric JSONs,
+    ``resources.csv``, ``SUMMARY.md`` and the per-replicate assignment
+    tables/cell types (local, never committed)."""
+    return data_root(cli_value) / "baselines"
+
+
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:

@@ -85,8 +85,8 @@ echo "=== summarize"
   --variant "border30_recluster=$WORK/border30_recluster.json" \
   --out "$WORK/summary.json" --markdown "$WORK/summary.md"
 
-# Small results only: copy summary + audit JSONs into the committed results dir.
-RES="$ROOT/results"
+# Small results only: copy summary + audit JSONs into the data-dir results store.
+RES="$DATA/results/celladmix"
 mkdir -p "$RES"
 cp "$WORK/summary.json" "$WORK/summary.md" "$RES/"
 for name in vendor vendor_seed2 vendor_repeat border10 border30 dilate2 border30_recluster; do

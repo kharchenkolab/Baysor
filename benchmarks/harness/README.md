@@ -7,12 +7,12 @@ Runner, metrics, baselines and comparison for the Baysor benchmark suite
 |---|---|
 | `run.py` | run a Baysor binary over datasets, normalize output, compute metrics |
 | `metrics.py` | pure metric functions (unit-tested, no I/O) |
-| `baseline.py` | create/list committed baselines from a run |
+| `baseline.py` | create/list baselines from a run (local store `$BAYSOR_BENCH_DATA/baselines/`) |
 | `compare.py` | compare a run with a baseline (`identical`/`same`/`improved`), Markdown + JSON report, exit code |
 | `recompute_metrics.py` | recompute `metrics.json` from stored `assignment.parquet` files (no Baysor rerun) |
 | `suites.py` | suite manifest (`../datasets/suites.yaml`): resolve `--suite regular\|release` into steps, run-id groups, time estimates |
 | `resources.py` | extract per-dataset resource usage (CPU/wall/RSS/audit) from finished runs into `resources.csv` |
-| `bench.sh` | one command: run → compare (`compare.py` prints the report once); `--preset regular\|release\|refactor\|algorithm` |
+| `bench.sh` | one command: run → compare (`compare.py` prints the report once); `--preset regular\|release\|refactor\|algorithm` or `--suite NAME`, `--create-baseline NAME`, `--dry-run` |
 | `celladmix.py` | optional adapter for the cellAdmix audit (`../celladmix/audit.py`) |
 | `tests/` | pytest suite incl. contract-conformant fixture datasets |
 
@@ -28,7 +28,7 @@ export BAYSOR_BENCH_DATA=/path/to/.bench-data    # shared data root
 $PY benchmarks/harness/run.py --baysor /path/to/baysor \
     --datasets quick --run-id myrun --replicates 3
 
-# 2. freeze it as a baseline (metrics committed, assignments kept in data root)
+# 2. freeze it as a baseline (everything lands in $BAYSOR_BENCH_DATA/baselines/)
 $PY benchmarks/harness/baseline.py create --run-id myrun --name mybase
 
 # 3. later: check an unchanged algorithm
@@ -48,7 +48,14 @@ benchmarks/harness/bench.sh --baysor /path/to/baysor --baseline mybase \
 
 `bench.sh --create-baseline NAME` bootstraps a baseline after the run instead
 of comparing (adds `--allow-incomplete` for < 3 replicates and `--identical`
-when `--expect identical`). `BENCH_PY` overrides the interpreter,
+when `--expect identical`; implies `--force`, i.e. it is an explicit
+(re)create swapped in atomically). With a suite run every group is frozen:
+the multi-thread group as `NAME`, the 1-thread bitwise group as `NAME-t1`
+(that is `baseline.py create-suite --suite NAME --run-id ID --name BASE`,
+what `bench.sh` invokes).
+`bench.sh --dry-run` resolves the plan — datasets, run-ids, baseline and
+resources-CSV locations under `$BAYSOR_BENCH_DATA` — without running Baysor
+(`--baysor` not needed). `BENCH_PY` overrides the interpreter,
 `BAYSOR_BIN` the binary; without `BENCH_PY` it looks for
 `$REPO/.deps/bench/bin/python`, then `$BAYSOR_BENCH_DATA/../.deps/bench/bin/python`,
 then `python3`.
@@ -79,6 +86,7 @@ benchmarks/harness/bench.sh --baysor $B --preset regular --baseline mybase --cel
 ```bash
 $PY benchmarks/harness/suites.py --list
 $PY benchmarks/harness/suites.py --suite regular        # plan + estimates
+$PY benchmarks/harness/suites.py --suite regular --check-baselines
 $PY benchmarks/harness/run.py --suite regular --run-id X --dry-run
 $PY benchmarks/harness/compare.py --run-id X --suite regular
 ```
@@ -97,7 +105,10 @@ $PY benchmarks/harness/compare.py --run-id X --suite regular
   comparisons keep the strict behaviour;
 * `run.py --dry-run` resolves and prints everything (datasets, run-ids,
   threads, replicates, audit/AMI options, estimated wall/CPU from the
-  resources CSV) without touching the binary.
+  resources CSV) without touching the binary; `suites.py --check-baselines`
+  (or `bench.sh --dry-run`, which runs both) prints where every referenced
+  baseline resolves under `$BAYSOR_BENCH_DATA/baselines/` and fails when one
+  is missing.
 
 The `regular` suite runs with `--no-ami` (AMI is informational; the flag
 zeroes `metrics.AMI_MAX_LABELS` for the invocation and
@@ -108,9 +119,8 @@ computes AMI to keep baseline contents unchanged.
 
 `resources.py` parses the `/usr/bin/time -v` block of every finished
 replicate's `baysor.log` (User/System time, Percent of CPU, Elapsed,
-Maximum RSS) plus the cellAdmix `runtime_seconds.total` and writes the
-committed
-[`../baselines/bugfixes-35e8a7e/resources.csv`](../baselines/bugfixes-35e8a7e/resources.csv)
+Maximum RSS) plus the cellAdmix `runtime_seconds.total` and writes
+`$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv`
 (78 datasets; 6-thread CPU mean ± SD and wall mean, 6-thread peak RSS as
 the max over replicates, 1-thread wall/RSS, audit wall time, molecules,
 genes, CPU-seconds per 1k molecules). Missing measurements stay empty
@@ -365,15 +375,16 @@ $PY benchmarks/harness/baseline.py create --run-id R --name NAME [--force]
 $PY benchmarks/harness/baseline.py list
 ```
 
-* metrics are copied to `../baselines/NAME/<dataset>.json` (committed, ~12–17 KB);
+* metric JSONs are copied to `$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>.json`
+  (local, ~12–17 KB — never committed);
 * assignment tables are copied to
   `$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>/rep<k>/assignment.parquet`
-  (never committed; their sha256 is recorded in the JSON);
+  (their sha256 is recorded in the JSON);
 * for real datasets with audit typing, the baseline also stores
   `celltypes.parquet` (rep0's typing) and `fixed_pairs.json` (the pair set
   taken from rep0's audit `pairs_top`) under the same data directory — these
   are what `run.py --celltypes-from` consumes; their sha256 are recorded in
-  the committed JSON;
+  the metric JSON;
 * only **successful** replicates count: a normal baseline requires ≥ 3 of
   them (`--allow-incomplete` overrides, for fixtures and smoke baselines),
   because the binary is stochastic above one thread (below);
@@ -442,7 +453,7 @@ alone).
 ### Measured noise floor (6 threads, 3 replicates, this binary)
 
 Numbers below are from `recompute_metrics.py` with the current metric
-definitions (2026-09-29), i.e. what the committed baselines `harness-dev`
+definitions (2026-09-29), i.e. what the stored baselines `harness-dev`
 and `harness-real-dev` actually store.
 
 Sim (mean ± sample SD over replicates):
@@ -572,7 +583,7 @@ Improvement must exceed the noise:
 * on real data: `total_admixture_rate ≤ baseline + max(k·SD, floor)`, where
   SD is taken over the *baseline's* audit replicates and the floor is
   `--admixture-tolerance` (**default 0.0025** = 3 × the measured Baysor
-  replicate audit SD, `../celladmix/results/harness_baysor_sd.json`); with
+  replicate audit SD, `$BAYSOR_BENCH_DATA/results/celladmix/harness_baysor_sd.json`); with
   fewer than 2 baseline audit replicates the floor alone is used, with a
   warning. The check is gated **only** when the audit status is `ok` in both
   run and baseline, the dataset is `admixture_capable` and the baseline crop

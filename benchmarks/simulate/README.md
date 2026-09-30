@@ -25,8 +25,8 @@ Contract: [`benchmarks/README.md`](../README.md).  Manifest:
   `--update-hashes` records them.
 * `sanity.py` — runs the release Baysor binary on chosen datasets and records
   wall time, a majority-matching and a one-to-one (Hungarian) assignment
-  accuracy next to the oracle (reports: [`sanity_check.json`](sanity_check.json),
-  [`sanity_check_noprior.json`](sanity_check_noprior.json)).
+  accuracy next to the oracle (reports in `$BAYSOR_BENCH_DATA/results/simulate/`:
+  `sanity_check.json`, `sanity_check_noprior.json` — local, never committed).
 * `tests/` — pytest suite, 76 tests
   (`python -m pytest benchmarks/simulate/tests`).
 
@@ -231,7 +231,8 @@ All downloads are re-fetchable by the scripts (`ensure_repo`, `ensure_merfish`,
 one sparse and one dense st-rec dataset with `meta.baysor` + `:prior`
 (≤ 6 threads), writes run outputs to
 `$BAYSOR_BENCH_DATA/runs/bench-sim-sanity/<id>/` and the report to
-`sanity_check.json`.  Reports record the majority-match accuracy and a
+`$BAYSOR_BENCH_DATA/results/simulate/sanity_check.json` (local, not in git).
+Reports record the majority-match accuracy and a
 one-to-one (Hungarian) matched accuracy — the latter is computed by
 `sanity.hungarian_match_accuracy`, a helper for this check only (the
 benchmark metric lives in `harness/metrics.py`).  Latest with-prior run:
@@ -243,8 +244,8 @@ benchmark metric lives in `harness/metrics.py`).  Latest with-prior run:
 | strec_dense_s2_merfish | 0 | 31.5 s | **0.619** | — | 0.723 | 0.635 |
 
 No-prior sanity run
-(`sanity.py --ids ..._noprior --report sanity_check_noprior.json`, same
-binary, no `:prior` flag):
+(`sanity.py --ids ..._noprior --report $BAYSOR_BENCH_DATA/results/simulate/sanity_check_noprior.json`,
+same binary, no `:prior` flag):
 
 | dataset | exit | wall time | majority-match | one-to-one | oracle | naive |
 |---|---|---|---|---|---|---|

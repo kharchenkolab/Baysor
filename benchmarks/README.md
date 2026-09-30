@@ -12,8 +12,10 @@ The suite answers two questions:
 2. **Algorithm change**: accuracy on simulated data goes up, and the cellAdmix
    admixture audit on real data is not worse than the baseline.
 
-Data is never committed. Code, dataset manifests and small baseline metric
-files are.
+Data is never committed. Code, dataset manifests and suite definitions are;
+benchmark/validation **results and baselines are local** — they live under
+`$BAYSOR_BENCH_DATA` (see [Results and baselines are
+local](#results-and-baselines-are-local)).
 
 ## Layout
 
@@ -28,8 +30,11 @@ benchmarks/
   fetch/                 download + crop scripts for real datasets
   harness/               runner, metrics, baseline comparison, reports
   celladmix/             cellAdmix admixture audit on a segmentation
-  baselines/             committed baseline metrics (small JSON/CSV per dataset)
 ```
+
+Baseline metric JSONs, `resources.csv`, `SUMMARY.md`, run outputs and
+validation reports are **not** in this tree: they live under
+`$BAYSOR_BENCH_DATA` (see [Data location](#data-location)).
 
 ## Dataset inventory
 
@@ -39,8 +44,8 @@ density and gene-panel class, 2D/3D, prior, images, `admixture_capable`,
 source, notes) grouped by kind and platform, plus the density × gene-panel
 coverage matrix per kind. It also carries the measured **resource columns**
 (6-thread CPU time ± SD, 6-thread wall and peak RAM, 1-thread wall/RAM,
-cellAdmix audit time — from the committed
-[`baselines/bugfixes-35e8a7e/resources.csv`](baselines/bugfixes-35e8a7e/resources.csv),
+cellAdmix audit time — from the local
+`$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv`,
 regenerated with [`harness/resources.py`](harness/resources.py) from the
 existing runs; `TODO` = never measured, never guessed) and a **Suite**
 column (membership in [`datasets/suites.yaml`](datasets/suites.yaml)).
@@ -70,12 +75,13 @@ noise floor (including Baysor's determinism findings), and the
 
 ## How to test a change
 
-Official baselines of the current algorithm:
+Official baselines of the current algorithm (stored under
+`$BAYSOR_BENCH_DATA/baselines/`, never in git):
 
 | baseline | flavor | contents |
 |---|---|---|
-| [`baselines/bugfixes-35e8a7e-t1`](baselines/bugfixes-35e8a7e-t1/) | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix |
-| [`baselines/bugfixes-35e8a7e`](baselines/bugfixes-35e8a7e/) | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
+| `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e-t1/` | `identical` | quick tier, 1 thread, 1 replicate, no cellAdmix |
+| `$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/` | noise floor | quick + full tier, 6 threads, 3 replicates (full tier: see its README), cellAdmix audit with stable typing |
 
 Setup used by every command below:
 
@@ -90,7 +96,7 @@ B=/path/to/baysor                 # your build of the same sources
 Two committed suites (schema in [`harness/suites.py`](harness/suites.py),
 resolution via `run.py --suite` / `compare.py --suite`). The times are
 estimates from
-[`baselines/bugfixes-35e8a7e/resources.csv`](baselines/bugfixes-35e8a7e/resources.csv)
+`$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv`
 (measured Baysor wall/CPU × replicates + cellAdmix audit; reproduce with
 `$PY benchmarks/harness/suites.py --suite <name>`):
 
@@ -210,8 +216,44 @@ $PY benchmarks/harness/baseline_summary.py --baseline bugfixes-<new-sha>
 (`--skip-existing` only reuses replicates whose binary sha256, thread
 count and scale factor match, so a new binary reruns everything; the full
 tier runs are appended by repeating the command with `--datasets full`
-`--timeout 5400`.) See [`baselines/bugfixes-35e8a7e/README.md`](baselines/bugfixes-35e8a7e/README.md)
+`--timeout 5400`.) See
+`$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/README.md`
 for the exact official-baseline invocations of this binary.
+
+## Results and baselines are local
+
+Nothing under `benchmarks/` is a run result: datasets, run outputs, baseline
+metric JSONs and validation reports all live under `$BAYSOR_BENCH_DATA`
+(gitignored, never committed — see [Data location](#data-location)):
+
+```
+$BAYSOR_BENCH_DATA/
+  baselines/<name>/        baseline metric JSONs + README/SUMMARY.md +
+                           resources.csv, and <dataset>/rep<k>/ assignment
+                           tables, celltypes.parquet, fixed_pairs.json
+  results/celladmix/       cellAdmix validation summaries + audit JSONs
+  results/simulate/        sanity.py reports (sanity_check*.json)
+```
+
+The harness reads and writes every one of these files there; the
+`regular`/`release` suites and their `--expect identical|same|improved`
+comparisons work unchanged.
+
+**Recreate a baseline** with the release suite and the preserved official
+binary (kept in the data dir): the 6-thread group freezes as `<name>`, the
+1-thread bitwise group as `<name>-t1`:
+
+```bash
+export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
+benchmarks/harness/bench.sh --suite release \
+    --baysor "$BAYSOR_BENCH_DATA/binaries/baysor-bugfixes-35e8a7e" \
+    --create-baseline bugfixes-35e8a7e
+```
+
+`--create-baseline` implies `--force`: `baseline.py` swaps the new baseline
+in atomically and keeps the old one on any error. To only resolve the plan
+— datasets, run-ids, baseline and resources-CSV locations — without running
+Baysor: `bench.sh --suite release --dry-run`.
 
 ## Data location
 
@@ -223,6 +265,9 @@ $BAYSOR_BENCH_DATA/
   sim/<dataset_id>/...
   real/<dataset_id>/...
   runs/<run_id>/<dataset_id>/...     harness outputs (Baysor results, metrics)
+  baselines/<name>/...               baseline metric JSONs, resources.csv,
+                                     assignment tables, cell types (see above)
+  results/                           validation reports (celladmix, simulate)
   cache/                             raw downloads kept for re-cropping (may be deleted)
 ```
 

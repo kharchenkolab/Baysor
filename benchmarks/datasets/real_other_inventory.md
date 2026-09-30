@@ -71,7 +71,7 @@ On `cosmx_wtx_colon_quick` (17,533 genes) the **default
 (peak RSS 9.8 GB, 127% CPU) still at
 `Clustering molecules into 4 types (ICA init)...`; a 20-minute-capped rerun
 records the same timeout and stage in
-`benchmarks/baselines/real_other_smoke.json` (`recorded_default_timeouts`).
+`$BAYSOR_BENCH_DATA/baselines/real_other_smoke.json` (`recorded_default_timeouts`).
 For reference the Xenium Prime5K quick crop (5k genes) finishes in ~75 s.
 Alternatives measured on the same crop,6 threads, ≤20 min caps:
 
@@ -100,7 +100,7 @@ kills the process group on timeout instead of blocking the pipeline.
 | cosmx_wtx_colon_quick (louvain) | ok | 108.3 s | 1745 MiB |
 | cosmx_wtx_colon_quick (default mrf) | **timeout @1200 s** at "Clustering molecules into 4 types (ICA init)..." | 1201 s | — (recorded) |
 
-Machine-readable version: `benchmarks/baselines/real_other_smoke.json`.
+Machine-readable version: `$BAYSOR_BENCH_DATA/baselines/real_other_smoke.json`.
 
 ## Regeneration
 

@@ -65,7 +65,8 @@ text reports to `<build-dir>/coverage/`.
 The repository carries a regression/quality benchmark suite under
 [benchmarks/](https://github.com/kharchenkolab/Baysor/tree/HEAD/benchmarks) —
 cropped real datasets and simulated datasets with known ground truth, with
-committed baselines and a cellAdmix admixture audit. See
+local baselines (kept under `$BAYSOR_BENCH_DATA`, not in git) and a
+cellAdmix admixture audit. See
 [benchmarks/README.md](https://github.com/kharchenkolab/Baysor/blob/HEAD/benchmarks/README.md)
 for the layout, dataset contract, and the `bench.sh` runner.
 

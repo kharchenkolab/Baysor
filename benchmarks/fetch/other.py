@@ -15,7 +15,7 @@ Sub-commands:
 
     build    download sources and (re)build datasets
     smoke    run the Release Baysor binary on every quick crop, recording
-             wall time and peak RSS into benchmarks/baselines/
+             wall time and peak RSS into $BAYSOR_BENCH_DATA/baselines/
     report   print a markdown table with per-dataset stats
 
 Sources (all downloadable without login; see the inventory in
@@ -63,7 +63,7 @@ WTX_PERF_NOTE = (
     "perf-stress: default ICA init — with the default --cluster-method mrf this "
     "~19k-gene crop never finished: >70 min stuck at 'Clustering molecules into 4 "
     "types (ICA init)' at 9.8 GB RSS (run killed by the coordinator; a 20-min capped "
-    "rerun is recorded as a timeout in benchmarks/baselines/real_other_smoke.json). "
+    "rerun is recorded as a timeout in $BAYSOR_BENCH_DATA/baselines/real_other_smoke.json). "
     "meta.baysor therefore uses --cluster-method louvain (113 s on the quick crop; "
     "leiden and none complete in ~111 s, all on 6 threads)."
 )
@@ -1495,7 +1495,7 @@ def smoke(manifest: dict, binary: Path, *, timeout_s: float = 1800.0,
             results["recorded_default_timeouts"][spec["id"]] = rec
             print(f"{spec['id']} (default mrf): {rec['status']} after "
                   f"{wall_d:.0f}s at: {rec['stage']}")
-    out = U.repo_root() / "benchmarks" / "baselines" / "real_other_smoke.json"
+    out = U.bench_data_root() / "baselines" / "real_other_smoke.json"
     U.json_dump(results, out)
     return out
 

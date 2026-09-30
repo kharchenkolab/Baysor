@@ -32,7 +32,7 @@ cpp/build*/
 cpp/tmp/
 gh_key.sh
 /.deps/
-/.bench-data/
+/.bench-data
 __pycache__/
 .pytest_cache/
 *.pyc

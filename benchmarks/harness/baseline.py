@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Create and list committed benchmark baselines.
+"""Create and list benchmark baselines.
 
 ``baseline.py create --run-id R --name NAME``
 
 * copies each dataset's ``metrics.json`` from ``runs/<R>/`` into
-  ``benchmarks/baselines/NAME/<dataset>.json`` (committed, small), and
+  ``$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>.json`` (local, never
+  committed), and
 * keeps the per-replicate assignment tables, the saved cell types
   (``celltypes.parquet``) and the fixed audit pair set
-  (``fixed_pairs.json``) under ``$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>/``
-  (never committed), recording their sha256 in the committed JSON.
+  (``fixed_pairs.json``) under ``$BAYSOR_BENCH_DATA/baselines/NAME/<dataset>/``,
+  recording their sha256 in the metric JSON.
 
 Only *successful* replicates count towards the noise floor. Because Baysor is
 stochastic above one thread, a normal baseline requires a run with >= 3
@@ -195,20 +196,33 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
         return 2
 
     assignments_root = root / "baselines" / name
+    # the default layout stores metric JSONs and assignment data in the same
+    # directory (<data-root>/baselines/NAME); keep them separable for
+    # --baselines-dir overrides (tests, fixtures)
+    try:
+        merged = baselines_dir.resolve() == (root / "baselines").resolve()
+    except OSError:
+        merged = baselines_dir == root / "baselines"
     pid = os.getpid()
-    json_tmp = baselines_dir / f".{name}.tmp-{pid}"
-    data_tmp = root / "baselines" / f".{name}.tmp-{pid}"
-    for d in (json_tmp, data_tmp):
-        shutil.rmtree(d, ignore_errors=True)
-        d.mkdir(parents=True, exist_ok=True)
+    if merged:
+        json_tmp = data_tmp = baselines_dir / f".{name}.tmp-{pid}"
+        shutil.rmtree(json_tmp, ignore_errors=True)
+        json_tmp.mkdir(parents=True, exist_ok=True)
+    else:
+        json_tmp = baselines_dir / f".{name}.tmp-{pid}"
+        data_tmp = root / "baselines" / f".{name}.tmp-{pid}"
+        for d in (json_tmp, data_tmp):
+            shutil.rmtree(d, ignore_errors=True)
+            d.mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
     problems: list[str] = []
-    # carry over hand-written docs (README.md, ...) across recreations:
-    # the atomic swap replaces the whole directory
+    # carry over hand-written docs (README.md, SUMMARY.md, resources.csv,
+    # ...) across recreations: the atomic swap replaces the whole directory
     if out_dir.is_dir():
-        for extra in out_dir.glob("README*"):
-            shutil.copy2(extra, json_tmp / extra.name)
+        for extra in out_dir.iterdir():
+            if extra.is_file() and extra.suffix != ".json":
+                shutil.copy2(extra, json_tmp / extra.name)
     try:
         for mf in metrics_files:
             ds_id = common.read_json(mf)["dataset"]["id"]
@@ -231,8 +245,9 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
             print("error: nothing written", file=sys.stderr)
             return 2
 
-        _commit([(json_tmp, out_dir), (data_tmp, assignments_root)],
-                force or docs_only)
+        swaps = ([(json_tmp, out_dir)] if merged else
+                 [(json_tmp, out_dir), (data_tmp, assignments_root)])
+        _commit(swaps, force or docs_only)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         print("error: baseline not modified (old baseline kept)", file=sys.stderr)
@@ -251,8 +266,60 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
               f"assign sha256: {list(bl['assignment_sha256'].values())[:1]}"
               f"{'...' if len(bl['assignment_sha256']) > 1 else ''}"
               f"{', celltypes+fixed-pairs stored' if bl.get('celltypes_sha256') else ''}")
-    print(f"data (not committed): {assignments_root}")
+    print(f"baseline data: {assignments_root}")
     return 0
+
+
+def create_suite(suite_name: str, name: str, run_id: str, root: Path,
+                 manifest: Optional[str] = None) -> int:
+    """Freeze every run-id group of a suite run as a baseline
+    (``bench.sh --suite ... --create-baseline NAME``).
+
+    One baseline per group: the multi-thread group as ``NAME``, the
+    1-thread bitwise group as ``NAME-t1`` (identical flavour). Each group
+    is created with ``--force`` (an explicit (re)create, swapped in
+    atomically), ``--allow-incomplete`` when its steps run fewer than 3
+    replicates, and ``--identical`` when its steps expect ``identical``.
+    Returns the first non-zero ``create`` exit code (2 on setup errors).
+    """
+    import suites
+    try:
+        suite = suites.resolve(suite_name, manifest)
+        run_ids = suites.group_run_ids(suite, run_id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    baselines_dir = root / "baselines"
+    seen: dict[str, str] = {}
+    rc = 0
+    for group, rid in run_ids.items():
+        steps = [s for s in suite.steps if s.group == group]
+        threads = {s.threads for s in steps}
+        if len(threads) != 1:
+            print(f"error: group '{group}' mixes thread counts "
+                  f"{sorted(threads)}; cannot derive a baseline name -- "
+                  "create the baselines with baseline.py create yourself",
+                  file=sys.stderr)
+            return 2
+        t = threads.pop()
+        bname = name if t != 1 else f"{name}-t1"
+        if bname in seen:
+            print(f"error: groups '{seen[bname]}' and '{group}' both map to "
+                  f"baseline '{bname}' -- create them with baseline.py "
+                  "create yourself", file=sys.stderr)
+            return 2
+        seen[bname] = group
+        identical = any(s.expect == "identical" for s in steps)
+        reps = min(s.replicates for s in steps)
+        print(f"== baseline {bname}: group {group} (run {rid}, {t} "
+              f"thread(s) x {reps} rep(s)"
+              f"{', identical' if identical else ''}) ==")
+        r = create(rid, bname, root, baselines_dir,
+                   allow_incomplete=reps < MIN_REPLICATES, force=True,
+                   identical=identical)
+        if r != 0:
+            rc = r
+    return rc
 
 
 def list_baselines(baselines_dir: Path) -> int:
@@ -287,7 +354,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     c.add_argument("--name", required=True)
     c.add_argument("--data-root", default=None)
     c.add_argument("--baselines-dir", default=None,
-                   help="default <repo>/benchmarks/baselines")
+                   help="default <data-root>/baselines")
     c.add_argument("--allow-incomplete", action="store_true",
                    help=f"allow baselines with fewer than {MIN_REPLICATES} "
                         f"successful replicates")
@@ -298,12 +365,29 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     l = sub.add_parser("list", help="list baselines")
     l.add_argument("--baselines-dir", default=None)
+    l.add_argument("--data-root", default=None)
+
+    s = sub.add_parser("create-suite",
+                       help="freeze every group of a suite run as baselines "
+                            "(multi-thread group as NAME, 1-thread bitwise "
+                            "group as NAME-t1)")
+    s.add_argument("--suite", required=True)
+    s.add_argument("--name", required=True)
+    s.add_argument("--run-id", required=True)
+    s.add_argument("--data-root", default=None)
+    s.add_argument("--manifest", default=None,
+                   help="suite manifest path (default "
+                        "<repo>/benchmarks/datasets/suites.yaml)")
 
     args = ap.parse_args(argv)
-    repo = common.repo_root()
-    baselines_dir = Path(args.baselines_dir) if getattr(args, "baselines_dir", None) \
-        else repo / "benchmarks" / "baselines"
+    baselines_dir = Path(args.baselines_dir) \
+        if getattr(args, "baselines_dir", None) \
+        else common.baselines_root(getattr(args, "data_root", None))
 
+    if args.cmd == "create-suite":
+        root = common.data_root(args.data_root)
+        return create_suite(args.suite, args.name, args.run_id, root,
+                            manifest=args.manifest)
     if args.cmd == "create":
         root = common.data_root(args.data_root)
         return create(args.run_id, args.name, root, baselines_dir,

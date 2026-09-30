@@ -73,7 +73,8 @@ of each dataset's `molecules.parquet` and `meta.json` into
 `real_xenium.yaml` under `outputs:`.  `verify` checks them (plus the cached
 member hashes and the source URLs); `verify --skip-urls` is offline,
 `verify --require-built` also fails on datasets that are missing on disk.
-This is what pins the dataset contents the baselines were computed on.
+This is what pins the dataset contents the baselines (kept locally in
+`$BAYSOR_BENCH_DATA/baselines/`, never committed) were computed on.
 
 ## Crop selection criteria
 

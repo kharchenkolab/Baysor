@@ -8,7 +8,7 @@ audit wall time from ``celladmix.json`` (``runtime_seconds.total``). No
 Baysor rerun is involved: everything comes from runs that already exist
 under ``$BAYSOR_BENCH_DATA/runs/``.
 
-The committed result is ``benchmarks/baselines/bugfixes-35e8a7e/resources.csv``
+The result is ``$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/resources.csv``
 with one row per dataset:
 
 ============================  ====================================================
@@ -35,7 +35,7 @@ Usage::
 
     resources.py                    # rewrite the default CSV from the runs
     resources.py --out /tmp/r.csv   # write elsewhere
-    resources.py --check            # exit 1 when the committed CSV is stale
+    resources.py --check            # exit 1 when the CSV is stale
 """
 from __future__ import annotations
 
@@ -50,7 +50,8 @@ from run import parse_time_v       # noqa: E402
 
 DEFAULT_RUN6 = "benchbase-b"       # 6 threads, 3 replicates, all datasets
 DEFAULT_RUN1 = "benchbase-t1"      # 1 thread, 1 replicate, quick tier
-DEFAULT_OUT = "benchmarks/baselines/bugfixes-35e8a7e/resources.csv"
+# output path relative to the data root ($BAYSOR_BENCH_DATA)
+DEFAULT_OUT = "baselines/bugfixes-35e8a7e/resources.csv"
 
 CSV_COLUMNS = ("dataset", "molecules", "genes",
                "cpu6_mean_s", "cpu6_sd_s", "wall6_mean_s", "peak_rss6_kb",
@@ -295,20 +296,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None,
                     help="data root (default $BAYSOR_BENCH_DATA or <repo>/.bench-data)")
-    ap.add_argument("--repo", default=None)
     ap.add_argument("--run6", default=DEFAULT_RUN6,
                     help=f"6-thread run id (default {DEFAULT_RUN6})")
     ap.add_argument("--run1", default=DEFAULT_RUN1,
                     help=f"1-thread run id (default {DEFAULT_RUN1}; '' disables)")
     ap.add_argument("--out", default=None,
-                    help=f"output CSV (default <repo>/{DEFAULT_OUT})")
+                    help=f"output CSV (default <data-root>/{DEFAULT_OUT})")
     ap.add_argument("--check", action="store_true",
                     help="do not write; exit 1 if the CSV is out of date")
     args = ap.parse_args(argv)
 
-    repo = Path(args.repo).resolve() if args.repo else common.repo_root()
     root = common.data_root(args.data_root)
-    out = Path(args.out) if args.out else repo / DEFAULT_OUT
+    out = Path(args.out) if args.out else root / DEFAULT_OUT
 
     try:
         rows = collect_rows(root, args.run6, args.run1 or None)

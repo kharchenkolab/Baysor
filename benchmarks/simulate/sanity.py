@@ -22,7 +22,8 @@ Full metrics are BENCH-HARNESS's job; this only answers "does it run and is
 the answer in the plausible range?".
 
 Outputs go to ``$BAYSOR_BENCH_DATA/runs/bench-sim-sanity/<id>/``; a small
-report is written to ``benchmarks/simulate/sanity_check.json`` (committed).
+report is written to ``$BAYSOR_BENCH_DATA/results/simulate/sanity_check.json``
+(local, not committed).
 
 Usage::
 
@@ -31,7 +32,7 @@ Usage::
     python benchmarks/simulate/sanity.py \\
         --ids strec_sparse_s1_disjoint_noprior sim_circles_gaps_g100_noprior \\
               strec_dense_s2_merfish_noprior \\
-        --report benchmarks/simulate/sanity_check_noprior.json
+        --report $BAYSOR_BENCH_DATA/results/simulate/sanity_check_noprior.json
 """
 from __future__ import annotations
 
@@ -58,7 +59,7 @@ DEFAULT_IDS = [
     "strec_sparse_s2_disjoint",        # sparse st-recoverability
     "strec_dense_s2_merfish",          # dense + sigma=2 + realistic
 ]
-REPORT = HERE / "sanity_check.json"
+REPORT = common.data_root() / "results" / "simulate" / "sanity_check.json"
 MAX_THREADS = 6
 
 
@@ -274,7 +275,9 @@ def main(argv: list[str] | None = None) -> int:
         "run_root": str(run_root),
         "datasets": records,
     }
-    Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
+    report_path = Path(args.report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
     print(f"wrote {args.report}")
     ok = all(r["exit_code"] == 0 and "error" not in r for r in records)
     return 0 if ok else 1
