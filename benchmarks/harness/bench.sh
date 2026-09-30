@@ -83,7 +83,10 @@ if [[ -z "$PY" ]]; then
     PY=python3
   fi
 fi
-[[ -z "$RUN_ID" ]] && RUN_ID="bench-$(date +%Y%m%d-%H%M%S)"
+# Keep the default run id short (13 chars): at 1 thread Baysor output currently
+# depends on the output-path length (>= 18-char run ids flip some datasets),
+# see "Determinism" in harness/README.md.
+[[ -z "$RUN_ID" ]] && RUN_ID="b$(date +%y%m%d%H%M%S)"
 
 ARGS=(--baysor "$BAYSOR" --datasets "$DATASETS" --run-id "$RUN_ID"
       --replicates "$REPLICATES" --threads "$THREADS")
