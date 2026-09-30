@@ -2,6 +2,35 @@
 
 All notable changes to the C++ line of Baysor are documented here.
 
+## Unreleased
+
+### Added
+
+- A versioned documentation site (MkDocs + Material, versioned with `mike`):
+  `mkdocs.yml`, rewritten `docs/` pages, and the `docs` GitHub workflow that
+  builds the site strictly on docs changes and deploys one site version per
+  GitHub release. The `latest` alias only points at the newest stable
+  release: pre-releases, backport releases, and `workflow_dispatch` redeploys
+  of older tags are deployed without moving `latest`.
+- Release-binary installation documentation (Linux x86-64, macOS arm64,
+  Windows x86-64 archives with `SHA256SUMS`), plus a Docker section on the
+  installation page.
+- A "Migrating from Baysor.jl (v0.7.x)" page and developer docs (source
+  builds, tests, coverage, benchmarks, releasing).
+- `docs/tools/check_cli_docs.py`, which fails when the docs mention a CLI
+  option or config key that the sources do not define.
+- `docs/tools/migrate_gh_pages.py`, a one-time maintainer migration for the
+  `gh-pages` branch: archives the Julia site as `0.7.1 (Julia)` and keeps old
+  `/dev/...` links working via redirect stubs.
+
+### Changed
+
+- `README.md` now points to the documentation site and release binaries.
+- The documentation pages were rewritten against the C++ implementation
+  (required `--min-molecules-per-cell`, actual option defaults, complete
+  config-key reference, corrected output-file descriptions).
+
+
 ## [cpp-0.8.3] — 2026-07-31
 
 ### Changed

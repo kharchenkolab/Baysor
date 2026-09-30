@@ -1,107 +1,87 @@
-# Prior Segmentation Inputs
+# Prior segmentation
 
-Baysor can use optional prior segmentation to guide the run.
-
-The `prior_segmentation` positional argument may be:
-
-- a transcript-native label column: `:column_name`
-- an image mask
-- a boundary CSV / Parquet file
-
-## Transcript-Native Priors
-
-If prior labels are already attached to each molecule row, pass them as:
+Baysor can take an optional prior segmentation into account — for example a
+DAPI-based nuclear segmentation or published cell boundaries. The prior is
+passed as the second positional argument:
 
 ```bash
-./build/baysor run molecules.parquet :cell_id
+baysor run [OPTIONS] coordinates prior_segmentation
 ```
 
-This is often the fastest and simplest prior mode, because no extra
-point-in-polygon or mask lookup is required.
+## Prior types
 
-For Xenium, `:cell_id` is usually the preferred prior mode.
+### Transcript-native labels: `:column_name`
 
-## Image Mask Priors
-
-Image masks are useful when segmentation is available as labeled pixels, such
-as DAPI-based or watershed-derived masks.
-
-Example:
+If prior assignments already exist per molecule row, pass the column name
+with a `:` prefix:
 
 ```bash
-./build/baysor run -c configs/iss.toml molecules.csv dapi_mask.tif
+baysor run -m 50 -c configs/xenium.toml -o out data/transcripts.parquet :cell_id
 ```
 
-## Boundary Priors
+This is the fastest prior mode and the recommended one for Xenium. Values
+equal to `--unassigned-prior-label` (default `0`) count as unassigned.
 
-Polygon / boundary priors are useful when segmentation is published as cell
-outlines rather than masks.
+### Image masks: TIFF
 
-Examples:
+A labeled (integer) or binary TIFF mask where pixel values identify segments:
 
 ```bash
-./build/baysor run -c configs/xenium.toml data/experiment.xenium data/cell_boundaries.parquet
-./build/baysor run -c configs/xenium.toml data/experiment.xenium data/nucleus_boundaries.parquet
+baysor run -m 30 -c configs/iss.toml -o out molecules.csv dapi_mask.tif
 ```
 
-## Prior Confidence
+Molecules are assigned to the segment covering their x/y position. Both
+binary masks (single foreground component per cell) and integer-labeled masks
+are supported.
 
-The weight of the prior is controlled by:
+### Boundary tables: CSV / Parquet
 
-```text
---prior-segmentation-confidence
+A long-format vertex table with one row per polygon vertex and columns:
+
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `vertex_x` | float | vertex x coordinate |
+| `vertex_y` | float | vertex y coordinate |
+| `label_id` | int | segment id (alternative: `cell_id`) |
+| `cell_id` | string | segment label; used when `label_id` is absent |
+
+```bash
+baysor run -m 50 -c configs/xenium.toml -o out data/experiment.xenium data/cell_boundaries.parquet
 ```
 
-and by the corresponding config value:
+Polygons outside the molecule bounds are ignored. Molecules not covered by
+any polygon are unassigned.
 
-```toml
-[segmentation]
-prior_segmentation_confidence = ...
-```
+!!! note
+    Image and boundary priors assign molecules by their x/y position. For 3D
+    segmentations, prefer transcript-native `:column_name` priors.
 
-Higher values make the segmentation adhere more strongly to the prior.
+## Prior behavior
 
-## Unassigned Prior Labels
+- **Segment filtering.** Prior segments with fewer than
+  `min_molecules_per_segment` assigned molecules are treated as unassigned.
+  The default is `max(min_molecules_per_cell / 4, 2)`.
+- **Confidence.** `--prior-segmentation-confidence` (default `0.2`, range
+  `[0, 1]`) controls how strongly the segmentation must adhere to the prior:
+  `0` ignores the prior, `1` forbids contradicting it. For sparse protocols
+  (ISS, DARTFISH) or when the prior is high quality, values above `0.7` are
+  recommended; otherwise the default works well.
+- **Scale estimation.** Unless `--scale` is given, Baysor estimates the cell
+  scale and `--scale-std` from the prior segments
+  (`estimate_scale_from_prior`, on by default). Passing an explicit `--scale`
+  disables this.
+- **Unassigned molecules.** Molecules without a prior segment are segmented
+  freely; their cell ids can be influenced with `--unassigned-prior-label`
+  for transcript-native priors.
 
-When using transcript-native priors, the unassigned label can be set from the
-CLI with:
+## When to use which prior
 
-```text
---unassigned-prior-label
-```
+Use `:column_name` when prior assignments exist per transcript already — it is
+the fastest mode and gives a clean `xeniumranger import-segmentation` handoff.
 
-or in the config with the preferred `[prior]` key:
+Use boundary tables when you have published cell or nucleus outlines.
 
-```toml
-[prior]
-unassigned_label = "UNASSIGNED"
-```
+Use image masks when you have labeled pixels, e.g. DAPI/watershed masks.
 
-The older Julia-style key is also accepted for compatibility:
-
-```toml
-[segmentation]
-unassigned_prior_label = "UNASSIGNED"
-```
-
-CLI flags override config values. For Xenium, [configs/xenium.toml](../configs/xenium.toml)
-sets the default unassigned label to `"UNASSIGNED"`.
-
-## When To Use Which Prior
-
-Use `:column_name` when:
-
-- prior assignments already exist per transcript
-- you want the fastest prior mode
-- you want clean Xenium Ranger handoff later
-
-Use boundary priors when:
-
-- you want Baysor to follow a published polygon segmentation more explicitly
-- you have cell or nucleus boundaries but no transcript-native labels
-
-Use no prior when:
-
-- you want a fully de novo segmentation
-- you have no trustworthy prior
-- you are comfortable setting `--scale` explicitly
+Use no prior for fully de novo segmentation — then `--scale` must be set
+explicitly.

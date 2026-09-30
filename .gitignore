@@ -3,6 +3,7 @@
 build/
 build-*/
 builddir/
+site/
 compile_commands.json
 build.log
 *.zip

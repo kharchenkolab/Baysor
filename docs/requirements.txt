@@ -1,0 +1,7 @@
+# Tooling for building the Baysor documentation site.
+# Install with:  python -m pip install -r docs/requirements.txt
+# Versions are pinned so that local builds match .github/workflows/docs.yml.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+mike==2.2.0
+pymdown-extensions==12.1
