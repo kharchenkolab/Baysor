@@ -12,7 +12,7 @@
 #        N_THREADS (default 6, the shared-machine limit for this suite).
 set -euo pipefail
 
-BAYSOR_BIN=${BAYSOR_BIN:-/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor}
+BAYSOR_BIN=${BAYSOR_BIN:-/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e}
 BAYSOR_BENCH_DATA=${BAYSOR_BENCH_DATA:-/home/vpetukhov/Projects/Baysor/.bench-data}
 BENCH_PY=${BENCH_PY:-/home/vpetukhov/Projects/Baysor/.deps/bench/bin/python}
 RUN_ID=${RUN_ID:-sanity_realx}

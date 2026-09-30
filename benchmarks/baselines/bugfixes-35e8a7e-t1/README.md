@@ -1,9 +1,15 @@
 # Baseline: `bugfixes-35e8a7e-t1` (exact, `identical` flavour)
 
+> **Note.** Branch `cpp-dev-llm` includes the canonical graph edge order fix
+> (`60902fe`), which changes 1-thread results (e.g. ISS 10024 -> 10038 cells).
+> Builds of `cpp-dev-llm` are therefore not expected to pass `--expect identical`
+> against this baseline; recreate the baselines with the `release` suite first.
+
+
 Official 1-thread reference baseline of the Baysor benchmark suite for the
 **Release build of branch `bugfixes` at commit `35e8a7e`**
 (`--label bugfixes-35e8a7e`, binary
-`/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor`),
+`/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e`),
 created by task BENCH-BASELINE.
 
 Use it with `compare.py --expect identical` (the refactor gate): at
@@ -25,7 +31,7 @@ Use it with `compare.py --expect identical` (the refactor gate): at
 ```bash
 export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
 PY=.deps/bench/bin/python
-B=/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor
+B=/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e
 
 # run (phase 1 sampled 4 datasets, phase 2 completed the tier with
 # --skip-existing; a single invocation with --datasets quick works too)

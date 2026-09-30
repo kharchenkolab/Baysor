@@ -52,7 +52,7 @@ if str(HERE) not in sys.path:
 
 import common  # noqa: E402
 
-DEFAULT_BINARY = "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor"
+DEFAULT_BINARY = "/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e"
 DEFAULT_IDS = [
     "sim_circles_gaps_g100",           # trivial
     "strec_sparse_s2_disjoint",        # sparse st-recoverability

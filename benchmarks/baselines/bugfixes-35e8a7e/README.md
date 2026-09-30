@@ -3,7 +3,7 @@
 Official noise-floor baseline of the Baysor benchmark suite for the
 **Release build of branch `bugfixes` at commit `35e8a7e`**
 (`--label bugfixes-35e8a7e`, binary
-`/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor`),
+`/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e`),
 created by task BENCH-BASELINE. Use it with
 `compare.py --expect same|improved` (see
 [`../../README.md`](../../README.md) → "How to test a change").
@@ -62,7 +62,7 @@ informational; no gate uses it.
 ```bash
 export BAYSOR_BENCH_DATA=/home/vpetukhov/Projects/Baysor/.bench-data
 PY=.deps/bench/bin/python
-B=/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor
+B=/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e
 
 # quick tier, 3 replicates
 $PY benchmarks/harness/run.py --baysor $B --datasets quick \

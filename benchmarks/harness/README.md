@@ -651,7 +651,7 @@ False-alarm budgets: ~0.009 over 16 sim gates, ~0.008 over 9 real gates.
 ## Validation performed
 
 All on this machine with the Release binary at
-`/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor`,
+`/home/vpetukhov/Projects/Baysor/.bench-data/binaries/baysor-bugfixes-35e8a7e`,
 data root `/home/vpetukhov/Projects/Baysor/.bench-data`:
 
 1. **Unit/fixture tests** (94): `cd benchmarks/harness/tests && $PY -m pytest -q` —

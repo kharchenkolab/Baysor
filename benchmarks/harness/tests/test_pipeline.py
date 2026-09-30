@@ -19,8 +19,8 @@ import compare
 import run as runner
 from fixtures import make_sim_dataset, make_real_dataset, make_run, corrupt
 
-DEFAULT_BIN = ("/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/"
-               "baysor-bugfixes/build-rel/baysor")
+DEFAULT_BIN = ("/home/vpetukhov/Projects/Baysor/.bench-data/binaries/"
+               "baysor-bugfixes-35e8a7e")
 BAYSOR = Path(os.environ.get("BAYSOR_BIN", DEFAULT_BIN))
 
 pytestmark = pytest.mark.skipif(

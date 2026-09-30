@@ -1540,8 +1540,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     s.add_argument("--timeout", type=float, default=1800.0,
                    help="wall-clock cap per run in seconds (default 1800 = 30 min)")
     s.add_argument("--binary", type=Path,
-                   default=Path("/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/"
-                                "baysor-bugfixes/build-rel/baysor"))
+                   default=Path("/home/vpetukhov/Projects/Baysor/.bench-data/binaries/"
+                                "baysor-bugfixes-35e8a7e"))
     s.add_argument("--force", action="store_true")
     r = sub.add_parser("report", help="print per-dataset stats as markdown")
     r.add_argument("--manifest", type=Path, default=None)
