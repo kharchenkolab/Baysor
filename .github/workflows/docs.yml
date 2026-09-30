@@ -12,8 +12,12 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
+  # `prereleased` + `released` fire exactly once per published release, and
+  # `released` fires again when a pre-release is promoted to a full release,
+  # so promotion moves `latest` without a manual redeploy. (`published` would
+  # miss promotions, and `published` + `released` would deploy twice.)
   release:
-    types: [published]
+    types: [prereleased, released]
   workflow_dispatch:
     inputs:
       tag:

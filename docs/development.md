@@ -93,6 +93,8 @@ python docs/tools/check_cli_docs.py   # docs <-> CLI/config consistency check
   `mike set-default --push latest`). The `latest` alias only moves to the
   newest stable release: pre-releases, `workflow_dispatch` redeploys of older
   tags, and backport patch releases are deployed without touching `latest`.
+  Promoting a pre-release to a full release redeploys it and moves `latest`
+  if it is the newest stable version.
 - `docs/tools/check_cli_docs.py` fails if the docs mention a CLI option or
   config key that does not exist in the sources, and warns about options that
   are not documented. It parses `src/cli/main.cpp`, `src/utils/options.cpp`,

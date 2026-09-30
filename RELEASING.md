@@ -3,7 +3,9 @@
 Publishing a GitHub release is the only manual step that produces artifacts.
 The `release` workflow (`.github/workflows/release.yml`) then builds, tests and
 attaches the binaries. The documentation site is rebuilt by its own workflow
-when the release is published.
+(`.github/workflows/docs.yml`) when the release is published, and again when
+a pre-release is promoted to a full release (only full releases become the
+default `latest` docs version).
 
 ## 1. Prepare the release commit
 
