@@ -4,14 +4,20 @@
 For every selected dataset and replicate this runner
 
 * builds the ``baysor run`` command from the dataset's ``meta.json``,
-* executes it under ``/usr/bin/time -v`` (wall time, peak RSS) with
-  ``OMP_NUM_THREADS`` pinned to ``--threads``,
+* executes it under ``/usr/bin/time -v`` (wall time, CPU user/system time,
+  percent of CPU, peak RSS) with ``OMP_NUM_THREADS`` pinned to ``--threads``,
 * normalizes the segmentation output into ``assignment.parquet``
   (molecule index in input order, cell id with 0 = unassigned/noise,
   assignment confidence),
 * records command, exit code, binary sha256, version info and git label, and
 * computes per-dataset metrics into ``metrics.json`` (sim vs truth, real
   replicate-vs-replicate agreement, optional cellAdmix audit).
+
+With ``--suite NAME`` the dataset selection and run configuration come from
+the suite manifest (``benchmarks/datasets/suites.yaml``): every step of the
+suite runs in order, each group of steps sharing a run root (see
+``suites.py``). ``--dry-run`` resolves and prints the plan without touching
+the binary.
 
 Outputs live under ``$BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/``.
 """
@@ -38,6 +44,10 @@ import metrics as m                # noqa: E402
 import celladmix as camix          # noqa: E402
 
 DEFAULT_THREADS = 6
+
+# pristine guard value of metrics.AMI_MAX_LABELS (run_body switches it off
+# and back on per invocation for --no-ami)
+_AMI_DEFAULT = m.AMI_MAX_LABELS
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +164,10 @@ def _parse_elapsed(text: str) -> Optional[float]:
 
 
 def parse_time_v(stderr: str) -> dict:
-    """Extract wall time and peak RSS from ``/usr/bin/time -v`` output."""
-    out: dict = {"wall_s": None, "peak_rss_kb": None, "exit_status": None}
+    """Extract wall time, CPU usage and peak RSS from ``/usr/bin/time -v``
+    output (all fields are None when the block is absent)."""
+    out: dict = {"wall_s": None, "peak_rss_kb": None, "exit_status": None,
+                 "user_s": None, "sys_s": None, "cpu_percent": None}
     mo = re.search(r"Maximum resident set size \(kbytes\): (\d+)", stderr)
     if mo:
         out["peak_rss_kb"] = int(mo.group(1))
@@ -165,6 +177,21 @@ def parse_time_v(stderr: str) -> dict:
     mo = re.search(r"Exit status: (\d+)", stderr)
     if mo:
         out["exit_status"] = int(mo.group(1))
+    mo = re.search(r"User time \(seconds\): (\S+)", stderr)
+    if mo:
+        try:
+            out["user_s"] = float(mo.group(1))
+        except ValueError:
+            pass
+    mo = re.search(r"System time \(seconds\): (\S+)", stderr)
+    if mo:
+        try:
+            out["sys_s"] = float(mo.group(1))
+        except ValueError:
+            pass
+    mo = re.search(r"Percent of CPU this job got: (\d+)%", stderr)
+    if mo:
+        out["cpu_percent"] = int(mo.group(1))
     return out
 
 
@@ -287,6 +314,9 @@ def run_replicate(ds: common.Dataset, rep: int, rep_dir: Path, baysor: Path,
         "wall_s": round(res["wall_s"], 3),
         "wall_s_time_v": tv["wall_s"],
         "peak_rss_kb": tv["peak_rss_kb"],
+        "cpu_user_s": tv["user_s"],
+        "cpu_sys_s": tv["sys_s"],
+        "cpu_percent": tv["cpu_percent"],
         "threads": args.threads,
         "binary_sha256": probe["sha256"],
         "scale_factor": args.scale_factor,
@@ -531,27 +561,176 @@ def compute_dataset_metrics(ds: common.Dataset, run_id: str, rep_dir_for,
 # CLI
 # ---------------------------------------------------------------------------
 
+def _select_datasets(root: Path, args, ap) -> list:
+    """Resolve ``--datasets`` (or a suite step's spec) to dataset objects."""
+    try:
+        selected = common.select_datasets(root, args.datasets, kind=args.kind)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if not selected:
+        ap.error(f"no datasets matched {args.datasets!r} under {root}")
+    return selected
+
+
+def _validate_celltypes(selected, args, root, ap) -> None:
+    """The ``--celltypes-from`` baseline must carry typing for every selected
+    real dataset (setup error, exit 2)."""
+    if not (args.celltypes_from and not args.no_celladmix):
+        return
+    base_root = root / "baselines" / args.celltypes_from
+    if not base_root.is_dir():
+        ap.error(f"baseline '{args.celltypes_from}' not found at {base_root} "
+                 f"(create it with baseline.py create)")
+    missing = []
+    for ds in selected:
+        if ds.kind != "real":
+            continue
+        if not (base_root / ds.id / "celltypes.parquet").is_file():
+            missing.append(f"{ds.id}: {base_root / ds.id / 'celltypes.parquet'}")
+        if not (base_root / ds.id / "rep0" / "assignment.parquet").is_file():
+            missing.append(f"{ds.id}: rep0 assignment table")
+    if missing:
+        ap.error("baseline '" + args.celltypes_from + "' lacks typing for:\n  "
+                 + "\n  ".join(missing)
+                 + "\nrecreate it from a run whose real datasets have audit "
+                   "celltypes, or drop --celltypes-from")
+
+
+def _resolve_baysor(args, ap) -> Path:
+    if not args.baysor:
+        ap.error("--baysor PATH is required (only --dry-run may omit it)")
+    baysor = Path(args.baysor).expanduser().resolve()
+    if not baysor.is_file():
+        ap.error(f"baysor binary not found: {baysor}")
+    if not os.access(baysor, os.X_OK):
+        ap.error(f"baysor binary not executable: {baysor}")
+    return baysor
+
+
+def _step_args(args, step, run_id: str):
+    """Copy of the CLI namespace configured for one suite step."""
+    import suites
+    ns = argparse.Namespace(**vars(args))
+    ns.datasets = suites.step_spec(step)
+    ns.threads = step.threads
+    ns.replicates = step.replicates
+    ns.timeout = step.timeout
+    ns.run_id = run_id
+    ns.no_celladmix = (not step.celladmix) or args.no_celladmix
+    ns.celltypes_from = args.celltypes_from or step.celltypes_from
+    ns.no_ami = args.no_ami or step.no_ami
+    return ns
+
+
+def _print_run_plan(args, selected) -> None:
+    print(f"plan: run-id={args.run_id} threads={args.threads} "
+          f"replicates={args.replicates} timeout={args.timeout or 'none'}s "
+          f"celladmix={'off' if args.no_celladmix else 'on'} "
+          f"celltypes-from={args.celltypes_from or '-'} "
+          f"ami={'skipped' if args.no_ami else 'computed'}")
+    print(f"datasets ({len(selected)}): "
+          + ", ".join(d.id for d in selected))
+
+
+def run_suite(args, ap, repo: Path, root: Path) -> int:
+    """Run (or, with ``--dry-run``, resolve and print) a suite's steps."""
+    import suites
+    for flag, val in (("--threads", args.threads),
+                      ("--replicates", args.replicates),
+                      ("--timeout", args.timeout),
+                      ("--datasets", args.datasets)):
+        if val is not None:
+            ap.error(f"{flag} cannot be combined with --suite; the suite "
+                     f"manifest defines it per step")
+    suite = None
+    try:
+        suite = suites.resolve(args.suite, args.manifest)
+    except ValueError as exc:
+        ap.error(str(exc))
+    steps = suite.steps
+    if args.step:
+        steps = [s for s in steps if s.name == args.step]
+        if not steps:
+            ap.error(f"no step named {args.step!r} in suite '{suite.name}' "
+                     f"(steps: {', '.join(s.name for s in suite.steps)})")
+    group_ids = suites.group_run_ids(suite, args.run_id)
+    prepared = []
+    for step in steps:
+        step_args = _step_args(args, step, group_ids[step.group])
+        selected = _select_datasets(root, step_args, ap)
+        _validate_celltypes(selected, step_args, root, ap)
+        prepared.append((step, step_args, selected))
+    if args.dry_run:
+        selections = {st.name: [d.id for d in sel]
+                      for st, _, sel in prepared}
+        print(suites.plan_text(suite, args.run_id, selections,
+                               resources_csv=suites.resources_path(suite, repo),
+                               run_ids=group_ids, root=root))
+        return 0
+    baysor = _resolve_baysor(args, ap)
+    label = args.label or _default_label(repo)
+    probe = probe_binary(baysor)
+    probe["label"] = label
+    any_failure = False
+    for step, step_args, selected in prepared:
+        run_root = root / "runs" / step_args.run_id
+        run_root.mkdir(parents=True, exist_ok=True)
+        common.write_json(run_root / "_suite.json", {
+            "suite": suite.name, "base_run_id": args.run_id,
+            "run_id": step_args.run_id, "group": step.group,
+            "steps": [s.name for s in suite.steps if s.group == step.group]})
+        print(f"== suite {suite.name} / step {step.name} "
+              f"(run-id {step_args.run_id}, threads={step.threads}, "
+              f"replicates={step.replicates}, "
+              f"celladmix={'off' if step_args.no_celladmix else 'on'}) ==",
+              flush=True)
+        rc = run_body(step_args, selected, probe, repo, root)
+        any_failure = any_failure or rc != 0
+    return 1 if any_failure else 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--baysor", required=True, help="path to the Baysor binary")
-    ap.add_argument("--datasets", required=True,
-                    help="dataset ids/globs (comma-separated) or tier: quick|full|all")
+    ap.add_argument("--baysor", default=None,
+                    help="path to the Baysor binary "
+                         "(required unless --dry-run)")
+    ap.add_argument("--datasets", default=None,
+                    help="dataset ids/globs (comma-separated) or tier: quick|full|all "
+                         "(with --suite: from the manifest)")
     ap.add_argument("--kind", choices=["sim", "real"],
                     help="restrict to sim or real datasets")
-    ap.add_argument("--run-id", required=True, help="name of the run (output folder)")
-    ap.add_argument("--threads", type=int, default=DEFAULT_THREADS,
-                    help=f"threads for Baysor (OMP_NUM_THREADS; default {DEFAULT_THREADS})")
-    ap.add_argument("--replicates", type=int, default=1,
-                    help="number of repeated runs per dataset (default 1)")
-    ap.add_argument("--timeout", type=float, default=0,
-                    help="per-replicate timeout in seconds (0 = none)")
+    ap.add_argument("--run-id", required=True, help="name of the run (output folder; "
+                    "with --suite the base id, one folder per step group)")
+    ap.add_argument("--threads", type=int, default=None,
+                    help=f"threads for Baysor (OMP_NUM_THREADS; default "
+                         f"{DEFAULT_THREADS}; with --suite: per step)")
+    ap.add_argument("--replicates", type=int, default=None,
+                    help="number of repeated runs per dataset (default 1; "
+                         "with --suite: per step)")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="per-replicate timeout in seconds (0 = none; with "
+                         "--suite: per step)")
+    ap.add_argument("--suite", default=None, metavar="NAME",
+                    help="run a suite from the manifest (benchmarks/datasets/"
+                         "suites.yaml, e.g. regular|release): dataset ids, "
+                         "threads, replicates, timeouts, audit and metrics "
+                         "options come from the manifest")
+    ap.add_argument("--step", default=None, metavar="STEP",
+                    help="with --suite: run only this named step")
+    ap.add_argument("--manifest", default=None,
+                    help="suite manifest path (default <repo>/benchmarks/"
+                         "datasets/suites.yaml)")
     ap.add_argument("--data-root", default=None,
                     help="data root (default $BAYSOR_BENCH_DATA or <repo>/.bench-data)")
     ap.add_argument("--label", default=None,
                     help="git SHA recorded with the run (default: current HEAD)")
     ap.add_argument("--no-celladmix", action="store_true",
                     help="skip the cellAdmix admixture audit")
+    ap.add_argument("--no-ami", action="store_true",
+                    help="skip the informational AMI metrics (no gate uses "
+                         "AMI; saves ~30-60 s per small-cell-count sim "
+                         "replicate of metrics time)")
     ap.add_argument("--celltypes-from", default=None, metavar="BASELINE",
                     help="transfer this baseline's saved cell types onto every "
                          "replicate (transfer.py) and audit the baseline's fixed "
@@ -562,51 +741,48 @@ def main(argv: Optional[list[str]] = None) -> int:
                          "run experiments only; default 1.0)")
     ap.add_argument("--skip-existing", action="store_true",
                     help="skip replicates that already have a successful run.json")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="resolve and print the run plan (datasets, threads, "
+                         "replicates, estimated time) without executing Baysor")
     args = ap.parse_args(argv)
 
-    if args.replicates < 1:
+    if args.step and not args.suite:
+        ap.error("--step requires --suite")
+    if args.replicates is not None and args.replicates < 1:
         ap.error("--replicates must be >= 1")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", args.run_id):
         ap.error("--run-id may only contain letters, digits, '.', '_', '-'")
 
     repo = common.repo_root()
     root = common.data_root(args.data_root)
-    baysor = Path(args.baysor).expanduser().resolve()
-    if not baysor.is_file():
-        ap.error(f"baysor binary not found: {baysor}")
-    if not os.access(baysor, os.X_OK):
-        ap.error(f"baysor binary not executable: {baysor}")
+    if args.suite:
+        return run_suite(args, ap, repo, root)
 
-    try:
-        selected = common.select_datasets(root, args.datasets, kind=args.kind)
-    except ValueError as exc:
-        ap.error(str(exc))
-    if not selected:
-        ap.error(f"no datasets matched {args.datasets!r} under {root}")
+    # single-run mode
+    if args.threads is None:
+        args.threads = DEFAULT_THREADS
+    if args.replicates is None:
+        args.replicates = 1
+    if args.timeout is None:
+        args.timeout = 0.0
 
-    if args.celltypes_from and not args.no_celladmix:
-        base_root = root / "baselines" / args.celltypes_from
-        if not base_root.is_dir():
-            ap.error(f"baseline '{args.celltypes_from}' not found at {base_root} "
-                     f"(create it with baseline.py create)")
-        missing = []
-        for ds in selected:
-            if ds.kind != "real":
-                continue
-            if not (base_root / ds.id / "celltypes.parquet").is_file():
-                missing.append(f"{ds.id}: {base_root / ds.id / 'celltypes.parquet'}")
-            if not (base_root / ds.id / "rep0" / "assignment.parquet").is_file():
-                missing.append(f"{ds.id}: rep0 assignment table")
-        if missing:
-            ap.error("baseline '" + args.celltypes_from + "' lacks typing for:\n  "
-                     + "\n  ".join(missing)
-                     + "\nrecreate it from a run whose real datasets have audit "
-                       "celltypes, or drop --celltypes-from")
+    selected = _select_datasets(root, args, ap)
+    _validate_celltypes(selected, args, root, ap)
 
+    if args.dry_run:
+        _print_run_plan(args, selected)
+        return 0
+    baysor = _resolve_baysor(args, ap)
     label = args.label or _default_label(repo)
     probe = probe_binary(baysor)
     probe["label"] = label
+    return run_body(args, selected, probe, repo, root)
 
+
+def run_body(args, selected: list, probe: dict, repo: Path, root: Path) -> int:
+    """Execute one run root: every selected dataset x replicate, then metrics."""
+    m.AMI_MAX_LABELS = 0 if args.no_ami else _AMI_DEFAULT
+    baysor = Path(probe["path"])
     run_root = root / "runs" / args.run_id
     run_root.mkdir(parents=True, exist_ok=True)
     common.write_json(run_root / "_binary.json", probe)
@@ -647,6 +823,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         mjson = compute_dataset_metrics(ds, args.run_id, rep_dir_for, rep_records,
                                         probe, args.threads, typing=typing)
+        if args.no_ami:
+            mjson["metric_options"] = {"ami": "skipped (--no-ami; "
+                                                 "informational only)"}
         common.write_json(ds_root / "metrics.json", mjson)
         kind = ds.kind
         if kind == "sim" and mjson.get("sim"):

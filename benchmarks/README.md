@@ -22,7 +22,8 @@ benchmarks/
   README.md              this file: layout and the dataset contract
   DATASETS.md            generated inventory of every dataset + coverage matrix
   environment.yml        Python environment for the suite
-  datasets/              manifests: one YAML per dataset group (sim, real_xenium, real_other)
+  datasets/              manifests: one YAML per dataset group (sim, real_xenium,
+                         real_other) + suites.yaml (the regular/release suites)
   simulate/              generators for simulated datasets
   fetch/                 download + crop scripts for real datasets
   harness/               runner, metrics, baseline comparison, reports
@@ -36,7 +37,14 @@ benchmarks/
 platform/generator, tissue/scenario, genes, molecules, area, cells/mm²,
 density and gene-panel class, 2D/3D, prior, images, `admixture_capable`,
 source, notes) grouped by kind and platform, plus the density × gene-panel
-coverage matrix per kind. Regenerate it with:
+coverage matrix per kind. It also carries the measured **resource columns**
+(6-thread CPU time ± SD, 6-thread wall and peak RAM, 1-thread wall/RAM,
+cellAdmix audit time — from the committed
+[`baselines/bugfixes-35e8a7e/resources.csv`](baselines/bugfixes-35e8a7e/resources.csv),
+regenerated with [`harness/resources.py`](harness/resources.py) from the
+existing runs; `TODO` = never measured, never guessed) and a **Suite**
+column (membership in [`datasets/suites.yaml`](datasets/suites.yaml)).
+Regenerate it with:
 
 ```bash
 $PY benchmarks/harness/inventory.py            # writes benchmarks/DATASETS.md
@@ -77,38 +85,109 @@ PY=.deps/bench/bin/python
 B=/path/to/baysor                 # your build of the same sources
 ```
 
-### Refactoring (results must not change)
+### The suites (`datasets/suites.yaml`)
+
+Two committed suites (schema in [`harness/suites.py`](harness/suites.py),
+resolution via `run.py --suite` / `compare.py --suite`). The times are
+estimates from
+[`baselines/bugfixes-35e8a7e/resources.csv`](baselines/bugfixes-35e8a7e/resources.csv)
+(measured Baysor wall/CPU × replicates + cellAdmix audit; reproduce with
+`$PY benchmarks/harness/suites.py --suite <name>`):
+
+| suite | steps (compare mode) | coverage | est. wall | est. CPU |
+|---|---|---|---|---|
+| `regular` | `exact`: 1 thr × 1 rep → `identical` vs `-t1`; `noise`: 6 thr × 1 rep + audit → `same` vs `bugfixes-35e8a7e` | 4-dataset bitwise subset; 23-dataset coverage list | 3.8 + 14.4 = **18.1 min** core (+ ~1–2 min metrics/typing ≈ **~20 min**) | ~45 CPU-min |
+| `release` | `quick6`+`full6`: 6 thr × 3 rep + audit → `same` (one run folder); `quick1`: 1 thr × 1 rep → `identical` | every dataset (78 = 65 quick + 13 full); the quick tier again at 1 thread | 156.7 + 232.4 + 87.9 = **477 min ≈ 8 h** (+ metrics bookkeeping; the historical `benchbase-b` quick+full passes observed ≈ 7 h against the 389 min core) | ~24 CPU-h |
+
+* `regular` runs with `--no-ami`: AMI is informational (no gate reads it)
+  but costs ~30–60 s of metrics time per sim replicate; `release` computes
+  AMI so regenerated baselines keep their current contents.
+* `regular` coverage: every `trivial.py` scenario **with and without
+  prior** (12 datasets); st-recoverability sparse and dense; one 3D
+  simulation; every real platform at quick tier (Xenium, CosMx, MERFISH,
+  ISS, osmFISH, STARmap); gene-panel classes `tiny`–`huge` through cheap
+  quick crops (`strec_*` tiny, `sim_circles_gaps_g100`/ISS small, pancreas
+  medium, CosMx/STARmap large, `xenium_prime5k_ovarian_quick` huge).
+* **The `*_admix` crop: yes, one fits** — `xenium_lung_cancer_admix`
+  (~97 s/rep Baysor + ~6 s audit ≈ 103 s of the ~20 min budget) joins the
+  noise step, so the cellAdmix audit and the admixture gate
+  (`compare --expect improved`, `--celltypes-from bugfixes-35e8a7e` fixed
+  typing/pairs) are exercised on a full-size admixture crop in every
+  regular run; the quick Xenium crops in the list exercise the audit on
+  quick data too. Without it the gate would still evaluate on
+  `admixture_capable` quick crops, but never on the crop class the audit
+  was calibrated for.
+* Steps sharing a `group` run in the same folder `runs/<id>`; the group
+  holding the suite's `identical` step keeps the bare `--run-id`
+  (1-thread output-path-length sensitivity: keep it ≤ 17 characters),
+  other groups get `<id>-<group>` (`<id>-noise`).
+
+Resolve both suites without running Baysor (validates dataset ids,
+baselines, run-ids and prints the estimates):
 
 ```bash
-# 1. exact gate: 1 thread, 1 replicate, bitwise-identical assignments
-benchmarks/harness/bench.sh --baysor $B --preset refactor \
-    --datasets quick --timeout 1800 --run-id refactor-t1 \
-    --baseline bugfixes-35e8a7e-t1
-
-# 2. noise gate at the comparison thread count: same within the SD floor
-benchmarks/harness/bench.sh --baysor $B --preset algorithm --expect same \
-    --datasets quick --timeout 1800 --run-id refactor-6t \
-    --celltypes-from bugfixes-35e8a7e --baseline bugfixes-35e8a7e
+$PY benchmarks/harness/run.py --suite regular --run-id dry --dry-run
+$PY benchmarks/harness/run.py --suite release --run-id dry --dry-run
+$PY benchmarks/harness/suites.py --suite regular     # plan + estimates only
 ```
 
-Both exit 0 on pass, 1 on a real regression, 2 on setup errors. The
-`identical` run must use `--threads 1` / 1 replicate (bitwise determinism);
-the `same` run must reuse the baseline's thread count.
-
-### Algorithm change (accuracy must improve)
+### Step 0: the C++ unit tests (part of `regular`)
 
 ```bash
-benchmarks/harness/bench.sh --baysor $B --preset algorithm --datasets all \
-    --timeout 5400 --run-id algo-improved \
-    --celltypes-from bugfixes-35e8a7e --baseline bugfixes-35e8a7e
+cmake --preset tests && cmake --build --preset tests
+ctest --test-dir build/tests --output-on-failure
+# ~8 s (Release) / ~90 s (coverage build)
 ```
 
-`--preset algorithm` = 6 threads, 3 replicates, `--expect improved`.
-Timeouts can be tiered instead (quick `--timeout 1800`, full
-`--timeout 5400`) by calling `run.py` twice with the same `--run-id`
-(`--skip-existing` on the second call) and then `compare.py` once. On real
-data the verdict is the cellAdmix gate: `total_admixture_rate` must not rise
-above the baseline's noise floor (`--admixture-tolerance`, default 0.0025).
+### Every change/PR: the `regular` suite (~20 min)
+
+```bash
+benchmarks/harness/bench.sh --baysor $B --preset regular --run-id reg-1
+```
+
+Runs both steps and compares every group (`exact` → `identical`, `noise`
+→ `same`); exit 0 = pass, 1 = regression, 2 = setup error. `same` keeps
+its strict *unchanged-binary* rule per check, but the **suite verdict
+downgrades a `same` group whose only failing checks are the
+`binary_sha256` provenance rows** (the normal result of a rebuilt binary
+whose metrics all stayed within the noise floor) and prints a note — the
+bitwise `identical` gate is then the verdict on behaviour.
+
+Variants (override the non-bitwise group's mode):
+
+* **algorithm change** (assignments are *supposed* to change):
+  `bench.sh --preset regular --expect improved` — judges only the noise
+  group (mean gain > noise + no per-dataset regression + admixture gate
+  on `xenium_lung_cancer_admix`); the bitwise group is skipped by design.
+* **harness/data/config change, binary untouched**:
+  `bench.sh --preset regular --expect same` — strict mode, the sha gate
+  fails if the binary really changed.
+* **refactoring/bug fix that must not change results**: the default
+  invocation; `identical` must pass and the noise metrics must stay
+  within tolerance.
+
+The legacy single-step presets `refactor` (1 thr × 1 rep, `identical`) and
+`algorithm` (6 thr × 3 rep, `improved`) still exist for ad-hoc runs — see
+[`harness/README.md`](harness/README.md).
+
+### Before a release: the `release` suite (~8 h)
+
+```bash
+# algorithm release: full noise-floor run judged on improvement
+benchmarks/harness/bench.sh --baysor $B --preset release --run-id rel-1 \
+    --expect improved
+# unchanged-algorithm release: default (--expect same) + bitwise gate
+benchmarks/harness/bench.sh --baysor $B --preset release --run-id rel-2
+```
+
+Everything: all quick and full datasets at 6 threads × 3 replicates with
+the cellAdmix audit (on the `*_admix` crops as on every real dataset),
+plus 1-thread `identical` over the whole quick tier. After it passes,
+freeze the new baselines (below).
+
+Validate suite resolution without running Baysor (also shown above):
+`run.py --suite <name> --dry-run` prints every step's datasets, threads,
+replicates, timeouts and estimated time.
 
 ### Updating the baselines after an accepted change
 

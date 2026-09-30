@@ -299,6 +299,7 @@ TIME_V_SAMPLE = """\
 \tCommand being timed: "baysor run x.parquet"
 \tUser time (seconds): 10.5
 \tSystem time (seconds): 0.7
+\tPercent of CPU this job got: 320%
 \tElapsed (wall clock) time (h:mm:ss or m:ss): 1:02.50
 \tMaximum resident set size (kbytes): 1234567
 \tExit status: 0
@@ -310,6 +311,9 @@ def test_parse_time_v():
     assert out["peak_rss_kb"] == 1234567
     assert out["wall_s"] == pytest.approx(62.5)
     assert out["exit_status"] == 0
+    assert out["user_s"] == pytest.approx(10.5)
+    assert out["sys_s"] == pytest.approx(0.7)
+    assert out["cpu_percent"] == 320
 
 
 def test_parse_time_v_hour_format():
@@ -320,7 +324,17 @@ def test_parse_time_v_hour_format():
 
 def test_parse_time_v_empty():
     out = runner.parse_time_v("no timing here")
-    assert out == {"wall_s": None, "peak_rss_kb": None, "exit_status": None}
+    assert out == {"wall_s": None, "peak_rss_kb": None, "exit_status": None,
+                   "user_s": None, "sys_s": None, "cpu_percent": None}
+
+
+def test_parse_time_v_without_cpu_lines():
+    # older / unusual time output: no CPU%% or user/sys lines -> None fields
+    out = runner.parse_time_v("\tElapsed (wall clock) time "
+                              "(h:mm:ss or m:ss): 0:09.99\n")
+    assert out["wall_s"] == pytest.approx(9.99)
+    assert out["user_s"] is None and out["sys_s"] is None
+    assert out["cpu_percent"] is None
 
 
 def test_execute_timeout():
@@ -457,3 +471,179 @@ def test_celladmix_aggregation_statuses(tmp_path):
     cm2 = out2["real"]["celladmix"]
     assert cm2["status"] == camix.STATUS_UNAVAILABLE
     assert cm2["mean_total"] is None
+
+
+# ---------------------------------------------------------------------------
+# /usr/bin/time -v CPU fields end to end (stub binary, failed replicate)
+# ---------------------------------------------------------------------------
+
+def test_run_replicate_records_cpu_fields(tmp_path):
+    stub = tmp_path / "baysor-stub"
+    stub.write_text("#!/bin/sh\nexit 3\n")
+    stub.chmod(0o755)
+    root = tmp_path / "data"
+    ds_dir = make_sim_dataset(root / "sim" / "cpu")
+    ds = common.load_dataset(ds_dir)
+    probe = {"sha256": "0" * 64, "path": str(stub), "label": "t",
+             "flags": {"output-style": False}}
+    args = _args_ns(threads=2, run_id="rcpu", scale_factor=1.0, timeout=30,
+                    no_celladmix=True, celltypes_from=None)
+    rep_dir = root / "runs" / "rcpu" / "cpu" / "rep0"
+    rep_dir.mkdir(parents=True)
+    rec = runner.run_replicate(ds, 0, rep_dir, stub, probe, args,
+                               common.repo_root(), root)
+    assert rec["status"] == "failed"          # stub exits 3
+    # the time -v block is parsed and recorded regardless of the exit status
+    assert rec["cpu_user_s"] is not None and rec["cpu_user_s"] >= 0
+    assert rec["cpu_sys_s"] is not None and rec["cpu_sys_s"] >= 0
+    assert rec["cpu_percent"] is not None and rec["cpu_percent"] >= 0
+    on_disk = common.read_json(rep_dir / "run.json")
+    assert on_disk["cpu_user_s"] == rec["cpu_user_s"]
+    assert on_disk["cpu_percent"] == rec["cpu_percent"]
+
+
+# ---------------------------------------------------------------------------
+# suite mode / dry-run / --no-ami
+# ---------------------------------------------------------------------------
+
+def _suite_files(tmp_path):
+    root = tmp_path / "data"
+    make_sim_dataset(root / "sim" / "sim_cpu", ds_id="sim_cpu")
+    mp = tmp_path / "suites.yaml"
+    mp.write_text(
+        "suites:\n"
+        "  t:\n"
+        "    description: fixture suite\n"
+        "    steps:\n"
+        "      - name: exact\n"
+        "        datasets: [sim_cpu]\n"
+        "        threads: 1\n"
+        "        replicates: 1\n"
+        "        celladmix: false\n"
+        "        no_ami: true\n"
+        "        expect: identical\n"
+        "        baseline: b1\n"
+        "      - name: noise\n"
+        "        group: noise\n"
+        "        datasets: quick\n"
+        "        threads: 6\n"
+        "        replicates: 2\n"
+        "        timeout: 60\n"
+        "        expect: same\n"
+        "        baseline: b2\n")
+    return root, mp
+
+
+def test_suite_dry_run_resolves_without_baysor(tmp_path, capsys):
+    root, mp = _suite_files(tmp_path)
+    rc = runner.main(["--suite", "t", "--manifest", str(mp),
+                      "--run-id", "rr", "--dry-run", "--data-root", str(root)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # the identical group keeps the bare run-id, the other group is suffixed
+    assert "step exact: group=exact run-id=rr" in out
+    assert "step noise: group=noise run-id=rr-noise" in out
+    assert "threads=1 replicates=1" in out
+    assert "threads=6 replicates=2" in out
+    assert "timeout=60s" in out
+    assert "ami=skipped" in out              # exact step carries no_ami
+    assert "datasets (1): sim_cpu" in out
+    assert not (root / "runs").exists()      # nothing was executed
+
+
+def test_suite_rejects_cli_overrides(tmp_path):
+    root, mp = _suite_files(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--suite", "t", "--manifest", str(mp), "--run-id", "rr",
+                     "--dry-run", "--data-root", str(root), "--threads", "2"])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--suite", "t", "--manifest", str(mp), "--run-id", "rr",
+                     "--dry-run", "--data-root", str(root),
+                     "--datasets", "quick"])
+    assert exc.value.code == 2
+
+
+def test_suite_requires_baysor_unless_dry_run(tmp_path):
+    root, mp = _suite_files(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--suite", "t", "--manifest", str(mp), "--run-id", "rr",
+                     "--data-root", str(root)])
+    assert exc.value.code == 2
+
+
+def test_unknown_suite_is_setup_error(tmp_path, capsys):
+    root, mp = _suite_files(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--suite", "nope", "--manifest", str(mp),
+                     "--run-id", "rr", "--dry-run", "--data-root", str(root)])
+    assert exc.value.code == 2
+    assert "unknown suite" in capsys.readouterr().err
+
+
+def test_step_requires_suite(tmp_path):
+    root, mp = _suite_files(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["--run-id", "rr", "--datasets", "quick", "--step",
+                     "exact", "--dry-run", "--data-root", str(root)])
+    assert exc.value.code == 2
+
+
+def test_single_dry_run(tmp_path, capsys):
+    root = tmp_path / "data"
+    make_sim_dataset(root / "sim" / "solo", ds_id="solo")
+    rc = runner.main(["--run-id", "r", "--datasets", "quick", "--dry-run",
+                      "--data-root", str(root)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "plan: run-id=r threads=6 replicates=1" in out
+    assert "datasets (1): solo" in out
+    assert not (root / "runs").exists()
+
+
+def test_no_ami_skips_ami_metric(monkeypatch):
+    """--no-ami works by zeroing metrics.AMI_MAX_LABELS (guard = always NaN);
+    AMI is informational, no gate reads it."""
+    import metrics as mmod
+    rng = np.random.default_rng(0)
+    pred = rng.integers(0, 8, 100).astype(np.int64)
+    truth = rng.integers(0, 8, 100).astype(np.int64)
+    assert not np.isnan(mmod.ami(pred, truth))
+    monkeypatch.setattr(mmod, "AMI_MAX_LABELS", 0)
+    assert np.isnan(mmod.ami(pred, truth))
+
+
+def test_suite_run_executes_all_groups_with_stub(tmp_path, capsys):
+    """Full --suite execution path (no real Baysor): every step runs into
+    its group folder, writes _suite.json/selection/metrics and the CPU
+    fields, and the failing replicates surface in the exit code."""
+    root, mp = _suite_files(tmp_path)
+    stub = tmp_path / "baysor-stub"
+    stub.write_text("#!/bin/sh\nexit 3\n")
+    stub.chmod(0o755)
+    rc = runner.main(["--suite", "t", "--manifest", str(mp), "--run-id", "rr",
+                      "--baysor", str(stub), "--data-root", str(root)])
+    assert rc == 1                              # every replicate failed
+    out = capsys.readouterr().out
+    assert "== suite t / step exact" in out
+    assert "== suite t / step noise" in out
+
+    exact = root / "runs" / "rr"
+    noise = root / "runs" / "rr-noise"
+    assert common.read_json(exact / "_suite.json")["group"] == "exact"
+    assert common.read_json(noise / "_suite.json")["group"] == "noise"
+
+    rec = common.read_json(exact / "sim_cpu" / "rep0" / "run.json")
+    assert rec["status"] == "failed"
+    assert rec["cpu_user_s"] is not None        # time -v recorded anyway
+    assert rec["threads"] == 1
+
+    m_exact = common.read_json(exact / "sim_cpu" / "metrics.json")
+    assert m_exact["failures"]
+    assert m_exact["metric_options"]["ami"].startswith("skipped")
+    m_noise = common.read_json(noise / "sim_cpu" / "metrics.json")
+    assert "metric_options" not in m_noise      # noise step computes AMI
+    sel = common.read_json(noise / "_selection.json")
+    assert sel["datasets"] == ["sim_cpu"]
+    assert sel["invocations"][-1]["threads"] == 6
+    assert sel["invocations"][-1]["replicates"] == 2

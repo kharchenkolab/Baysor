@@ -14,7 +14,11 @@ Columns (see the dataset contract in ``benchmarks/README.md``):
 * ``admixture_capable`` — real datasets with >= 2000 vendor cells (the
   cellAdmix audit's power threshold); the per-run audit flag (Baysor's own
   cell count >= 2000) is recorded in ``metrics.json``;
-* source (URL/DOI or generator) and notes (perf-stress, variant tags, ...).
+* source (URL/DOI or generator) and notes (perf-stress, variant tags, ...);
+* resource usage (6-thread CPU/wall/peak RAM, 1-thread wall/RAM, cellAdmix
+  audit time) from the committed ``baselines/bugfixes-35e8a7e/resources.csv``
+  (``TODO`` = never measured) and the ``Suite`` membership column from
+  ``datasets/suites.yaml``.
 
 Usage::
 
@@ -36,10 +40,15 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common                      # noqa: E402
+import resources as resmod         # noqa: E402
+import suites as suites_mod        # noqa: E402
 from validate_datasets import (     # noqa: E402
     cell_density_class, gene_panel_class, load_manifest_index)
 
 ADMIXTURE_MIN_CELLS = 2000
+
+# committed resource table + suite manifest feeding the extra columns
+DEFAULT_RESOURCES = "benchmarks/baselines/bugfixes-35e8a7e/resources.csv"
 
 PANEL_COLS = ("tiny", "small", "medium", "large", "huge")
 DENSITY_ROWS = ("sparse", "medium", "dense")
@@ -124,7 +133,9 @@ def _notes(ds: common.Dataset) -> str:
     return "; ".join(tags)
 
 
-def dataset_row(ds: common.Dataset, entry: dict, z_present: bool) -> dict:
+def dataset_row(ds: common.Dataset, entry: dict, z_present: bool,
+                res_row: Optional[dict] = None,
+                suite_of: Optional[dict] = None) -> dict:
     stats = ds.meta["stats"]
     diff = ds.meta.get("difficulty") or {}
     area = float(stats["area_um2"])
@@ -141,6 +152,16 @@ def dataset_row(ds: common.Dataset, entry: dict, z_present: bool) -> dict:
             else "no"
     platform = str(ds.meta.get("platform") or "")
     generator = Path(str((ds.meta.get("source") or {}).get("generator", ""))).name
+    r = res_row or {}
+    if ds.kind == "sim":
+        audit = "—"          # the cellAdmix audit never applies to sim data
+    else:
+        audit = resmod.fmt_duration(r.get("audit_wall_s"))
+    suites_here = []
+    if suite_of:
+        for name in ("regular", "release"):
+            if ds.id in (suite_of.get(name) or set()):
+                suites_here.append(name)
     return {
         "id": ds.id,
         "kind": ds.kind,
@@ -159,19 +180,34 @@ def dataset_row(ds: common.Dataset, entry: dict, z_present: bool) -> dict:
         "images": ", ".join(str(im.get("name") or Path(im["file"]).stem)
                             for im in images) if images else "—",
         "admixture_capable": admix,
+        "cpu6": resmod.fmt_mean_sd(r.get("cpu6_mean_s"), r.get("cpu6_sd_s")),
+        "wall6": resmod.fmt_duration(r.get("wall6_mean_s")),
+        "ram6": resmod.fmt_bytes_kb(r.get("peak_rss6_kb")),
+        "wallram1": resmod.fmt_wall_ram(r.get("wall1_s"), r.get("peak_rss1_kb")),
+        "audit": audit,
+        "suite": "+".join(suites_here) if suites_here else "—",
         "source": _short_source(ds, entry),
         "notes": _notes(ds),
         "group": (platform if ds.kind == "real" else generator),
     }
 
 
-def collect_rows(root: Path, repo: Path) -> list[dict]:
+def collect_rows(root: Path, repo: Path,
+                 resources_csv: Optional[Path] = None) -> list[dict]:
     manifests = load_manifest_index(repo)
+    table = resmod.load_csv(resources_csv) if resources_csv else {}
+    try:
+        suite_of = suites_mod.membership(root, repo)
+    except ValueError as exc:
+        print(f"warning: suites not resolved ({exc}); Suite column is '—'",
+              file=sys.stderr)
+        suite_of = {}
     rows: list[dict] = []
     for ds in common.discover_datasets(root):
         entry = (manifests.get(ds.id) or {}).get("entry") or {}
         z_present = "z" in pq.read_schema(ds.molecules_path).names
-        rows.append(dataset_row(ds, entry, z_present))
+        rows.append(dataset_row(ds, entry, z_present,
+                                table.get(ds.id), suite_of))
     return rows
 
 
@@ -182,7 +218,9 @@ def collect_rows(root: Path, repo: Path) -> list[dict]:
 _HEADER = ["id", "kind", "tier", "platform/generator", "tissue/scenario",
            "genes", "molecules", "area mm²", "cells/mm²", "density",
            "panel", "dim", "prior", "images", "admixture_capable",
-           "source", "notes"]
+           "CPU time (6 thr)", "wall (6 thr)", "peak RAM (6 thr)",
+           "wall/RAM (1 thr)", "audit time",
+           "source", "notes", "Suite"]
 
 
 def _fmt_row(r: dict) -> str:
@@ -190,8 +228,9 @@ def _fmt_row(r: dict) -> str:
         f"`{r['id']}`", r["kind"], r["tier"], r["platform"], r["tissue"],
         f"{r['genes']:,}", f"{r['molecules']:,}", f"{r['area_mm2']:.4g}",
         f"{r['cells_per_mm2']:,.0f}", r["density"], r["panel"], r["dim"],
-        r["prior"], r["images"], r["admixture_capable"], r["source"],
-        r["notes"] or "—",
+        r["prior"], r["images"], r["admixture_capable"],
+        r["cpu6"], r["wall6"], r["ram6"], r["wallram1"], r["audit"],
+        r["source"], r["notes"] or "—", r["suite"],
     ]) + " |"
 
 
@@ -242,6 +281,17 @@ def render(rows: list[dict], root: Path) -> str:
         "cells (the cellAdmix audit power threshold; the per-run audit flag uses",
         "Baysor's own cell count and lives in `metrics.json`).",
         "",
+        "The resource columns (`CPU time (6 thr)`, `wall (6 thr)`, `peak RAM",
+        "(6 thr)`, `wall/RAM (1 thr)`, `audit time`) come from the committed",
+        "[`baselines/bugfixes-35e8a7e/resources.csv`](baselines/bugfixes-35e8a7e/resources.csv)",
+        "generated by [`harness/resources.py`](harness/resources.py) from the",
+        "existing `benchbase-b` / `benchbase-t1` runs (no Baysor rerun).",
+        "`TODO` marks a value that was never measured and is never guessed;",
+        "`—` marks fields that do not apply (cellAdmix audit on simulated data,",
+        "suite membership). `Suite` is membership in",
+        "[`datasets/suites.yaml`](datasets/suites.yaml) (`regular+release` = in",
+        "the fast every-change suite, `release` = full pre-release suite only).",
+        "",
     ]
 
     groups: dict[str, list[dict]] = defaultdict(list)
@@ -288,6 +338,16 @@ def render(rows: list[dict], root: Path) -> str:
         "[`README.md`](README.md); `area mm²` is `stats.area_um2` (the crop "
         "bbox area), `cells/mm²` is the vendor count for real datasets and the "
         "true-cell count for simulated ones.",
+        "* resource columns: CPU time (user+sys) and wall are means over the "
+        "6-thread replicates (CPU with sample SD), peak RAM is the max over "
+        "replicates, wall/RAM (1 thr) is the single 1-thread replicate, audit "
+        "time is the cellAdmix `runtime_seconds.total` mean over replicates "
+        "(6-thread runs); `TODO` = never measured — never guessed or "
+        "back-filled.",
+        "* `Suite` from [`datasets/suites.yaml`](datasets/suites.yaml): "
+        "`regular` = the <= ~20 min suite run on every change/PR, `release` = "
+        "the full pre-release suite (every dataset, 3 replicates + 1-thread "
+        "quick tier).",
         "* `source` shows the DOI when the manifest records one, otherwise the "
         "downstream URL; simulated datasets show the generator and its seed.",
         "",
@@ -304,6 +364,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--repo", default=None)
+    ap.add_argument("--resources", default=None,
+                    help="resources CSV for the resource columns "
+                         f"(default <repo>/{DEFAULT_RESOURCES})")
     ap.add_argument("--out", default=None,
                     help="output path (default <repo>/benchmarks/DATASETS.md)")
     ap.add_argument("--check", action="store_true",
@@ -313,8 +376,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     repo = Path(args.repo).resolve() if args.repo else common.repo_root()
     root = common.data_root(args.data_root)
     out = Path(args.out) if args.out else repo / "benchmarks" / "DATASETS.md"
+    resources_csv = Path(args.resources) if args.resources \
+        else repo / DEFAULT_RESOURCES
 
-    rows = collect_rows(root, repo)
+    rows = collect_rows(root, repo, resources_csv)
     if not rows:
         print(f"error: no datasets under {root}", file=sys.stderr)
         return 2

@@ -810,3 +810,140 @@ def test_identical_warns_on_long_run_id(tmp_path, capsys):
     rep = common.read_json(
         root / "runs" / too_long / "compare_btest_identical.json")
     assert any("characters" in w for w in rep.get("warnings", []))
+
+
+# ---------------------------------------------------------------------------
+# --suite: one comparison per manifest group
+# ---------------------------------------------------------------------------
+
+SUITE_MANIFEST = """\
+suites:
+  t:
+    description: fixture suite
+    steps:
+      - name: exact
+        group: exact
+        datasets: sim_a
+        threads: 1
+        replicates: 1
+        celladmix: false
+        expect: identical
+        baseline: btest1
+      - name: noise
+        group: noise
+        datasets: sim_a
+        threads: 6
+        replicates: 3
+        celladmix: false
+        expect: same
+        baseline: btest
+"""
+
+
+def _suite_setup(tmp_path, *, new_degrade=False, binary=None):
+    """Two baselines (6t noise + 1t identical) and a two-group run:
+    'rsuite' holds the 1-thread bitwise candidate, 'rsuite-noise' the
+    6-thread candidate (optionally degraded / with a rebuilt binary sha)."""
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    sim_dir = make_sim_dataset(root / "sim" / "sim_a")
+    truth = pd.read_parquet(sim_dir / "molecules.parquet")[
+        "cell"].to_numpy(np.int64)
+    make_run(root, "rbase", sim_dir, [truth.copy()] * 3)
+    make_run(root, "rbase1", sim_dir, [truth.copy()], threads=1)
+    new_reps = [corrupt(truth, 0.2, seed=70 + k) if new_degrade
+                else truth.copy() for k in range(3)]
+    make_run(root, "rsuite-noise", sim_dir, new_reps,
+             binary=binary)
+    make_run(root, "rsuite", sim_dir, [truth.copy()], threads=1)
+    assert baseline.create("rbase", "btest", root, baselines, force=True) == 0
+    assert baseline.create("rbase1", "btest1", root, baselines, force=True,
+                           identical=True) == 0
+    manifest = tmp_path / "suites.yaml"
+    manifest.write_text(SUITE_MANIFEST)
+    return root, baselines, manifest
+
+
+def _suite_compare(root, baselines, manifest, **kw):
+    argv = ["--run-id", "rsuite", "--suite", "t",
+            "--manifest", str(manifest), "--data-root", str(root),
+            "--baselines-dir", str(baselines)]
+    for k, v in kw.items():
+        argv += [f"--{k.replace('_', '-')}", str(v)]
+    return compare.main(argv)
+
+
+def test_suite_identical_and_same_groups(tmp_path, capsys):
+    # unchanged metrics, rebuilt binary sha: identical passes, the noise
+    # group fails only on binary_sha256 -> downgraded for the suite verdict
+    root, baselines, manifest = _suite_setup(
+        tmp_path, binary={"sha256": "1" * 64})
+    assert _suite_compare(root, baselines, manifest) == 0
+    out = capsys.readouterr().out
+    assert "Downgraded to PASS" in out
+    assert "[exact] run rsuite vs btest1 (identical): PASS" in out
+    assert "[noise] run rsuite-noise vs btest (same): PASS" in out
+    # the group report itself stays truthful (sha rows still fail there)
+    report = common.read_json(
+        root / "runs" / "rsuite-noise" / "compare_btest_same.json")
+    sha_fails = [c for c in report["checks"] if c["metric"] == "binary_sha256"]
+    assert sha_fails and all(c["status"] == "fail" for c in sha_fails)
+    assert report["summary"]["pass_overall"] is False
+    # identical group produced its own report in its own run folder
+    assert (root / "runs" / "rsuite" / "compare_btest1_identical.json").is_file()
+
+
+def test_suite_unchanged_binary_passes_strictly(tmp_path, capsys):
+    root, baselines, manifest = _suite_setup(tmp_path)
+    assert _suite_compare(root, baselines, manifest) == 0
+    out = capsys.readouterr().out
+    assert "Downgraded" not in out
+
+
+def test_suite_metric_regression_fails(tmp_path):
+    root, baselines, manifest = _suite_setup(
+        tmp_path, new_degrade=True, binary={"sha256": "1" * 64})
+    assert _suite_compare(root, baselines, manifest) == 1
+
+
+def test_suite_expect_improved_skips_bitwise_group(tmp_path, capsys):
+    root, baselines, manifest = _suite_setup(tmp_path)
+    assert _suite_compare(root, baselines, manifest,
+                          expect="improved") == 1   # no gain: improved fails
+    out = capsys.readouterr().out
+    assert "skipped: --expect improved" in out
+    assert not (root / "runs" / "rsuite"
+                / "compare_btest1_identical.json").is_file()
+    assert (root / "runs" / "rsuite-noise"
+            / "compare_btest_improved.json").is_file()
+
+
+def test_suite_expect_identical_skips_six_thread_group(tmp_path, capsys):
+    root, baselines, manifest = _suite_setup(tmp_path)
+    assert _suite_compare(root, baselines, manifest,
+                          expect="identical") == 0
+    out = capsys.readouterr().out
+    assert "skipped: --expect identical" in out
+    assert not (root / "runs" / "rsuite-noise"
+                / "compare_btest_same.json").is_file()
+
+
+def test_suite_unknown_name_is_setup_error(tmp_path):
+    root, baselines, manifest = _suite_setup(tmp_path)
+    rc = compare.main(["--run-id", "rsuite", "--suite", "nope",
+                       "--manifest", str(manifest), "--data-root", str(root),
+                       "--baselines-dir", str(baselines)])
+    assert rc == 2
+
+
+def test_suite_missing_run_folder_is_setup_error(tmp_path, capsys):
+    root, baselines, manifest = _suite_setup(tmp_path)
+    import shutil
+    shutil.rmtree(root / "runs" / "rsuite-noise")
+    assert _suite_compare(root, baselines, manifest) == 2
+
+
+def test_single_compare_still_requires_baseline(tmp_path):
+    with pytest.raises(SystemExit) as exc:
+        compare.main(["--run-id", "x"])
+    assert exc.value.code == 2

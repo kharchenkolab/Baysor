@@ -10,7 +10,9 @@ Runner, metrics, baselines and comparison for the Baysor benchmark suite
 | `baseline.py` | create/list committed baselines from a run |
 | `compare.py` | compare a run with a baseline (`identical`/`same`/`improved`), Markdown + JSON report, exit code |
 | `recompute_metrics.py` | recompute `metrics.json` from stored `assignment.parquet` files (no Baysor rerun) |
-| `bench.sh` | one command: run → compare (`compare.py` prints the report once); `--preset refactor\|algorithm` |
+| `suites.py` | suite manifest (`../datasets/suites.yaml`): resolve `--suite regular\|release` into steps, run-id groups, time estimates |
+| `resources.py` | extract per-dataset resource usage (CPU/wall/RSS/audit) from finished runs into `resources.csv` |
+| `bench.sh` | one command: run → compare (`compare.py` prints the report once); `--preset regular\|release\|refactor\|algorithm` |
 | `celladmix.py` | optional adapter for the cellAdmix audit (`../celladmix/audit.py`) |
 | `tests/` | pytest suite incl. contract-conformant fixture datasets |
 
@@ -53,14 +55,72 @@ then `python3`.
 
 Presets set defaults that explicit flags override:
 
-| preset | threads | replicates | expect |
-|---|---|---|---|
-| `refactor` | 1 | 1 | `identical` (exact refactor gate) |
-| `algorithm` | 6 | 3 | `improved` (algorithm gate) |
+| preset | what it runs | modes (per group) |
+|---|---|---|
+| `regular` | suite `regular` (see below): 1-thread bitwise step + 6-thread coverage step with audit, ~20 min | `identical` (exact group) + `same` (noise group; sha-only failures downgraded for the suite verdict) |
+| `release` | suite `release`: quick+full 6 thr × 3 rep with audit + quick 1 thr × 1 rep, ~8 h | `same` (noise group) + `identical` (exact group) |
+| `refactor` | legacy single step, `--datasets quick`: threads 1, 1 replicate | `identical` (exact refactor gate) |
+| `algorithm` | legacy single step, `--datasets quick`: threads 6, 3 replicates | `improved` (algorithm gate) |
+
+With `regular`/`release` the per-step `--datasets`/`--threads`/
+`--replicates`/`--timeout` come from the manifest and must not be passed;
+`--expect` overrides the non-bitwise group only (`--expect improved` skips
+the 1-thread bitwise group by design, `--expect identical` skips the
+6-thread groups), `--baseline` overrides every group's baseline.
 
 ```bash
-benchmarks/harness/bench.sh --baysor $B --preset refactor --datasets quick \
-    --baseline mybase --celltypes-from mybase
+benchmarks/harness/bench.sh --baysor $B --preset regular --baseline mybase --celltypes-from mybase
+```
+
+## Suites (`../datasets/suites.yaml`)
+
+`suites.py` turns the manifest into run steps and run-id groups:
+
+```bash
+$PY benchmarks/harness/suites.py --list
+$PY benchmarks/harness/suites.py --suite regular        # plan + estimates
+$PY benchmarks/harness/run.py --suite regular --run-id X --dry-run
+$PY benchmarks/harness/compare.py --run-id X --suite regular
+```
+
+* each step = one `run.py` invocation: `datasets` (tier/ids/globs),
+  `threads`, `replicates`, `timeout`, `celladmix`, `celltypes_from`,
+  `no_ami`, `expect`, `baseline`;
+* steps sharing a `group` write into the same `runs/<id>` folder and are
+  compared together; the group holding the suite's `identical` step keeps
+  the bare `--run-id` (1-thread output-path-length sensitivity, ≤ 17
+  characters), others get `<id>-<group>` (`<id>-noise`);
+* `compare.py --suite` runs one comparison per group and aggregates: a
+  `same` group whose only failing checks are the `binary_sha256`
+  provenance rows (rebuilt binary, all metric gates passed) is reported
+  with a note and **downgraded for the suite verdict** — single-run
+  comparisons keep the strict behaviour;
+* `run.py --dry-run` resolves and prints everything (datasets, run-ids,
+  threads, replicates, audit/AMI options, estimated wall/CPU from the
+  resources CSV) without touching the binary.
+
+The `regular` suite runs with `--no-ami` (AMI is informational; the flag
+zeroes `metrics.AMI_MAX_LABELS` for the invocation and
+`metrics.json` records `metric_options.ami = "skipped"`); `release`
+computes AMI to keep baseline contents unchanged.
+
+## Resource usage (`resources.csv`)
+
+`resources.py` parses the `/usr/bin/time -v` block of every finished
+replicate's `baysor.log` (User/System time, Percent of CPU, Elapsed,
+Maximum RSS) plus the cellAdmix `runtime_seconds.total` and writes the
+committed
+[`../baselines/bugfixes-35e8a7e/resources.csv`](../baselines/bugfixes-35e8a7e/resources.csv)
+(78 datasets; 6-thread CPU mean ± SD and wall mean, 6-thread peak RSS as
+the max over replicates, 1-thread wall/RSS, audit wall time, molecules,
+genes, CPU-seconds per 1k molecules). Missing measurements stay empty
+(`TODO` in `DATASETS.md`); nothing is ever guessed or rerun. `run.py`
+records the same CPU fields (`cpu_user_s`, `cpu_sys_s`, `cpu_percent`)
+in `run.json` for future runs.
+
+```bash
+$PY benchmarks/harness/resources.py           # regenerate the CSV
+$PY benchmarks/harness/resources.py --check   # exit 1 when stale
 ```
 
 ## Dataset selection (`--datasets`)
@@ -74,11 +134,18 @@ benchmarks/harness/bench.sh --baysor $B --preset refactor --datasets quick \
 ## `run.py`
 
 ```
-run.py --baysor PATH --datasets SPEC --run-id ID
+run.py --baysor PATH (--datasets SPEC | --suite NAME) --run-id ID
        [--kind sim|real] [--threads 6] [--replicates 1] [--timeout S]
-       [--data-root PATH] [--label SHA] [--no-celladmix] [--skip-existing]
-       [--celltypes-from BASELINE] [--scale-factor F]
+       [--data-root PATH] [--label SHA] [--no-celladmix] [--no-ami]
+       [--skip-existing] [--celltypes-from BASELINE] [--scale-factor F]
+       [--step STEP] [--manifest PATH] [--dry-run]
 ```
+
+`--suite` reads datasets/threads/replicates/timeout/audit/AMI options per
+step from the manifest (`suites.py` above); the flags it owns per step
+(`--datasets`, `--threads`, `--replicates`, `--timeout`) must then not be
+given. `--dry-run` prints the resolved plan (and the time estimate from
+`resources.csv`) and exits without executing Baysor.
 
 `--celltypes-from BASELINE` transfers the baseline's saved cell types onto
 every replicate (via `celladmix/transfer.py`) and audits the baseline's
@@ -121,9 +188,9 @@ $BAYSOR_BENCH_DATA/runs/<run_id>/<dataset>/rep<k>/
     seg/                     # raw Baysor output (parquet style)
     assignment.parquet       # normalized per-molecule assignment
     baysor.log               # Baysor's full stdout + stderr (+ /usr/bin/time -v)
-    run.json                 # command, exit code, wall time, peak RSS,
-                             # binary sha256, threads, scale factor,
-                             # version info, --label git SHA
+    run.json                 # command, exit code, wall time, CPU user/sys/
+                             # percent, peak RSS, binary sha256, threads,
+                             # scale factor, version info, --label git SHA
     celltypes.parquet        # typing used for the audit (saved or transferred)
     celltypes_transfer.json  # transfer statistics (when typed by transfer)
     celladmix.json           # real datasets only, when the audit exists
@@ -408,11 +475,23 @@ stable (≥ 0.999).
 ```
 compare.py --run-id R --baseline NAME [--expect {identical,same,improved}]
            [--k 3] [--admixture-tolerance FLOOR] [--report-md P] [--report-json P]
+compare.py --run-id BASE --suite NAME [--expect MODE] [--baseline NAME]
 ```
 
 Exit code **0 = pass, 1 = fail, 2 = usage/setup error**. Reports are written
 to `runs/<R>/compare_<NAME>_<expect>.{md,json}` and the Markdown is printed.
 `--expect` defaults to **`identical`**, the default refactor gate.
+
+**Suite mode.** `--suite NAME` resolves one comparison per run-id group
+from the manifest (its `expect`/`baseline` per group; an explicit
+`--expect`/`--baseline` overrides them, with `--expect improved` skipping
+the bitwise group and `--expect identical` skipping the 6-thread groups),
+prints a per-group summary and aggregates the exit codes. A `same` group
+whose only failing checks are the `binary_sha256` provenance rows — the
+normal outcome for a rebuilt binary whose metrics all stayed within the
+tolerance — is downgraded to a pass for the suite verdict with a printed
+note (the group report itself stays strict); single-run mode is
+unchanged.
 
 **Dataset coverage.** Every baseline dataset must be present in the run.
 The one exception is a *deliberate subset run*: `run.py` records its

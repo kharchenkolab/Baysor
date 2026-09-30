@@ -873,16 +873,116 @@ def record_gate_info(pooled_sim: dict[str, float], pooled_real: dict[str, float]
     return out
 
 
+def _sha_only_failure(run_root: Path, baseline: str, expect: str) -> bool:
+    """True when a finished ``same`` comparison failed *only* on the
+    ``binary_sha256`` provenance rows (the report is on disk).
+
+    That is what a rebuilt-but-equivalent binary produces: every metric gate
+    passed, the binary differs from the baseline's. Suite verdicts downgrade
+    it to a pass with a loud note; single-run comparisons keep the strict
+    behaviour."""
+    p = run_root / f"compare_{baseline}_{expect}.json"
+    if not p.is_file():
+        return False
+    try:
+        rep = common.read_json(p)
+    except (OSError, ValueError):
+        return False
+    fails = [c for c in rep.get("checks", []) if c.get("status") == "fail"]
+    return bool(fails) and all(c.get("metric") == "binary_sha256"
+                               for c in fails)
+
+
+def suite_main(args, ap) -> int:
+    """Run one comparison per group of a suite manifest (``--suite``).
+
+    Each group of steps shares a run folder, an ``expect`` mode and a
+    baseline (validated by ``suites.resolve``); ``--expect``/``--baseline
+    given explicitly override every group's default. An explicit
+    ``--expect improved`` skips the 1-thread bitwise group (an improving
+    algorithm changes assignments by definition), and ``--expect identical``
+    skips the 6-thread groups (bitwise comparison requires 1 thread).
+    """
+    import suites
+    if args.report_md or args.report_json:
+        ap.error("--report-md/--report-json cannot be combined with --suite "
+                 "(every group writes its own report into its run folder)")
+    try:
+        suite = suites.resolve(args.suite, args.manifest)
+        run_ids = suites.group_run_ids(suite, args.run_id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    root = common.data_root(args.data_root)
+    results = []
+    for group, rid in run_ids.items():
+        steps = [s for s in suite.steps if s.group == group]
+        expect, baseline = steps[0].expect, steps[0].baseline
+        if args.baseline:
+            baseline = args.baseline
+        if args.expect:
+            if expect == "identical":
+                if args.expect == "improved":
+                    print(f"[{group}] skipped: --expect improved does not "
+                          f"apply to the 1-thread bitwise group")
+                    continue
+            elif args.expect == "identical":
+                print(f"[{group}] skipped: --expect identical requires a "
+                      f"1-thread run (this group ran at {steps[0].threads} "
+                      f"threads)")
+                continue
+            else:
+                expect = args.expect
+        sub = ["--run-id", rid, "--baseline", baseline, "--expect", expect,
+               "--k", str(args.k),
+               "--admixture-tolerance", str(args.admixture_tolerance)]
+        if args.data_root:
+            sub += ["--data-root", args.data_root]
+        if args.baselines_dir:
+            sub += ["--baselines-dir", args.baselines_dir]
+        rc = main(sub)
+        if rc == 1 and expect == "same" and _sha_only_failure(
+                root / "runs" / rid, baseline, expect):
+            print(f"[{group}] note: all metric gates passed; the only "
+                  f"failures are the binary-sha256 provenance rows "
+                  f"(rebuilt binary — expected). Downgraded to PASS for "
+                  f"the suite verdict; see the group's report.")
+            rc = 0
+        results.append((group, rid, expect, baseline, rc))
+
+    if not results:
+        print("error: no suite group was compared", file=sys.stderr)
+        return 2
+    print("== suite comparison summary ==")
+    for group, rid, expect, baseline, rc in results:
+        verdict = {0: "PASS", 1: "FAIL", 2: "ERROR"}.get(rc, str(rc))
+        print(f"  [{group}] run {rid} vs {baseline} ({expect}): {verdict}")
+    if any(rc == 2 for *_, rc in results):
+        return 2
+    return 1 if any(rc == 1 for *_, rc in results) else 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run-id", required=True)
-    ap.add_argument("--baseline", required=True)
-    ap.add_argument("--expect", choices=list(MODES), default="identical",
+    ap.add_argument("--baseline", default=None,
+                    help="baseline name under benchmarks/baselines "
+                         "(required unless --suite)")
+    ap.add_argument("--expect", choices=list(MODES), default=None,
                     help="identical = bitwise check at 1 thread/1 replicate "
                          "(default, refactor gate); same = unchanged "
                          "algorithm within the noise floor; improved = "
-                         "measurably better")
+                         "measurably better; with --suite: override every "
+                         "group's manifest mode")
+    ap.add_argument("--suite", default=None, metavar="NAME",
+                    help="compare every group of a suite from the manifest "
+                         "(benchmarks/datasets/suites.yaml): one "
+                         "run/baseline/expect comparison per run-id group")
+    ap.add_argument("--manifest", default=None,
+                    help="suite manifest path (default <repo>/benchmarks/"
+                         "datasets/suites.yaml)")
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--baselines-dir", default=None,
                     help="default <repo>/benchmarks/baselines")
@@ -900,6 +1000,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--report-md", default=None)
     ap.add_argument("--report-json", default=None)
     args = ap.parse_args(argv)
+
+    if args.suite:
+        return suite_main(args, ap)
+    if not args.baseline:
+        ap.error("--baseline is required unless --suite is given")
+    if args.expect is None:
+        args.expect = "identical"
 
     repo = common.repo_root()
     root = common.data_root(args.data_root)
