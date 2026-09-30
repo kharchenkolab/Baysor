@@ -814,7 +814,7 @@ int main(int argc, char* argv[]) {
         "Maximum number of algorithm iterations (default: 500)");
     run->add_option("--tol", opts.segmentation.tol,
         "Convergence tolerance: stop when <tol fraction of molecules change assignment "
-        "over 20 consecutive iterations. 0 = always run all --iters (default: 0.005)");
+        "over 20 consecutive iterations. 0 = always run all --iters (default: 0)");
     run->add_option("--n-cells-init", opts.segmentation.n_cells_init,
         "Initial number of cells (default: auto)");
     run->add_option("--unassigned-prior-label", opts.prior.unassigned_label,
@@ -858,7 +858,7 @@ int main(int argc, char* argv[]) {
     preview->add_option("--z-max", opts.molecules.z_max,
         "Maximum z coordinate to keep during input loading");
     preview->add_option("-o,--output", prev_output,
-        "Output file or directory (default: preview.html)");
+        "Output HTML file (default: preview.html)");
     preview->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
 
@@ -903,7 +903,7 @@ int main(int argc, char* argv[]) {
     segfree->add_option("-k,--k-neighbors", sf_k_neighbors,
         "Number of neighbors for segmentation-free pseudo-cells (default: inferred)");
     segfree->add_option("-o,--output", sf_output,
-        "Output file or directory (default: ncvs.loom)");
+        "Output .loom file (default: ncvs.loom)");
     segfree->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
 
