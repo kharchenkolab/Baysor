@@ -373,7 +373,10 @@ TEST(Cov3Data_Triangulation, TriangulationTypeIsCoercedToKnnIn3D) {
     }
 }
 
-TEST(Cov3Data_Triangulation, BothTypeIsKnnEdgesFollowedByTriangulationEdges) {
+// The Triangulation+KNN merge is a canonically sorted union of both sources
+// (DET-RUNID: CGAL's finite_edges order is heap-address-dependent, so the
+// merged stream is sorted rather than kept in KNN-then-triangulation order).
+TEST(Cov3Data_Triangulation, BothTypeIsSortedUnionOfKnnAndTriangulationEdges) {
     Eigen::MatrixXd pts(2, 6);
     pts << 0.0, 1.0, 2.0, 0.0, 1.0, 2.0,
            0.0, 0.2, 0.1, 1.0, 1.2, 0.9;
@@ -388,12 +391,16 @@ TEST(Cov3Data_Triangulation, BothTypeIsKnnEdgesFollowedByTriangulationEdges) {
     EXPECT_GT(n_knn, 0);
     EXPECT_GT(n_tri, 0);
 
-    // The merged result starts with the KNN edges in KNN order ...
-    for (int i = 0; i < n_knn; ++i) {
-        ASSERT_LT(i, n_both);
-        EXPECT_EQ(both.edge_src[i], knn.edge_src[i]);
-        EXPECT_EQ(both.edge_dst[i], knn.edge_dst[i]);
-        EXPECT_DOUBLE_EQ(both.edge_dists[i], knn.edge_dists[i]);
+    // The merged result is canonically sorted by (src, dst): the edge stream
+    // from CGAL's finite_edges is address-dependent (DET-RUNID), so the
+    // merged list is sorted into a canonical order that is a pure function of
+    // the edge set rather than inheriting KNN-then-triangulation order.
+    for (int i = 1; i < n_both; ++i) {
+        const auto prev = std::minmax(both.edge_src[i - 1], both.edge_dst[i - 1]);
+        const auto cur = std::minmax(both.edge_src[i], both.edge_dst[i]);
+        ASSERT_TRUE(prev.first < cur.first ||
+                    (prev.first == cur.first && prev.second < cur.second))
+            << "merged edges not canonically sorted at index " << i;
     }
 
     // ... and its edge set is exactly the union of both sources.

@@ -195,10 +195,25 @@ AdjacencyResult adjacency_list(
         ordered_edges.insert(ordered_edges.end(), tri_edges.begin(), tri_edges.end());
     }
 
-    // TODO(parity): The downstream stochastic assignment loop is sensitive to
-    // graph edge order and to the exact triangulation backend. We currently keep
-    // Julia-like first-occurrence ordering for parity. Revisit whether this
-    // should become a more canonical or explicitly deterministic graph builder.
+    // TODO(parity): Julia keeps first-occurrence ordering of the incoming
+    // edge stream. Before dedup we canonically sort the edges so the result
+    // is a pure function of the edge *set* (see sort rationale below), which
+    // for a sorted stream is still well-defined "first occurrence" ordering.
+    //
+    // Rationale for the sort: CGAL's finite_edges iterator emits an edge from
+    // whichever of its two adjacent faces has the LOWER HEAP ADDRESS
+    // (Triangulation_ds_iterators_2.h: associated_edge() compares raw
+    // Face_handle pointers). The emission order therefore depends on where
+    // the triangulation's blocks happen to land in the heap, which shifts
+    // with the length of the `-o` output path (early std::string chunk sizes)
+    // and with allocator history (e.g. concurrent parquet decoding threads).
+    // That order flows into the CSR adjacency lists and hence into the
+    // floating-point summation order of the MRF E-step, where last-bit weight
+    // differences flip stochastic assignments and make 1-thread runs
+    // depend on the output path length. Sorting removes the layout
+    // dependence entirely.
+    std::sort(ordered_edges.begin(), ordered_edges.end());
+
     // Julia keeps the first occurrence of each undirected edge.
     std::unordered_set<std::uint64_t> seen;
     seen.reserve(ordered_edges.size() * 2 + 1);
