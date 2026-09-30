@@ -1,0 +1,79 @@
+# MkDocs configuration for the Baysor documentation site.
+#
+# The site is versioned with mike (https://github.com/jimporter/mike):
+# every GitHub release publishes a new version directory on the gh-pages
+# branch and moves the `latest` alias to it. See .github/workflows/docs.yml
+# and docs/tools/migrate_gh_pages.sh for the publishing machinery.
+
+site_name: Baysor
+site_description: Documentation for Baysor, Bayesian segmentation of imaging-based spatial transcriptomics data (C++ line)
+site_url: https://kharchenkolab.github.io/Baysor/
+
+repo_url: https://github.com/kharchenkolab/Baysor
+repo_name: kharchenkolab/Baysor
+edit_uri: ''
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Running Baysor:
+      - Cell segmentation: run.md
+      - Dataset preview: preview.md
+      - Segmentation-free analysis: segfree.md
+      - Xenium workflow: xenium.md
+      - Examples: examples.md
+  - Reference:
+      - Input data: inputs.md
+      - Prior segmentation: priors.md
+      - Configuration: configuration.md
+      - Outputs: outputs.md
+      - Output files: output_files.md
+  - Migrating from Baysor.jl (v0.7.x): migrating.md
+  - Development: development.md
+  - Citation: citation.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+extra:
+  # Version selector backed by mike's versions.json (see docs/tools/).
+  # `alias: true` shows the version alias ("latest") next to each entry,
+  # e.g. "0.8.4 (latest)" and "0.7.1 (Julia)".
+  version:
+    provider: mike
+    alias: true
+    default: latest
+  # Umami analytics, carried over from the previous Documenter.jl site.
+  head:
+    - <script defer src="https://cloud.umami.is/script.js" data-website-id="b9c0c023-9682-4a74-8d3e-81a1d9a19e98"></script>

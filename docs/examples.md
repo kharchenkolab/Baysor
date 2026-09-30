@@ -1,18 +1,18 @@
 # Examples
 
-Protocol-specific runnable examples live under `examples/`.
+Protocol-specific runnable examples live in the repository under
+[examples/](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples):
 
-Currently documented examples:
+- [Xenium pancreas](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples/Xenium_pancreas_membrane_377) —
+  the main reference for Xenium-aware input handling and the Xenium Ranger
+  handoff
+- [ISS](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples/iss) —
+  CSV molecule table with a prior workflow
+- [osm-FISH](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples/osm-FISH) —
+  image-mask prior workflow
+- [STARmap](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples/STARmap) —
+  3D dataset with per-layer polygon output
 
-- [Xenium pancreas](../examples/Xenium_pancreas_membrane_377/README.md)
-- [ISS](../examples/iss/README.md)
-- [osm-FISH](../examples/osm-FISH/README.md)
-- [STARmap](../examples/STARmap/README.md)
-
-Notes:
-
-- we currently carry one Xenium example README
-- the Xenium example is the main reference for Xenium-aware input handling and
-  Xenium Ranger handoff
-- the other examples remain useful references for non-Xenium protocols and for
-  prior-mask / prior-boundary workflows
+Each example README lists the download, crop, and `baysor run` commands for
+its dataset. The presets used there come from
+[configs/](https://github.com/kharchenkolab/Baysor/tree/HEAD/configs).

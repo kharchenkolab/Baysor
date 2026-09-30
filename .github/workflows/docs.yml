@@ -1,0 +1,106 @@
+name: docs
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re)deploy, e.g. cpp-0.8.3 or v0.8.3'
+        required: true
+
+permissions:
+  contents: read
+
+# Serialize everything that touches the gh-pages branch so two deploys can
+# never race on it.
+concurrency:
+  group: docs-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build docs (strict)
+    if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install docs tooling
+        run: python -m pip install -r docs/requirements.txt
+
+      - name: Check docs against the CLI and config parser
+        run: python docs/tools/check_cli_docs.py
+
+      - name: Build the site (strict)
+        run: mkdocs build --strict
+
+  deploy:
+    name: Deploy docs version
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve version from tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$RELEASE_TAG"
+          fi
+          # Version = tag with a leading `cpp-` and then `v` stripped:
+          # cpp-0.8.3 -> 0.8.3, v0.8.3 -> 0.8.3
+          VERSION="${TAG#cpp-}"
+          VERSION="${VERSION#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install docs tooling
+        run: python -m pip install -r docs/requirements.txt
+
+      - name: Check docs against the CLI and config parser
+        run: python docs/tools/check_cli_docs.py
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy version with the `latest` alias
+        run: |
+          mike deploy --push --update-aliases "${{ steps.tag.outputs.version }}" latest
+          mike set-default --push latest
