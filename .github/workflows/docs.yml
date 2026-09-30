@@ -23,12 +23,6 @@ on:
 permissions:
   contents: read
 
-# Serialize everything that touches the gh-pages branch so two deploys can
-# never race on it.
-concurrency:
-  group: docs-site
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build docs (strict)
@@ -56,20 +50,31 @@ jobs:
     name: Deploy docs version
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
+    # Serialize deploys so two runs can never race on the gh-pages branch.
+    # This is deliberately job-level: a workflow-level group would let queued
+    # push/PR builds cancel pending deploys in the same group.
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
-      - name: Resolve version from tag
+      - name: Resolve version and pre-release flag from tag
         id: tag
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             TAG="$INPUT_TAG"
+            IS_PRERELEASE="$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)"
           else
             TAG="$RELEASE_TAG"
+            IS_PRERELEASE="$RELEASE_PRERELEASE"
           fi
           # Version = tag with a leading `cpp-` and then `v` stripped:
           # cpp-0.8.3 -> 0.8.3, v0.8.3 -> 0.8.3
@@ -77,6 +82,7 @@ jobs:
           VERSION="${VERSION#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -95,12 +101,61 @@ jobs:
       - name: Check docs against the CLI and config parser
         run: python docs/tools/check_cli_docs.py
 
+      # `latest` must only ever point to the newest *stable* release: a
+      # workflow_dispatch redeploy of an older tag, a backport patch release,
+      # or a GitHub pre-release must not move it. The version is always
+      # deployed; the `latest` alias and the default redirect are only
+      # attached when the version is not a pre-release and is >= every version
+      # already listed by `mike list --json` (compared as versions; the
+      # version fields are used, so the `0.7.1 (Julia)` title suffix is
+      # irrelevant). Keep this rule in sync with `should_move_latest` in
+      # docs/tools/migrate_gh_pages.py (inlined here because older release
+      # tags do not contain that file).
+      - name: Decide whether to move the `latest` alias
+        id: latest
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          IS_PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          MOVE="$(python - <<'EOF'
+          import json, os, re, subprocess
+
+          version = os.environ["VERSION"]
+          is_prerelease = os.environ["IS_PRERELEASE"].lower() == "true"
+          version_re = re.compile(r"^v?(\d+(?:\.\d+)*)(?:[-.]?(.+))?$")
+
+          def version_key(v):
+              m = version_re.match(v.strip())
+              if not m:
+                  return None
+              return (tuple(int(p) for p in m.group(1).split(".")),
+                      not m.group(2), m.group(2) or "")
+
+          out = subprocess.run(["mike", "list", "--json"], check=True,
+                               text=True, capture_output=True).stdout
+          keys = [version_key(e["version"]) for e in json.loads(out or "[]")]
+          keys = [k for k in keys if k is not None]
+          new = version_key(version)
+          move = (not is_prerelease and new is not None
+                  and all(new >= k for k in keys))
+          print("true" if move else "false")
+          EOF
+          )"
+          echo "move=$MOVE" >> "$GITHUB_OUTPUT"
+
       - name: Configure git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Deploy version with the `latest` alias
+      - name: Deploy version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          MOVE_LATEST: ${{ steps.latest.outputs.move }}
         run: |
-          mike deploy --push --update-aliases "${{ steps.tag.outputs.version }}" latest
-          mike set-default --push latest
+          if [ "$MOVE_LATEST" = "true" ]; then
+            mike deploy --push --update-aliases "$VERSION" latest
+            mike set-default --push latest
+          else
+            mike deploy --push "$VERSION"
+          fi

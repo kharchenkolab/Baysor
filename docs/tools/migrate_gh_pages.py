@@ -23,8 +23,11 @@ any checkout that has the docs sources, e.g. the main one):
     # 1. migrate the Julia site (creates a commit, does NOT push)
     python /path/to/Baysor/docs/tools/migrate_gh_pages.py --site-dir .
 
-    # 2. optional: deploy this checkout's docs as version 0.8.4 with the
-    #    `latest` alias and set `latest` as the default (local commit, no push)
+    # 2. optional: deploy this checkout's docs as version 0.8.4 (local
+    #    commit, no push). `latest` is attached and set as the default only
+    #    when 0.8.4 is the newest stable version and not a pre-release
+    #    (--prerelease); a backport or pre-release deploy keeps `latest`
+    #    where it is.
     git checkout <docs-source-branch>
     python docs/tools/migrate_gh_pages.py --skip-migrate \
         --site-dir . --deploy-version 0.8.4
@@ -34,9 +37,11 @@ any checkout that has the docs sources, e.g. the main one):
     git checkout gh-pages
     python -m http.server 8000
 
-Steps 2-3 are exactly what the docs workflow automates on a release
+Steps 2-3 are what the docs workflow automates on a release
 (`mike deploy --push --update-aliases <version> latest` and
-`mike set-default --push latest`); this script deliberately omits --push.
+`mike set-default --push latest` for the newest stable release; older or
+pre-release versions are deployed without touching `latest`); this script
+deliberately omits --push.
 """
 
 import argparse
@@ -88,6 +93,61 @@ var DOCUMENTER_STABLE = "{version}";
 def run_git(site_dir, *args, check=True):
     return subprocess.run(["git", "-C", str(site_dir), *args],
                           check=check, text=True, capture_output=True)
+
+
+# ============================================================================
+# `latest` alias policy: `latest` may only ever point to the newest *stable*
+# release. The same rule is implemented inline in .github/workflows/docs.yml
+# (the workflow cannot rely on this file being present in older release tags);
+# keep the two in sync.
+# ============================================================================
+
+VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)*)(?:[-.]?(.+))?$")
+
+
+def version_key(version):
+    """Loose version comparison key.
+
+    Numeric release segments are compared as integers (0.10 > 0.9) and a
+    pre-release suffix (e.g. 0.9.0-rc1) sorts before the matching release
+    (0.9.0). Entries that do not look like versions are ignored by the caller.
+    """
+    m = VERSION_RE.match(version.strip())
+    if not m:
+        return None
+    release = tuple(int(p) for p in m.group(1).split("."))
+    pre = m.group(2) or ""
+    return (release, not pre, pre)
+
+
+def should_move_latest(existing_versions, new_version, is_prerelease):
+    """Decide whether the `latest` alias may point at new_version.
+
+    `latest` moves only when the deployment is not a pre-release and the new
+    version is >= every version already listed on gh-pages (compared as
+    versions; version fields are used, so the `0.7.1 (Julia)` title suffix is
+    irrelevant). This keeps a workflow_dispatch redeploy of an older tag or a
+    backport patch release from moving `latest` backwards, and keeps
+    pre-releases from ever becoming `latest`.
+    """
+    if is_prerelease:
+        return False
+    new_key = version_key(new_version)
+    if new_key is None:
+        return False
+    for v in existing_versions:
+        k = version_key(v)
+        if k is not None and new_key < k:
+            return False
+    return True
+
+
+def mike_versions(source_dir):
+    """Versions already deployed on gh-pages, per `mike list --json`."""
+    out = subprocess.run(["mike", "list", "--json"], cwd=source_dir,
+                         check=True, text=True, capture_output=True).stdout
+    entries = json.loads(out or "[]")
+    return [e["version"] for e in entries]
 
 
 def loose_version_key(version):
@@ -175,15 +235,23 @@ def migrate(site_dir, version, title, message):
           "NOT pushed")
 
 
-def deploy(source_dir, version):
+def deploy(source_dir, version, is_prerelease=False):
     if not (source_dir / "mkdocs.yml").exists():
         raise SystemExit(f"error: {source_dir} has no mkdocs.yml")
-    for cmd in (["mike", "deploy", "--update-aliases", version, "latest"],
-                ["mike", "set-default", "latest"]):
+    move = should_move_latest(mike_versions(source_dir), version, is_prerelease)
+    if move:
+        print(f"decision: deploy {version} and move the 'latest' alias to it")
+        cmds = (["mike", "deploy", "--update-aliases", version, "latest"],
+                ["mike", "set-default", "latest"])
+    else:
+        reason = "pre-release" if is_prerelease else "not the newest stable version"
+        print(f"decision: deploy {version} without the 'latest' alias ({reason}); "
+              f"'latest' stays where it is")
+        cmds = (["mike", "deploy", version],)
+    for cmd in cmds:
         print("$ " + " ".join(cmd))
         subprocess.run(cmd, cwd=source_dir, check=True)
-    print(f"deployed docs of {source_dir} as version {version} with the "
-          f"'latest' alias and set 'latest' as the default; "
+    print(f"deployed docs of {source_dir} as version {version}; "
           f"commit created on the local gh-pages branch; NOT pushed")
 
 
@@ -202,7 +270,13 @@ def main():
                     help="skip the gh-pages file migration")
     ap.add_argument("--deploy-version", default=None,
                     help="also deploy the source checkout's docs as this "
-                         "version with the 'latest' alias (mike, no push)")
+                         "version through mike (no push). The 'latest' alias "
+                         "is attached and set as default only when "
+                         "--prerelease is not given and this is the newest "
+                         "stable version")
+    ap.add_argument("--prerelease", action="store_true",
+                    help="mark --deploy-version as a pre-release: it is "
+                         "deployed, but never becomes 'latest'")
     ap.add_argument("--source-dir", type=Path,
                     default=Path(__file__).resolve().parent.parent.parent,
                     help="docs source checkout used for --deploy-version "
@@ -215,7 +289,8 @@ def main():
                 args.message or
                 f"docs: archive Julia site as {args.version} and redirect dev/ to it")
     if args.deploy_version:
-        deploy(args.source_dir.resolve(), args.deploy_version)
+        deploy(args.source_dir.resolve(), args.deploy_version,
+               is_prerelease=args.prerelease)
     if args.skip_migrate and not args.deploy_version:
         raise SystemExit("error: nothing to do (--skip-migrate without --deploy-version)")
 

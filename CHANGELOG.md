@@ -9,7 +9,9 @@ All notable changes to the C++ line of Baysor are documented here.
 - A versioned documentation site (MkDocs + Material, versioned with `mike`):
   `mkdocs.yml`, rewritten `docs/` pages, and the `docs` GitHub workflow that
   builds the site strictly on docs changes and deploys one site version per
-  GitHub release (`latest` tracks the newest release).
+  GitHub release. The `latest` alias only points at the newest stable
+  release: pre-releases, backport releases, and `workflow_dispatch` redeploys
+  of older tags are deployed without moving `latest`.
 - Release-binary installation documentation (Linux x86-64, macOS arm64,
   Windows x86-64 archives with `SHA256SUMS`), plus a Docker section on the
   installation page.

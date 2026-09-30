@@ -63,6 +63,8 @@ KNOWN_IDENTIFIERS = {
     "n_vertices",
     # CLI positionals and accepted enum values, not config keys
     "prior_segmentation", "ica_mrf",
+    # GitHub Actions event names referenced from the docs pages
+    "workflow_dispatch",
     # gene-name pattern examples
     "antisense_",
 }
