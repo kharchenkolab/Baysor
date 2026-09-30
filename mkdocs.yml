@@ -15,8 +15,13 @@ edit_uri: ''
 
 docs_dir: docs
 
+# Theme overrides live in docs/overrides but must not ship as site pages.
+exclude_docs: |
+  overrides/
+
 theme:
   name: material
+  custom_dir: docs/overrides
   features:
     - navigation.tabs
     - navigation.sections
@@ -74,6 +79,3 @@ extra:
     provider: mike
     alias: true
     default: latest
-  # Umami analytics, carried over from the previous Documenter.jl site.
-  head:
-    - <script defer src="https://cloud.umami.is/script.js" data-website-id="b9c0c023-9682-4a74-8d3e-81a1d9a19e98"></script>
