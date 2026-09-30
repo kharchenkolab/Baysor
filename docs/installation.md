@@ -98,7 +98,7 @@ rm ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake ninja-build pkg-config git \
-  libeigen3-dev libomp-dev libspdlog-dev libcgal-dev \
+  libeigen3-dev libspdlog-dev libcgal-dev \
   libarrow-dev libparquet-dev libhdf5-dev nlohmann-json3-dev libtiff-dev
 
 ./configure.sh --deps=system --install
@@ -107,7 +107,7 @@ sudo apt-get install -y --no-install-recommends \
 With Homebrew on macOS:
 
 ```bash
-brew install cmake ninja pkg-config eigen libomp spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
+brew install cmake ninja pkg-config eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
 ./configure.sh --deps=system --install
 ```
 
@@ -138,8 +138,8 @@ Homebrew, and vcpkg can provide compatible versions.
 | CMake | `>= 3.20` |
 | C++ compiler | C++17 compiler; GCC 9.4.0 and Visual Studio 2022 are known to work |
 | Ninja | Recent Ninja; 1.10.0 is known to work |
-| Eigen3 | `>= 3.3` |
-| OpenMP | C++ OpenMP target; GCC OpenMP 4.5 is known to work |
+| Eigen3 | `>= 3.3` (>= 3.4.90 enables Eigen's own threaded GEMM; older versions run dense products single-threaded) |
+| Threads | A C++17 `std::thread` implementation (pthreads on Linux/macOS; Baysor runs its own thread pool and needs no OpenMP runtime) |
 | spdlog | Not pinned; 1.5.0 is known to work |
 | CGAL | Not pinned; 5.0.2 is known to work |
 | Arrow / Parquet | Not pinned; 19.0.1 is known to work; Arrow must include compute, CSV, and Parquet support |

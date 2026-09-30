@@ -6,6 +6,12 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Added
 
+- `--threads` / `-t` on `run`, `preview` and `segfree` (and a top-level
+  `threads` config key) to set the number of worker threads. Defaults to
+  `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS` (backward compatibility for
+  existing scripts and the benchmark harness), then the number of CPU cores.
+  The effective thread count is logged at start-up.
+
 - Prebuilt binaries for every published GitHub release, built by the
   `release` GitHub Actions workflow: `baysor-<version>-linux-x86_64.tar.gz`,
   `baysor-<version>-macos-arm64.tar.gz`, `baysor-<version>-windows-x86_64.zip`
@@ -34,6 +40,19 @@ All notable changes to the C++ line of Baysor are documented here.
   `/dev/...` links working via redirect stubs.
 
 ### Changed
+
+- OpenMP is no longer used or required (no `libomp`, `vcomp140.dll`, or
+  `-fopenmp` anywhere): all parallelism runs on Baysor's own persistent
+  `std::thread` pool (`include/baysor/utils/thread_pool.h`), which also backs
+  the FetchContent dependencies (umappp, knncolle, irlba, CppKmeans) through
+  subpar's custom-parallelization hooks. Multi-threaded runs are
+  deterministic: the E-step RNG streams are keyed by (iteration, chunk), and
+  parallel reductions merge in a fixed order, so repeated runs are
+  byte-identical and results do not depend on thread scheduling. With
+  `--threads 1` results are bitwise identical to the previous OpenMP build.
+  Where the Eigen version supports it (>= 3.4.90), Eigen's own GEMM thread
+  pool replaces OpenMP for dense matrix products; older Eigen versions run
+  dense products single-threaded.
 
 - `README.md` now points to the documentation site and release binaries.
 - The documentation pages were rewritten against the C++ implementation

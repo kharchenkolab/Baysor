@@ -25,6 +25,14 @@ the run with an error naming the key. Strings may be quoted (quotes are
 stripped); integers accept digit separators (`1_000`) and integral floats
 (`50.0`). Booleans are `true` / `false` (or `1` / `0`). `#` starts a comment.
 
+## Top-level keys
+
+Keys outside any `[section]` apply to the whole run.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `threads` | int | `0` | Worker threads for the internal thread pool. `0` = auto: `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS`, then the number of CPU cores |
+
 ## `[molecules]` / `[data]`
 
 `[molecules]` is the preferred section name; `[data]` is accepted as an alias
