@@ -69,7 +69,12 @@ On `release: published` the workflow
    fails, the job also uploads vcpkg's per-port configure/build logs
    (`.release-cache/vcpkg/buildtrees/**/*.log`) as the `vcpkg-logs-<platform>`
    artifact, so the failing port's log (e.g. thrift's or gmp's) can be read
-   without re-running.
+   without re-running;
+5. in a parallel `docker` job, builds a small runtime image from the Linux
+   archive, smoke-tests it and pushes it to GHCR and Docker Hub — see
+   [Docker images](#docker-images) below. It never blocks step 4: each job
+   fails independently, so a Docker problem does not keep the archives from
+   being attached and vice versa.
 
 Each archive contains one directory `baysor-X.Y.Z-<platform>/` with
 `bin/baysor` (`bin/baysor.exe` plus the DLLs it needs on Windows), `LICENSE`
@@ -107,6 +112,14 @@ contain `packaging/` (every release after `cpp-0.8.3`). Existing assets are
 replaced (`--clobber`). To rerun only failed jobs of a run, use **Re-run failed
 jobs** on the run page.
 
+For tags that predate the vcpkg overlay fix (`vcpkg-configuration.json` +
+`packaging/vcpkg-overlay-ports/`, i.e. anything without `packaging/` at all,
+including the fork's `v0.8.3` test tag) the build jobs copy those two files
+from the ref the workflow definition comes from when the built ref lacks
+them: without them the Windows build dies on the MSYS2 autoconf2.71 package
+that MSYS2 dropped from its mirrors (microsoft/vcpkg#53437). The copy is a
+no-op for every ref that carries the files.
+
 ## Dry-run builds
 
 To exercise the full release build before tagging — for example to verify a
@@ -134,6 +147,71 @@ Real releases (`release: published`, or `workflow_dispatch` with a `tag` and
 without `dry_run`) are unaffected: the same version check, the same partial
 upload that fails the run when a platform is missing, and the same
 `SHA256SUMS`.
+
+## Docker images
+
+The `docker` job of the release workflow packages the Linux release archive
+into a small runtime image and publishes it. It runs after all platform
+builds and in parallel with `publish`, which it never waits on (see above).
+
+**Image.** `packaging/docker/Dockerfile`: a pinned `debian:12-slim` base
+(the release binary needs only glibc ≥ 2.28) with the extracted
+`baysor-X.Y.Z-linux-x86_64/` tree installed — `bin/baysor` as
+`ENTRYPOINT ["/usr/local/bin/baysor"]`, `LICENSE`/`README.md` under
+`/usr/share/doc/baysor/`, OCI labels (`org.opencontainers.image.source`,
+`.version`, `.licenses`, `.description`), `WORKDIR /data`, no compilers. It
+runs as the non-root user `baysor` (UID/GID 1000); bind-mounted data
+directories are then written as UID 1000 unless `docker run --user` is used
+(documented in `docs/installation.md`). The build fails if
+`baysor --version` inside the image does not print the release version.
+
+**Registries and authentication.**
+
+- GHCR: `ghcr.io/<repository owner in lower case>/baysor`
+  (`ghcr.io/kharchenkolab/baysor` upstream), pushed with the workflow's
+  `GITHUB_TOKEN`; `packages: write` is granted on the `docker` job only.
+  A newly created GHCR package is **private until made public once** in the
+  package settings (package page → *Package settings* → *Change visibility*)
+  — do this after the first push if anonymous `docker pull` should work.
+- Docker Hub: `vpetukhov/baysor`, or whatever the repository variable
+  `DOCKERHUB_REPOSITORY` says (e.g. `yourname/baysor`), pushed with the
+  secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub access
+  token is fine; store both as repository secrets). If either secret is
+  missing — forks, local runners — the job logs a warning and skips Docker
+  Hub; GHCR still works, so forks are unaffected.
+
+**Tags.** `X.Y.Z` always, plus `latest` when
+`packaging/is_latest_release.py` decides the release is the newest stable
+one: not a pre-release and its version is ≥ the version of every published
+non-draft, non-prerelease release of the repository. This is the same rule
+as the docs site's `latest` alias; Julia-era `v0.*` releases are simply
+older versions and need no special handling. The script reads the release
+list with `gh release list`; its local tests are
+`python3 packaging/is_latest_release_test.py`.
+
+**Smoke tests.** In the container, before anything is pushed: `--version`
+must print the release version, `--help` must list its subcommands, and a
+small synthetic dataset must segment via `packaging/smoke_test.sh` bind-
+mounted into the container. Pushing happens only after all of that passes.
+
+**Dry runs and subsets.** With `dry_run=true` the image is built and
+smoke-tested but not pushed, and no release is consulted (no `latest`
+decision). A `platforms` subset without `linux-x86_64` skips the job.
+
+**Which ref provides the image files.** The job checks out `github.ref` —
+for `release` events the tag (so tags must contain `packaging/`, including
+`packaging/docker/` and `packaging/is_latest_release.py`), for
+`workflow_dispatch` the branch the workflow definition came from, which may
+be newer than the tag being rebuilt.
+
+To build the same image locally:
+
+```bash
+gh release download vX.Y.Z -R <repo> -p 'baysor-X.Y.Z-linux-x86_64.tar.gz'
+mkdir ctx && mv baysor-X.Y.Z-linux-x86_64.tar.gz ctx/
+docker build --build-arg VERSION=X.Y.Z -f packaging/docker/Dockerfile -t baysor:X.Y.Z ctx
+docker run --rm baysor:X.Y.Z --version
+```
 
 ## Reproducing the Linux build
 
