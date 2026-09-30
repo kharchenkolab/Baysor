@@ -158,10 +158,21 @@ def ari(pred, truth, mask=None) -> float:
     return float(adjusted_rand_score(truth, pred))
 
 
+AMI_MAX_LABELS = 3000
+
+
 def ami(pred, truth, mask=None) -> float:
-    """Adjusted mutual information; label 0 is its own label."""
+    """Adjusted mutual information; label 0 is its own label.
+
+    NaN when either side has more than ``AMI_MAX_LABELS`` distinct labels:
+    sklearn's expected-mutual-information term scales quadratically with the
+    number of clusters and takes hours on full-tier crops. AMI is
+    informational only; no gate uses it.
+    """
     pred, truth = _apply_mask(pred, truth, mask)
     if len(pred) == 0:
+        return _nan()
+    if max(len(np.unique(pred)), len(np.unique(truth))) > AMI_MAX_LABELS:
         return _nan()
     return float(adjusted_mutual_info_score(truth, pred))
 
@@ -185,7 +196,7 @@ def ami_assigned(pred, truth, mask=None) -> float:
     both = (pred > 0) & (truth > 0)
     if not both.any():
         return _nan()
-    return float(adjusted_mutual_info_score(truth[both], pred[both]))
+    return ami(pred[both], truth[both])
 
 
 def assigned_fraction(a, mask=None) -> float:

@@ -384,3 +384,13 @@ def test_median_mpc_all_unassigned():
     zeros = np.zeros(4, dtype=np.int64)
     assert np.isnan(m.median_mpc_rel_change(zeros, zeros))
     assert np.isnan(m.cell_count_ratio_between(zeros, zeros))
+
+
+def test_ami_skipped_for_huge_label_sets():
+    """AMI is NaN above AMI_MAX_LABELS (sklearn's EMI term is quadratic)."""
+    n = m.AMI_MAX_LABELS + 1
+    labels = np.arange(1, n + 1)
+    assert np.isnan(m.ami(labels, labels))
+    assert np.isnan(m.ami_assigned(labels, labels))
+    small = np.array([1, 1, 2, 2])
+    assert m.ami(small, small) == pytest.approx(1.0)
