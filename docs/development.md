@@ -62,13 +62,22 @@ text reports to `<build-dir>/coverage/`.
 
 ## Benchmarks
 
-The repository carries a regression/quality benchmark suite under
-[benchmarks/](https://github.com/kharchenkolab/Baysor/tree/HEAD/benchmarks) —
-cropped real datasets and simulated datasets with known ground truth, with
-local baselines (kept under `$BAYSOR_BENCH_DATA`, not in git) and a
-cellAdmix admixture audit. See
-[benchmarks/README.md](https://github.com/kharchenkolab/Baysor/blob/HEAD/benchmarks/README.md)
-for the layout, dataset contract, and the `bench.sh` runner.
+The regression/quality benchmark suite lives in its own repository,
+[baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks) (this
+repo's former `benchmarks/` directory, history preserved): cropped real
+datasets and simulated datasets with known ground truth, a runner with
+metrics and baseline comparison, and a cellAdmix admixture audit. It checks
+that a change keeps simulated-data metrics within the noise floor of a
+stored baseline and real-data segmentations essentially unchanged
+(`--expect identical|same`), or improves accuracy without regressions
+(`--expect improved`); datasets and baselines live under a local data dir
+(`.bench-data`, never in git). To run it against a Baysor build, clone that
+repository, create its Python env from `environment.yml`, and point the
+harness at your binary explicitly, e.g.
+`harness/bench.sh --baysor /path/to/baysor --preset regular --run-id r1`
+(≈20 min; `--preset release` before a release, `--dry-run` to resolve the
+plan without running Baysor). See its README for the dataset contract,
+suites and baselines.
 
 ## Releasing
 

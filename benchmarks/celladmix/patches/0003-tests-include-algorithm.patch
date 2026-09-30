@@ -1,9 +1,0 @@
-diff --git a/tests/test_bridge.cpp b/tests/test_bridge.cpp
-index dabd15c..5adecaa 100644
---- a/tests/test_bridge.cpp
-+++ b/tests/test_bridge.cpp
-@@ -1,3 +1,4 @@
-+#include <algorithm>
- #include "celladmix/bridge.hpp"
- #include "test_framework.hpp"
- 

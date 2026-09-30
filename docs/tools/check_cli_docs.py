@@ -44,6 +44,8 @@ EXTERNAL_OPTIONS = {
     "--no-install-recommends", "--short", "--codename",
     # mike (docs versioning, see docs/tools/migrate_gh_pages.py)
     "--push", "--update-aliases",
+    # baysor-benchmarks harness (external repo VPetukhov/baysor-benchmarks)
+    "--baysor", "--preset", "--run-id", "--expect", "--dry-run",
     # git / docker / mkdocs / sha256sum snippets
     "--no-local", "--rm", "--strict", "--check", "--ignore-missing",
 }

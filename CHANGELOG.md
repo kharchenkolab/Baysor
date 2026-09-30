@@ -35,6 +35,10 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Changed
 
+- The benchmark suite moved out of this repository into
+  [baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks)
+  (former `benchmarks/`, history preserved); `docs/development.md` links to
+  it. Datasets and baselines stay under the local `.bench-data/` directory.
 - `README.md` now points to the documentation site and release binaries.
 - The documentation pages were rewritten against the C++ implementation
   (required `--min-molecules-per-cell`, actual option defaults, complete
