@@ -22,19 +22,14 @@ if(APPLE)
             list(APPEND CMAKE_PREFIX_PATH "${_homebrew_prefix}")
         endif()
     endforeach()
-
-    if(NOT DEFINED OpenMP_ROOT)
-        foreach(_libomp_prefix /opt/homebrew/opt/libomp /usr/local/opt/libomp)
-            if(EXISTS "${_libomp_prefix}")
-                set(OpenMP_ROOT "${_libomp_prefix}" CACHE PATH "Homebrew libomp prefix")
-                break()
-            endif()
-        endforeach()
-    endif()
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(BaysorDependencies)
+
+# OpenMP is no longer used: all parallelism goes through Baysor's own
+# std::thread pool (include/baysor/utils/thread_pool.h). The pool also backs
+# the subpar-based FetchContent dependencies via their custom-parallel hooks.
 
 # Prefer optimized single-config builds unless the user explicitly chose
 # something else. This does not affect multi-config generators.
@@ -75,11 +70,6 @@ baysor_find_package(Eigen3
     VERSION 3.3
     TARGET Eigen3::Eigen
     INSTALL_HINT "Ubuntu: sudo apt-get install libeigen3-dev\nmacOS: brew install eigen\nvcpkg: vcpkg install eigen3"
-)
-baysor_find_package(OpenMP
-    COMPONENTS CXX
-    TARGET OpenMP::OpenMP_CXX
-    INSTALL_HINT "Ubuntu/GCC: OpenMP is provided by the compiler runtime; install libomp-dev for Clang.\nmacOS: brew install libomp\nWindows/MSVC: OpenMP is provided by Visual Studio."
 )
 baysor_find_package(spdlog
     TARGET spdlog::spdlog
@@ -217,11 +207,40 @@ if(BAYSOR_WITH_CUDA)
     add_compile_definitions(BAYSOR_CUDA_ENABLED)
 endif()
 
+# Threads: Baysor's own std::thread pool (and the thread pools of the
+# FetchContent dependencies routed through it) need pthreads on POSIX.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+# Eigen dense products used to be parallelized by OpenMP. Without OpenMP we
+# enable Eigen's own GEMM thread pool when the Eigen in use supports it
+# (EIGEN_GEMM_THREADPOOL, Eigen >= 3.4.90/5.x); otherwise dense products fall
+# back to single-threaded GEMM. The macro must be defined consistently for
+# every translation unit that includes Eigen, so it is added globally here.
+set(_eigen_gemm_threadpool OFF)
+get_target_property(_eigen_includes Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_dir IN LISTS _eigen_includes)
+    if(EXISTS "${_dir}/Eigen/src/Core/products/Parallelizer.h")
+        file(STRINGS "${_dir}/Eigen/src/Core/products/Parallelizer.h"
+             _eigen_tp REGEX "EIGEN_GEMM_THREADPOOL")
+        if(_eigen_tp)
+            set(_eigen_gemm_threadpool ON)
+        endif()
+    endif()
+endforeach()
+if(_eigen_gemm_threadpool)
+    add_compile_definitions(EIGEN_GEMM_THREADPOOL)
+    message(STATUS "Eigen GEMM: parallelized through Eigen's own thread pool (EIGEN_GEMM_THREADPOOL)")
+else()
+    message(STATUS "Eigen GEMM: this Eigen version has no thread-pool GEMM; dense products run single-threaded")
+endif()
+
 # --- Library target ---
 add_library(baysor_lib
     # Utils
     src/utils/general.cpp
     src/utils/options.cpp
+    src/utils/thread_pool.cpp
     src/utils/xenium.cpp
 
     # Data loading
@@ -285,7 +304,7 @@ target_include_directories(baysor_lib PUBLIC
 
 target_link_libraries(baysor_lib PUBLIC
     Eigen3::Eigen
-    OpenMP::OpenMP_CXX
+    Threads::Threads
     spdlog::spdlog
     CGAL::CGAL
     ${BAYSOR_ARROW_TARGET}
@@ -318,12 +337,11 @@ target_compile_definitions(baysor PRIVATE BAYSOR_VERSION="${PROJECT_VERSION}")
 install(TARGETS baysor RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Release binaries (packaging/) ship the compiler runtime with the executable.
-# On MSVC this installs the VC++ and OpenMP (vcomp) DLLs next to baysor.exe;
+# On MSVC this installs the VC++ runtime DLLs next to baysor.exe;
 # vcpkg's X_VCPKG_APPLOCAL_DEPS_INSTALL copies the dependency DLLs. Linux and
 # macOS release builds link their runtimes statically, so nothing to do there.
 option(BAYSOR_INSTALL_RUNTIME "Install the compiler runtime libraries next to the executable" OFF)
 if(BAYSOR_INSTALL_RUNTIME AND MSVC)
-    set(CMAKE_INSTALL_OPENMP_LIBRARIES ON)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
     include(InstallRequiredSystemLibraries)
 endif()
