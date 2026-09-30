@@ -38,6 +38,21 @@ All notable changes to the C++ line of Baysor are documented here.
   release and without uploading to one, so the release build can be verified
   before tagging. On build failure the workflow uploads vcpkg's per-port
   build logs as the `vcpkg-logs-<platform>` artifact.
+- Docker images of every release, built from the release binary by the
+  `docker` job of the `release` workflow (`packaging/docker/Dockerfile`, a
+  `debian:12-slim` runtime image with the extracted Linux archive,
+  non-root user, `WORKDIR /data`) and pushed to GHCR
+  (`ghcr.io/<owner>/baysor`; the package is private until made public once in
+  its settings) and to Docker Hub (`vpetukhov/baysor`, or the
+  `DOCKERHUB_REPOSITORY` repository variable) when the
+  `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets exist — otherwise Docker Hub
+  is skipped with a warning and GHCR still works. Tags are `X.Y.Z`, plus
+  `latest` only for the newest stable release, decided by
+  `packaging/is_latest_release.py` with the same rule as the docs site's
+  `latest` (unit-tested by `packaging/is_latest_release_test.py`). The image
+  is smoke-tested in the container (`--version`, `--help`, a synthetic
+  `baysor run`) before any push; dry runs build and smoke-test it without
+  pushing. See `RELEASING.md`, "Docker images", and the installation docs.
 
 ### Changed
 

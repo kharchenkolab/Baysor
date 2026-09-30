@@ -48,6 +48,8 @@ EXTERNAL_OPTIONS = {
     "--baysor", "--preset", "--run-id", "--expect", "--dry-run",
     # git / docker / mkdocs / sha256sum snippets
     "--no-local", "--rm", "--strict", "--check", "--ignore-missing",
+    # docker run (user override in the installation page's Docker section)
+    "--user",
 }
 
 # --- top-level flags shared by every CLI11 command -------------------------

@@ -1,7 +1,8 @@
 # Installation
 
 There are three ways to get the `baysor` binary: download a release archive,
-build from source, or build a Docker image.
+pull a published Docker image, or build from source (the repository also
+ships a Dockerfile for a self-built image).
 
 ## Release binaries
 
@@ -49,8 +50,48 @@ sha256sum --check --ignore-missing SHA256SUMS
 
 ## Docker
 
+Every release publishes a Docker image of the portable release binary,
+built from the same archive as the other platforms:
+
+- Docker Hub: [`vpetukhov/baysor`](https://hub.docker.com/r/vpetukhov/baysor)
+- GitHub Container Registry: `ghcr.io/kharchenkolab/baysor`
+
+Images exist from the C++ release that introduced them (the first one is
+tagged with its version like all later ones); older tags on Docker Hub
+(`v0.4`–`v0.7.1`) are the Julia-era images. Tags are the release version
+(e.g. `0.8.3`) plus `latest`, which always points at the newest stable
+release.
+
+```bash
+docker pull vpetukhov/baysor:latest
+docker run --rm vpetukhov/baysor:latest --version
+
+# segment a dataset from the current directory, mounted at /data
+# (the image's working directory):
+docker run --rm -v "$PWD:/data" vpetukhov/baysor:latest \
+  run -m 30 --scale 8 -o /data/out /data/molecules.csv
+```
+
+The same images are on the GitHub Container Registry (handy when Docker Hub
+is unreachable):
+
+```bash
+docker pull ghcr.io/kharchenkolab/baysor:latest
+```
+
+The image contains only the release binary, its license and a small Debian
+base — no compilers. It runs as the non-root user `baysor` (UID/GID 1000)
+with `/data` as the working directory, so files written to a bind-mounted
+data directory are owned by UID 1000 on the host; pass
+`--user "$(id -u):$(id -g)"` to write them as yourself instead
+(pre-create the host directory, e.g. `mkdir -p data`, so Docker does not
+create it root-owned).
+
+### Building the image yourself
+
 The repository ships a Dockerfile that builds `baysor` on Ubuntu 24.04 and
-installs it as the image entrypoint:
+installs it as the image entrypoint (for the prebuilt-binary image see
+`packaging/docker/Dockerfile` and `RELEASING.md`):
 
 ```bash
 git clone https://github.com/kharchenkolab/Baysor.git
