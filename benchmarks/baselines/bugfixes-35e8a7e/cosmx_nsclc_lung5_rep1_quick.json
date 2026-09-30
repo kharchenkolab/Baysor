@@ -1,0 +1,462 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-b",
+  "dataset": {
+    "id": "cosmx_nsclc_lung5_rep1_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick",
+    "n_molecules": 149903,
+    "n_genes": 960
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet",
+    "molecules_sha256": "631bcead9130ea45093e550737bfa5084ed87e1db3c7e8a73ffed969de7c01c8",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/meta.json",
+    "meta_sha256": "e56c20c5cfae9b259bb9ea15d192e2b9ef98473f72eec5744cb0d778dd49c8d4"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 6,
+  "replicates": 3,
+  "created": "2026-09-29T22:08:28+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.013",
+        "--scale-std",
+        "25%",
+        "-m",
+        "20",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep0/seg",
+      "wall_s": 47.32,
+      "wall_s_time_v": 47.31,
+      "peak_rss_kb": 324256,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep0/seg\"\n\tUser time (seconds): 159.67\n\tSystem time (seconds): 0.45\n\tPercent of CPU this job got: 338%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:47.31\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 324256\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 105608\n\tVoluntary context switches: 9952\n\tInvoluntary context switches: 2624\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 14152\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "9560593bfdcec70839c3dcc3c0e10f64db0f1a2078daae41baaf9bfa0b67c119",
+      "n_cells": 892,
+      "n_assigned": 149649,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "no_detected_pairs",
+        "total_admixture_rate": null,
+        "total_admixture_molecules": null,
+        "pairs": [],
+        "n_pairs_evaluated": 2,
+        "n_pairs_detected": 0,
+        "n_cells": 892,
+        "admixture_capable": false,
+        "typing": "quick_cluster",
+        "seed": 1,
+        "audit_threads": 6,
+        "reason": "audit status 'no_detected_pairs': no_pairs_detected",
+        "status": "unavailable",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep0/celladmix.json",
+        "typing_source": "quick_cluster",
+        "fixed_pairs": null
+      }
+    },
+    {
+      "rep": 1,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.013",
+        "--scale-std",
+        "25%",
+        "-m",
+        "20",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep1/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep1/seg",
+      "wall_s": 47.196,
+      "wall_s_time_v": 47.19,
+      "peak_rss_kb": 322364,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep1/seg\"\n\tUser time (seconds): 159.25\n\tSystem time (seconds): 0.37\n\tPercent of CPU this job got: 338%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:47.19\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 322364\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 111470\n\tVoluntary context switches: 9900\n\tInvoluntary context switches: 1974\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 13896\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep1/assignment.parquet",
+      "assignment_sha256": "4b7e66617e8d003fade9812bc0c9aea9fbad683a6ce317cb7f86aa122da8c553",
+      "n_cells": 909,
+      "n_assigned": 149655,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "no_detected_pairs",
+        "total_admixture_rate": null,
+        "total_admixture_molecules": null,
+        "pairs": [],
+        "n_pairs_evaluated": 2,
+        "n_pairs_detected": 0,
+        "n_cells": 909,
+        "admixture_capable": false,
+        "typing": "celltypes",
+        "seed": 1,
+        "audit_threads": 6,
+        "reason": "audit status 'no_detected_pairs': no_pairs_detected",
+        "status": "unavailable",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep1/celladmix.json",
+        "typing_source": "run_rep0",
+        "fixed_pairs": null
+      }
+    },
+    {
+      "rep": 2,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.013",
+        "--scale-std",
+        "25%",
+        "-m",
+        "20",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep2/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep2/seg",
+      "wall_s": 47.289,
+      "wall_s_time_v": 47.28,
+      "peak_rss_kb": 330764,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/cosmx_nsclc_lung5_rep1_quick/molecules.parquet -x x -y y -g gene -s 5.013 --scale-std 25% -m 20 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/example_config.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep2/seg\"\n\tUser time (seconds): 160.16\n\tSystem time (seconds): 0.44\n\tPercent of CPU this job got: 339%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:47.28\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 330764\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 105561\n\tVoluntary context switches: 10207\n\tInvoluntary context switches: 3201\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 14024\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep2/assignment.parquet",
+      "assignment_sha256": "1a63c98ed7158aa964539e06f4cba00608b8d09d3ee610ad3460f515fa6c9390",
+      "n_cells": 897,
+      "n_assigned": 149646,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "no_detected_pairs",
+        "total_admixture_rate": null,
+        "total_admixture_molecules": null,
+        "pairs": [],
+        "n_pairs_evaluated": 2,
+        "n_pairs_detected": 0,
+        "n_cells": 897,
+        "admixture_capable": false,
+        "typing": "celltypes",
+        "seed": 1,
+        "audit_threads": 6,
+        "reason": "audit status 'no_detected_pairs': no_pairs_detected",
+        "status": "unavailable",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/cosmx_nsclc_lung5_rep1_quick/rep2/celladmix.json",
+        "typing_source": "run_rep0",
+        "fixed_pairs": null
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      47.32,
+      47.196,
+      47.289
+    ],
+    "peak_rss_kb": [
+      324256,
+      322364,
+      330764
+    ],
+    "wall_s_mean": 47.26833333333334,
+    "wall_s_sd": 0.06453164598345161,
+    "peak_rss_kb_mean": 325794.6666666667,
+    "peak_rss_kb_sd": 4406.316072790663
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {
+      "pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "per_pair": [
+        {
+          "molecule_ari": 0.874789095853086,
+          "ari_assigned": 0.8748607390252866,
+          "assigned_agreement": 0.999799870582977,
+          "assigned_fraction_candidate": 0.9983455968192765,
+          "assigned_fraction_reference": 0.9983055709358719,
+          "noise_precision": 0.9516129032258065,
+          "noise_recall": 0.9291338582677166,
+          "frac_cells_matched": 0.8834080717488789,
+          "median_jaccard": 0.8816496887379739,
+          "cell_count_ratio": 1.0190582959641257,
+          "median_mpc_rel_change": -0.0502283105022831,
+          "n_cells_reference": 892.0,
+          "n_cells_candidate": 909.0
+        },
+        {
+          "molecule_ari": 0.8593132051642661,
+          "ari_assigned": 0.8593675349084968,
+          "assigned_agreement": 0.9998065415635444,
+          "assigned_fraction_candidate": 0.9982855579941695,
+          "assigned_fraction_reference": 0.9983055709358719,
+          "noise_precision": 0.9377431906614786,
+          "noise_recall": 0.9488188976377953,
+          "frac_cells_matched": 0.8621076233183856,
+          "median_jaccard": 0.8709677419354839,
+          "cell_count_ratio": 1.0056053811659194,
+          "median_mpc_rel_change": -0.0136986301369863,
+          "n_cells_reference": 892.0,
+          "n_cells_candidate": 897.0
+        },
+        {
+          "molecule_ari": 0.8757384517996687,
+          "ari_assigned": 0.875773101488705,
+          "assigned_agreement": 0.9998332254858142,
+          "assigned_fraction_candidate": 0.9982855579941695,
+          "assigned_fraction_reference": 0.9983455968192765,
+          "noise_precision": 0.933852140077821,
+          "noise_recall": 0.967741935483871,
+          "frac_cells_matched": 0.8800880088008801,
+          "median_jaccard": 0.8787878787878788,
+          "cell_count_ratio": 0.9867986798679867,
+          "median_mpc_rel_change": 0.038461538461538464,
+          "n_cells_reference": 909.0,
+          "n_cells_candidate": 897.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.8700004584741629,
+        "assigned_agreement": 0.9998132125441118,
+        "assigned_fraction_candidate": 0.9983055709358718,
+        "assigned_fraction_reference": 0.9983189128970068,
+        "cell_count_ratio": 1.0038207856660104,
+        "frac_cells_matched": 0.8752012346227148,
+        "median_jaccard": 0.8771351031537789,
+        "median_mpc_rel_change": -0.00848846739257698,
+        "molecule_ari": 0.8699469176056734,
+        "n_cells_candidate": 901.0,
+        "n_cells_reference": 897.6666666666666,
+        "noise_precision": 0.9410694113217021,
+        "noise_recall": 0.9485648971297943
+      },
+      "sd": {
+        "ari_assigned": 0.009219674559393902,
+        "assigned_agreement": 1.764975558238825e-05,
+        "assigned_fraction_candidate": 3.4663431837336394e-05,
+        "assigned_fraction_reference": 2.3108954558181532e-05,
+        "cell_count_ratio": 0.01620368147956776,
+        "frac_cells_matched": 0.011460266019439197,
+        "median_jaccard": 0.005529443674124233,
+        "median_mpc_rel_change": 0.044573890049823935,
+        "molecule_ari": 0.009221290549225523,
+        "n_cells_candidate": 6.928203230275509,
+        "n_cells_reference": 9.814954576223638,
+        "noise_precision": 0.009335897643509308,
+        "noise_recall": 0.019305291859375878
+      }
+    },
+    "n_metric_reps": 3,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.08448542443647342,
+          "ari_assigned": 0.5078726902925468,
+          "assigned_agreement": 0.8416375923096936,
+          "assigned_fraction_candidate": 0.9983055709358719,
+          "assigned_fraction_reference": 0.8413707530869963,
+          "noise_precision": 0.5787401574803149,
+          "noise_recall": 0.0061819252281424784,
+          "frac_cells_matched": 0.3901098901098901,
+          "median_jaccard": 0.44948979591836735,
+          "cell_count_ratio": 2.4505494505494507,
+          "median_mpc_rel_change": -0.6545741324921136,
+          "n_cells_reference": 364.0,
+          "n_cells_candidate": 892.0
+        },
+        {
+          "molecule_ari": 0.08401014626193763,
+          "ari_assigned": 0.5047264804085866,
+          "assigned_agreement": 0.8416509342708285,
+          "assigned_fraction_candidate": 0.9983455968192765,
+          "assigned_fraction_reference": 0.8413707530869963,
+          "noise_precision": 0.5846774193548387,
+          "noise_recall": 0.006097817401909247,
+          "frac_cells_matched": 0.4065934065934066,
+          "median_jaccard": 0.44043754492545273,
+          "cell_count_ratio": 2.4972527472527473,
+          "median_mpc_rel_change": -0.6719242902208202,
+          "n_cells_reference": 364.0,
+          "n_cells_candidate": 909.0
+        },
+        {
+          "molecule_ari": 0.08502349320999358,
+          "ari_assigned": 0.5049051470865075,
+          "assigned_agreement": 0.8416709472125308,
+          "assigned_fraction_candidate": 0.9982855579941695,
+          "assigned_fraction_reference": 0.8413707530869963,
+          "noise_precision": 0.5875486381322957,
+          "noise_recall": 0.006350140880608941,
+          "frac_cells_matched": 0.38186813186813184,
+          "median_jaccard": 0.42882981221402144,
+          "cell_count_ratio": 2.4642857142857144,
+          "median_mpc_rel_change": -0.6593059936908517,
+          "n_cells_reference": 364.0,
+          "n_cells_candidate": 897.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.5058347725958803,
+        "assigned_agreement": 0.8416531579310176,
+        "assigned_fraction_candidate": 0.9983122419164393,
+        "assigned_fraction_reference": 0.8413707530869963,
+        "cell_count_ratio": 2.470695970695971,
+        "frac_cells_matched": 0.39285714285714285,
+        "median_jaccard": 0.4395857176859472,
+        "median_mpc_rel_change": -0.6619348054679285,
+        "molecule_ari": 0.08450635463613487,
+        "n_cells_candidate": 899.3333333333334,
+        "n_cells_reference": 364.0,
+        "noise_precision": 0.5836554049891499,
+        "noise_recall": 0.006209961170220222
+      },
+      "sd": {
+        "ari_assigned": 0.0017671479420919172,
+        "assigned_agreement": 1.6788266268348308e-05,
+        "assigned_fraction_candidate": 3.057027340986887e-05,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.024002458648500202,
+        "frac_cells_matched": 0.01258949366746111,
+        "median_jaccard": 0.010356299479081916,
+        "median_mpc_rel_change": 0.008968833916525759,
+        "molecule_ari": 0.0005069975978512909,
+        "n_cells_candidate": 8.736894948054106,
+        "n_cells_reference": 0.0,
+        "noise_precision": 0.004492295390091349,
+        "noise_recall": 0.00012847682675065796
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "unavailable",
+          "typing_source": "quick_cluster",
+          "reason": "audit status 'no_detected_pairs': no_pairs_detected"
+        },
+        {
+          "status": "unavailable",
+          "typing_source": "run_rep0",
+          "reason": "audit status 'no_detected_pairs': no_pairs_detected"
+        },
+        {
+          "status": "unavailable",
+          "typing_source": "run_rep0",
+          "reason": "audit status 'no_detected_pairs': no_pairs_detected"
+        }
+      ],
+      "status": "unavailable",
+      "typing": {
+        "mode": "quick_cluster",
+        "baseline": null
+      },
+      "admixture_capable": null,
+      "mean_total": null,
+      "sd_total": null,
+      "per_rep_total": [
+        null,
+        null,
+        null
+      ]
+    }
+  },
+  "metrics_recomputed": {
+    "script": "recompute_metrics.py",
+    "at": "2026-09-30T03:33:07+00:00",
+    "metrics_module": "metrics.py (current definitions)"
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e",
+    "run_id": "benchbase-b",
+    "created": "2026-09-30T04:40:39+00:00",
+    "flavour": "noise_floor",
+    "identical": false,
+    "noise_floor_replicates": 3,
+    "noise_floor_valid": true,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/cosmx_nsclc_lung5_rep1_quick/",
+    "assignment_sha256": {
+      "0": "9560593bfdcec70839c3dcc3c0e10f64db0f1a2078daae41baaf9bfa0b67c119",
+      "1": "4b7e66617e8d003fade9812bc0c9aea9fbad683a6ce317cb7f86aa122da8c553",
+      "2": "1a63c98ed7158aa964539e06f4cba00608b8d09d3ee610ad3460f515fa6c9390"
+    },
+    "celltypes": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/cosmx_nsclc_lung5_rep1_quick/celltypes.parquet",
+    "celltypes_sha256": "3c4a51fa4f1617457938f873535f146b9a7fc9e697117b7ecb2804849e7dde15",
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

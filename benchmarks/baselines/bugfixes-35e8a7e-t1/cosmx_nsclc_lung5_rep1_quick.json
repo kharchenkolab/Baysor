@@ -155,10 +155,15 @@
       ]
     }
   },
+  "metrics_recomputed": {
+    "script": "recompute_metrics.py",
+    "at": "2026-09-30T00:18:06+00:00",
+    "metrics_module": "metrics.py (current definitions)"
+  },
   "baseline": {
     "name": "bugfixes-35e8a7e-t1",
     "run_id": "benchbase-t1",
-    "created": "2026-09-29T19:52:10+00:00",
+    "created": "2026-09-30T00:36:27+00:00",
     "flavour": "identical",
     "identical": true,
     "noise_floor_replicates": 1,

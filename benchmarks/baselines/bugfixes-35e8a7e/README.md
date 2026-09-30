@@ -35,8 +35,27 @@ non-needed full datasets) was **not triggered** and **every full dataset got
 3 replicates**. (Note: all 11 real full datasets are `admixture_capable`, so
 the literal fallback rule would in any case have kept 3 replicates on them;
 only the 2 existing sim full datasets exist beyond them.) The quick tier ran
-≈ 40–50 min/rep → ≈ 2.5–3 h for 3 replicates. Measured total for run
-`benchbase-b` is recorded below.
+≈ 40–50 min/rep → ≈ 2.5–3 h for 3 replicates.
+
+**Measured totals** (sum of per-dataset mean wall times over the 78
+finished datasets):
+
+| tier | datasets | Σ wall/rep | × 3 replicates |
+|---|---|---|---|
+| quick | 65 | 3074 s (0.85 h) | **2.56 h** |
+| full | 13 | 4450 s (1.24 h) | **3.71 h** |
+| all | 78 | 2.09 h | **6.27 h** (observed ≈ 7 h wall incl. audits/metrics; zero failures, zero timeouts) |
+
+Slowest datasets: `cosmx_wtx_colon_full` 1623–1696 s/rep (louvain on 19 k
+genes), `xenium_prime5k_ovarian_full` ~684 s/rep, `cosmx_nsclc_lung5_rep1_full`
+~385 s/rep, `xenium_pancreas_377_full` ~340 s/rep; heaviest quick datasets
+are the `g5000` panel ablations (~210–255 s/rep). Peak RSS: 3.2 GB
+(`cosmx_wtx_colon_full`), all others ≤ 2.4 GB.
+
+**Metrics definitions:** the committed JSONs were (re)computed with
+`recompute_metrics.py` after cherry-picking `4d160ae` (AMI returns NaN above
+3000 labels — sklearn's EMI term made full-sim metrics take hours). AMI is
+informational; no gate uses it.
 
 ## Reproduction
 
@@ -53,7 +72,8 @@ $PY benchmarks/harness/run.py --baysor $B --datasets quick \
 $PY benchmarks/harness/run.py --baysor $B --datasets full \
     --run-id benchbase-b --replicates 3 --threads 6 --timeout 5400 \
     --label bugfixes-35e8a7e
-# freeze + summarize
+# freeze + summarize (recompute first if the metric definitions changed)
+$PY benchmarks/harness/recompute_metrics.py --run benchbase-b
 $PY benchmarks/harness/baseline.py create --run-id benchbase-b \
     --name bugfixes-35e8a7e
 $PY benchmarks/harness/vendor_audit.py --baseline bugfixes-35e8a7e \
@@ -82,17 +102,21 @@ factor matched).
 
 | check | run | expect | outcome |
 |---|---|---|---|
-| fresh 6t/3rep run of ~10 quick datasets (incl. 2 `*_admix`) vs this baseline | `selfcheck-b-same` | `same` PASS | see task report |
-| same run | | `improved` FAIL (nothing changed) | see task report |
-| `--scale-factor 0.9`, same subsets | `selfcheck-b-scale09` | `same` FAIL on most datasets | see task report |
-| fresh 1t/1rep subset vs `bugfixes-35e8a7e-t1` | `selfcheck-t1-fresh2` | `identical` PASS | see task report |
-| `--scale-factor 0.9` 1t subset vs `-t1` | `selfcheck-t1-scale09` | `identical` FAIL | see task report |
+| fresh 6t/3rep run of 10 quick datasets (incl. 2 `*_admix`) vs this baseline | `chk-b-same` | `same` **PASS** | ✅ 74 passed / 0 failed |
+| same run | `chk-b-same` | `improved` **FAIL** | ✅ exit 1 (aggregate gain below the 0.005 min effect; iss admixture above tolerance — an unchanged binary cannot pass) |
+| `--scale-factor 0.9`, same subset | `chk-b-scale09` | `same` **FAIL on most** | ✅ exit 1: 14 failed gates across **6 of 10** datasets (all 6 real, plus `strec_dense_s2_disjoint`) |
+| fresh 1t/1rep subset vs `bugfixes-35e8a7e-t1` | `chk-t1a` | `identical` **PASS** | ✅ 70 passed / 0 failed, all 10 `assignment_sha256` bitwise equal |
+| `--scale-factor 0.9` 1t subset vs `-t1` | `selfcheck-t1-scale09` | `identical` **FAIL** | ✅ exit 1 |
 
-Known caveat recorded by this task: one early 1-thread self-check run
-(`selfcheck-t1-fresh`) diverged bitwise on `iss_mouse_hippocampus_quick` and
-`osmfish_somatosensory_quick` even though 7 subsequent reruns reproduced the
-baseline exactly — see the task report (finding: rare 1-thread divergence
-inside the stochastic E-step).
+Known issue recorded by this task: the first three 1-thread self-check
+runs (run-ids `selfcheck-t1-fresh{,2,3}`) failed bitwise on
+`iss_mouse_hippocampus_quick` and `osmfish_somatosensory_quick`. Root cause
+(found by bisection, see [`../../harness/README.md`](../../harness/README.md)
+→ "Determinism findings"): at 1 thread the binary's behaviour depends on the
+length of the `-o` path — run-ids of ≥ 18 characters deterministically flip
+those two datasets (7 stable runs at 11–17 chars vs 4 flipped runs at
+18–19 chars; suspected undefined behaviour in Baysor, filed as a
+follow-up). The official self-check with the short run-id `chk-t1a` passes.
 
 See [`bugfixes-35e8a7e-t1/`](bugfixes-35e8a7e-t1/) for the exact 1-thread
 baseline used by `--expect identical`.

@@ -202,3 +202,24 @@ def test_baseline_without_audit_records_no_typing(tmp_path):
     m = common.read_json(baselines / "plain" / "sim_a.json")
     assert m["baseline"]["celltypes_sha256"] is None
     assert m["baseline"]["fixed_pairs_sha256"] is None
+
+
+def test_create_over_docs_only_dir_preserves_readme(tmp_path):
+    """A baseline dir that only holds a hand-written README is not a
+    baseline yet: create must succeed without --force and keep the README."""
+    import shutil
+    root = tmp_path / "data"
+    baselines = tmp_path / "baselines"
+    ds = make_sim_dataset(root / "sim" / "sim_x")
+    truth = pd.read_parquet(ds / "molecules.parquet")["cell"].to_numpy(np.int64)
+    make_run(root, "rx", ds, [truth] * 3)
+    out = baselines / "mybase"
+    out.mkdir(parents=True)
+    (out / "README.md").write_text("# docs\n")
+    assert baseline.create("rx", "mybase", root, baselines) == 0
+    assert (out / "README.md").read_text() == "# docs\n"
+    assert list(out.glob("*.json"))
+    # and a real overwrite still requires --force
+    assert baseline.create("rx", "mybase", root, baselines) == 2
+    assert baseline.create("rx", "mybase", root, baselines, force=True) == 0
+    assert (out / "README.md").is_file()

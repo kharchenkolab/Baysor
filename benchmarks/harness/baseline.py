@@ -186,7 +186,10 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
         return 2
 
     out_dir = baselines_dir / name
-    if out_dir.exists() and any(out_dir.glob("*.json")) and not force:
+    # a directory holding only hand-written docs (README.md) is not a
+    # baseline yet: creating one over it must work without --force
+    docs_only = out_dir.is_dir() and not any(out_dir.glob("*.json"))
+    if out_dir.exists() and not docs_only and not force:
         print(f"error: baseline '{name}' already exists at {out_dir}; use --force",
               file=sys.stderr)
         return 2
@@ -228,7 +231,8 @@ def create(run_id: str, name: str, root: Path, baselines_dir: Path,
             print("error: nothing written", file=sys.stderr)
             return 2
 
-        _commit([(json_tmp, out_dir), (data_tmp, assignments_root)], force)
+        _commit([(json_tmp, out_dir), (data_tmp, assignments_root)],
+                force or docs_only)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         print("error: baseline not modified (old baseline kept)", file=sys.stderr)

@@ -40,18 +40,25 @@ $PY benchmarks/harness/baseline.py create --run-id benchbase-t1 \
 Per-dataset timeouts: 1800 s (30 min); no dataset timed out or failed
 (`benchbase-t1` finished `OK`, 65/65 replicates ok).
 
-## Self-check
+## Self-check (outcomes)
 
-A fresh 1-thread, 1-replicate run of a 10-dataset subset
-(`selfcheck-t1-fresh`) must be **bitwise identical** to this baseline:
+| check | run | expect | outcome |
+|---|---|---|---|
+| fresh 1-thread, 1-replicate run of 10 quick datasets (5 sim + 5 real) vs this baseline | `chk-t1a` | `identical` **PASS** | ✅ exit 0, 70 passed / 0 failed, all 10 `assignment_sha256` bitwise equal |
+| `--scale-factor 0.9` run of the same subset | `selfcheck-t1-scale09` | `identical` **FAIL** | ✅ exit 1 (assignments differ on the degraded run) |
 
-```bash
-$PY benchmarks/harness/compare.py --run-id selfcheck-t1-fresh \
-    --baseline bugfixes-35e8a7e-t1 --expect identical     # expect PASS
-```
-
-A `--scale-factor 0.9` run of the same subset (`selfcheck-t1-scale09`) must
-**fail** the same comparison. Both outcomes are recorded in the task report.
+**Known binary issue discovered while validating this baseline** (details in
+[`../../harness/README.md`](../../harness/README.md) → "Determinism
+findings"): the first two self-check attempts used run-ids of 18–19
+characters and failed reproducibly on `iss_mouse_hippocampus_quick` and
+`osmfish_somatosensory_quick` — at 1 thread the binary's `-o` output-path
+length participates in its (layout-sensitive) behaviour, and both datasets
+flip deterministically once the run-id reaches 18 characters. Evidence: 7
+runs with run-ids of 11–17 characters reproduce this baseline bitwise, 4
+runs with 18–19-character run-ids produce a second stable outcome. Use a
+run-id of ≤ 17 characters for `--expect identical` (the failing attempts
+`selfcheck-t1-fresh{,2,3}` are kept under `$BAYSOR_BENCH_DATA/runs/` as
+evidence; `compare.py` now warns about long run-ids).
 
 See [`bugfixes-35e8a7e/`](bugfixes-35e8a7e/) for the 6-thread noise-floor
 baseline and its summary.

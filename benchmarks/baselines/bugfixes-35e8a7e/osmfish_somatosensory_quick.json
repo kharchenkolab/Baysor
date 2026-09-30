@@ -1,0 +1,510 @@
+{
+  "schema": 1,
+  "run_id": "benchbase-b",
+  "dataset": {
+    "id": "osmfish_somatosensory_quick",
+    "kind": "real",
+    "tier": "quick",
+    "path": "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick",
+    "n_molecules": 149997,
+    "n_genes": 35
+  },
+  "inputs": {
+    "molecules": "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet",
+    "molecules_sha256": "f7682e0f84ab89e5dcde666ef8befc4cf009a54bc67728312be60798d0a0e8e9",
+    "meta": "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/meta.json",
+    "meta_sha256": "0acab61217bdd897d92c2c23913061444949c93df043b6f537406706e1b2342e"
+  },
+  "binary": {
+    "path": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+    "sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+    "version_info": "Baysor \u2014 Bayesian cell segmentation of spatial transcriptomics data\nUsage: /home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor [OPTIONS] SUBCOMMAND\nOptions:\n  -h,--help                   Print this help message and exit\nSubcommands:\n  run                         Run cell segmentation"
+  },
+  "label": "bugfixes-35e8a7e",
+  "threads": 6,
+  "replicates": 3,
+  "created": "2026-09-29T22:20:29+00:00",
+  "reps": [
+    {
+      "rep": 0,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.33",
+        "--scale-std",
+        "3.12",
+        "--prior-segmentation-confidence",
+        "0.2",
+        "-m",
+        "30",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep0/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep0/seg",
+      "wall_s": 34.789,
+      "wall_s_time_v": 34.78,
+      "peak_rss_kb": 263928,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep0/seg\"\n\tUser time (seconds): 111.39\n\tSystem time (seconds): 0.24\n\tPercent of CPU this job got: 320%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:34.78\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 263928\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 56179\n\tVoluntary context switches: 6323\n\tInvoluntary context switches: 2425\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 6440\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep0/assignment.parquet",
+      "assignment_sha256": "1ae0ed335c7b09517de9bcc4ad31128b9f098e085fefd41b82172527549f59b7",
+      "n_cells": 1149,
+      "n_assigned": 149431,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "no_detected_pairs",
+        "total_admixture_rate": null,
+        "total_admixture_molecules": null,
+        "pairs": [],
+        "n_pairs_evaluated": 4,
+        "n_pairs_detected": 0,
+        "n_cells": 1149,
+        "admixture_capable": false,
+        "typing": "quick_cluster",
+        "seed": 1,
+        "audit_threads": 6,
+        "reason": "audit status 'no_detected_pairs': no_pairs_detected",
+        "status": "unavailable",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep0/celladmix.json",
+        "typing_source": "quick_cluster",
+        "fixed_pairs": null
+      }
+    },
+    {
+      "rep": 1,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.33",
+        "--scale-std",
+        "3.12",
+        "--prior-segmentation-confidence",
+        "0.2",
+        "-m",
+        "30",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep1/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep1/seg",
+      "wall_s": 34.863,
+      "wall_s_time_v": 34.86,
+      "peak_rss_kb": 261576,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep1/seg\"\n\tUser time (seconds): 111.96\n\tSystem time (seconds): 0.24\n\tPercent of CPU this job got: 321%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:34.86\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 261576\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 55694\n\tVoluntary context switches: 6336\n\tInvoluntary context switches: 3740\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 6560\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep1/assignment.parquet",
+      "assignment_sha256": "1752c7dbd4dd9f074fde32c7e1f94298fffb43fb3f3b685ce0e5103477d7dc66",
+      "n_cells": 1137,
+      "n_assigned": 149431,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "ok",
+        "total_admixture_rate": 0.002971271021407874,
+        "total_admixture_molecules": 444.0,
+        "pairs": [
+          {
+            "source": "cluster_2",
+            "target": "cluster_1",
+            "rate": 0.004738477966915807,
+            "admixed_molecules": 444.0,
+            "excess": 323.0,
+            "coverage": 0.7270333308253706,
+            "q_value": 0.0056543503724514575,
+            "n_exposed": 235,
+            "n_reference": 222,
+            "n_markers": 8,
+            "n_strict": 5
+          }
+        ],
+        "n_pairs_evaluated": 3,
+        "n_pairs_detected": 1,
+        "n_cells": 1137,
+        "admixture_capable": false,
+        "typing": "celltypes",
+        "seed": 1,
+        "audit_threads": 6,
+        "status": "ok",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep1/celladmix.json",
+        "typing_source": "run_rep0",
+        "fixed_pairs": null
+      }
+    },
+    {
+      "rep": 2,
+      "status": "ok",
+      "exit_code": 0,
+      "command": [
+        "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor",
+        "run",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet",
+        ":prior",
+        "-x",
+        "x",
+        "-y",
+        "y",
+        "-g",
+        "gene",
+        "-s",
+        "5.33",
+        "--scale-std",
+        "3.12",
+        "--prior-segmentation-confidence",
+        "0.2",
+        "-m",
+        "30",
+        "-c",
+        "/home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml",
+        "--output-style",
+        "parquet",
+        "-o",
+        "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep2/seg"
+      ],
+      "command_str": "/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep2/seg",
+      "wall_s": 36.635,
+      "wall_s_time_v": 36.63,
+      "peak_rss_kb": 260224,
+      "threads": 6,
+      "binary_sha256": "68b1b505949a2f9705f44c9ec404d92afe95ec2d65b2e5366386e2bc2719c2ec",
+      "scale_factor": 1.0,
+      "log": "baysor.log",
+      "stderr_tail": "\tCommand being timed: \"/home/vpetukhov/.bb/thread-storage/thr_cpwic2f6q3/baysor-bugfixes/build-rel/baysor run /home/vpetukhov/Projects/Baysor/.bench-data/real/osmfish_somatosensory_quick/molecules.parquet :prior -x x -y y -g gene -s 5.33 --scale-std 3.12 --prior-segmentation-confidence 0.2 -m 30 -c /home/vpetukhov/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_fsedpmeud5-1/Baysor/configs/osm_fish.toml --output-style parquet -o /home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep2/seg\"\n\tUser time (seconds): 126.49\n\tSystem time (seconds): 0.27\n\tPercent of CPU this job got: 346%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:36.63\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 260224\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 55535\n\tVoluntary context switches: 6329\n\tInvoluntary context switches: 1981\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 6288\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n",
+      "assignment": "rep2/assignment.parquet",
+      "assignment_sha256": "7321b254e9d8ea28b43af6ec5c904bfac1e27fb5e733bf1df4a98406be9c38ce",
+      "n_cells": 1155,
+      "n_assigned": 149434,
+      "n_loader_filtered": 0,
+      "seg_source": "molecules.parquet",
+      "celladmix": {
+        "audit_status": "no_detected_pairs",
+        "total_admixture_rate": null,
+        "total_admixture_molecules": null,
+        "pairs": [],
+        "n_pairs_evaluated": 3,
+        "n_pairs_detected": 0,
+        "n_cells": 1155,
+        "admixture_capable": false,
+        "typing": "celltypes",
+        "seed": 1,
+        "audit_threads": 6,
+        "reason": "audit status 'no_detected_pairs': no_pairs_detected",
+        "status": "unavailable",
+        "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep2/celladmix.json",
+        "typing_source": "run_rep0",
+        "fixed_pairs": null
+      }
+    }
+  ],
+  "runtime": {
+    "wall_s": [
+      34.789,
+      34.863,
+      36.635
+    ],
+    "peak_rss_kb": [
+      263928,
+      261576,
+      260224
+    ],
+    "wall_s_mean": 35.429,
+    "wall_s_sd": 1.0450818149790937,
+    "peak_rss_kb_mean": 261909.33333333334,
+    "peak_rss_kb_sd": 1874.3631807452186
+  },
+  "failures": [],
+  "real": {
+    "rep_agreement": {
+      "pairs": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "per_pair": [
+        {
+          "molecule_ari": 0.9236912631789339,
+          "ari_assigned": 0.9236499394909791,
+          "assigned_agreement": 0.999759995199904,
+          "assigned_fraction_candidate": 0.9962265911984907,
+          "assigned_fraction_reference": 0.9962265911984907,
+          "noise_precision": 0.9681978798586572,
+          "noise_recall": 0.9681978798586572,
+          "frac_cells_matched": 0.9225413402959095,
+          "median_jaccard": 0.9394957983193277,
+          "cell_count_ratio": 0.9895561357702349,
+          "median_mpc_rel_change": 0.011494252873563218,
+          "n_cells_reference": 1149.0,
+          "n_cells_candidate": 1137.0
+        },
+        {
+          "molecule_ari": 0.925013843235572,
+          "ari_assigned": 0.9249795047129734,
+          "assigned_agreement": 0.9997533283999014,
+          "assigned_fraction_candidate": 0.9962465915984986,
+          "assigned_fraction_reference": 0.9962265911984907,
+          "noise_precision": 0.9698046181172292,
+          "noise_recall": 0.9646643109540636,
+          "frac_cells_matched": 0.9321148825065274,
+          "median_jaccard": 0.936,
+          "cell_count_ratio": 1.0052219321148825,
+          "median_mpc_rel_change": 0.011494252873563218,
+          "n_cells_reference": 1149.0,
+          "n_cells_candidate": 1155.0
+        },
+        {
+          "molecule_ari": 0.9260438809123277,
+          "ari_assigned": 0.9260324370839946,
+          "assigned_agreement": 0.9997533283999014,
+          "assigned_fraction_candidate": 0.9962465915984986,
+          "assigned_fraction_reference": 0.9962265911984907,
+          "noise_precision": 0.9698046181172292,
+          "noise_recall": 0.9646643109540636,
+          "frac_cells_matched": 0.9270008795074758,
+          "median_jaccard": 0.9411764705882353,
+          "cell_count_ratio": 1.0158311345646438,
+          "median_mpc_rel_change": 0.0,
+          "n_cells_reference": 1137.0,
+          "n_cells_candidate": 1155.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.924887293762649,
+        "assigned_agreement": 0.9997555506665691,
+        "assigned_fraction_candidate": 0.996239924798496,
+        "assigned_fraction_reference": 0.9962265911984907,
+        "cell_count_ratio": 1.0035364008165872,
+        "frac_cells_matched": 0.9272190341033042,
+        "median_jaccard": 0.9388907563025212,
+        "median_mpc_rel_change": 0.007662835249042145,
+        "molecule_ari": 0.9249163291089445,
+        "n_cells_candidate": 1149.0,
+        "n_cells_reference": 1145.0,
+        "noise_precision": 0.9692690386977052,
+        "noise_recall": 0.9658421672555949
+      },
+      "sd": {
+        "ari_assigned": 0.0011939224596685637,
+        "assigned_agreement": 3.849078776139253e-06,
+        "assigned_fraction_candidate": 1.1547236328481857e-05,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.013218345290909032,
+        "frac_cells_matched": 0.004790498010163608,
+        "median_jaccard": 0.0026407420963229697,
+        "median_mpc_rel_change": 0.006636209990685354,
+        "molecule_ari": 0.001179336382690992,
+        "n_cells_candidate": 10.392304845413264,
+        "n_cells_reference": 6.928203230275509,
+        "noise_precision": 0.000927650766103779,
+        "noise_recall": 0.0020401069582672436
+      }
+    },
+    "n_metric_reps": 3,
+    "vs_vendor": {
+      "per_rep": [
+        {
+          "molecule_ari": 0.009606954403618728,
+          "ari_assigned": 0.8230249235183351,
+          "assigned_agreement": 0.5721714434288686,
+          "assigned_fraction_candidate": 0.9962265911984907,
+          "assigned_fraction_reference": 0.5684247018273699,
+          "noise_precision": 0.9964664310954063,
+          "noise_recall": 0.008712443036996987,
+          "frac_cells_matched": 0.6931567328918322,
+          "median_jaccard": 0.6317829457364341,
+          "cell_count_ratio": 2.5364238410596025,
+          "median_mpc_rel_change": -0.4727272727272727,
+          "n_cells_reference": 453.0,
+          "n_cells_candidate": 1149.0
+        },
+        {
+          "molecule_ari": 0.009772556360037871,
+          "ari_assigned": 0.8209269496176247,
+          "assigned_agreement": 0.5721714434288686,
+          "assigned_fraction_candidate": 0.9962265911984907,
+          "assigned_fraction_reference": 0.5684247018273699,
+          "noise_precision": 0.9964664310954063,
+          "noise_recall": 0.008712443036996987,
+          "frac_cells_matched": 0.6754966887417219,
+          "median_jaccard": 0.6283185840707964,
+          "cell_count_ratio": 2.5099337748344372,
+          "median_mpc_rel_change": -0.4666666666666667,
+          "n_cells_reference": 453.0,
+          "n_cells_candidate": 1137.0
+        },
+        {
+          "molecule_ari": 0.009617683859144667,
+          "ari_assigned": 0.8233853495027027,
+          "assigned_agreement": 0.5721514430288606,
+          "assigned_fraction_candidate": 0.9962465915984986,
+          "assigned_fraction_reference": 0.5684247018273699,
+          "noise_precision": 0.9964476021314387,
+          "noise_recall": 0.008666100254885302,
+          "frac_cells_matched": 0.6887417218543046,
+          "median_jaccard": 0.6343283582089553,
+          "cell_count_ratio": 2.5496688741721854,
+          "median_mpc_rel_change": -0.4666666666666667,
+          "n_cells_reference": 453.0,
+          "n_cells_candidate": 1155.0
+        }
+      ],
+      "mean": {
+        "ari_assigned": 0.8224457408795542,
+        "assigned_agreement": 0.5721647766288659,
+        "assigned_fraction_candidate": 0.9962332579984933,
+        "assigned_fraction_reference": 0.5684247018273699,
+        "cell_count_ratio": 2.5320088300220753,
+        "frac_cells_matched": 0.6857983811626195,
+        "median_jaccard": 0.6314766293387287,
+        "median_mpc_rel_change": -0.46868686868686876,
+        "molecule_ari": 0.009665731540933755,
+        "n_cells_candidate": 1147.0,
+        "n_cells_reference": 453.0,
+        "noise_precision": 0.9964601547740838,
+        "noise_recall": 0.008696995442959758
+      },
+      "sd": {
+        "ari_assigned": 0.001327600051045811,
+        "assigned_agreement": 1.1547236328545957e-05,
+        "assigned_fraction_candidate": 1.1547236328481857e-05,
+        "assigned_fraction_reference": 0.0,
+        "cell_count_ratio": 0.020232122273535578,
+        "frac_cells_matched": 0.009190578364088871,
+        "median_jaccard": 0.003016573983768369,
+        "median_mpc_rel_change": 0.0034990925405431767,
+        "molecule_ari": 9.266842389099461e-05,
+        "n_cells_candidate": 9.16515138991168,
+        "n_cells_reference": 0.0,
+        "noise_precision": 1.0870907415286922e-05,
+        "noise_recall": 2.6756017727177937e-05
+      },
+      "information_only": true
+    },
+    "celladmix": {
+      "per_rep": [
+        {
+          "status": "unavailable",
+          "typing_source": "quick_cluster",
+          "reason": "audit status 'no_detected_pairs': no_pairs_detected"
+        },
+        {
+          "status": "ok",
+          "typing_source": "run_rep0",
+          "audit_status": "ok",
+          "total_admixture_rate": 0.002971271021407874,
+          "total_admixture_molecules": 444.0,
+          "pairs": [
+            {
+              "source": "cluster_2",
+              "target": "cluster_1",
+              "rate": 0.004738477966915807,
+              "admixed_molecules": 444.0,
+              "excess": 323.0,
+              "coverage": 0.7270333308253706,
+              "q_value": 0.0056543503724514575,
+              "n_exposed": 235,
+              "n_reference": 222,
+              "n_markers": 8,
+              "n_strict": 5
+            }
+          ],
+          "n_pairs_evaluated": 3,
+          "n_pairs_detected": 1,
+          "n_cells": 1137,
+          "admixture_capable": false,
+          "typing": "celltypes",
+          "seed": 1,
+          "audit_threads": 6,
+          "audit_json": "/home/vpetukhov/Projects/Baysor/.bench-data/runs/benchbase-b/osmfish_somatosensory_quick/rep1/celladmix.json",
+          "fixed_pairs": null
+        },
+        {
+          "status": "unavailable",
+          "typing_source": "run_rep0",
+          "reason": "audit status 'no_detected_pairs': no_pairs_detected"
+        }
+      ],
+      "status": "partial",
+      "typing": {
+        "mode": "quick_cluster",
+        "baseline": null
+      },
+      "admixture_capable": false,
+      "mean_total": 0.002971271021407874,
+      "sd_total": 0.0,
+      "per_rep_total": [
+        null,
+        0.002971271021407874,
+        null
+      ]
+    }
+  },
+  "metrics_recomputed": {
+    "script": "recompute_metrics.py",
+    "at": "2026-09-30T03:33:36+00:00",
+    "metrics_module": "metrics.py (current definitions)"
+  },
+  "baseline": {
+    "name": "bugfixes-35e8a7e",
+    "run_id": "benchbase-b",
+    "created": "2026-09-30T04:40:40+00:00",
+    "flavour": "noise_floor",
+    "identical": false,
+    "noise_floor_replicates": 3,
+    "noise_floor_valid": true,
+    "assignments_dir": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/osmfish_somatosensory_quick/",
+    "assignment_sha256": {
+      "0": "1ae0ed335c7b09517de9bcc4ad31128b9f098e085fefd41b82172527549f59b7",
+      "1": "1752c7dbd4dd9f074fde32c7e1f94298fffb43fb3f3b685ce0e5103477d7dc66",
+      "2": "7321b254e9d8ea28b43af6ec5c904bfac1e27fb5e733bf1df4a98406be9c38ce"
+    },
+    "celltypes": "$BAYSOR_BENCH_DATA/baselines/bugfixes-35e8a7e/osmfish_somatosensory_quick/celltypes.parquet",
+    "celltypes_sha256": "33ad9cac7c388b19469293b320eb4299357e161c2b77ef321cdb6440442e038b",
+    "fixed_pairs": null,
+    "fixed_pairs_sha256": null,
+    "n_fixed_pairs": null
+  }
+}

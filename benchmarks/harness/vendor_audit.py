@@ -100,7 +100,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--repo", default=None)
-    ap.add_argument("--force", action="store_true", "rerun existing audits")
+    ap.add_argument("--force", action="store_true", help="rerun existing audits")
     args = ap.parse_args(argv)
 
     repo = Path(args.repo).resolve() if args.repo else common.repo_root()
