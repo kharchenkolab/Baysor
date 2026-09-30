@@ -54,7 +54,9 @@ LIBOMP_SOURCES = {
     f"openmp-{LIBOMP_VERSION}.src.tar.xz": "bd7e6901ab086fd268750363017935fd4a717c153dad3c2aab86cb0140d9e3fe",
     f"cmake-{LIBOMP_VERSION}.src.tar.xz": "11c5a28f90053b0c43d0dec3d0ad579347fc277199c005206b963c19aae514e3",
 }
-LIBOMP_URL = "https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{name}"
+# Installed by InstallRequiredSystemLibraries (BAYSOR_INSTALL_RUNTIME=ON).
+WINDOWS_RUNTIME_DLLS = ["msvcp140.dll", "vcomp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]
+LIBOMP_URL ="https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{name}"
 
 
 def log(msg):
@@ -284,6 +286,14 @@ def main():
     elif args.platform == "macos-arm64":
         log("Checking portability")
         run(["bash", SRC_DIR / "packaging" / "macos" / "check_binary.sh", exe, MACOS_DEPLOYMENT_TARGET])
+    elif args.platform == "windows-x86_64":
+        # Runners have the VC++ runtime in System32, so a smoke test alone
+        # would not notice if it were missing from the archive.
+        dlls = sorted(p.name.lower() for p in exe.parent.glob("*.dll"))
+        print("    bundled DLLs: " + ", ".join(dlls))
+        missing = [d for d in WINDOWS_RUNTIME_DLLS if d not in dlls]
+        if missing:
+            sys.exit("error: MSVC/OpenMP runtime DLLs missing from bin/: " + ", ".join(missing))
 
     archive = make_archive(stage_root, name, spec["archive"], out_dir)
     log(f"Wrote {archive}")
