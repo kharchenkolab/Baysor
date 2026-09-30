@@ -1,5 +1,6 @@
 #include "baysor/processing/bmm_algorithm/molecule_clustering.h"
 #include "baysor/processing/data_processing/neighborhood_composition.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <spdlog/spdlog.h>
 #include <third_party/nanoflann.hpp>
@@ -409,15 +410,14 @@ using KDTree = nanoflann::KDTreeSingleIndexAdaptor<
 
 static Eigen::MatrixXd normalize_columns_l2(const Eigen::MatrixXf& mol_vecs) {
     Eigen::MatrixXd normalized = mol_vecs.cast<double>();
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < normalized.cols(); ++i) {
+    parallel_for_static(0, normalized.cols(), [&](int i) {
         const double norm = normalized.col(i).norm();
         if (norm > 1e-12) {
             normalized.col(i) /= norm;
         } else {
             normalized.col(i).setZero();
         }
-    }
+    });
     return normalized;
 }
 
@@ -445,26 +445,25 @@ AdjList build_knn_similarity_graph(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    const int n_threads = std::max(1, omp_get_max_threads());
-    std::vector<std::vector<int>> src_by_thread(n_threads);
-    std::vector<std::vector<int>> dst_by_thread(n_threads);
-    std::vector<std::vector<double>> wt_by_thread(n_threads);
+    // Collect edges into per-chunk buffers and merge them in chunk order, so
+    // the edge list (and thus the neighbor order inside the adjacency list) is
+    // the canonical (src, neighbor) order — independent of scheduling and of
+    // the thread count, and identical to the serial order.
+    constexpr std::int64_t chunk = 256;  // former schedule(dynamic, 256)
+    const std::int64_t n_chunks = (n + chunk - 1) / chunk;
+    std::vector<std::vector<int>> src_by_chunk(n_chunks), dst_by_chunk(n_chunks);
+    std::vector<std::vector<double>> wt_by_chunk(n_chunks);
 
-    #pragma omp parallel
-    {
-        const int tid = omp_get_thread_num();
-        auto& src = src_by_thread[tid];
-        auto& dst = dst_by_thread[tid];
-        auto& wt = wt_by_thread[tid];
-        src.reserve(static_cast<size_t>(n / n_threads + 1) * static_cast<size_t>(k));
-        dst.reserve(src.capacity());
-        wt.reserve(src.capacity());
+    run_parallel_chunks(0, n, chunk, Scheduling::Dynamic,
+        [&](std::int64_t b, std::int64_t e, int) {
+        auto& src = src_by_chunk[b / chunk];
+        auto& dst = dst_by_chunk[b / chunk];
+        auto& wt  = wt_by_chunk[b / chunk];
 
         std::vector<int> nn_indices(query_k);
         std::vector<double> nn_distances(query_k);
 
-        #pragma omp for schedule(dynamic, 256)
-        for (int i = 0; i < n; ++i) {
+        for (int i = static_cast<int>(b); i < static_cast<int>(e); ++i) {
             nanoflann::KNNResultSet<double, int> result_set(query_k);
             result_set.init(nn_indices.data(), nn_distances.data());
             tree.findNeighbors(
@@ -487,10 +486,10 @@ AdjList build_knn_similarity_graph(
                 wt.push_back(weight);
             }
         }
-    }
+    });
 
     size_t total_edges = 0;
-    for (const auto& v : src_by_thread) total_edges += v.size();
+    for (const auto& v : src_by_chunk) total_edges += v.size();
     std::vector<int> src;
     std::vector<int> dst;
     std::vector<double> wt;
@@ -498,10 +497,10 @@ AdjList build_knn_similarity_graph(
     dst.reserve(total_edges);
     wt.reserve(total_edges);
 
-    for (int tid = 0; tid < n_threads; ++tid) {
-        src.insert(src.end(), src_by_thread[tid].begin(), src_by_thread[tid].end());
-        dst.insert(dst.end(), dst_by_thread[tid].begin(), dst_by_thread[tid].end());
-        wt.insert(wt.end(), wt_by_thread[tid].begin(), wt_by_thread[tid].end());
+    for (std::int64_t c = 0; c < n_chunks; ++c) {
+        src.insert(src.end(), src_by_chunk[c].begin(), src_by_chunk[c].end());
+        dst.insert(dst.end(), dst_by_chunk[c].begin(), dst_by_chunk[c].end());
+        wt.insert(wt.end(), wt_by_chunk[c].begin(), wt_by_chunk[c].end());
     }
 
     if (src.empty()) return out;
@@ -529,18 +528,31 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    #pragma omp parallel
-    {
-        std::vector<int> nn_indices(query_k);
-        std::vector<double> nn_distances(query_k);
-        std::vector<double> query(static_cast<size_t>(mol_vecs.rows()), 0.0);
-        std::vector<double> label_w(static_cast<size_t>(max_label + 1), 0.0);
+    struct TransferScratch {
+        std::vector<int> nn_indices;
+        std::vector<double> nn_distances;
+        std::vector<double> query;
+        std::vector<double> label_w;
         std::vector<int> touched;
-        touched.reserve(query_k);
+    };
+    std::vector<TransferScratch> scratch_buf(thread_pool_size());
+    for (auto& s : scratch_buf) {
+        s.nn_indices.resize(query_k);
+        s.nn_distances.resize(query_k);
+        s.query.assign(static_cast<size_t>(mol_vecs.rows()), 0.0);
+        s.label_w.assign(static_cast<size_t>(max_label + 1), 0.0);
+        s.touched.reserve(query_k);
+    }
 
-        #pragma omp for schedule(dynamic, 512)
-        for (int i = 0; i < n; ++i) {
-            double norm_sq = 0.0;
+    parallel_for(0, n, 512, [&](int i, int ti) {
+        auto& scratch = scratch_buf[ti];
+        auto& nn_indices = scratch.nn_indices;
+        auto& nn_distances = scratch.nn_distances;
+        auto& query = scratch.query;
+        auto& label_w = scratch.label_w;
+        auto& touched = scratch.touched;
+
+        double norm_sq = 0.0;
             for (int d = 0; d < mol_vecs.rows(); ++d) {
                 const double v = static_cast<double>(mol_vecs(d, i));
                 query[static_cast<size_t>(d)] = v;
@@ -575,8 +587,7 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
             }
             out[i] = best_label;
             for (int label : touched) label_w[label] = 0.0;
-        }
-    }
+    });
 
     return out;
 }
@@ -728,11 +739,10 @@ std::vector<int> graph_partition_to_target(
     );
 
     std::vector<PartitionAttempt> attempts(candidate_resolutions.size());
-    #pragma omp parallel for schedule(dynamic, 1)
-    for (int i = 0; i < static_cast<int>(candidate_resolutions.size()); ++i) {
+    parallel_for(0, static_cast<int>(candidate_resolutions.size()), 1, [&](int i) {
         attempts[i] = run_graph_partition_once(
             graph, method, candidate_resolutions[static_cast<size_t>(i)], max_passes);
-    }
+    });
 
     const PartitionAttempt* chosen = nullptr;
     for (const auto& attempt : attempts) {

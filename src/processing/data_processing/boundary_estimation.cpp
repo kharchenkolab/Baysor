@@ -4,6 +4,7 @@
 #include "baysor/processing/data_processing/triangulation.h"
 #include "baysor/processing/utils/utils.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
@@ -14,7 +15,6 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
-#include <omp.h>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <unordered_map>
@@ -395,10 +395,11 @@ PolygonCollection build_polygons_for_cells(
 
     std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
 
-    #pragma omp parallel for schedule(dynamic, 32) if(!omp_in_parallel())
-    for (int cid = 1; cid <= max_label; ++cid) {
+    // Nested calls inside a parallel region run serially (this replaces the
+    // former `omp_in_parallel` guard).
+    parallel_for(1, max_label + 1, 32, [&](int cid) {
         const auto& cell_ids = mids_per_cell[cid - 1];
-        if (cell_ids.empty()) continue;
+        if (cell_ids.empty()) return;
 
         Eigen::MatrixXd poly;
         if (cell_ids.size() == 1) {
@@ -419,7 +420,7 @@ PolygonCollection build_polygons_for_cells(
             poly.col(3) = center + Eigen::Vector2d(-offset, 0.0);
         } else {
             const auto& mids = ids_per_bbox[cid - 1];
-            if (mids.empty()) continue;
+            if (mids.empty()) return;
 
             const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
             const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
@@ -430,7 +431,7 @@ PolygonCollection build_polygons_for_cells(
                 bbox_labels[i] = cell_labels[mids[i]];
                 n_cell_pts += (bbox_labels[i] == cid);
             }
-            if (n_cell_pts < 3) continue;
+            if (n_cell_pts < 3) return;
 
             std::vector<CgalPointWithInfo> cell_points;
             cell_points.reserve(n_cell_pts);
@@ -448,7 +449,7 @@ PolygonCollection build_polygons_for_cells(
             CgalDelaunay dt;
             dt.insert(cell_points.begin(), cell_points.end());
             auto triangles = extract_triangle_verts(dt);
-            if (triangles.empty()) continue;
+            if (triangles.empty()) return;
 
             Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
             for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
@@ -458,7 +459,7 @@ PolygonCollection build_polygons_for_cells(
             auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos,
                                                               internal::kBorderFilterMaxIters);
             auto poly_ids = border_edges_to_poly(border_edges, internal::kMaxBorderLength);
-            if (poly_ids.empty()) continue;
+            if (poly_ids.empty()) return;
 
             poly.resize(2, static_cast<int>(poly_ids.size()));
             for (int i = 0; i < static_cast<int>(poly_ids.size()); ++i) {
@@ -466,9 +467,9 @@ PolygonCollection build_polygons_for_cells(
             }
         }
 
-        if (poly.cols() == 0) continue;
+        if (poly.cols() == 0) return;
         polygons_by_cell[cid - 1] = std::move(poly);
-    }
+    });
 
     PolygonCollection polygons;
     polygons.reserve(max_label);

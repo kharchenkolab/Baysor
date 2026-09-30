@@ -2,8 +2,8 @@
 #include "baysor/processing/bmm_algorithm/tracing.h"
 #include "baysor/utils/general.h"
 #include "baysor/utils/julia_int_dict.h"
+#include "baysor/utils/thread_pool.h"
 
-#include <omp.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/fmt.h>
 
@@ -54,8 +54,7 @@ void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
         data.cluster_per_cell.assign(nc, 0);
     }
 
-    #pragma omp parallel for schedule(dynamic, 32)
-    for (int ci = 0; ci < nc; ++ci) {
+    parallel_for(0, nc, 32, [&](int ci) {
         const auto& mol_ids = ids_by_comp[ci];
         int np = static_cast<int>(mol_ids.size());
 
@@ -84,7 +83,7 @@ void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
             }
             data.cluster_per_cell[ci] = best;
         }
-    }
+    });
 
     data.noise_density = data.noise_position_density * noise_composition_density(data);
     if (std::isinf(data.noise_density) || std::isnan(data.noise_density)) {
@@ -156,8 +155,26 @@ static void adjust_densities_by_prior_segmentation(
 // expect_dirichlet_spatial (E-step)
 // ============================================================================
 
+// Seed for the per-chunk RNG stream of the multi-threaded E-step. Streams are
+// keyed by (iteration, fixed-size chunk index), so the outcome is independent
+// of scheduling and of the thread count, and differs between iterations.
+static std::uint64_t estep_stream_seed(std::uint64_t rng_salt, std::int64_t chunk_idx) {
+    auto mix = [](std::uint64_t x) {
+        x += 0x9E3779B97F4A7C15ULL;
+        x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+        return x ^ (x >> 31);
+    };
+    return mix(mix(rng_salt + 1) ^ mix(static_cast<std::uint64_t>(chunk_idx) + 0x100000001B3ULL));
+}
+
+// Fixed chunk size of the E-step loop (formerly `schedule(dynamic, 1024)`).
+// Chunk boundaries must not depend on the thread count: the multi-threaded
+// RNG stream is keyed by chunk index.
+static constexpr std::int64_t kEstepChunkSize = 1024;
+
 template<int N>
-EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic) {
+EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint64_t rng_salt) {
     int n = data.n_molecules();
     bool has_segments = !data.segment_per_molecule.empty();
     bool has_clusters  = !data.cluster_per_molecule.empty();
@@ -166,10 +183,10 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic) {
     std::vector<int> old_assignment = data.assignment;
     std::vector<int> new_assignment(n, 0);
 
-    int n_threads = omp_get_max_threads();
+    int n_threads = thread_pool_size();
 
     // Per-thread buffers
-    std::vector<JuliaIntDoubleDict>  comp_weights_buf(n_threads);
+    std::vector<JuliaIntDoubleDict>  component_weights_buf(n_threads);
     std::vector<std::vector<int>>    adj_classes_buf(n_threads);
     std::vector<std::vector<double>> adj_weights_buf(n_threads);
     std::vector<std::vector<double>> denses_buf(n_threads);
@@ -182,21 +199,23 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic) {
 
     // For single-thread parity, continue the same RNG stream used by earlier
     // preprocessing steps such as duplicate-point jitter in normalize_points.
-    std::vector<Xoshiro256pp> rngs;
-    if (n_threads > 1) {
-        rngs.resize(n_threads);
-        for (int t = 0; t < n_threads; ++t) {
-            rngs[t].seed(static_cast<uint32_t>(1) ^ static_cast<uint32_t>(t * 2654435761u));
-        }
-    }
+    // Multi-threaded runs draw from per-chunk streams keyed by
+    // (rng_salt, chunk index), so results do not depend on scheduling or on
+    // the number of threads.
+    const bool single_threaded = (n_threads <= 1);
 
-    #pragma omp parallel for schedule(dynamic, 1024)
-    for (int mol_id = 0; mol_id < n; ++mol_id) {
-        int ti = omp_get_thread_num();
-        auto& comp_weights = comp_weights_buf[ti];
+    run_parallel_chunks(0, n, kEstepChunkSize, Scheduling::Dynamic,
+        [&](std::int64_t chunk_begin, std::int64_t chunk_end, int ti) {
+        Xoshiro256pp chunk_rng;
+        if (!single_threaded) {
+            chunk_rng.seed(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
+        }
+        auto& comp_weights = component_weights_buf[ti];
         auto& adj_classes  = adj_classes_buf[ti];
         auto& adj_weights  = adj_weights_buf[ti];
         auto& denses       = denses_buf[ti];
+
+        for (int mol_id = static_cast<int>(chunk_begin); mol_id < static_cast<int>(chunk_end); ++mol_id) {
 
         // ---- aggregate_adjacent_component_weights ----
         comp_weights.clear();
@@ -317,14 +336,15 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic) {
             }
             new_assignment[mol_id] = adj_classes[best];
         } else {
-            if (n_threads == 1) {
+            if (single_threaded) {
                 new_assignment[mol_id] =
                     fsample(adj_classes.data(), denses.data(), n_total, global_xoshiro_rng());
             } else {
-                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, rngs[ti]);
+                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, chunk_rng);
             }
         }
-    }
+        }
+    });
 
     // Apply new assignments sequentially (preserves segment bookkeeping correctness)
     std::int64_t n_changed = 0;
@@ -391,17 +411,23 @@ void split_cells_by_connected_components(BmmData<N>& data) {
     const std::vector<int> assignment_snapshot = data.assignment;
     auto ids_per_cell = split_ids(data.assignment, nc, /*drop_zero=*/true);
 
-    #pragma omp parallel
-    {
+    struct SplitScratch {
         std::unordered_map<int,int> mol_pos;
         std::vector<int> label;
         std::vector<int> queue;
         std::vector<int> cc_size;
+    };
+    std::vector<SplitScratch> scratch_buf(thread_pool_size());
 
-        #pragma omp for schedule(dynamic, 64)
-        for (int cell_id_0 = 0; cell_id_0 < nc; ++cell_id_0) {
-            const auto& mol_ids = ids_per_cell[cell_id_0];
-            if (mol_ids.size() <= 1) continue;
+    parallel_for(0, nc, 64, [&](int cell_id_0, int ti) {
+        auto& scratch = scratch_buf[ti];
+        auto& mol_pos = scratch.mol_pos;
+        auto& label = scratch.label;
+        auto& queue = scratch.queue;
+        auto& cc_size = scratch.cc_size;
+
+        const auto& mol_ids = ids_per_cell[cell_id_0];
+            if (mol_ids.size() <= 1) return;
 
             int cell_id_1 = cell_id_0 + 1;  // 1-based
 
@@ -442,7 +468,7 @@ void split_cells_by_connected_components(BmmData<N>& data) {
                 ++n_cc;
             }
 
-            if (n_cc <= 1) continue;
+            if (n_cc <= 1) return;
 
             // Find largest connected component
             cc_size.assign(n_cc, 0);
@@ -457,8 +483,7 @@ void split_cells_by_connected_components(BmmData<N>& data) {
                     data.assignment[mol_ids[k]] = 0;
                 }
             }
-        }
-    }
+    });
 }
 
 // ============================================================================
@@ -575,8 +600,11 @@ void bmm(BmmData<N>& data,
 
         data.update_n_mols_per_segment();
 
-        // E-step — track assignment changes for convergence
-        EstepStats estep_stats = expect_dirichlet_spatial(data, /*stochastic=*/true);
+        // E-step — track assignment changes for convergence.
+        // rng_salt = iteration index: multi-threaded draws come from per-chunk
+        // streams keyed by (iteration, chunk), so different every iteration.
+        EstepStats estep_stats = expect_dirichlet_spatial(data, /*stochastic=*/true,
+                                                          /*rng_salt=*/static_cast<std::uint64_t>(iter));
 
         // Compute fraction of changed assignments
         if (tol > 0.0) {
@@ -647,8 +675,8 @@ void bmm(BmmData<N>& data,
 // Explicit instantiations
 template void bmm<2>(BmmData<2>&, int, int, int, bool, int, bool, bool, bool, bool, double, int);
 template void bmm<3>(BmmData<3>&, int, int, int, bool, int, bool, bool, bool, bool, double, int);
-template EstepStats expect_dirichlet_spatial<2>(BmmData<2>&, bool);
-template EstepStats expect_dirichlet_spatial<3>(BmmData<3>&, bool);
+template EstepStats expect_dirichlet_spatial<2>(BmmData<2>&, bool, std::uint64_t);
+template EstepStats expect_dirichlet_spatial<3>(BmmData<3>&, bool, std::uint64_t);
 template void maximize<2>(BmmData<2>&, bool, bool);
 template void maximize<3>(BmmData<3>&, bool, bool);
 template void drop_unused_components<2>(BmmData<2>&, int);

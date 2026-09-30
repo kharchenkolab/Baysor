@@ -1,4 +1,5 @@
 #include "baysor/processing/data_processing/neighborhood_composition.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <third_party/nanoflann.hpp>
 #include <algorithm>
@@ -6,7 +7,6 @@
 #include <limits>
 #include <numeric>
 #include <random>
-#include <omp.h>
 
 namespace baysor {
 
@@ -58,8 +58,7 @@ public:
             std::vector<int> indices(static_cast<size_t>(block_n) * static_cast<size_t>(k));
             std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
 
-            #pragma omp parallel for schedule(dynamic, 256)
-            for (int local_i = 0; local_i < block_n; ++local_i) {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 const int global_i = block_start + local_i;
                 int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
                 double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
@@ -93,7 +92,7 @@ public:
                 for (int j = 0; j < k; ++j) {
                     dist_ptr[j] = std::sqrt(dist_ptr[j]);
                 }
-            }
+            });
 
             callback(block_start, block_n, k, indices, distances);
         }
@@ -117,8 +116,7 @@ public:
             std::vector<int> indices(static_cast<size_t>(block_n) * static_cast<size_t>(k));
             std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
 
-            #pragma omp parallel for schedule(dynamic, 256)
-            for (int local_i = 0; local_i < block_n; ++local_i) {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 const int query_id = query_ids[block_start + local_i];
                 int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
                 double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
@@ -152,7 +150,7 @@ public:
                 for (int j = 0; j < k; ++j) {
                     dist_ptr[j] = std::sqrt(dist_ptr[j]);
                 }
-            }
+            });
 
             callback(block_start, block_n, k, indices, distances);
         }
@@ -223,36 +221,37 @@ std::vector<double> exact_closest_nonzero_distances(
             [&](int block_start, int block_n, int block_k,
                 const std::vector<int>& indices,
                 const std::vector<double>& distances) {
-                std::vector<int> local_unresolved;
-                local_unresolved.reserve(static_cast<size_t>(block_n));
+                // Per-index results are written to disjoint slots; the
+                // "unresolved" set is collected through a flag array and
+                // rebuilt in index order below, so the outcome does not
+                // depend on scheduling or on the thread count.
+                std::vector<unsigned char> is_unresolved(block_n, 0);
 
-                #pragma omp parallel
-                {
-                    std::vector<int> thread_unresolved;
+                parallel_for(0, block_n, 256, [&](int local_i) {
+                    const int global_i = unresolved[block_start + local_i];
+                    const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
 
-                    #pragma omp for schedule(dynamic, 256)
-                    for (int local_i = 0; local_i < block_n; ++local_i) {
-                        const int global_i = unresolved[block_start + local_i];
-                        const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
-
-                        double closest = 1e-15;
-                        for (int j = 0; j < block_k; ++j) {
-                            if (dist_ptr[j] > 1e-15) {
-                                closest = dist_ptr[j];
-                                break;
-                            }
-                        }
-
-                        if (closest > 1e-15 || current_k == n_total) {
-                            closest_nonzero[global_i] = closest;
-                        } else {
-                            thread_unresolved.push_back(global_i);
+                    double closest = 1e-15;
+                    for (int j = 0; j < block_k; ++j) {
+                        if (dist_ptr[j] > 1e-15) {
+                            closest = dist_ptr[j];
+                            break;
                         }
                     }
 
-                    #pragma omp critical
-                    local_unresolved.insert(local_unresolved.end(),
-                                            thread_unresolved.begin(), thread_unresolved.end());
+                    if (closest > 1e-15 || current_k == n_total) {
+                        closest_nonzero[global_i] = closest;
+                    } else {
+                        is_unresolved[local_i] = 1;
+                    }
+                });
+
+                std::vector<int> local_unresolved;
+                local_unresolved.reserve(static_cast<size_t>(block_n));
+                for (int local_i = 0; local_i < block_n; ++local_i) {
+                    if (is_unresolved[local_i]) {
+                        local_unresolved.push_back(unresolved[block_start + local_i]);
+                    }
                 }
 
                 next_unresolved.insert(next_unresolved.end(),
@@ -307,16 +306,12 @@ void for_each_neighborhood_block_with_searcher(
             std::vector<std::vector<StorageIndex>> block_rows(block_n);
             std::vector<std::vector<float>> block_vals(block_n);
 
-            #pragma omp parallel
-            {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 thread_local NeighborhoodScratch scratch;
                 scratch.ensure(n_genes);
-
-                #pragma omp for schedule(dynamic, 256)
-                for (int local_i = 0; local_i < block_n; ++local_i) {
-                    const int mark = scratch.next_mark();
-                    scratch.touched_buckets.clear();
-                    int nnz = 0;
+                const int mark = scratch.next_mark();
+                scratch.touched_buckets.clear();
+                int nnz = 0;
 
                     const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
                     const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
@@ -377,8 +372,7 @@ void for_each_neighborhood_block_with_searcher(
                             }
                         }
                     }
-                }
-            }
+            });
 
             callback(block_start, block_rows, block_vals);
         });
@@ -413,13 +407,12 @@ Eigen::MatrixXf dense_times_sparse(
     const int n_cols = static_cast<int>(right.cols());
     Eigen::MatrixXf out = Eigen::MatrixXf::Zero(n_components, n_cols);
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_cols; ++col) {
+    parallel_for(0, n_cols, 256, [&](int col) {
         auto out_col = out.col(col);
         for (Eigen::SparseMatrix<float>::InnerIterator it(right, col); it; ++it) {
             out_col.noalias() += it.value() * left.col(it.row());
         }
-    }
+    });
     return out;
 }
 
@@ -431,23 +424,26 @@ Eigen::MatrixXf dense_times_sparse_transpose(
     const int n_rows = static_cast<int>(right.rows());
     const int n_cols = static_cast<int>(right.cols());
 
-    const int n_threads = omp_get_max_threads();
-    std::vector<Eigen::MatrixXf> locals(
-        n_threads, Eigen::MatrixXf::Zero(n_components, n_rows)
+    // Deterministic chunked reduction: per-bucket accumulators merged in index
+    // order. With 1 thread this is a single sequential accumulation, exactly
+    // matching the former serial path.
+    auto combine = [](const Eigen::MatrixXf& a, const Eigen::MatrixXf& b) {
+        Eigen::MatrixXf r = a;
+        r += b;
+        return r;
+    };
+    Eigen::MatrixXf out = parallel_reduce<Eigen::MatrixXf>(
+        0, n_cols, /*bucket_size=*/256, Eigen::MatrixXf::Zero(n_components, n_rows),
+        [&](std::int64_t b, std::int64_t e, Eigen::MatrixXf& local) {
+            for (std::int64_t col = b; col < e; ++col) {
+                auto left_col = left.col(col);
+                for (Eigen::SparseMatrix<float>::InnerIterator it(right, static_cast<int>(col)); it; ++it) {
+                    local.col(it.row()).noalias() += it.value() * left_col;
+                }
+            }
+        },
+        combine
     );
-
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_cols; ++col) {
-        int tid = omp_get_thread_num();
-        auto left_col = left.col(col);
-        auto& local = locals[tid];
-        for (Eigen::SparseMatrix<float>::InnerIterator it(right, col); it; ++it) {
-            local.col(it.row()).noalias() += it.value() * left_col;
-        }
-    }
-
-    Eigen::MatrixXf out = Eigen::MatrixXf::Zero(n_components, n_rows);
-    for (const auto& local : locals) out += local;
     return out;
 }
 
@@ -460,39 +456,44 @@ void compute_diag_and_total_var(
     const int n_mols = static_cast<int>(count_matrix.cols());
 
     std::vector<float> col_sums(n_mols, 0.0f);
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_mols; ++col) {
+    parallel_for(0, n_mols, 256, [&](int col) {
         float sum = 0.0f;
         for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, col); it; ++it) {
             sum += it.value();
         }
         col_sums[col] = sum;
-    }
+    });
 
-    const int n_threads = omp_get_max_threads();
-    std::vector<Eigen::VectorXf> diag_locals(n_threads, Eigen::VectorXf::Zero(n_genes));
-    std::vector<Eigen::VectorXf> total_locals(n_threads, Eigen::VectorXf::Zero(n_genes));
+    // Deterministic chunked reduction over (diag, total) accumulators; see
+    // dense_times_sparse_transpose for the rationale.
+    using Acc = std::pair<Eigen::VectorXf, Eigen::VectorXf>;
+    auto combine = [](const Acc& a, const Acc& b) {
+        Acc r = a;
+        r.first += b.first;
+        r.second += b.second;
+        return r;
+    };
+    Acc totals = parallel_reduce<Acc>(
+        0, n_mols, /*bucket_size=*/256,
+        Acc{Eigen::VectorXf::Zero(n_genes), Eigen::VectorXf::Zero(n_genes)},
+        [&](std::int64_t b, std::int64_t e, Acc& acc) {
+            auto& diag_local = acc.first;
+            auto& total_local = acc.second;
+            for (std::int64_t col = b; col < e; ++col) {
+                const float col_sum = col_sums[col];
+                for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, static_cast<int>(col)); it; ++it) {
+                    const int row = it.row();
+                    const float value = it.value();
+                    diag_local(row) += value * value;
+                    total_local(row) += value * col_sum;
+                }
+            }
+        },
+        combine
+    );
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_mols; ++col) {
-        int tid = omp_get_thread_num();
-        auto& diag_local = diag_locals[tid];
-        auto& total_local = total_locals[tid];
-        const float col_sum = col_sums[col];
-        for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, col); it; ++it) {
-            const int row = it.row();
-            const float value = it.value();
-            diag_local(row) += value * value;
-            total_local(row) += value * col_sum;
-        }
-    }
-
-    diag_vals = Eigen::VectorXf::Zero(n_genes);
-    total_var = Eigen::VectorXf::Zero(n_genes);
-    for (int t = 0; t < n_threads; ++t) {
-        diag_vals += diag_locals[t];
-        total_var += total_locals[t];
-    }
+    diag_vals = std::move(totals.first);
+    total_var = std::move(totals.second);
 }
 
 } // namespace
@@ -739,17 +740,13 @@ void stream_projected_neighborhood_vectors(
             const std::vector<double>& distances) {
             Eigen::MatrixXf block_vecs = Eigen::MatrixXf::Zero(gene_emb_t.rows(), block_n);
 
-            #pragma omp parallel
-            {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 thread_local NeighborhoodScratch scratch;
                 scratch.ensure(n_genes);
+                const int mark = scratch.next_mark();
+                scratch.touched_buckets.clear();
 
-                #pragma omp for schedule(dynamic, 256)
-                for (int local_i = 0; local_i < block_n; ++local_i) {
-                    const int mark = scratch.next_mark();
-                    scratch.touched_buckets.clear();
-
-                    const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
+                const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
                     const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
 
                     for (int j = 0; j < block_k; ++j) {
@@ -801,8 +798,7 @@ void stream_projected_neighborhood_vectors(
                         }
                     }
                     block_vecs.col(local_i) = col;
-                }
-            }
+            });
 
             std::vector<int> block_query_ids(
                 ids.begin() + block_start, // GCOVR_EXCL_LINE: dead GCC block; expression counted on line 809

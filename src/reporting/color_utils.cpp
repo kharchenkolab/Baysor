@@ -3,6 +3,7 @@
 #include "baysor/processing/data_processing/umap_wrappers.h"
 #include "baysor/processing/models/adj_list.h"
 #include "baysor/processing/utils/utils.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <Eigen/SVD>
 #include <spdlog/spdlog.h>
@@ -14,7 +15,6 @@
 #include <numeric>
 #include <random>
 #include <cstdio>
-#include <omp.h>
 
 namespace baysor {
 
@@ -470,8 +470,7 @@ NcvReportEmbedding compute_ncv_embedding(
     Eigen::MatrixXd emb(3, n_mols);
     constexpr double dist_offset = 1e-10;
 
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n_mols; ++i) {
+    parallel_for_static(0, n_mols, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
         for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
@@ -480,7 +479,7 @@ NcvReportEmbedding compute_ncv_embedding(
             w_sum    += w;
         }
         emb.col(i) = weighted / w_sum;
-    }
+    });
 
     normalize_embedding_to_lab_range(emb);
     result.colors = embedding_to_hex(emb);
@@ -679,8 +678,7 @@ Eigen::MatrixXd interpolate_ncv_embedding(
     auto knn = knn_parallel(model.anchor_pca, query_pca, k_interp);
     Eigen::MatrixXd emb(3, n_query);
     constexpr double dist_offset = 1e-10;
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n_query; ++i) {
+    parallel_for_static(0, n_query, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
         for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
@@ -689,7 +687,7 @@ Eigen::MatrixXd interpolate_ncv_embedding(
             w_sum += w;
         }
         emb.col(i) = weighted / w_sum;
-    }
+    });
     return emb;
 }
 

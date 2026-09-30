@@ -304,11 +304,11 @@ BmmData<N> initialize_bmm_data(
         MvNormal<N> pos_params(center, init.covs[ci]);
 
         // CategoricalSmoothed with all-ones initial counts (uniform gene prior)
-        CategoricalSmoothed comp_params(n_genes, 1.0);
+        CategoricalSmoothed component_params(n_genes, 1.0);
         // Set initial counts to 1.0 per gene (matches Julia's dense all-ones gene prior)
-        comp_params.set_uniform_counts(1.0f);
+        component_params.set_uniform_counts(1.0f);
 
-        Component<N> comp(pos_params, comp_params, shape_prior_obj, /*guid=*/ci + 1);
+        Component<N> comp(pos_params, component_params, shape_prior_obj, /*guid=*/ci + 1);
         comp.n_samples = n_samples_per_cell.empty() ? 0 : n_samples_per_cell[ci];
         components.push_back(std::move(comp));
     }

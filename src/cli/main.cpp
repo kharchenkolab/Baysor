@@ -20,6 +20,7 @@
 #include "baysor/reporting/run_report.h"
 
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 #include "baysor/utils/xenium.h"
 
 #include <Eigen/Dense>
@@ -32,10 +33,31 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <unordered_map>
 
 using namespace baysor;
+
+// Resolve the worker-thread count for the global thread pool:
+// explicit --threads (or config `threads`) > BAYSOR_NUM_THREADS >
+// OMP_NUM_THREADS (kept for backward compatibility with scripts and the
+// benchmark harness) > std::thread::hardware_concurrency().
+static int resolve_thread_count(int requested) {
+    if (requested > 0) return requested;
+    for (const char* var : {"BAYSOR_NUM_THREADS", "OMP_NUM_THREADS"}) {
+        if (const char* env = std::getenv(var)) {
+            // OMP_NUM_THREADS may be a comma-separated list; take the first.
+            try {
+                int n = std::stoi(env);
+                if (n > 0) return n;
+            } catch (...) {
+                // ignore malformed values and fall through
+            }
+        }
+    }
+    return static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+}
 
 // ============================================================================
 // Subcommand: run
@@ -821,6 +843,9 @@ int main(int argc, char* argv[]) {
         "Initial number of cells (default: auto)");
     run->add_option("--unassigned-prior-label", opts.prior.unassigned_label,
         "Label for unassigned cells in prior segmentation (default: 0)");
+    run->add_option("-t,--threads", opts.threads,
+        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
+        "then the number of CPU cores)");
 
     // ---- preview ----
     auto* preview = app.add_subcommand("preview", "Plot a dataset preview");
@@ -863,6 +888,9 @@ int main(int argc, char* argv[]) {
         "Output HTML file (default: preview.html)");
     preview->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
+    preview->add_option("-t,--threads", opts.threads,
+        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
+        "then the number of CPU cores)");
 
     // ---- segfree ----
     auto* segfree = app.add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
@@ -908,9 +936,17 @@ int main(int argc, char* argv[]) {
         "Output .loom file (default: ncvs.loom)");
     segfree->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
+    segfree->add_option("-t,--threads", opts.threads,
+        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
+        "then the number of CPU cores)");
 
     // ---- Parse ----
     CLI11_PARSE(app, argc, argv);
+
+    // Configure the global thread pool once, before any parallel work.
+    int n_threads = resolve_thread_count(opts.threads);
+    set_thread_pool_size(n_threads);
+    spdlog::info("Using {} threads", n_threads);
 
     // Reconstruct CLI command string for params dump
     std::string cli_cmd;

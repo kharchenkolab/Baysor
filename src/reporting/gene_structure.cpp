@@ -1,6 +1,7 @@
 #include "baysor/reporting/color_utils.h"
 #include "baysor/processing/data_processing/umap_wrappers.h"
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,36 +35,31 @@ Eigen::MatrixXd pairwise_gene_spatial_cor(
     }
 
     // Build the correlation matrix row-by-row. This avoids keeping one dense
-    // n_genes x n_genes accumulation matrix per thread.
-    #pragma omp parallel
-    {
-        Eigen::VectorXd row = Eigen::VectorXd::Zero(n_genes);
+    // n_genes x n_genes accumulation matrix per worker.
+    std::vector<Eigen::VectorXd> row_buf(thread_pool_size(), Eigen::VectorXd::Zero(n_genes));
+    parallel_for(0, n_genes, 1, [&](int g2, int ti) {
+        auto& row = row_buf[ti];
+        row.setZero();
+        for (int gi : mols_by_gene[g2]) {
+            const int nc = adj_list.neighbor_count(gi);
+            const int32_t* nb_ids = adj_list.neighbor_ids(gi);
+            const double* nb_wts = adj_list.neighbor_weights(gi);
 
-        #pragma omp for schedule(dynamic, 1)
-        for (int g2 = 0; g2 < n_genes; ++g2) {
-            row.setZero();
-            for (int gi : mols_by_gene[g2]) {
-                const int nc = adj_list.neighbor_count(gi);
-                const int32_t* nb_ids = adj_list.neighbor_ids(gi);
-                const double* nb_wts = adj_list.neighbor_weights(gi);
-
-                for (int ai = 0; ai < nc; ++ai) {
-                    const int nb = nb_ids[ai];
-                    if (confidence[nb] < confidence_threshold) continue;
-                    const int g1 = genes[nb] - 1;
-                    if (g1 < 0 || g1 >= n_genes) continue;
-                    row[g1] += nb_wts[ai];
-                }
+            for (int ai = 0; ai < nc; ++ai) {
+                const int nb = nb_ids[ai];
+                if (confidence[nb] < confidence_threshold) continue;
+                const int g1 = genes[nb] - 1;
+                if (g1 < 0 || g1 >= n_genes) continue;
+                row[g1] += nb_wts[ai];
             }
-            cor_mat.row(g2) = row.transpose();
         }
-    }
+        cor_mat.row(g2) = row.transpose();
+    });
 
     std::vector<double> sum_weight(n_genes, 0.0);
-    #pragma omp parallel for schedule(static)
-    for (int g = 0; g < n_genes; ++g) {
+    parallel_for_static(0, n_genes, [&](int g) {
         sum_weight[g] = cor_mat.row(g).sum() + cor_mat.col(g).sum();
-    }
+    });
 
     for (int ci = 0; ci < n_genes; ++ci) {
         for (int ri = 0; ri < n_genes; ++ri) {

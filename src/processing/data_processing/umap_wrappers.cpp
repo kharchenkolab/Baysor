@@ -1,4 +1,15 @@
 #include "baysor/processing/data_processing/umap_wrappers.h"
+#include "baysor/utils/thread_pool.h"
+
+// Route the FetchContent dependencies' parallel loops through the Baysor
+// thread pool instead of OpenMP or per-call std::thread spawns. These macros
+// must be defined before any subpar/umappp header is included; the hook
+// functions themselves are declared in baysor/utils/thread_pool.h above.
+#define SUBPAR_CUSTOM_PARALLELIZE_RANGE baysor::subpar_parallelize_range
+#define SUBPAR_CUSTOM_PARALLELIZE_RANGE_NOTHROW baysor::subpar_parallelize_range
+#define SUBPAR_CUSTOM_PARALLELIZE_SIMPLE baysor::subpar_parallelize_simple
+#define SUBPAR_CUSTOM_PARALLELIZE_SIMPLE_NOTHROW baysor::subpar_parallelize_simple
+#define UMAPPP_CUSTOM_PARALLEL baysor::umappp_parallel_range
 
 #include "knncolle/knncolle.hpp"
 #include "umappp/umappp.hpp"
@@ -61,6 +72,13 @@ Eigen::MatrixXd umap_embed(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.spread     = spread;
     opt.min_dist   = min_dist;
+    opt.num_threads = thread_pool_size();
+    // The parallel layout optimizer spawns its own busy-wait threads and its
+    // result depends on their scheduling; keep the serial optimizer (as
+    // before, where num_threads defaulted to 1) so embeddings stay bitwise
+    // reproducible. The KNN search and similarity smoothing above run on the
+    // Baysor pool through UMAPPP_CUSTOM_PARALLEL.
+    opt.parallel_optimization = false;
     opt.initialize = umappp::InitializeMethod::NONE; // use our pre-filled buffer
 
     auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
@@ -122,6 +140,8 @@ Eigen::MatrixXd umap_embed_precomputed(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.min_dist   = 0.1;
     opt.spread     = 1.0;
+    opt.num_threads = thread_pool_size();
+    opt.parallel_optimization = false;
     opt.initialize = umappp::InitializeMethod::NONE;
 
     auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);

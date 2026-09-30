@@ -1,10 +1,10 @@
 #include "baysor/processing/utils/utils.h"
+#include "baysor/utils/thread_pool.h"
 #include <third_party/nanoflann.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <vector>
-#include <omp.h>
 
 namespace baysor {
 
@@ -123,8 +123,7 @@ KnnResult knn_parallel(
     EigenColMajorAdaptor adaptor(tree_points);
     KDTree tree(n_dims, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10));
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int i = 0; i < n_query; ++i) {
+    parallel_for(0, n_query, 256, [&](int i) {
         result.indices[i].resize(k);
         result.distances[i].resize(k);
 
@@ -162,7 +161,7 @@ KnnResult knn_parallel(
         for (double& d : result.distances[i]) {
             d = std::sqrt(d);
         }
-    }
+    });
 
     return result;
 }

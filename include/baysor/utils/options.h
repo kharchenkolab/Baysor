@@ -82,6 +82,7 @@ struct RunOptions {
     PriorInputOptions prior;
     SegmentationOptions segmentation;
     PlottingOptions plotting;
+    int threads = 0;  ///< worker threads for the internal thread pool (0 = auto: BAYSOR_NUM_THREADS, OMP_NUM_THREADS, then hardware concurrency)
 };
 
 /// Parse scale_std: "25%" relative to scale, or absolute number like "5.0"

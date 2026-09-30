@@ -289,6 +289,11 @@ RunOptions load_config(const std::string& path) {
 
     auto doc = parse_toml_simple(path);
 
+    // Top-level keys (before any [section])
+    if (doc.count("")) {
+        opts.threads = toml_get_int(doc[""], "threads", opts.threads);
+    }
+
     auto apply_molecule_section = [&](const TomlSection& sec) {
         opts.molecules.x_col = toml_get(sec, "x", opts.molecules.x_col);
         opts.molecules.y_col = toml_get(sec, "y", opts.molecules.y_col);
@@ -408,6 +413,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     if (!f) throw std::runtime_error("save_params_toml: cannot open " + path);
 
     f << "# CLI params: `" << cli_cmd << "`\n";
+    f << "threads = " << opts.threads << "\n";
 
     f << "[molecules]\n";
     f << "x = \"" << opts.molecules.x_col << "\"\n";
