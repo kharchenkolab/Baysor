@@ -29,6 +29,17 @@
       }
     },
     {
+      "name": "profiling",
+      "displayName": "Profiling Build",
+      "description": "Release code generation (-O3 -DNDEBUG) plus -g debug info for Valgrind/gperftools/heaptrack symbolization (profiling/README.md in github.com/VPetukhov/baysor-benchmarks). -g does not change the generated code.",
+      "inherits": "user",
+      "binaryDir": "${sourceDir}/build/profiling",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-g",
+        "CMAKE_CXX_FLAGS": "-g"
+      }
+    },
+    {
       "name": "user-vcpkg",
       "displayName": "User Build With vcpkg",
       "description": "End-user build with dependencies installed in user space through vcpkg manifest mode.",
@@ -123,6 +134,13 @@
       "targets": [
         "baysor",
         "baysor_tests"
+      ]
+    },
+    {
+      "name": "profiling",
+      "configurePreset": "profiling",
+      "targets": [
+        "baysor"
       ]
     },
     {
