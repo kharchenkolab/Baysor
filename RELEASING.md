@@ -1,0 +1,144 @@
+# Releasing Baysor (C++ line)
+
+Publishing a GitHub release is the only manual step that produces artifacts.
+The `release` workflow (`.github/workflows/release.yml`) then builds, tests and
+attaches the binaries. The documentation site is rebuilt by its own workflow
+when the release is published.
+
+## 1. Prepare the release commit
+
+1. Set the new version `X.Y.Z` in both places (they must agree, and the
+   release workflow fails if either differs from the tag):
+   - `CMakeLists.txt`: `project(baysor VERSION X.Y.Z LANGUAGES C CXX)`
+   - `vcpkg.json`: `"version-string": "X.Y.Z"`
+2. In `CHANGELOG.md`, rename `## Unreleased` to
+   `## [cpp-X.Y.Z] — YYYY-MM-DD`. Start a new `## Unreleased` section above it
+   in the next commit that changes behaviour.
+3. Check the tag you are going to use:
+
+   ```bash
+   packaging/release_version.sh cpp-X.Y.Z    # prints X.Y.Z or explains the mismatch
+   ```
+
+4. Optionally build and test the Linux binary locally (see
+   [Reproducing the Linux build](#reproducing-the-linux-build)).
+5. Commit, merge into the release branch (`cpp`) and push.
+
+## 2. Tag and publish
+
+Tags have the form `cpp-X.Y.Z` (the forms `cpp-vX.Y.Z` and `vX.Y.Z` are also
+accepted: the version is the tag with a leading `cpp-` and then `v` removed).
+
+```bash
+git tag -a cpp-X.Y.Z -m "Baysor cpp-X.Y.Z"
+git push origin cpp-X.Y.Z
+gh release create cpp-X.Y.Z --verify-tag --title "Baysor X.Y.Z" --notes-file notes.md
+```
+
+`notes.md` is the release's section of `CHANGELOG.md`. You can also create the
+release in the GitHub web UI. A draft release does not trigger the workflow;
+publishing the draft does.
+
+## 3. What the workflow does
+
+On `release: published` the workflow
+
+1. checks out the tag and fails if the tag version differs from
+   `CMakeLists.txt` or `vcpkg.json`;
+2. builds three archives in parallel with `packaging/build_release.py`:
+
+   | Asset | Runner | Build |
+   | --- | --- | --- |
+   | `baysor-X.Y.Z-linux-x86_64.tar.gz` | `ubuntu-24.04` | `packaging/linux/build-in-docker.sh` (manylinux_2_28 container) |
+   | `baysor-X.Y.Z-macos-arm64.tar.gz` | `macos-14` | `build_release.py --platform macos-arm64` |
+   | `baysor-X.Y.Z-windows-x86_64.zip` | `windows-2022` | `build_release.py --platform windows-x86_64` |
+
+3. smoke-tests every archive on its runner with `packaging/smoke_test.sh`
+   (`--version`, `--help` and a full `baysor run` on a synthetic dataset). The
+   Linux archive is additionally run in bare `almalinux:8` and `debian:10`
+   containers and under `qemu-x86_64 -cpu qemu64`
+   (`packaging/linux/test-in-docker.sh`);
+4. writes `SHA256SUMS` and uploads the three archives and `SHA256SUMS` to the
+   release with `gh release upload --clobber`.
+
+Each archive contains one directory `baysor-X.Y.Z-<platform>/` with
+`bin/baysor` (`bin/baysor.exe` plus the DLLs it needs on Windows), `LICENSE`
+and `README.md`. Users can verify downloads with `sha256sum -c SHA256SUMS`
+(`shasum -a 256 -c SHA256SUMS` on macOS).
+
+vcpkg dependencies are built from source on the first run (roughly one to
+three hours per platform) and cached with `actions/cache`; later releases only
+compile Baysor unless `vcpkg.json`, `packaging/vcpkg-ref`, the triplets, the
+Linux Dockerfile or `build_release.py` change.
+
+## Rerunning the workflow
+
+To rebuild the binaries of an existing release (for example after a failed
+job), start the workflow by hand with the release tag:
+
+```bash
+gh workflow run release.yml -f tag=cpp-X.Y.Z
+```
+
+or use **Actions → release → Run workflow** in the web UI. The workflow
+definition comes from the branch you run it on (the default branch unless you
+pass `--ref`), but it always builds the sources of the tag, so the tag must
+contain `packaging/` (every release after `cpp-0.8.3`). Existing assets are
+replaced (`--clobber`). To rerun only failed jobs of a run, use **Re-run failed
+jobs** on the run page.
+
+## Reproducing the Linux build
+
+The Linux archive is built by exactly the command the workflow runs; it needs
+only Docker:
+
+```bash
+packaging/linux/build-in-docker.sh
+packaging/linux/test-in-docker.sh dist/baysor-X.Y.Z-linux-x86_64.tar.gz
+```
+
+- `build-in-docker.sh` builds the image from `packaging/linux/Dockerfile`
+  (pinned `manylinux_2_28`, i.e. AlmaLinux 8, glibc 2.28, GCC 14) and runs
+  `packaging/build_release.py --platform linux-x86_64` in it as the calling
+  user. The result is `dist/baysor-X.Y.Z-linux-x86_64.tar.gz`. vcpkg, its
+  downloads and binary cache are kept in `.release-cache/` (override with
+  `BAYSOR_RELEASE_CACHE`), so only the first build compiles the dependencies.
+  Parallelism is `BAYSOR_JOBS` (default 8). Extra arguments are passed to
+  `build_release.py` (e.g. `--out DIR`).
+- `test-in-docker.sh` runs the smoke test natively, in bare `almalinux:8` and
+  `debian:10` containers, and under qemu with the `qemu64` CPU model. Set
+  `BAYSOR_SMOKE_DATA=/path/to/molecules.parquet` to use the
+  `sim_circles_gaps_g100` benchmark dataset instead of the synthetic grid, and
+  `BAYSOR_TEST_STAGES` (e.g. `"native qemu"`) to select stages.
+
+`build_release.py` also runs `packaging/linux/check_binary.py`, which fails if
+the binary needs a shared library other than glibc's, a `GLIBC_` symbol
+version newer than 2.28, any libstdc++/libgcc symbol version, or an x86-64 ISA
+level above the baseline.
+
+macOS and Windows archives can be built on those systems with
+`python3 packaging/build_release.py --platform macos-arm64` (needs Xcode
+command line tools, CMake, Ninja, autoconf, autoconf-archive, automake,
+libtool and pkg-config) or `python packaging/build_release.py --platform
+windows-x86_64` (needs Visual Studio 2022 with the C++ workload and CMake).
+
+## Portability of the binaries
+
+| Platform | Requirement | How it is achieved |
+| --- | --- | --- |
+| Linux x86_64 | glibc ≥ 2.28 (RHEL/Alma/Rocky 8, Debian 10, Ubuntu 18.10 and newer), any x86-64 CPU | built in manylinux_2_28; libstdc++, libgcc and libgomp linked statically; all other libraries static from vcpkg |
+| macOS arm64 | macOS ≥ 12 on Apple silicon | deployment target 12.0; static vcpkg libraries; static libomp built from LLVM sources |
+| Windows x64 | Windows 10 or newer, any x64 CPU | MSVC (SSE2 baseline); vcpkg, MSVC runtime and OpenMP DLLs shipped next to `baysor.exe` |
+
+No part of the build uses `-march=native` or assumes SSE4/AVX. Everything is
+compiled for the architecture baseline (the triplets in
+`packaging/vcpkg-triplets/` set `-march=x86-64 -mtune=generic` for Linux and
+build Arrow with `ARROW_SIMD_LEVEL=NONE`); faster code paths in Arrow, zstd,
+OpenSSL, libjpeg-turbo and GMP (built with `--enable-fat`) are selected at run
+time from the CPU's capabilities. CUDA is off in release builds.
+
+To change a platform's floor, keep these in sync: the Dockerfile base image
+and `--glibc-floor` of `check_binary.py` (Linux); `MACOS_DEPLOYMENT_TARGET` in
+`build_release.py`, `VCPKG_OSX_DEPLOYMENT_TARGET` in
+`packaging/vcpkg-triplets/arm64-osx-release.cmake` and
+`CMAKE_OSX_DEPLOYMENT_TARGET` in the `release-macos-arm64` preset (macOS).

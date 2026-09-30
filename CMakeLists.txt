@@ -314,7 +314,19 @@ add_executable(baysor
 )
 
 target_link_libraries(baysor PRIVATE baysor_lib)
+target_compile_definitions(baysor PRIVATE BAYSOR_VERSION="${PROJECT_VERSION}")
 install(TARGETS baysor RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Release binaries (packaging/) ship the compiler runtime with the executable.
+# On MSVC this installs the VC++ and OpenMP (vcomp) DLLs next to baysor.exe;
+# vcpkg's X_VCPKG_APPLOCAL_DEPS_INSTALL copies the dependency DLLs. Linux and
+# macOS release builds link their runtimes statically, so nothing to do there.
+option(BAYSOR_INSTALL_RUNTIME "Install the compiler runtime libraries next to the executable" OFF)
+if(BAYSOR_INSTALL_RUNTIME AND MSVC)
+    set(CMAKE_INSTALL_OPENMP_LIBRARIES ON)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
+    include(InstallRequiredSystemLibraries)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(baysor PRIVATE -Wno-stringop-overflow)
@@ -347,7 +359,10 @@ if(BAYSOR_WITH_TESTS)
     # subprocess (its own .gcda counters cover src/cli/main.cpp, which is not
     # linked into the test binary). Build it first and pass its path in.
     add_dependencies(baysor_tests baysor)
-    target_compile_definitions(baysor_tests PRIVATE BAYSOR_CLI_PATH="$<TARGET_FILE:baysor>")
+    target_compile_definitions(baysor_tests PRIVATE
+        BAYSOR_CLI_PATH="$<TARGET_FILE:baysor>"
+        BAYSOR_VERSION="${PROJECT_VERSION}"
+    )
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(baysor_tests PRIVATE -Wno-stringop-overflow)
     endif()

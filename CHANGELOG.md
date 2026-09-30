@@ -2,6 +2,21 @@
 
 All notable changes to the C++ line of Baysor are documented here.
 
+## Unreleased
+
+### Added
+
+- Prebuilt binaries for every published GitHub release, built by the
+  `release` GitHub Actions workflow: `baysor-<version>-linux-x86_64.tar.gz`,
+  `baysor-<version>-macos-arm64.tar.gz`, `baysor-<version>-windows-x86_64.zip`
+  and `SHA256SUMS`. They need no extra packages and run on any CPU of their
+  architecture: Linux x86_64 with glibc 2.28 or newer, macOS 12 or newer on
+  Apple silicon, 64-bit Windows 10 or newer.
+- `baysor --version` prints the version.
+- `packaging/`: the release build scripts; the Linux binary can be rebuilt
+  locally in Docker with `packaging/linux/build-in-docker.sh`. The release
+  procedure is described in `RELEASING.md`.
+
 ## [cpp-0.8.3] — 2026-07-31
 
 ### Changed
