@@ -179,7 +179,7 @@ jobs:
           fi
           wf_ref="${GITHUB_WORKFLOW_REF#*@}"
           git fetch --depth 1 origin "$wf_ref"
-          if git checkout FETCH_HEAD -- vcpkg-configuration.json packaging/vcpkg-overlay-ports2> /dev/null; then
+          if git checkout FETCH_HEAD -- vcpkg-configuration.json packaging/vcpkg-overlay-ports; then
             echo "Copied vcpkg-configuration.json and packaging/vcpkg-overlay-ports/ from $wf_ref"
           else
             echo "::warning::the vcpkg overlay fix is missing from both the built ref and $wf_ref; the Windows build may fail (microsoft/vcpkg#53437)"
