@@ -4,6 +4,12 @@ name: release
 #   baysor-<version>-linux-x86_64.tar.gz, baysor-<version>-macos-arm64.tar.gz,
 #   baysor-<version>-windows-x86_64.zip and SHA256SUMS.
 # The build scripts live in packaging/; see RELEASING.md.
+#
+# For real releases (a published release, or workflow_dispatch with a tag) the
+# behaviour is: check the version, build all platforms, attach the archives to
+# the release (even partially, failing if any platform is missing). The same
+# build can be exercised without a release via workflow_dispatch with
+# dry_run=true (see RELEASING.md, "Dry-run builds").
 
 on:
   release:
@@ -11,15 +17,29 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to (re)build binaries for, e.g. cpp-0.8.3
-        required: true
+        description: "Existing release tag to (re)build binaries for, e.g. cpp-0.8.3 (ignored in dry runs)"
+        required: false
         type: string
+      ref:
+        description: "Git ref (branch name or SHA) to build in a dry run (default: the ref the workflow runs on)"
+        required: false
+        type: string
+      dry_run:
+        description: "Build and smoke-test only; do not require a release and do not upload to one"
+        required: false
+        type: boolean
+        default: false
+      platforms:
+        description: "Comma-separated subset of platforms to build (linux-x86_64, macos-arm64, windows-x86_64); empty means all"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-${{ github.event.release.tag_name || inputs.tag || inputs.ref || github.ref }}-${{ inputs.dry_run && 'dry-run' || 'release' }}
   cancel-in-progress: false
 
 env:
@@ -32,40 +52,93 @@ jobs:
     name: Check version
     runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
       version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - name: Resolve tag
-        id: tag
+      - name: Resolve tag and ref
+        id: resolve
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REF: ${{ inputs.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [[ -z "$TAG" ]]; then
-            echo "::error::no release tag"
-            exit 1
+          dry_run="${DRY_RUN:-false}"
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            dry_run=false
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$dry_run" == "true" ]]; then
+            # No release is needed: build the requested ref, or the one the
+            # workflow runs on, whatever it is.
+            ref="${REF:-$GITHUB_REF}"
+            echo "Dry run of $ref (no release, no upload)"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          else
+            if [[ -z "$TAG" ]]; then
+              echo "::error::no release tag (set the tag input, or dry_run=true)"
+              exit 1
+            fi
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "ref=refs/tags/$TAG" >> "$GITHUB_OUTPUT"
+          fi
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout tag
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          ref: ${{ steps.resolve.outputs.ref }}
 
       - name: Check that the release exists
+        if: steps.resolve.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft
 
       - name: Derive and check version
         id: version
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          version="$(packaging/release_version.sh "$TAG")"
-          echo "Release $TAG -> version $version"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ -n "$TAG" ]]; then
+            version="$(packaging/release_version.sh "$TAG")"
+          else
+            # Dry run: version from the sources; release_version.sh re-checks
+            # that CMakeLists.txt and vcpkg.json agree on it.
+            version="$(sed -n 's/^project(baysor VERSION \([^ )]*\).*/\1/p' CMakeLists.txt)"
+            packaging/release_version.sh "cpp-$version" > /dev/null
+          fi
+          echo "version $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Select platforms
+        id: matrix
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          include='[
+            {"platform": "linux-x86_64", "os": "ubuntu-24.04", "archive": "tar.gz"},
+            {"platform": "macos-arm64", "os": "macos-14", "archive": "tar.gz"},
+            {"platform": "windows-x86_64", "os": "windows-2022", "archive": "zip"}
+          ]'
+          if [[ -n "${PLATFORMS// /}" ]]; then
+            want="$(printf '%s' "$PLATFORMS" | tr ',' '\n' | tr -d ' ' | grep -v '^$' | jq -R . | jq -cs .)"
+            for p in $(jq -r '.[]' <<< "$want"); do
+              jq -e --arg p "$p" 'any(.[].platform; . == $p)' <<< "$include" > /dev/null \
+                || { echo "::error::unknown platform in the platforms input: $p"; exit 1; }
+            done
+            include="$(jq -c --argjson want "$want" \
+              '[.[] | select(.platform as $p | $want | index($p))]' <<< "$include")"
+          fi
+          if [[ "$include" == "[]" ]]; then
+            echo "::error::no platforms selected"
+            exit 1
+          fi
+          include="$(jq -c . <<< "$include")"
+          echo "matrix=$include" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.platform }})
@@ -75,25 +148,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: linux-x86_64
-            os: ubuntu-24.04
-            archive: tar.gz
-          - platform: macos-arm64
-            os: macos-14
-            archive: tar.gz
-          - platform: windows-x86_64
-            os: windows-2022
-            archive: zip
+        include: ${{ fromJSON(needs.version.outputs.matrix) }}
     env:
       ASSET: baysor-${{ needs.version.outputs.version }}-${{ matrix.platform }}
       VERSION: ${{ needs.version.outputs.version }}
 
     steps:
-      - name: Checkout tag
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ needs.version.outputs.tag }}
+          ref: ${{ needs.version.outputs.ref }}
 
       # vcpkg binary packages (and the macOS static libomp). The key covers
       # everything that changes package ABIs; a hit turns the build into a
@@ -103,7 +167,7 @@ jobs:
       - name: Compute cache key
         id: cache-key
         shell: bash
-        run: echo "prefix=release-${{ matrix.platform }}-${{ hashFiles('packaging/vcpkg-ref', 'packaging/vcpkg-triplets/**', 'vcpkg.json', 'packaging/linux/Dockerfile', 'packaging/build_release.py') }}" >> "$GITHUB_OUTPUT"
+        run: echo "prefix=release-${{ matrix.platform }}-${{ hashFiles('packaging/vcpkg-ref', 'packaging/vcpkg-triplets/**', 'vcpkg.json', 'vcpkg-configuration.json', 'packaging/vcpkg-overlay-ports/**', 'packaging/linux/Dockerfile', 'packaging/build_release.py') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore build cache
         uses: actions/cache/restore@v4
@@ -122,7 +186,10 @@ jobs:
 
       - name: Install build tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install ninja autoconf autoconf-archive automake libtool pkgconf
+        # bison: Apple's /usr/bin/bison is 2.3, but thrift (an Arrow/Parquet
+        # dependency) needs bison > 2.5 to regenerate its parser; vcpkg finds
+        # Homebrew's keg-only bison in /opt/homebrew/opt/bison/bin.
+        run: brew install ninja autoconf autoconf-archive automake libtool pkgconf bison
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
@@ -142,11 +209,25 @@ jobs:
             .release-cache/libomp-*
           key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
+      # vcpkg keeps the configure/build logs of every port under buildtrees/
+      # (removed only after the port builds successfully), so they survive a
+      # failed build; upload them to make the failure diagnosable without a
+      # rerun.
+      - name: Upload vcpkg failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-logs-${{ matrix.platform }}
+          path: .release-cache/vcpkg/buildtrees/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Check archive name
         shell: bash
         run: |
           ls -l dist
           test -f "dist/$ASSET.${{ matrix.archive }}"
+          { echo "### $ASSET"; echo '```'; ls -l "dist/$ASSET.${{ matrix.archive }}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Smoke test (Linux; native, almalinux:8, debian:10, qemu64)
         if: runner.os == 'Linux'
@@ -185,10 +266,11 @@ jobs:
   # Runs even if some platforms failed: the archives that were built are
   # attached, and the job then fails, listing the missing platforms, so the
   # run stays red until they are rebuilt (workflow_dispatch with the tag).
+  # Skipped for dry runs: nothing is uploaded anywhere.
   publish:
     name: Upload to release
     needs: [version, build]
-    if: always() && needs.version.result == 'success'
+    if: always() && needs.version.result == 'success' && needs.version.outputs.dry_run != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
