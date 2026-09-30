@@ -32,6 +32,12 @@ All notable changes to the C++ line of Baysor are documented here.
 - `docs/tools/migrate_gh_pages.py`, a one-time maintainer migration for the
   `gh-pages` branch: archives the Julia site as `0.7.1 (Julia)` and keeps old
   `/dev/...` links working via redirect stubs.
+- A dry-run mode for the `release` workflow (`workflow_dispatch` with
+  `dry_run=true` plus optional `ref` and `platforms` inputs): builds and
+  smoke-tests the release archives for any branch or commit without needing a
+  release and without uploading to one, so the release build can be verified
+  before tagging. On build failure the workflow uploads vcpkg's per-port
+  build logs as the `vcpkg-logs-<platform>` artifact.
 
 ### Changed
 
@@ -46,6 +52,13 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Fixed
 
+- Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
+  inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
+  them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`
+  backports the upstream vcpkg fix (microsoft/vcpkg#53437, in no release yet).
+- Release build on macOS: thrift (an Arrow/Parquet dependency) needs a bison
+  newer than the Apple one (2.3) to generate its parser, so the release build
+  installs Homebrew's bison.
 - CLI help: `--tol` now shows its actual default (`0`), and `preview`/`segfree`
   `-o` is described as an output file rather than a file or directory;
   `configs/example_config.toml` shows the actual `max_plot_size` default

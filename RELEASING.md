@@ -65,7 +65,11 @@ On `release: published` the workflow
    archives that did build are still attached and the run fails, naming the
    missing platform; fix it and rerun the workflow for the tag
    (`workflow_dispatch`). vcpkg packages are cached even when a run fails, so
-   the rerun does not rebuild all dependencies from scratch.
+   the rerun does not rebuild all dependencies from scratch. When a build
+   fails, the job also uploads vcpkg's per-port configure/build logs
+   (`.release-cache/vcpkg/buildtrees/**/*.log`) as the `vcpkg-logs-<platform>`
+   artifact, so the failing port's log (e.g. thrift's or gmp's) can be read
+   without re-running.
 
 Each archive contains one directory `baysor-X.Y.Z-<platform>/` with
 `bin/baysor` (`bin/baysor.exe` plus the DLLs it needs on Windows), `LICENSE`
@@ -74,8 +78,18 @@ and `README.md`. Users can verify downloads with `sha256sum -c SHA256SUMS`
 
 vcpkg dependencies are built from source on the first run (roughly one to
 three hours per platform) and cached with `actions/cache`; later releases only
-compile Baysor unless `vcpkg.json`, `packaging/vcpkg-ref`, the triplets, the
+compile Baysor unless `vcpkg.json`, `vcpkg-configuration.json`,
+`packaging/vcpkg-ref`, `packaging/vcpkg-overlay-ports/`, the triplets, the
 Linux Dockerfile or `build_release.py` change.
+
+`vcpkg-configuration.json` registers `packaging/vcpkg-overlay-ports/`, which
+currently overrides the `gmp` port: MSYS2 removes superseded package builds
+from its mirrors, so the `autoconf2.71` package pinned inside vcpkg's gmp port
+started to return 404 and broke every Windows build, and no vcpkg release
+contains the upstream fix yet (microsoft/vcpkg#53437). The overlay is
+gmp 6.3.0 from the `packaging/vcpkg-ref` baseline plus that one fix; remove
+it (and `vcpkg-configuration.json`) once `packaging/vcpkg-ref` moves past
+#53437.
 
 ## Rerunning the workflow
 
@@ -92,6 +106,34 @@ pass `--ref`), but it always builds the sources of the tag, so the tag must
 contain `packaging/` (every release after `cpp-0.8.3`). Existing assets are
 replaced (`--clobber`). To rerun only failed jobs of a run, use **Re-run failed
 jobs** on the run page.
+
+## Dry-run builds
+
+To exercise the full release build before tagging — for example to verify a
+vcpkg bump or a dependency change — run the workflow in dry-run mode on any
+ref; no release and no tag are needed:
+
+```bash
+gh workflow run release.yml --ref my-branch \
+  -f dry_run=true [-f ref=my-branch] [-f platforms=macos-arm64]
+```
+
+- `ref` is a branch name or commit SHA to build; empty means the ref the
+  workflow runs on. The version comes from `project(baysor VERSION ...)` in
+  `CMakeLists.txt` (checked against `vcpkg.json`).
+- `platforms` optionally limits the matrix to a comma-separated subset of
+  `linux-x86_64`, `macos-arm64`, `windows-x86_64`, e.g. to iterate on the
+  platform being fixed while its cache warms up. Empty builds all three.
+- Nothing is uploaded to any release and no release is consulted. Each
+  archive is uploaded as a workflow artifact (`baysor-X.Y.Z-<platform>`, kept
+  for 7 days) and the run is green only when every selected platform builds
+  and passes its smoke test. On failure the `vcpkg-logs-<platform>` artifact
+  carries vcpkg's build logs.
+
+Real releases (`release: published`, or `workflow_dispatch` with a `tag` and
+without `dry_run`) are unaffected: the same version check, the same partial
+upload that fails the run when a platform is missing, and the same
+`SHA256SUMS`.
 
 ## Reproducing the Linux build
 
@@ -125,8 +167,10 @@ level above the baseline.
 macOS and Windows archives can be built on those systems with
 `python3 packaging/build_release.py --platform macos-arm64` (needs Xcode
 command line tools, CMake, Ninja, autoconf, autoconf-archive, automake,
-libtool and pkg-config) or `python packaging/build_release.py --platform
-windows-x86_64` (needs Visual Studio 2022 with the C++ workload and CMake).
+libtool, pkg-config and bison — Homebrew's, since Apple's `/usr/bin/bison` 2.3
+is too old for thrift, an Arrow/Parquet dependency) or
+`python packaging/build_release.py --platform windows-x86_64` (needs Visual
+Studio 2022 with the C++ workload and CMake).
 
 ## Portability of the binaries
 

@@ -84,9 +84,11 @@ jobs:
           # cpp-0.8.3 -> 0.8.3, v0.8.3 -> 0.8.3
           VERSION="${TAG#cpp-}"
           VERSION="${VERSION#v}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "prerelease=$IS_PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
