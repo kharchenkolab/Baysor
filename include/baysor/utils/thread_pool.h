@@ -36,8 +36,8 @@
 namespace baysor {
 
 enum class Scheduling {
-    Static,   ///< contiguous blocks, one per worker (OpenMP `schedule(static)`)
-    Dynamic   ///< fixed-size chunks handed out via an atomic counter (OpenMP `schedule(dynamic, chunk)`)
+    Static,   ///< one contiguous chunk per worker; `chunk` is ignored
+    Dynamic   ///< chunks of `chunk` indices handed out in index order
 };
 
 /// Number of worker threads of the global pool (>= 1). This is the value the
@@ -67,8 +67,8 @@ int current_worker_index();
 /// half-open index ranges covering [begin, end).
 ///  - Dynamic: ranges are chunks of `chunk` indices handed out via an atomic
 ///    counter; chunk boundaries are fixed given (begin, end, chunk).
-///  - Static: `chunk` is ignored and [begin, end) is split into contiguous
-///    blocks (one per worker) as evenly as possible.
+///  - Static: `chunk` is ignored and [begin, end) is split into one
+///    contiguous chunk per worker.
 /// With 1 thread (or when nested inside another parallel region) everything
 /// runs inline on the calling thread in index order.
 void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
@@ -181,12 +181,7 @@ public:
     int n_workers() const { return n_workers_; }
     bool is_master() const { return worker_ == n_workers_ - 1; }
 
-    /// Work-shared loop over [begin, end), followed by a barrier.
-    ///  - Dynamic: fixed chunks of `chunk` indices handed out through a shared
-    ///    counter; chunk boundaries never depend on the thread count.
-    ///  - Static: [begin, end) split into n_workers() contiguous blocks as
-    ///    evenly as possible; participant w processes block w (if non-empty),
-    ///    so per-worker partial results can be indexed by worker_index().
+    /// Work-shared loop with the chunks of run_parallel_chunks, then a barrier.
     /// `fn(chunk_begin, chunk_end, worker_index)`.
     void for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
                     Scheduling sched,

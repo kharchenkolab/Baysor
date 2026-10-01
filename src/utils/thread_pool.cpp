@@ -42,6 +42,11 @@ namespace {
 thread_local int t_worker_index = 0;
 thread_local int t_region_depth = 0;
 
+// Chunk length: `chunk` (at least 1), or one chunk per worker for Static.
+std::int64_t chunk_length(std::int64_t n, std::int64_t chunk, Scheduling sched, int n_workers) {
+    return std::max<std::int64_t>(sched == Scheduling::Static ? (n + n_workers - 1) / n_workers : chunk, 1);
+}
+
 // Spin budget before blocking at job hand-off, job completion and region
 // barriers: it absorbs the wake-up latency of back-to-back parallel loops.
 constexpr int kSpinUs = 20;
@@ -102,10 +107,7 @@ struct Job {
     std::int64_t begin = 0;
     std::int64_t end = 0;
     std::int64_t chunk = 1;
-    Scheduling sched = Scheduling::Dynamic;
     std::int64_t n_chunks = 0;
-    std::vector<std::int64_t> static_starts;  // Static scheduling: start index per chunk
-    std::vector<std::int64_t> static_lens;    // Static scheduling: length per chunk
     // Persistent region: every participant runs `(*region)(worker_index)`
     // exactly once instead of claiming chunks.
     const std::function<void(int)>* region = nullptr;
@@ -265,15 +267,8 @@ private:
             std::int64_t idx = job.next.fetch_add(1, std::memory_order_relaxed);
             if (idx >= job.n_chunks) break;
 
-            std::int64_t b, e;
-            if (job.sched == Scheduling::Static) {
-                b = job.static_starts[static_cast<size_t>(idx)];
-                e = b + job.static_lens[static_cast<size_t>(idx)];
-            } else {
-                b = job.begin + idx * job.chunk;
-                e = std::min(job.end, b + job.chunk);
-            }
-
+            const std::int64_t b = job.begin + idx * job.chunk;
+            const std::int64_t e = std::min(job.end, b + job.chunk);
             ++t_region_depth;
             try {
                 job.fn(b, e, worker_id);
@@ -472,38 +467,20 @@ void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chun
                          const std::function<void(std::int64_t, std::int64_t, int)>& fn) {
     if (end <= begin) return;
 
-    if (chunk <= 0) chunk = 1;
-    std::int64_t n = end - begin;
-    std::int64_t n_chunks = (sched == Scheduling::Static)
-        ? 1
-        : (n + chunk - 1) / chunk;
-
     // Serial fallback: nested regions and single-threaded runs execute inline
     // on the calling thread, in index order.
     if (t_region_depth > 0 || effective_threads() <= 1) {
+        chunk = chunk_length(end - begin, chunk, sched, 1);
         int worker = std::min(t_worker_index, effective_threads() - 1);
-        if (sched == Scheduling::Static) {
+        for (std::int64_t b = begin; b < end; b += chunk) {
             ++t_region_depth;
             try {
-                fn(begin, end, worker);
+                fn(b, std::min(end, b + chunk), worker);
             } catch (...) {
                 --t_region_depth;
                 throw;
             }
             --t_region_depth;
-        } else {
-            for (std::int64_t c = 0; c < n_chunks; ++c) {
-                std::int64_t b = begin + c * chunk;
-                std::int64_t e = std::min(end, b + chunk);
-                ++t_region_depth;
-                try {
-                    fn(b, e, worker);
-                } catch (...) {
-                    --t_region_depth;
-                    throw;
-                }
-                --t_region_depth;
-            }
         }
         return;
     }
@@ -521,30 +498,8 @@ void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chun
     job.fn = fn;
     job.begin = begin;
     job.end = end;
-    job.chunk = chunk;
-    job.sched = sched;
-
-    int n_workers = pool->n_workers();
-    if (sched == Scheduling::Static) {
-        // Contiguous blocks, one per worker, as evenly as possible (OpenMP
-        // `schedule(static)` semantics).
-        std::int64_t blocks = std::min<std::int64_t>(n_workers, n);
-        std::int64_t base = n / blocks;
-        std::int64_t rem = n % blocks;
-        job.n_chunks = blocks;
-        job.static_starts.reserve(static_cast<size_t>(blocks));
-        job.static_lens.reserve(static_cast<size_t>(blocks));
-        std::int64_t pos = begin;
-        for (std::int64_t b = 0; b < blocks; ++b) {
-            std::int64_t len = base + (b < rem ? 1 : 0);
-            job.static_starts.push_back(pos);
-            job.static_lens.push_back(len);
-            pos += len;
-        }
-    } else {
-        job.n_chunks = n_chunks;
-    }
-
+    job.chunk = chunk_length(end - begin, chunk, sched, pool->n_workers());
+    job.n_chunks = (end - begin + job.chunk - 1) / job.chunk;
     pool->run(job);
 }
 
@@ -571,45 +526,28 @@ void ParallelRegion::run_guarded(const std::function<void()>& fn) {
 void ParallelRegion::for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
                                 Scheduling sched,
                                 const std::function<void(std::int64_t, std::int64_t, int)>& fn) {
-    if (chunk <= 0) chunk = 1;
+    chunk = chunk_length(end - begin, chunk, sched, n_workers_);
 
     if (shared_ == nullptr) {
         // Serial region: the run_parallel_chunks serial path.
-        if (end <= begin) return;
-        if (sched == Scheduling::Static) {
-            fn(begin, end, worker_);
-        } else {
-            for (std::int64_t b = begin; b < end; b += chunk) {
-                fn(b, std::min(end, b + chunk), worker_);
-            }
+        for (std::int64_t b = begin; b < end; b += chunk) {
+            fn(b, std::min(end, b + chunk), worker_);
         }
         return;
     }
 
     if (end > begin) {
-        const std::int64_t n = end - begin;
-        if (sched == Scheduling::Static) {
-            const std::int64_t blocks = std::min<std::int64_t>(n_workers_, n);
-            if (worker_ < blocks && !cancelled()) {
-                const std::int64_t base = n / blocks;
-                const std::int64_t rem = n % blocks;
-                const std::int64_t b = begin + worker_ * base + std::min<std::int64_t>(worker_, rem);
-                const std::int64_t e = b + base + (worker_ < rem ? 1 : 0);
-                run_guarded([&]() { fn(b, e, worker_); });
-            }
-        } else {
-            const std::int64_t n_chunks = (n + chunk - 1) / chunk;
-            for (;;) {
-                const std::int64_t idx =
-                    shared_->next_chunk.fetch_add(1, std::memory_order_relaxed) - chunk_base_;
-                if (idx >= n_chunks) break;
-                if (cancelled()) continue;  // keep claiming so the counter stays consistent
-                const std::int64_t b = begin + idx * chunk;
-                const std::int64_t e = std::min(end, b + chunk);
-                run_guarded([&]() { fn(b, e, worker_); });
-            }
-            chunk_base_ += n_chunks + n_workers_;
+        const std::int64_t n_chunks = (end - begin + chunk - 1) / chunk;
+        for (;;) {
+            const std::int64_t idx =
+                shared_->next_chunk.fetch_add(1, std::memory_order_relaxed) - chunk_base_;
+            if (idx >= n_chunks) break;
+            if (cancelled()) continue;  // keep claiming so the counter stays consistent
+            const std::int64_t b = begin + idx * chunk;
+            const std::int64_t e = std::min(end, b + chunk);
+            run_guarded([&]() { fn(b, e, worker_); });
         }
+        chunk_base_ += n_chunks + n_workers_;
     }
     barrier();
 }
