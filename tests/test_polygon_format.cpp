@@ -97,7 +97,7 @@ std::set<std::string> json_polygon_cells(const std::string& path) {
 }  // namespace
 
 // ============================================================================
-// parse_polygon_format / to_string
+// parse_polygon_format
 // ============================================================================
 
 TEST(Cov165PolygonFormat, ParsingIsCaseInsensitiveAndValidated) {
@@ -112,14 +112,6 @@ TEST(Cov165PolygonFormat, ParsingIsCaseInsensitiveAndValidated) {
     EXPECT_EQ(baysor::parse_polygon_format("GeometryCollectionLegacy"),
               baysor::PolygonFormat::GeometryCollectionLegacy);
     EXPECT_EQ(baysor::parse_polygon_format("NONE"), baysor::PolygonFormat::None);
-
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::FeatureCollection),
-              "FeatureCollection");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::GeometryCollection),
-              "GeometryCollection");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::GeometryCollectionLegacy),
-              "GeometryCollectionLegacy");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::None), "none");
 
     EXPECT_THROW(baysor::parse_polygon_format("geometry"), std::invalid_argument);
     EXPECT_THROW(baysor::parse_polygon_format(""), std::invalid_argument);

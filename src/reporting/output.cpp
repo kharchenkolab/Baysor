@@ -63,12 +63,7 @@ void append_le(std::string& out, T value) {
     out.append(ptr, ptr + sizeof(T));
 }
 
-std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
-    const auto vertices = polygon_vertices(poly);
-    if (vertices.size() < 4) {
-        return {}; // GCOVR_EXCL_LINE: unreachable defensive return: both call sites pre-filter polygons with fewer than 4 vertices
-    }
-
+std::string polygon_to_wkb(const std::vector<std::array<double, 2>>& vertices) {
     std::string out;
     out.reserve(1 + 4 + 4 + 4 + vertices.size() * 16);
     append_le<std::uint8_t>(out, 1);          // little endian
@@ -82,32 +77,19 @@ std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
     return out;
 }
 
-// Integer cell id for the v0.7.1 `GeometryCollectionLegacy` format. Baysor
-// v0.7.1 named cells `C<run_id>-<n>` and kept the part after the first dash;
-// the C++ line names them `cell_<n>`, so strip that prefix when present.
+// Integer cell id for the `GeometryCollectionLegacy` format: Baysor v0.7.1
+// named cells `C<run_id>-<n>` and kept the part after the first dash; the C++
+// line names them `cell_<n>`.
 int legacy_polygon_cell_id(const std::string& cell_name) {
     std::string digits = cell_name;
-    static const std::string kCellPrefix = "cell_";
-    if (digits.rfind(kCellPrefix, 0) == 0) {
-        digits = digits.substr(kCellPrefix.size());
-    }
-    const auto dash = digits.find('-');
-    if (dash != std::string::npos) {
-        digits = digits.substr(dash + 1);
-    }
-    std::size_t consumed = 0;
-    int value = 0;
+    if (digits.rfind("cell_", 0) == 0) digits.erase(0, 5);
+    if (const auto dash = digits.find('-'); dash != std::string::npos) digits.erase(0, dash + 1);
     try {
-        value = std::stoi(digits, &consumed);
-    } catch (const std::exception&) {
-        throw std::runtime_error(
-            "GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
-    }
-    if (consumed != digits.size()) {
-        throw std::runtime_error(
-            "GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
-    }
-    return value;
+        std::size_t consumed = 0;
+        const int id = std::stoi(digits, &consumed);
+        if (consumed == digits.size()) return id;
+    } catch (const std::exception&) {}
+    throw std::runtime_error("GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
 }
 
 std::shared_ptr<arrow::Table> make_table(
@@ -200,22 +182,12 @@ std::string to_string(OutputStyle style) {
         case OutputStyle::Legacy: return "legacy";
         case OutputStyle::Parquet: return "parquet";
     }
-    return "legacy"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
+    return "legacy"; // GCOVR_EXCL_LINE: unreachable
 }
-
-namespace {
-
-std::string lowercase(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return value;
-}
-
-} // namespace
 
 PolygonFormat parse_polygon_format(const std::string& format) {
-    // Baysor v0.7.1 lower-cased the option before comparing (`format_lc`).
-    const std::string fmt = lowercase(format);
+    std::string fmt = format;
+    std::transform(fmt.begin(), fmt.end(), fmt.begin(), ::tolower);
     if (fmt == "featurecollection") return PolygonFormat::FeatureCollection;
     if (fmt == "geometrycollection") return PolygonFormat::GeometryCollection;
     if (fmt == "geometrycollectionlegacy") return PolygonFormat::GeometryCollectionLegacy;
@@ -223,16 +195,6 @@ PolygonFormat parse_polygon_format(const std::string& format) {
     throw std::invalid_argument(
         "Unknown polygon format: " + format +
         ". Expected one of FeatureCollection, GeometryCollection, GeometryCollectionLegacy, none");
-}
-
-std::string to_string(PolygonFormat format) {
-    switch (format) {
-        case PolygonFormat::FeatureCollection: return "FeatureCollection";
-        case PolygonFormat::GeometryCollection: return "GeometryCollection";
-        case PolygonFormat::GeometryCollectionLegacy: return "GeometryCollectionLegacy";
-        case PolygonFormat::None: return "none";
-    }
-    return "FeatureCollection"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
 }
 
 static nlohmann::json polygons_to_geojson_json(
@@ -285,9 +247,6 @@ static nlohmann::json polygons_to_geojson_json(
                 }}
             });
         } else {
-            // v0.7.1 `GeometryCollectionLegacy` rewrote string keys by parsing
-            // the integer cell id out of the name (`split(k, '-')[2]`); the C++
-            // line names cells `cell_<n>` instead.
             nlohmann::json cell = is_legacy ? nlohmann::json(legacy_polygon_cell_id(cell_name))
                                             : nlohmann::json(cell_name);
             out["geometries"].push_back({
@@ -843,11 +802,9 @@ void save_polygons_geoparquet(const PolygonCollection& polygons,
     for (const auto& [cell_name, poly] : polygons) {
         auto vertices = polygon_vertices(poly);
         if (vertices.size() < 4) continue;
-        std::string wkb = polygon_to_wkb(poly);
-        if (wkb.empty()) continue;
         cells.push_back(cell_name);
         n_vertices.push_back(static_cast<int>(vertices.size() - 1));
-        wkbs.push_back(std::move(wkb));
+        wkbs.push_back(polygon_to_wkb(vertices));
     }
     if (cells.empty()) return;
 
@@ -912,12 +869,10 @@ void save_polygon_stack_geoparquet(const PolygonStack& polygons,
         for (const auto& [cell_name, geom] : poly) {
             auto vertices = polygon_vertices(geom);
             if (vertices.size() < 4) continue;
-            auto wkb = polygon_to_wkb(geom);
-            if (wkb.empty()) continue;
             cells.push_back(cell_name);
             layers.push_back(layer_name);
             n_vertices.push_back(static_cast<int>(vertices.size() - 1));
-            wkbs.push_back(std::move(wkb));
+            wkbs.push_back(polygon_to_wkb(vertices));
         }
     }
 
