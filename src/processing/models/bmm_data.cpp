@@ -1,6 +1,5 @@
 #include "baysor/processing/models/bmm_data.h"
 #include "baysor/utils/general.h"
-#include "baysor/utils/thread_pool.h"
 
 namespace baysor {
 
@@ -59,19 +58,6 @@ void BmmData<N>::update_n_mols_per_segment() {
     for (int ci = 0; ci < nc; ++ci) {
         update_main_segment(ci);
     }
-}
-
-template<int N>
-void BmmData<N>::update_n_mols_per_segment(const IdsByComponent& ids_by_comp) {
-    if (segment_per_molecule.empty()) return;
-
-    // Each component's map receives exactly the operation sequence of the
-    // serial molecule loop above (clear, then ++ for its molecules in
-    // ascending id order), so the map state, its iteration order and with it
-    // the main-segment tie-breaks are unchanged.
-    int nc = n_components();
-    main_segment_per_cell.assign(nc, 0);
-    parallel_for(0, nc, 2, [&](int ci) { update_n_mols_per_segment_of(ci, ids_by_comp); });
 }
 
 template<int N>

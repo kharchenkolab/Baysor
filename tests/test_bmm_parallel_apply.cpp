@@ -124,3 +124,23 @@ TEST(BmmParallelApply, SegmentMapsMatchSerialAssignLoop) {
         }
     }
 }
+
+TEST(BmmParallelApply, PerComponentSegmentUpdateMatchesSerialUpdate) {
+    for (int n_threads : {1, 4}) {
+        PoolSizeGuard guard(n_threads);
+        auto data = noisy_data_with_segments();
+        baysor::expect_dirichlet_spatial(data, /*stochastic=*/true, /*rng_salt=*/7);
+        baysor::maximize(data);  // workspace.ids_by_comp = grouping of the assignment
+
+        auto reference = data;
+        reference.update_n_mols_per_segment();
+
+        // Dirty the per-component state first, as the BMM loop does.
+        data.main_segment_per_cell.assign(data.n_components(), -1);
+        baysor::parallel_for(0, data.n_components(), 1, [&](int ci) {
+            data.update_n_mols_per_segment_of(ci, data.workspace.ids_by_comp);
+        });
+        EXPECT_EQ(maps_in_iteration_order(data), maps_in_iteration_order(reference));
+        EXPECT_EQ(data.main_segment_per_cell, reference.main_segment_per_cell);
+    }
+}
