@@ -40,9 +40,7 @@ static std::vector<int> select_ids_uniformly(
     const std::vector<double>* confidences,
     double confidence_threshold = 0.25
 ) {
-    // Matches Julia: `if n <= 1 error("n must be > 1")` in select_ids_uniformly
-    // (initialization.jl). Without this guard the evenly-spaced index step below
-    // divides by (n - 1) == 0 and the NaN result indexes out of bounds.
+    // Matches Julia's select_ids_uniformly; the step below divides by n - 1
     if (n <= 1) {
         throw std::runtime_error("n must be > 1");
     }
@@ -68,11 +66,7 @@ static std::vector<int> select_ids_uniformly(
     }
     if (n <= 0) return {};
 
-    // Only one high-confidence molecule survived the clamp above (a smaller
-    // request already errored above). Julia returns that single id the same way
-    // when length(high_conf_ids) < n; take it directly so the evenly-spaced
-    // step below never divides by (n - 1) == 0.
-    if (n == 1) return {high_conf_ids[0]};
+    if (n == 1) return {high_conf_ids[0]};  // a single high-confidence molecule
 
     // Sort high_conf_ids by sum of coordinates
     std::vector<std::pair<double,int>> sum_ids(high_conf_ids.size());
@@ -104,12 +98,6 @@ AdjacencyResult compute_molecule_adjacency(const MoleculeData& data) {
 
 AdjList build_molecule_graph_from_edges(const AdjacencyResult& adj_result, int n) {
     int n_edges = static_cast<int>(adj_result.edge_src.size());
-    if (n_edges == 0) {
-        AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on the following line
-        adj.indptr.assign(n + 1, 0);
-        return adj;
-    }
-
     double min_edge_length = quantile_vec(adj_result.edge_dists, 0.3);
 
     std::vector<double> edge_weights(n_edges);
@@ -135,18 +123,11 @@ AdjList build_molecule_graph(
     int n_gene_pcs,
     std::optional<AdjacencyResult> precomputed_edges
 ) {
+    // Without duplicate coordinates the triangulation is a pure function of
+    // the positions and draws no RNG, so the precomputed edges equal a
+    // recomputation. With duplicates each computation draws its own jitter,
+    // so recompute as if no edges had been passed.
     if (precomputed_edges.has_value() && precomputed_edges->normalize_rng_draws == 0) {
-        // Reuse the precomputed edges: with no duplicate coordinates,
-        // normalize_points() consumes no RNG and is a pure function of the
-        // positions, so a recomputation would produce these exact edges (and
-        // consume no draws either) — the reused graph is bit-identical to a
-        // rebuild and the global RNG stream is untouched.
-        //
-        // With duplicate coordinates (normalize_rng_draws > 0) the two
-        // normalize_points() runs draw different jitter batches, so the
-        // recomputed triangulation may differ; fall through and recompute
-        // exactly as if no edges had been passed — that consumes the second
-        // jitter batch here just like the historical double build did.
         if (filter) {
             filter_long_edges(*precomputed_edges, /*n_mads=*/2.0);
         }
@@ -176,9 +157,7 @@ InitialParams<N> cell_centers_uniformly(
     int n_mols = static_cast<int>(pos_data.cols());
     n_clusters = std::min(n_clusters, n_mols);
 
-    // Select n_clusters initial centers evenly-spaced in coordinate-sum order.
-    // Julia (cell_centers_uniformly) passes the clamped value straight into
-    // select_ids_uniformly, which errors for n <= 1; there is no lower clamp.
+    // Select n_clusters initial centers evenly-spaced in coordinate-sum order
     auto center_ids = select_ids_uniformly(pos_data, n_clusters, confidences);
     n_clusters = static_cast<int>(center_ids.size());
     if (n_clusters == 0) {
