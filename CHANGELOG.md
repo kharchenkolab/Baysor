@@ -6,6 +6,14 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Added
 
+- `--polygon-format GeometryCollectionLegacy` for Xenium Ranger 3.x: the same
+  `GeometryCollection` layout as `GeometryCollection` but with integer `cell`
+  ids (Baysor v0.7.1 format, stripped of the old `C<run_id>-` prefix). Xenium
+  Ranger 4.0+ reads the default `FeatureCollection`, so the legacy format is
+  only needed for Ranger 3.x. The option is now case-insensitive and rejected
+  with a clear error for unknown values instead of silently writing
+  `FeatureCollection`.
+
 - `--threads` / `-t` on `run`, `preview` and `segfree` (and a top-level
   `threads` config key) to set the number of worker threads. Defaults to
   `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS` (backward compatibility for
@@ -178,6 +186,17 @@ All notable changes to the C++ line of Baysor are documented here.
   dropped to noise. Prior cells can still be renamed, expanded or merged;
   molecules without a prior label are unaffected. See the confidence-1
   guarantee in `docs/priors.md`.
+- Segmented molecule table and polygons are now always mutually consistent
+  (kharchenkolab/Baysor#165): every cell with at least one assigned molecule
+  gets exactly one polygon in `segmentation_polygons_2d.json` (and in the
+  GeoParquet boundaries). Cells whose free-form boundary estimation fails or
+  produces fewer than three vertices (for example collinear cells, whose
+  Delaunay triangulation has no faces) previously disappeared from
+  `FeatureCollection` output and made Xenium Ranger report
+  `MissingCellPolygon`. They now get a fallback rectangle around the cell's
+  molecules. Polygon keys are also guaranteed to use the same `cell_<n>`
+  names as `segmentation.csv`, including when a component id exceeds the
+  current component count.
 - Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
   inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
   them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`

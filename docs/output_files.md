@@ -102,8 +102,12 @@ Columns:
 
 ### `segmentation_polygons_2d.json`
 
-Joined 2D cell polygons: one polygon per cell (for 3D data, the polygons of
-all molecules of a cell pooled across the z-stack).
+Joined 2D cell polygons: one polygon per cell with at least one assigned
+molecule (for 3D data, the polygons of all molecules of a cell pooled across
+the z-stack). The cell set of this file is exactly the set of assigned cells
+in `segmentation.csv`: a cell whose free-form boundary estimation fails or
+produces fewer than three vertices gets a fallback rectangle around its
+molecules instead of being omitted.
 
 When `--polygon-format FeatureCollection` (default):
 
@@ -117,9 +121,19 @@ When `--polygon-format GeometryCollection`:
 
 - root object type: `GeometryCollection`
 - one geometry object per cell, each with `type: "Polygon"`, `coordinates`,
-  and `cell`
+  and `cell` (cell name as a string)
+
+When `--polygon-format GeometryCollectionLegacy`:
+
+- root object type: `GeometryCollection`
+- same layout as `GeometryCollection`, but `cell` is the integer part of the
+  cell name (`cell_17` → `17`); this is the Baysor v0.7.1 handoff format for
+  Xenium Ranger 3.x
 
 When `--polygon-format none`: the file is omitted.
+
+All format names are matched case-insensitively. Unknown values are
+rejected.
 
 ### `segmentation_polygons_3d.json`
 

@@ -31,6 +31,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -341,8 +342,19 @@ int cmd_run(
         spdlog::info("Saving cell stats...");
         Eigen::MatrixXd cell_stats_mat;
         std::vector<std::string> cell_stat_col_names;
-        std::vector<std::string> cell_names(n_cells_final);
-        for (int i = 0; i < n_cells_final; ++i) {
+        // Names are indexed by component id. After the final component drop
+        // `bm_data.assignment` should use exactly 1..n_cells_final, but size
+        // the vector to the largest label as well so the polygon writer can
+        // never fall back to a different name than the molecule CSV
+        // (kharchenkolab/Baysor#165). The cell-stats writer only reads the
+        // first n_cells_final entries.
+        int max_assigned_label = 0;
+        for (int a : bm_data.assignment) {
+            if (a > max_assigned_label) max_assigned_label = a;
+        }
+        const int n_cell_names = std::max(n_cells_final, max_assigned_label);
+        std::vector<std::string> cell_names(n_cell_names);
+        for (int i = 0; i < n_cell_names; ++i) {
             cell_names[i] = "cell_" + std::to_string(i + 1);
         }
         {
@@ -835,7 +847,17 @@ int main(int argc, char* argv[]) {
     run->add_option("--output-style", run_output_style,
         "Output bundle style: legacy or parquet (default: legacy)");
     run->add_option("--polygon-format", run_polygon_format,
-        "Polygon output format: FeatureCollection, GeometryCollection, or none (default: FeatureCollection)");
+        "Polygon output format: FeatureCollection, GeometryCollection, "
+        "GeometryCollectionLegacy, or none (default: FeatureCollection). "
+        "GeometryCollectionLegacy writes integer cell ids for Xenium Ranger 3.x; "
+        "FeatureCollection is read by Xenium Ranger 4.0+")
+        ->transform(CLI::CheckedTransformer(
+            std::map<std::string, std::string>{
+                {"featurecollection", "FeatureCollection"},
+                {"geometrycollection", "GeometryCollection"},
+                {"geometrycollectionlegacy", "GeometryCollectionLegacy"},
+                {"none", "none"}},
+            CLI::ignore_case));
     run->add_option("--count-matrix-format", run_count_format,
         "Count matrix format: loom or tsv (default: loom)");
     run->add_flag("-p,--plot", run_plot,

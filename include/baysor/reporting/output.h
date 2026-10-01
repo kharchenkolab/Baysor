@@ -19,6 +19,20 @@ enum class OutputStyle {
 OutputStyle parse_output_style(const std::string& style);
 std::string to_string(OutputStyle style);
 
+/// Polygon output format for the legacy GeoJSON bundle (and the parquet
+/// writers, which always use the WKB equivalent of GeometryCollection).
+enum class PolygonFormat {
+    FeatureCollection,          ///< GeoJSON FeatureCollection (Xenium Ranger >= 4.0)
+    GeometryCollection,         ///< GeoJSON GeometryCollection with string cell ids
+    GeometryCollectionLegacy,   ///< GeometryCollection with integer cell ids (Xenium Ranger 3.x)
+    None                        ///< do not write polygon files
+};
+
+/// Parse a polygon format name (case-insensitive, like Baysor v0.7.1).
+/// Throws std::invalid_argument for unknown values.
+PolygonFormat parse_polygon_format(const std::string& format);
+std::string to_string(PolygonFormat format);
+
 /// Output file paths (mirrors Julia OutputPaths)
 struct OutputPaths {
     std::string segmented_df;

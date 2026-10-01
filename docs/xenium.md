@@ -61,6 +61,11 @@ For Xenium-origin inputs this automatically produces Ranger-friendly
 `segmentation.csv` and `segmentation_polygons_2d.json` (see
 [Output files](output_files.md#legacy-bundle)).
 
+The two files always contain the same cells: every cell with at least one
+assigned transcript gets a polygon, and every polygon belongs to a cell with
+at least one assigned transcript. Cells whose free-form boundary estimation
+fails get a fallback rectangle so they are not lost during the import.
+
 ## Very large / 5K panel runs
 
 For very large Xenium runs, particularly high-gene-panel datasets such as 5K
@@ -88,16 +93,34 @@ The recommended Explorer path is:
 2. run `xeniumranger import-segmentation`
 
 The two Baysor files used for the handoff are `segmentation.csv` and
-`segmentation_polygons_2d.json`. Run the conversion from the directory that
-contains the original Xenium bundle, or provide an absolute bundle path:
+`segmentation_polygons_2d.json`. Pick the polygon format for the Xenium
+Ranger version that will import it:
+
+- Xenium Ranger 4.0 and later reads the default `FeatureCollection`, so no
+  extra flag is needed.
+- Xenium Ranger 3.1 and earlier needs integer polygon cell ids; pass
+  `--polygon-format GeometryCollectionLegacy` to Baysor.
+
+Run the conversion from the directory that contains the original Xenium
+bundle, or provide an absolute bundle path:
 
 ```bash
+# Xenium Ranger 4.0+
 xeniumranger import-segmentation \
   --id baysor_xenium \
   --xenium-bundle data \
   --transcript-assignment out/segmentation.csv \
   --viz-polygons out/segmentation_polygons_2d.json \
   --units microns
+```
+
+```bash
+# Xenium Ranger 3.1: run Baysor with --polygon-format GeometryCollectionLegacy,
+# then use the same xeniumranger command as above.
+baysor run -c configs/xenium.toml \
+  --polygon-format GeometryCollectionLegacy \
+  -o out \
+  data/experiment.xenium :cell_id
 ```
 
 You can add normal Xenium Ranger execution flags such as `--localcores` and

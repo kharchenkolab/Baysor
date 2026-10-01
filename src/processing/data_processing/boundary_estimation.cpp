@@ -395,6 +395,38 @@ PolygonCollection build_polygons_for_cells(
 
     std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
 
+    // Fallback polygon for a cell whose free-form boundary estimation failed
+    // or produced fewer than 3 vertices: the axis-aligned bounding box of the
+    // cell's molecules, padded by the local nearest-neighbour offset. Every
+    // cell with at least one assigned molecule must have a polygon, otherwise
+    // the segmentation CSV and the polygons JSON disagree and Xenium Ranger
+    // rejects the import (kharchenkolab/Baysor#165).
+    auto fallback_polygon = [&](int cid) {
+        const auto& cell_ids = mids_per_cell[cid - 1];
+        double min_x = std::numeric_limits<double>::infinity();
+        double max_x = -std::numeric_limits<double>::infinity();
+        double min_y = std::numeric_limits<double>::infinity();
+        double max_y = -std::numeric_limits<double>::infinity();
+        for (int mol : cell_ids) {
+            const double x = pos2d(0, mol);
+            const double y = pos2d(1, mol);
+            min_x = std::min(min_x, x);
+            max_x = std::max(max_x, x);
+            min_y = std::min(min_y, y);
+            max_y = std::max(max_y, y);
+        }
+        const double pad = std::max(offset, 1e-6);
+        Eigen::MatrixXd poly(2, 4);
+        poly.col(0) = Eigen::Vector2d(min_x - pad, min_y - pad);
+        poly.col(1) = Eigen::Vector2d(max_x + pad, min_y - pad);
+        poly.col(2) = Eigen::Vector2d(max_x + pad, max_y + pad);
+        poly.col(3) = Eigen::Vector2d(min_x - pad, max_y + pad);
+        return poly;
+    };
+    auto emit_fallback = [&](int cid) {
+        polygons_by_cell[cid - 1] = fallback_polygon(cid);
+    };
+
     // Nested calls inside a parallel region run serially (this replaces the
     // former `omp_in_parallel` guard).
     parallel_for(1, max_label + 1, 32, [&](int cid) {
@@ -420,7 +452,7 @@ PolygonCollection build_polygons_for_cells(
             poly.col(3) = center + Eigen::Vector2d(-offset, 0.0);
         } else {
             const auto& mids = ids_per_bbox[cid - 1];
-            if (mids.empty()) return;
+            if (mids.empty()) { emit_fallback(cid); return; }
 
             const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
             const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
@@ -431,7 +463,7 @@ PolygonCollection build_polygons_for_cells(
                 bbox_labels[i] = cell_labels[mids[i]];
                 n_cell_pts += (bbox_labels[i] == cid);
             }
-            if (n_cell_pts < 3) return;
+            if (n_cell_pts < 3) { emit_fallback(cid); return; }
 
             std::vector<CgalPointWithInfo> cell_points;
             cell_points.reserve(n_cell_pts);
@@ -449,7 +481,7 @@ PolygonCollection build_polygons_for_cells(
             CgalDelaunay dt;
             dt.insert(cell_points.begin(), cell_points.end());
             auto triangles = extract_triangle_verts(dt);
-            if (triangles.empty()) return;
+            if (triangles.empty()) { emit_fallback(cid); return; }
 
             Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
             for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
@@ -459,7 +491,7 @@ PolygonCollection build_polygons_for_cells(
             auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos,
                                                               internal::kBorderFilterMaxIters);
             auto poly_ids = border_edges_to_poly(border_edges, internal::kMaxBorderLength);
-            if (poly_ids.empty()) return;
+            if (poly_ids.empty()) { emit_fallback(cid); return; }
 
             poly.resize(2, static_cast<int>(poly_ids.size()));
             for (int i = 0; i < static_cast<int>(poly_ids.size()); ++i) {
@@ -467,7 +499,7 @@ PolygonCollection build_polygons_for_cells(
             }
         }
 
-        if (poly.cols() == 0) return;
+        if (poly.cols() < 3) { emit_fallback(cid); return; }
         polygons_by_cell[cid - 1] = std::move(poly);
     });
 
@@ -475,9 +507,17 @@ PolygonCollection build_polygons_for_cells(
     polygons.reserve(max_label);
     for (int cid = 1; cid <= max_label; ++cid) {
         if (polygons_by_cell[cid - 1].cols() == 0) continue;
-        const std::string cell_name = (cell_names && cid - 1 < static_cast<int>(cell_names->size()))
-            ? (*cell_names)[cid - 1]
-            : default_cell_name(cid);
+        // When the caller supplies names, an out-of-range label still has to
+        // map to the same name the molecule CSV uses (`cell_<n>`), never to
+        // the bare-integer default, so the two files always agree.
+        std::string cell_name;
+        if (cell_names) {
+            cell_name = (cid - 1 < static_cast<int>(cell_names->size()))
+                ? (*cell_names)[cid - 1]
+                : ("cell_" + std::to_string(cid));
+        } else {
+            cell_name = default_cell_name(cid);
+        }
         polygons[cell_name] = std::move(polygons_by_cell[cid - 1]);
     }
 
