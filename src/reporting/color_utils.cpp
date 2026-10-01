@@ -179,12 +179,8 @@ struct LabNormalizationParams {
     double l_min = 10.0;
     double l_max = 90.0;
     double trim_frac = 0.0125;
-    bool log_colors = false;
     std::array<double, 3> row_q_lo{0.0, 0.0, 0.0};
     double max_val = 1.0;
-    double q05 = 1e-3;
-    std::array<double, 3> log_row_min{0.0, 0.0, 0.0};
-    std::array<double, 3> log_row_scale{1.0, 1.0, 1.0};
 };
 
 struct NcvInterpolationModel {
@@ -205,8 +201,7 @@ LabNormalizationParams fit_lab_normalization_params(
     const Eigen::MatrixXd& embedding,
     double l_min,
     double l_max,
-    double trim_frac,
-    bool log_colors
+    double trim_frac
 );
 
 void apply_lab_normalization_params(
@@ -279,7 +274,7 @@ static void fill_colors_from_projected_vectors(
         sample_vecs, sample_emb, n_pca_dims, graph_k
     );
     Eigen::MatrixXd basis_emb = interpolate_ncv_embedding(sample_model, basis_vecs);
-    LabNormalizationParams lab_params = fit_lab_normalization_params(basis_emb, 10.0, 90.0, 0.0125, false);
+    LabNormalizationParams lab_params = fit_lab_normalization_params(basis_emb, 10.0, 90.0, 0.0125);
 
     if (all_mol_vecs) {
         constexpr int block_size = 32768;
@@ -391,7 +386,7 @@ NcvReportEmbedding compute_ncv_embedding(
     // segmentation is still valid, but the UMAP fit/interpolation path below
     // would hit divisions by (sample_size - 1) and invalid KNN sizes.
     if (sample_size <= 1) {
-        spdlog::warn( // GCOVR_EXCL_LINE: gcov: only an exception-unwind block is attributed here; the executed warn() call is reported on the following lines
+        spdlog::warn( // GCOVR_EXCL_LINE: gcov artifact
             "NCV color embedding fallback: insufficient anchor molecules after adaptive thresholding "
             "(max_conf={:.4f}, threshold={:.2f}, anchors={}, sample_size={}).",
             confidence.empty() ? 0.0 : *std::max_element(confidence.begin(), confidence.end()),
@@ -438,15 +433,9 @@ NcvReportEmbedding compute_ncv_embedding(
     Eigen::VectorXf sample_mean = sample_mat.rowwise().mean();
     Eigen::MatrixXf sample_centered = sample_mat.colwise() - sample_mean;
 
-    // Thin U of (n_components × sample_size): columns are principal components.
+    // Thin U of (n_components × sample_size): columns are principal components,
+    // at most min(n_components, sample_size) of them.
     Eigen::BDCSVD<Eigen::MatrixXf> svd(sample_centered, Eigen::ComputeThinU);
-    // Thin U only has min(rows, cols) columns, so clamp to min(n_pca_dims,
-    // n_components, sample_size): with fewer sampled anchors than n_pca_dims the
-    // old clamp asked for more columns than exist (Eigen assertion in Debug,
-    // out-of-bounds read in Release). Julia's gene_composition_color_embedding
-    // performs no PCA truncation at all (it interpolates on the raw sampled
-    // columns), so using every available component matches it as closely as
-    // possible.
     const int n_pca = std::min({n_pca_dims, n_components, sample_size});
     Eigen::MatrixXf pca_basis = svd.matrixU().leftCols(n_pca);  // n_components × n_pca
 
@@ -459,10 +448,9 @@ NcvReportEmbedding compute_ncv_embedding(
         (pca_basis.transpose() * (mol_vecs.colwise() - sample_mean))
         .cast<double>();
 
-    // KNN in PCA-3D space: nanoflann KD-tree via knn_parallel (already OMP-parallel).
+    // KNN in PCA-3D space: nanoflann KD-tree via knn_parallel (already parallel).
     // tree = sample_pca (n_pca × sample_size), query = all_pca (n_pca × n_mols).
-    // graph_k <= 0 must not reach knn_parallel, which then returns no results
-    // and the interpolation loop below reads past the empty index lists.
+    // At least one neighbour, or the interpolation weights below sum to zero.
     int k_interp = std::max(1, std::min(graph_k, sample_size - 1));
     auto knn = knn_parallel(sample_pca.cast<double>(), all_pca, k_interp);
 
@@ -491,14 +479,12 @@ NcvReportEmbedding compute_ncv_embedding(
 LabNormalizationParams fit_lab_normalization_params(
     const Eigen::MatrixXd& embedding,
     double l_min = 10.0, double l_max = 90.0,
-    double trim_frac = 0.0125,
-    bool log_colors = false
+    double trim_frac = 0.0125
 ) {
     LabNormalizationParams params;
     params.l_min = l_min;
     params.l_max = l_max;
     params.trim_frac = trim_frac;
-    params.log_colors = log_colors;
 
     const int n = static_cast<int>(embedding.cols());
     if (n == 0) return params;
@@ -521,26 +507,6 @@ LabNormalizationParams fit_lab_normalization_params(
     params.max_val = quantile_vec(all_vals, 1.0 - trim_frac);
     if (params.max_val <= 0.0) params.max_val = 1.0;
 
-    work /= params.max_val;
-    work = work.cwiseMin(1.0);
-
-    if (log_colors) {
-        // GCOVR_EXCL_START: unreachable: the sole caller of fit_lab_normalization_params hardcodes log_colors=false
-        all_vals.clear();
-        for (int r = 0; r < 3; ++r)
-            for (int i = 0; i < n; ++i)
-                all_vals.push_back(work(r, i));
-        params.q05 = std::max(quantile_vec(all_vals, 0.05), 1e-3);
-        for (int r = 0; r < 3; ++r) {
-            for (int i = 0; i < n; ++i) work(r, i) = std::log10(work(r, i) + params.q05);
-            params.log_row_min[r] = work.row(r).minCoeff();
-            work.row(r).array() -= params.log_row_min[r];
-            params.log_row_scale[r] = work.row(r).maxCoeff();
-            if (params.log_row_scale[r] <= 0.0) params.log_row_scale[r] = 1.0;
-        // GCOVR_EXCL_STOP: unreachable: the sole caller of fit_lab_normalization_params hardcodes log_colors=false
-        }
-    }
-
     return params;
 }
 
@@ -556,18 +522,6 @@ void apply_lab_normalization_params(Eigen::MatrixXd& embedding, const LabNormali
 
     embedding /= params.max_val;
     embedding = embedding.cwiseMin(1.0);
-
-    if (params.log_colors) {
-        // GCOVR_EXCL_START: unreachable: params.log_colors can only be false, see fit_lab_normalization_params
-        for (int r = 0; r < 3; ++r) {
-            for (int i = 0; i < n; ++i) {
-                embedding(r, i) = std::log10(embedding(r, i) + params.q05);
-            }
-            embedding.row(r).array() -= params.log_row_min[r];
-            embedding.row(r) /= params.log_row_scale[r];
-        // GCOVR_EXCL_STOP: unreachable: params.log_colors can only be false, see fit_lab_normalization_params
-        }
-    }
 
     embedding.row(0) *= (params.l_max - params.l_min);
     embedding.row(0).array() += params.l_min;
@@ -651,10 +605,7 @@ NcvInterpolationModel fit_ncv_interpolation_model(
 ) {
     const int n_components = static_cast<int>(anchor_vecs.rows());
     const int n_anchors = static_cast<int>(anchor_vecs.cols());
-    // Thin U of (n_components × n_anchors) has min(rows, cols) columns, so the
-    // truncation must be clamped to the anchor count as well: tiny datasets can
-    // have fewer anchors than n_pca_dims, and leftCols() would then read past
-    // the end of matrixU() (assertion in Debug, out-of-bounds read in Release).
+    // Thin U has only min(n_components, n_anchors) columns.
     const int n_pca = std::min({n_pca_dims, n_components, n_anchors});
     NcvInterpolationModel model;
     model.sample_mean = anchor_vecs.rowwise().mean();
