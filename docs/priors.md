@@ -90,8 +90,9 @@ explicitly.
 ## What confidence 1 guarantees
 
 At confidence 1 the prior is a hard constraint on grouping: every prior
-segment is assigned as a whole. All molecules that share a prior label end
-up in one final cell. In particular:
+segment with at least `min_molecules_per_segment` molecules (default
+`max(min_molecules_per_cell / 4, 2)`) is assigned as a whole. All molecules
+that share such a prior label end up in one final cell. In particular:
 
 - A prior cell is never split across several final cells and is never
   partially dropped to noise.
@@ -107,13 +108,12 @@ up in one final cell. In particular:
   `0` by default, or molecules outside the prior) are segmented by the
   model alone: they may join any cell or go to noise and are not part of
   the constraint.
-- A whole prior segment is reported as unassigned when it has no molecules
-  left in the algorithm: its label was filtered at input because the
-  segment has fewer than `min_molecules_per_segment` molecules (default
-  `max(min_molecules_per_cell / 4, 2)`) or equals
-  `--unassigned-prior-label`. A segment whose molecules are all isolated in
-  the molecule graph (no neighbors at all) also stays entirely unassigned,
-  again together rather than split.
+- Smaller segments are removed from the prior when the data is loaded:
+  their molecules are treated like molecules without a prior label and may
+  be split or go to noise. Lower `min_molecules_per_segment` to keep small
+  segments in the constraint.
+- A segment whose molecules are all isolated in the molecule graph (no
+  neighbors at all) stays entirely unassigned, together rather than split.
 
 The constraint is implemented as a projection: when the model would scatter
 a prior segment, the component that already holds the largest share of the
