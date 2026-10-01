@@ -106,35 +106,18 @@ KDTree make_kdtree(const Eigen::MatrixXd& tree_points, const EigenColMajorAdapto
     );
 }
 
-// nanoflann returns neighbours in nondecreasing distance order with
-// equal-distance neighbours in traversal order (KNNResultSet::addPoint keeps
-// the row sorted and inserts ties after existing ones). For sorted results we
-// reorder every tied run by index, which is exactly the stable sort by
-// (distance, index) done previously over the whole row: distances outside tied
-// runs keep their order, and distances within a run are equal, so only the
-// indices move. Tied runs are scanned (C7-2) instead of sorting every row, so
-// the common no-tie case allocates nothing and touches the row once.
-void sort_tied_runs_by_index(int* indices, const double* squared_distances, int k) {
-    int run_begin = 0;
-    while (run_begin < k) {
-        int run_end = run_begin + 1;
-        while (run_end < k && squared_distances[run_end] == squared_distances[run_begin]) {
-            ++run_end;
-        }
-        if (run_end - run_begin > 1) {
-            // Insertion sort the tied run by index; squared distances are equal
-            // inside the run, so the distance row needs no permutation.
-            for (int a = run_begin + 1; a < run_end; ++a) {
-                const int v = indices[a];
-                int b = a;
-                while (b > run_begin && indices[b - 1] > v) {
-                    indices[b] = indices[b - 1];
-                    --b;
-                }
-                indices[b] = v;
-            }
-        }
-        run_begin = run_end;
+int knn_block_size(int k) {
+    constexpr std::size_t budget_bytes = std::size_t(32) << 20;
+    constexpr std::size_t min_block = 2048;  // keeps the 256-query parallel chunks fed
+    constexpr std::size_t max_block = 32768;
+    const std::size_t per_query = static_cast<std::size_t>(std::max(k, 1)) * (sizeof(int) + sizeof(double));
+    return static_cast<int>(std::clamp(budget_bytes / per_query, min_block, max_block));
+}
+
+void sort_tied_runs_by_index(int* indices, const double* distances, int k) {
+    for (int begin = 0, end; begin < k; begin = end) {
+        for (end = begin + 1; end < k && distances[end] == distances[begin]; ++end) {}
+        if (end - begin > 1) std::sort(indices + begin, indices + end);
     }
 }
 
@@ -165,19 +148,19 @@ KnnResult knn_parallel(
     KDTree tree = make_kdtree(tree_points, adaptor);
 
     parallel_for(0, n_query, 256, [&](int i) {
-        int* row_indices = result.idx_row(i);
-        double* row_distances = result.dist_row(i);
+        int* row_indices = result.indices.data() + static_cast<std::size_t>(i) * k;
+        double* row_distances = result.distances.data() + static_cast<std::size_t>(i) * k;
 
         nanoflann::KNNResultSet<double, int> resultSet(k);
         resultSet.init(row_indices, row_distances);
         tree.findNeighbors(
             resultSet,
             query_points.col(i).data(),
-            nanoflann::SearchParameters(/*eps=*/0.0f, /*sorted=*/sorted)
+            nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
         );
 
-        // Keep sorted=true deterministic even when the backend does not define
-        // a stable tie order for equal-distance neighbors.
+        // Keep sorted=true deterministic: nanoflann leaves equal-distance
+        // neighbors in traversal order.
         if (sorted) {
             sort_tied_runs_by_index(row_indices, row_distances, k);
         }
@@ -203,41 +186,26 @@ std::vector<double> knn_kth_distances(
     k = std::min(k, n);
     kth = std::min(kth, k - 1);
 
-    // One kd-tree over all points (same tree knn_parallel builds), queries in
-    // blocks so the scratch n_block x k buffers stay bounded: the whole-slide
-    // confidence step reads only the kth distance per molecule, so keeping the
-    // full n x k result would peak at n * k * 12 bytes (3 GiB at 10.6M).
     EigenColMajorAdaptor adaptor(points);
     KDTree tree = make_kdtree(points, adaptor);
 
-    constexpr std::int64_t scratch_budget_bytes = 32 << 20;
-    std::int64_t block = scratch_budget_bytes / (static_cast<std::int64_t>(k) * 12);
-    block = std::max<std::int64_t>(block, 4096);
-    block = std::min<std::int64_t>(block, 65536);
-    block = std::min<std::int64_t>(block, n);
-
+    const int block = std::min(knn_block_size(k), n);
     std::vector<int> scratch_indices(static_cast<std::size_t>(block) * k);
     std::vector<double> scratch_distances(static_cast<std::size_t>(block) * k);
     std::vector<double> out(n);
 
-    for (int block_begin = 0; block_begin < n; block_begin += static_cast<int>(block)) {
-        const int block_end = static_cast<int>(
-            std::min<std::int64_t>(block_begin + block, n));
-        parallel_for(block_begin, block_end, 256, [&](int i) {
-            const int local = i - block_begin;
-            int* row_indices = scratch_indices.data() + static_cast<std::size_t>(local) * k;
-            double* row_distances = scratch_distances.data() + static_cast<std::size_t>(local) * k;
-
+    for (int block_begin = 0; block_begin < n; block_begin += block) {
+        parallel_for(block_begin, std::min(block_begin + block, n), 256, [&](int i) {
+            const std::size_t offset = static_cast<std::size_t>(i - block_begin) * k;
             nanoflann::KNNResultSet<double, int> resultSet(k);
-            resultSet.init(row_indices, row_distances);
+            resultSet.init(scratch_indices.data() + offset, scratch_distances.data() + offset);
             tree.findNeighbors(
                 resultSet,
                 points.col(i).data(),
                 nanoflann::SearchParameters(/*eps=*/0.0f, /*sorted=*/true)
             );
-            // Only the distance value is read here: tied runs may keep any
-            // order, the kth smallest distance is the same either way.
-            out[i] = std::sqrt(row_distances[kth]);
+            // The kth distance does not depend on the order of tied neighbors.
+            out[i] = std::sqrt(scratch_distances[offset + kth]);
         });
     }
 
