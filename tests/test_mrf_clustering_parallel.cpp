@@ -122,3 +122,27 @@ TEST(MrfClusteringParallel, ConvergenceTraceIsConsistent) {
             EXPECT_LT(res.diffs[t], 0.01);
     }
 }
+
+// The final expression profiles are the M-step without pseudocount over the
+// returned probabilities; recompute it with the sequential molecule-order
+// accumulation and require bitwise equality with the parallel per-gene sums.
+TEST(MrfClusteringParallel, FinalExpressionProfilesMatchSequentialMStep) {
+    const MrfInput in = make_grid_input(60, 30, 23);
+    PoolSizeGuard pool(5);
+    auto res = baysor::cluster_molecules_on_mrf(in.genes, in.adj, in.confidence, 4, 0.01, 1.0, 200, false);
+    const auto& probs = res.assignment_probs;
+    const int n_clusters = static_cast<int>(probs.rows());
+    const int n_genes = static_cast<int>(res.exprs.cols());
+    Eigen::MatrixXd exprs = Eigen::MatrixXd::Zero(n_clusters, n_genes);
+    for (int i = 0; i < static_cast<int>(in.genes.size()); ++i) {
+        const int g0 = in.genes[i] - 1;
+        if (g0 < 0) continue;
+        for (int k = 0; k < n_clusters; ++k) exprs(k, g0) += in.confidence[i] * probs(k, i);
+    }
+    for (int k = 0; k < n_clusters; ++k) {
+        const double row_sum = exprs.row(k).sum();
+        if (row_sum > 0) exprs.row(k) /= row_sum;
+    }
+    for (Eigen::Index i = 0; i < exprs.size(); ++i)
+        ASSERT_EQ(exprs.data()[i], res.exprs.data()[i]) << "expr " << i;
+}

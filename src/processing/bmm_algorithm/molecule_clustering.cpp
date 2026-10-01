@@ -256,6 +256,37 @@ ClusteringResult cluster_molecules_on_mrf(
             for (int k = 0; k < n_clusters; ++k) probs(k, i) = 1.0 / n_clusters;
     }
 
+    // Molecules grouped by gene in increasing molecule order (CSR). The M-step
+    // accumulates every gene's expression column in this order, which is the
+    // order of a sequential pass over the molecules, so it runs in parallel
+    // over genes with bitwise-identical sums.
+    std::vector<int> gene_mol_offsets(static_cast<size_t>(n_genes) + 1, 0);
+    for (int g1b : genes) {
+        if (g1b >= 1) ++gene_mol_offsets[static_cast<size_t>(g1b)];
+    }
+    std::partial_sum(gene_mol_offsets.begin(), gene_mol_offsets.end(), gene_mol_offsets.begin());
+    std::vector<int> gene_mols(static_cast<size_t>(gene_mol_offsets.back()));
+    {
+        std::vector<int> next(gene_mol_offsets.begin(), gene_mol_offsets.end() - 1);
+        for (int i = 0; i < n_mols; ++i) {
+            const int g0 = genes[i] - 1;
+            if (g0 >= 0) gene_mols[static_cast<size_t>(next[g0]++)] = i;
+        }
+    }
+    // exprs(k, g) = sum over the molecules of gene g of confidence * probs(k, i)
+    auto accumulate_exprs = [&]() {
+        parallel_for(0, n_genes, 16, [&](int g) {
+            for (int k = 0; k < n_clusters; ++k) exprs(k, g) = 0.0;
+            for (int j = gene_mol_offsets[g]; j < gene_mol_offsets[g + 1]; ++j) {
+                const int i = gene_mols[static_cast<size_t>(j)];
+                const double conf = confidence[i];
+                for (int k = 0; k < n_clusters; ++k) {
+                    exprs(k, g) += conf * probs(k, i);
+                }
+            }
+        });
+    };
+
     Eigen::MatrixXd prev_probs(n_clusters, n_mols);
 
     std::vector<double> max_diffs;
@@ -334,15 +365,7 @@ ClusteringResult cluster_molecules_on_mrf(
         });
 
         // ---- M-step with pseudocount ----
-        exprs.setZero();
-        for (int i = 0; i < n_mols; ++i) {
-            int g0 = genes[i] - 1;
-            if (g0 < 0) continue;
-            double conf = confidence[i];
-            for (int k = 0; k < n_clusters; ++k) {
-                exprs(k, g0) += conf * probs(k, i);
-            }
-        }
+        accumulate_exprs();
         for (int k = 0; k < n_clusters; ++k) {
             double row_sum = exprs.row(k).sum();
             double norm = row_sum + 1.0;
@@ -390,15 +413,7 @@ ClusteringResult cluster_molecules_on_mrf(
     }
 
     // ---- Final M-step without pseudocount ----
-    exprs.setZero();
-    for (int i = 0; i < n_mols; ++i) {
-        int g0 = genes[i] - 1;
-        if (g0 < 0) continue;
-        double conf = confidence[i];
-        for (int k = 0; k < n_clusters; ++k) {
-            exprs(k, g0) += conf * probs(k, i);
-        }
-    }
+    accumulate_exprs();
     for (int k = 0; k < n_clusters; ++k) {
         double row_sum = exprs.row(k).sum();
         if (row_sum > 0) exprs.row(k) /= row_sum;
