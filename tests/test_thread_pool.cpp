@@ -9,144 +9,118 @@
 #include <functional>
 #include <mutex>
 #include <numeric>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace {
 
-// RAII helper: save/restore the global pool size around a test.
-class PoolSizeGuard {
-public:
-    explicit PoolSizeGuard(int n) : old_(baysor::thread_pool_size()) {
-        baysor::set_thread_pool_size(n);
-    }
-    ~PoolSizeGuard() { baysor::set_thread_pool_size(old_); }
+using baysor::ParallelRegion;
+using baysor::Scheduling;
+using Chunk = std::pair<std::int64_t, std::int64_t>;
+using ChunkFn = std::function<void(std::int64_t, std::int64_t, int)>;
 
-private:
-    int old_;
+// Sets the global pool size for the lifetime of the guard.
+struct PoolSizeGuard {
+    explicit PoolSizeGuard(int n) { baysor::set_thread_pool_size(n); }
+    ~PoolSizeGuard() { baysor::set_thread_pool_size(old); }
+    int old = baysor::thread_pool_size();
 };
+
+std::vector<int> range(int begin, int end) {
+    std::vector<int> v(end - begin);
+    std::iota(v.begin(), v.end(), begin);
+    return v;
+}
+
+// [begin, end) cut into chunks of `chunk` indices.
+std::vector<Chunk> fixed_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk) {
+    std::vector<Chunk> chunks;
+    for (std::int64_t b = begin; b < end; b += chunk) chunks.emplace_back(b, std::min(end, b + chunk));
+    return chunks;
+}
+
+// The sorted chunks that `loop` passes to its chunk body, whose worker index
+// must be in range.
+std::vector<Chunk> chunks_of(const std::function<void(const ChunkFn&)>& loop) {
+    std::mutex m;
+    std::vector<Chunk> chunks;
+    loop([&](std::int64_t b, std::int64_t e, int worker) {
+        EXPECT_GE(worker, 0);
+        EXPECT_LT(worker, baysor::thread_pool_size());
+        std::lock_guard<std::mutex> lk(m);
+        chunks.emplace_back(b, e);
+    });
+    std::sort(chunks.begin(), chunks.end());
+    return chunks;
+}
+
+std::vector<Chunk> region_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
+                                 Scheduling sched) {
+    return chunks_of([&](const ChunkFn& fn) {
+        baysor::parallel_region([&](ParallelRegion& r) { r.for_chunks(begin, end, chunk, sched, fn); });
+    });
+}
+
+std::vector<Chunk> pool_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
+                               Scheduling sched) {
+    return chunks_of([&](const ChunkFn& fn) { baysor::run_parallel_chunks(begin, end, chunk, sched, fn); });
+}
+
+// Nested loops, reductions and regions must run inline (taking the pool for
+// them would deadlock), in index order, on the worker of the enclosing chunk.
+void expect_nested_calls_inline(int outer_worker) {
+    std::vector<int> order;
+    baysor::parallel_for(0, 10, 3, [&](int j, int w) {
+        EXPECT_EQ(w, outer_worker);
+        order.push_back(j);
+    });
+    EXPECT_EQ(order, range(0, 10));
+    EXPECT_EQ(baysor::parallel_reduce<std::int64_t>(0, 10, 4, 0,
+                  [](std::int64_t b, std::int64_t e, std::int64_t& acc) { acc += e - b; },
+                  std::plus<std::int64_t>()),
+              10);
+    baysor::parallel_region([&](ParallelRegion& inner) {
+        EXPECT_EQ(inner.n_workers(), 1);
+        inner.for_each(10, 15, 2, [&](int j) { order.push_back(j); });
+    });
+    EXPECT_EQ(order, range(0, 15));
+}
 
 } // namespace
 
-TEST(ThreadPool, ZeroThreadsRunsInlineLikeOneThread) {
-    PoolSizeGuard guard(0);
-    EXPECT_EQ(baysor::thread_pool_size(), 1);
-
-    std::vector<int> order;
-    baysor::parallel_for(0, 100, 16, [&](int i) {
-        order.push_back(i);
-        EXPECT_EQ(baysor::current_worker_index(), 0);
-    });
-    ASSERT_EQ(order.size(), 100u);
-    // Inline execution must run strictly in index order.
-    for (int i = 0; i < 100; ++i) EXPECT_EQ(order[i], i);
-}
-
-TEST(ThreadPool, OneThreadRunsInlineInIndexOrder) {
-    PoolSizeGuard guard(1);
-
-    std::vector<int> order;
-    baysor::parallel_for(0, 257, 32, [&](int i) {
-        order.push_back(i);
-    });
-    ASSERT_EQ(order.size(), 257u);
-    for (int i = 0; i < 257; ++i) EXPECT_EQ(order[i], i);
-
-    // Static scheduling is also inline and ordered with 1 thread.
-    order.clear();
-    baysor::parallel_for_static(0, 50, [&](int i) {
-        order.push_back(i);
-    });
-    ASSERT_EQ(order.size(), 50u);
-    for (int i = 0; i < 50; ++i) EXPECT_EQ(order[i], i);
-}
-
-TEST(ThreadPool, DynamicChunksCoverEachIndexExactlyOnce) {
-    for (int n_threads : {2, 3, 8}) {
+TEST(ThreadPool, SerialPoolRunsInlineInIndexOrder) {
+    for (int n_threads : {0, 1}) {
         PoolSizeGuard guard(n_threads);
-        constexpr int n = 10'003;  // deliberately not a multiple of the chunk size
-        std::vector<std::atomic<int>> hits(n);
-        for (auto& h : hits) h.store(0);
-
-        baysor::parallel_for(0, n, 64, [&](int i) {
-            hits[i].fetch_add(1);
+        EXPECT_EQ(baysor::thread_pool_size(), 1);
+        std::vector<int> order;
+        baysor::parallel_for(0, 100, 16, [&](int i, int w) {
+            EXPECT_EQ(w, 0);
+            order.push_back(i);
         });
-
-        for (int i = 0; i < n; ++i) {
-            EXPECT_EQ(hits[i].load(), 1) << "thread count " << n_threads << ", index " << i;
-        }
+        baysor::parallel_for_static(100, 150, [&](int i) { order.push_back(i); });
+        EXPECT_EQ(order, range(0, 150));
     }
 }
 
-TEST(ThreadPool, DynamicChunkBoundariesAreFixed) {
-    PoolSizeGuard guard(8);
-    constexpr int n = 1000;
-    constexpr int chunk = 128;
-
-    // Record (begin, end) of every chunk invocation; the ranges must partition
-    // [0, n) into fixed-size chunks regardless of scheduling.
-    std::mutex m;
-    std::vector<std::pair<std::int64_t, std::int64_t>> ranges;
-    baysor::run_parallel_chunks(0, n, chunk, baysor::Scheduling::Dynamic,
-        [&](std::int64_t b, std::int64_t e, int) {
-            std::lock_guard<std::mutex> lk(m);
-            ranges.emplace_back(b, e);
-        });
-
-    std::sort(ranges.begin(), ranges.end());
-    std::int64_t expected_begin = 0;
-    for (auto [b, e] : ranges) {
-        EXPECT_EQ(b, expected_begin);
-        EXPECT_LE(e - b, chunk);
-        expected_begin = e;
-    }
-    EXPECT_EQ(expected_begin, n);
-}
-
-TEST(ThreadPool, StaticSchedulingCoversEachIndexExactlyOnce) {
-    for (int n_threads : {2, 5}) {
+TEST(ThreadPool, ChunksPartitionTheRangeIndependentlyOfThreadCount) {
+    for (int n_threads : {1, 2, 3, 8}) {
         PoolSizeGuard guard(n_threads);
-        constexpr int n = 1001;
-        std::vector<std::atomic<int>> hits(n);
-        for (auto& h : hits) h.store(0);
-
-        baysor::parallel_for_static(0, n, [&](int i) {
-            hits[i].fetch_add(1);
-        });
-        for (int i = 0; i < n; ++i) EXPECT_EQ(hits[i].load(), 1);
-
-        // Empty and single-element ranges are no-ops.
-        baysor::parallel_for_static(5, 5, [&](int) { ADD_FAILURE(); });
+        SCOPED_TRACE("threads " + std::to_string(n_threads));
+        // Dynamic: fixed chunks; the range is deliberately not chunk-aligned.
+        EXPECT_EQ(pool_chunks(3, 10'003, 64, Scheduling::Dynamic), fixed_chunks(3, 10'003, 64));
+        EXPECT_EQ(region_chunks(3, 10'003, 64, Scheduling::Dynamic), fixed_chunks(3, 10'003, 64));
+        // Static: one contiguous chunk per worker.
+        const auto per_worker = fixed_chunks(0, 1001, (1001 + n_threads - 1) / n_threads);
+        EXPECT_EQ(pool_chunks(0, 1001, 0, Scheduling::Static), per_worker);
+        EXPECT_EQ(region_chunks(0, 1001, 0, Scheduling::Static), per_worker);
+        // Empty ranges never call the body.
+        EXPECT_TRUE(pool_chunks(5, 5, 4, Scheduling::Dynamic).empty());
+        EXPECT_TRUE(pool_chunks(5, 5, 0, Scheduling::Static).empty());
     }
-}
-
-TEST(ThreadPool, WorkerIndicesAreInRangeAndStablePerBody) {
-    PoolSizeGuard guard(6);
-    constexpr int n = 4000;
-
-    std::mutex m;
-    std::set<int> seen_workers;
-    std::vector<std::int64_t> chunk_workers;
-    baysor::run_parallel_chunks(0, n, 16, baysor::Scheduling::Dynamic,
-        [&](std::int64_t b, std::int64_t e, int worker) {
-            EXPECT_GE(worker, 0);
-            EXPECT_LT(worker, baysor::thread_pool_size());
-            {
-                std::lock_guard<std::mutex> lk(m);
-                seen_workers.insert(worker);
-            }
-            // The whole chunk must report the same worker (per-worker buffers
-            // stay valid for the duration of the chunk).
-            for (std::int64_t i = b; i < e; ++i) {
-                EXPECT_EQ(baysor::current_worker_index(), worker);
-            }
-            (void)e;
-            (void)chunk_workers;
-        });
-    EXPECT_GE(seen_workers.size(), 1u);
 }
 
 TEST(ThreadPool, ParallelWorkersActuallyParticipate) {
@@ -156,14 +130,14 @@ TEST(ThreadPool, ParallelWorkersActuallyParticipate) {
     std::atomic<bool> first{true};
 
     // The first body to start waits (bounded) until a second body overlaps it,
-    // which proves that the region is executed by more than one thread.
+    // which proves that the loop is executed by more than one thread.
     baysor::parallel_for(0, 8, 1, [&](int) {
         int a = active.fetch_add(1) + 1;
         int prev = peak_active.load();
         while (a > prev && !peak_active.compare_exchange_weak(prev, a)) {}
         if (first.exchange(false)) {
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-            while (active.load() < 2 && std::chrono::steady_clock::now() < deadline) {
+            while (peak_active.load() < 2 && std::chrono::steady_clock::now() < deadline) {
                 std::this_thread::yield();
             }
         }
@@ -172,182 +146,98 @@ TEST(ThreadPool, ParallelWorkersActuallyParticipate) {
     EXPECT_GE(peak_active.load(), 2);
 }
 
-TEST(ThreadPool, NestedParallelCallsRunSerially) {
+TEST(ThreadPool, NestedCallsRunInlineOnTheEnclosingWorker) {
     PoolSizeGuard guard(4);
-
-    std::atomic<int> outer_bodies{0};
-
-    baysor::parallel_for(0, 32, 4, [&](int) {
-        outer_bodies.fetch_add(1);
-        EXPECT_TRUE(baysor::inside_parallel_region());
-        int outer_worker = baysor::current_worker_index();
-
-        // Nested parallel work must run serially (inline) on the current
-        // thread: the nested loop executes in index order, on the same worker,
-        // and sees the region flag.
-        std::vector<int> seq;
-        seq.reserve(10);
-        baysor::parallel_for(0, 10, 2, [&](int j) {
-            EXPECT_TRUE(baysor::inside_parallel_region());
-            EXPECT_EQ(baysor::current_worker_index(), outer_worker);
-            seq.push_back(j);
-        });
-        ASSERT_EQ(seq.size(), 10u);
-        for (int j = 0; j < 10; ++j) EXPECT_EQ(seq[j], j);
-        // Nested reductions too.
-        double s = baysor::parallel_reduce<double>(0, 10, 4, 0.0,
-            [](std::int64_t b, std::int64_t e, double& acc) {
-                for (std::int64_t i = b; i < e; ++i) acc += 1.0;
-            },
-            std::plus<double>());
-        EXPECT_DOUBLE_EQ(s, 10.0);
+    std::atomic<int> outer{0};
+    baysor::parallel_for(0, 32, 4, [&](int, int w) {
+        expect_nested_calls_inline(w);
+        ++outer;
     });
-
-    EXPECT_FALSE(baysor::inside_parallel_region());
-    EXPECT_EQ(outer_bodies.load(), 32);
+    baysor::parallel_region([&](ParallelRegion& r) {
+        r.for_each(0, 8, 1, [&](int, int w) {
+            expect_nested_calls_inline(w);
+            ++outer;
+        });
+    });
+    EXPECT_EQ(outer.load(), 40);
 }
 
 TEST(ThreadPool, ExceptionsPropagateToCaller) {
     for (int n_threads : {1, 3}) {
         PoolSizeGuard guard(n_threads);
+        EXPECT_THROW(baysor::parallel_for(0, 1000, 16, [](int i) {
+                         if (i == 500) throw std::runtime_error("dynamic");
+                     }),
+                     std::runtime_error);
+        EXPECT_THROW(baysor::parallel_for_static(0, 1000, [](int i) {
+                         if (i == 17) throw std::runtime_error("static");
+                     }),
+                     std::runtime_error);
+        EXPECT_THROW(baysor::parallel_reduce<double>(0, 1000, 16, 0.0,
+                         [](std::int64_t, std::int64_t, double&) { throw std::runtime_error("reduce"); },
+                         std::plus<double>()),
+                     std::runtime_error);
+        EXPECT_THROW(baysor::parallel_for(0, 8, 1, [](int) {
+                         baysor::parallel_for(0, 4, 1, [](int j) {
+                             if (j == 2) throw std::runtime_error("nested");
+                         });
+                     }),
+                     std::runtime_error);
 
-        // Dynamic scheduling.
-        EXPECT_THROW(
-            baysor::parallel_for(0, 1000, 16, [](int i) {
-                if (i == 500) throw std::runtime_error("boom");
-            }),
-            std::runtime_error);
-
-        // Static scheduling.
-        EXPECT_THROW(
-            baysor::parallel_for_static(0, 1000, [](int i) {
-                if (i == 17) throw std::runtime_error("boom-static");
-            }),
-            std::runtime_error);
-
-        // Reductions.
-        EXPECT_THROW(
-            baysor::parallel_reduce<double>(0, 1000, 16, 0.0,
-                [](std::int64_t, std::int64_t, double&) {
-                    throw std::runtime_error("boom-reduce");
-                },
-                std::plus<double>()),
-            std::runtime_error);
-
-        // The pool must remain usable afterwards.
+        // The pool stays usable.
         std::atomic<int> count{0};
         baysor::parallel_for(0, 100, 8, [&](int) { count.fetch_add(1); });
         EXPECT_EQ(count.load(), 100);
     }
 }
 
-TEST(ThreadPool, NestedExceptionsPropagateThroughOuterRegion) {
-    PoolSizeGuard guard(4);
-    EXPECT_THROW(
-        baysor::parallel_for(0, 64, 8, [](int i) {
-            if (i == 3) throw std::runtime_error("nested-boom");
-        }),
-        std::runtime_error);
-
-    std::atomic<int> count{0};
-    baysor::parallel_for(0, 100, 8, [&](int) { count.fetch_add(1); });
-    EXPECT_EQ(count.load(), 100);
-}
-
-TEST(ThreadPool, ParallelReduceMatchesSequential) {
-    constexpr std::int64_t n = 10'000;
-    auto body = [](std::int64_t b, std::int64_t e, double& acc) {
-        for (std::int64_t i = b; i < e; ++i) acc += static_cast<double>(i) * 0.5;
+TEST(ThreadPool, ParallelReduceFoldsFixedBucketsInIndexOrder) {
+    // Each bucket collects the chunks it accumulated; the fold concatenates.
+    using Chunks = std::vector<Chunk>;
+    const auto reduce = [] {
+        return baysor::parallel_reduce<Chunks>(0, 10'000, 16, Chunks{},
+            [](std::int64_t b, std::int64_t e, Chunks& acc) { acc.emplace_back(b, e); },
+            [](Chunks a, const Chunks& b) {
+                a.insert(a.end(), b.begin(), b.end());
+                return a;
+            });
     };
-
-    double expected = 0.0;
-    for (std::int64_t i = 0; i < n; ++i) expected += static_cast<double>(i) * 0.5;
-
-    for (int n_threads : {1, 2, 3, 8}) {
-        PoolSizeGuard guard(n_threads);
-        double got = baysor::parallel_reduce<double>(0, n, 128, 0.0, body, std::plus<double>());
-        EXPECT_DOUBLE_EQ(got, expected) << "threads " << n_threads;
-    }
-}
-
-TEST(ThreadPool, ParallelReduceIsThreadCountIndependent) {
-    // A deliberately order-sensitive combine (string concatenation): the fixed
-    // bucket scheme must produce the same reduction for any thread count > 1,
-    // and the plain sequential fold for 1 thread.
-    constexpr std::int64_t n = 100;
-    auto body = [](std::int64_t b, std::int64_t e, std::string& acc) {
-        for (std::int64_t i = b; i < e; ++i) {
-            acc += std::to_string(i);
-            acc += ',';
-        }
-    };
-    auto combine = [](const std::string& a, const std::string& b) { return a + b; };
-
-    std::string expected;
-    for (std::int64_t i = 0; i < n; ++i) {
-        expected += std::to_string(i);
-        expected += ',';
-    }
-
     {
         PoolSizeGuard guard(1);
-        EXPECT_EQ(baysor::parallel_reduce<std::string>(0, n, 8, std::string(), body, combine),
-                  expected);
+        EXPECT_EQ(reduce(), (Chunks{{0, 10'000}}));
     }
-    std::string reference;
-    for (int n_threads : {2, 4, 5, 16}) {
+    for (int n_threads : {2, 3, 8}) {
         PoolSizeGuard guard(n_threads);
-        std::string got =
-            baysor::parallel_reduce<std::string>(0, n, 8, std::string(), body, combine);
-        if (reference.empty()) {
-            reference = got;
-        }
-        EXPECT_EQ(got, reference) << "threads " << n_threads;
-    }
-    // The single-bucket sequential fold equals the multi-bucket fold here
-    // because the concatenation is associative; both must equal `expected`.
-    EXPECT_EQ(reference, expected);
-}
-
-TEST(ThreadPool, RepeatedRunsAreDeterministic) {
-    PoolSizeGuard guard(4);
-    constexpr int n = 5000;
-
-    auto run = [&]() {
-        std::vector<int> hits(n, 0);
-        baysor::parallel_for(0, n, 37, [&](int i) { hits[i] = i * 2 + 1; });
-        return hits;
-    };
-
-    auto a = run();
-    for (int r = 0; r < 5; ++r) {
-        EXPECT_EQ(run(), a);
+        // 625 buckets of 16 capped at 64 buckets of ceil(10000 / 64) = 157.
+        EXPECT_EQ(reduce(), fixed_chunks(0, 10'000, 157)) << "threads " << n_threads;
     }
 }
 
-TEST(ThreadPool, IdlePoolBurnsNoCpu) {
-    // The workers must block when there is no work: measure the wall-clock
-    // cost of waiting 200ms with an idle pool (a busy-spinning pool would
-    // still pass, but the per-region latency test below would not).
-    PoolSizeGuard guard(4);
-    auto t0 = std::chrono::steady_clock::now();
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto t1 = std::chrono::steady_clock::now();
-    // Nothing to assert about CPU here without OS counters; just ensure the
-    // pool stays responsive after idling.
-    std::atomic<int> count{0};
-    baysor::parallel_for(0, 1000, 10, [&](int) { count.fetch_add(1); });
-    EXPECT_EQ(count.load(), 1000);
-    EXPECT_GE(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count(), 200);
-}
-
-TEST(ThreadPool, ManySmallRegionsDoNotDeadlock) {
+TEST(ThreadPool, ManySmallLoopsDoNotDeadlock) {
     PoolSizeGuard guard(3);
     for (int r = 0; r < 500; ++r) {
         std::atomic<int> count{0};
         baysor::parallel_for(0, 3, 1, [&](int) { count.fetch_add(1); });
         EXPECT_EQ(count.load(), 3);
     }
+}
+
+TEST(ThreadPool, SubparHooksKeepSubparSplit) {
+    PoolSizeGuard guard(4);
+    std::mutex m;
+    std::vector<std::tuple<int, int, int>> ranges;
+    baysor::subpar_parallelize_range(3, 10, [&](int w, int start, int len) {
+        std::lock_guard<std::mutex> lk(m);
+        ranges.emplace_back(w, start, len);
+    });
+    std::sort(ranges.begin(), ranges.end());
+    EXPECT_EQ(ranges, (std::vector<std::tuple<int, int, int>>{{0, 0, 4}, {1, 4, 3}, {2, 7, 3}}));
+
+    EXPECT_EQ(chunks_of([](const ChunkFn& fn) {
+                  baysor::umappp_parallel_range(std::size_t(10),
+                      [&](std::size_t first, std::size_t last) { fn(first, last, 0); }, 3);
+              }),
+              (std::vector<Chunk>{{0, 4}, {4, 7}, {7, 10}}));
 }
 
 // ============================================================================
@@ -358,37 +248,28 @@ TEST(ThreadPoolRegion, OneThreadRunsBodyOnceInlineInIndexOrder) {
     PoolSizeGuard guard(1);
     int calls = 0;
     std::vector<int> order;
-    baysor::parallel_region([&](baysor::ParallelRegion& r) {
+    baysor::parallel_region([&](ParallelRegion& r) {
         ++calls;
         EXPECT_EQ(r.n_workers(), 1);
         EXPECT_EQ(r.worker_index(), 0);
         EXPECT_TRUE(r.is_master());
-        EXPECT_TRUE(baysor::inside_parallel_region());
         r.for_each(0, 50, 7, [&](int i) { order.push_back(i); });
-        r.for_chunks(50, 60, 0, baysor::Scheduling::Static,
-                     [&](std::int64_t b, std::int64_t e, int) {
-            EXPECT_EQ(b, 50);
-            EXPECT_EQ(e, 60);
+        r.for_chunks(50, 60, 0, Scheduling::Static, [&](std::int64_t b, std::int64_t e, int) {
             for (std::int64_t i = b; i < e; ++i) order.push_back(static_cast<int>(i));
         });
         r.barrier();
-        r.single([&]() { order.push_back(-1); });
+        r.single([&]() { order.push_back(60); });
     });
     EXPECT_EQ(calls, 1);
-    std::vector<int> expected(60);
-    std::iota(expected.begin(), expected.end(), 0);
-    expected.push_back(-1);
-    EXPECT_EQ(order, expected);
-    EXPECT_FALSE(baysor::inside_parallel_region());
+    EXPECT_EQ(order, range(0, 61));
 }
 
 TEST(ThreadPoolRegion, EveryWorkerRunsTheBodyOnce) {
     for (int n_threads : {2, 3, 8}) {
         PoolSizeGuard guard(n_threads);
         std::vector<std::atomic<int>> seen(n_threads);
-        for (auto& s : seen) s.store(0);
         std::atomic<int> masters{0};
-        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        baysor::parallel_region([&](ParallelRegion& r) {
             ASSERT_EQ(r.n_workers(), n_threads);
             ASSERT_GE(r.worker_index(), 0);
             ASSERT_LT(r.worker_index(), n_threads);
@@ -409,7 +290,7 @@ TEST(ThreadPoolRegion, SequencesOfLoopsCoverEachIndexOnceWithBarriersBetween) {
     std::atomic<int> violations{0};
     std::vector<long> per_worker(4, 0);
     long total = -1;
-    baysor::parallel_region([&](baysor::ParallelRegion& r) {
+    baysor::parallel_region([&](ParallelRegion& r) {
         for (int rep = 0; rep < 50; ++rep) {
             // Dynamic loop with an odd chunk, then a loop that reads what the
             // previous loop wrote at other indices (needs the implicit barrier).
@@ -422,9 +303,7 @@ TEST(ThreadPoolRegion, SequencesOfLoopsCoverEachIndexOnceWithBarriersBetween) {
             // Empty loops must not desynchronise the participants.
             r.for_each(5, 5, 4, [&](int) { violations.fetch_add(1); });
         }
-        // Static blocks: worker w gets block w.
-        r.for_chunks(0, n, 0, baysor::Scheduling::Static,
-                     [&](std::int64_t lo, std::int64_t hi, int w) {
+        r.for_chunks(0, n, 0, Scheduling::Static, [&](std::int64_t lo, std::int64_t hi, int w) {
             EXPECT_EQ(w, r.worker_index());
             for (std::int64_t i = lo; i < hi; ++i) per_worker[w] += b[i];
         });
@@ -437,55 +316,18 @@ TEST(ThreadPoolRegion, SequencesOfLoopsCoverEachIndexOnceWithBarriersBetween) {
     for (int i = 0; i < n; ++i) ASSERT_EQ(b[i], 50) << i;
 }
 
-TEST(ThreadPoolRegion, DynamicChunkBoundariesAreFixed) {
-    for (int n_threads : {1, 2, 5}) {
-        PoolSizeGuard guard(n_threads);
-        std::mutex m;
-        std::set<std::pair<std::int64_t, std::int64_t>> chunks;
-        baysor::parallel_region([&](baysor::ParallelRegion& r) {
-            r.for_chunks(3, 103, 10, baysor::Scheduling::Dynamic,
-                         [&](std::int64_t b, std::int64_t e, int) {
-                std::lock_guard<std::mutex> lk(m);
-                chunks.insert({b, e});
-            });
-        });
-        std::set<std::pair<std::int64_t, std::int64_t>> expected;
-        for (std::int64_t b = 3; b < 103; b += 10) expected.insert({b, std::min<std::int64_t>(103, b + 10)});
-        EXPECT_EQ(chunks, expected) << "threads " << n_threads;
-    }
-}
-
-TEST(ThreadPoolRegion, NestedParallelCallsRunSerially) {
-    PoolSizeGuard guard(4);
-    std::atomic<int> count{0};
-    baysor::parallel_region([&](baysor::ParallelRegion& r) {
-        r.for_each(0, 8, 1, [&](int) {
-            EXPECT_TRUE(baysor::inside_parallel_region());
-            baysor::parallel_for(0, 10, 3, [&](int) { count.fetch_add(1); });
-            // A nested region runs serially as well.
-            baysor::parallel_region([&](baysor::ParallelRegion& inner) {
-                EXPECT_EQ(inner.n_workers(), 1);
-                inner.for_each(0, 5, 2, [&](int) { count.fetch_add(1); });
-            });
-        });
-    });
-    EXPECT_EQ(count.load(), 8 * 15);
-}
-
 TEST(ThreadPoolRegion, ExceptionsCancelTheRegionAndPropagate) {
     for (int n_threads : {1, 4}) {
         PoolSizeGuard guard(n_threads);
         std::atomic<int> after{0};
         EXPECT_THROW(
-            baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            baysor::parallel_region([&](ParallelRegion& r) {
                 r.for_each(0, 100, 4, [&](int i) {
                     if (i == 37) throw std::runtime_error("boom");
                 });
-                if (!r.cancelled()) {
-                    // Not reached with >1 thread: cancelled() is consistent
-                    // across participants after the loop's barrier.
-                    after.fetch_add(1);
-                }
+                // cancelled() is consistent across participants after the
+                // loop's barrier.
+                if (!r.cancelled()) after.fetch_add(1);
                 r.single([&]() { after.fetch_add(100); });  // skipped once cancelled
             }),
             std::runtime_error);
@@ -493,16 +335,16 @@ TEST(ThreadPoolRegion, ExceptionsCancelTheRegionAndPropagate) {
 
         // A throwing single block is reported as well.
         EXPECT_THROW(
-            baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            baysor::parallel_region([&](ParallelRegion& r) {
                 r.single([&]() { throw std::logic_error("single"); });
                 r.for_each(0, 10, 1, [&](int) { after.fetch_add(1); });
             }),
             std::logic_error);
         EXPECT_EQ(after.load(), 0) << "threads " << n_threads;
 
-        // The pool stays usable afterwards.
+        // The pool stays usable.
         std::atomic<int> count{0};
-        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        baysor::parallel_region([&](ParallelRegion& r) {
             r.for_each(0, 64, 4, [&](int) { count.fetch_add(1); });
         });
         EXPECT_EQ(count.load(), 64);
@@ -514,7 +356,7 @@ TEST(ThreadPoolRegion, ManyRegionsWithLongSerialSectionsDoNotDeadlock) {
     long sum = 0;
     for (int rep = 0; rep < 200; ++rep) {
         std::vector<int> v(64, 0);
-        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        baysor::parallel_region([&](ParallelRegion& r) {
             r.for_each(0, 64, 1, [&](int i) { v[i] = i; });
             r.single([&]() {
                 // Longer than the spin budget every few reps: waiters block.
@@ -536,7 +378,7 @@ TEST(ThreadPoolRegion, OversubscribedRegionsSleepAtBarriersAndStayCorrect) {
     std::vector<long> per_worker(n_threads, 0);
     long expected = 0;
     for (int rep = 0; rep < 100; ++rep) {
-        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        baysor::parallel_region([&](ParallelRegion& r) {
             for (int phase = 0; phase < 10; ++phase) {
                 r.for_each(0, 97, 3, [&](int i, int w) { per_worker[w] += i; });
                 r.barrier();
