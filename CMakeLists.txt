@@ -27,10 +27,6 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(BaysorDependencies)
 
-# OpenMP is no longer used: all parallelism goes through Baysor's own
-# std::thread pool (include/baysor/utils/thread_pool.h). The pool also backs
-# the subpar-based FetchContent dependencies via their custom-parallel hooks.
-
 # Prefer optimized single-config builds unless the user explicitly chose
 # something else. This does not affect multi-config generators.
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -42,27 +38,6 @@ option(BAYSOR_WITH_CUDA "Enable CUDA/GPU support" OFF)
 option(BAYSOR_WITH_TESTS "Build tests" OFF)
 option(BAYSOR_WITH_REPORTING "Build reporting/visualization support" ON)
 option(BAYSOR_WITH_COVERAGE "Instrument Baysor targets for gcov coverage" OFF)
-
-if(BAYSOR_WITH_COVERAGE)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        message(FATAL_ERROR
-            "BAYSOR_WITH_COVERAGE requires GCC or Clang to produce gcov data, "
-            "but the compiler is ${CMAKE_CXX_COMPILER_ID}. "
-            "Reconfigure with a GCC/Clang toolchain or -DBAYSOR_WITH_COVERAGE=OFF.")
-    endif()
-endif()
-
-# Apply gcov instrumentation to one of the project's own targets. Only called
-# for baysor_lib, baysor_umap_wrappers, baysor and baysor_tests so that
-# third-party and FetchContent code stays uninstrumented. No-op when coverage
-# is off, so default builds are unaffected.
-function(baysor_apply_coverage target)
-    if(NOT BAYSOR_WITH_COVERAGE)
-        return()
-    endif()
-    target_compile_options(${target} PRIVATE --coverage -O0 -g)
-    target_link_options(${target} PRIVATE --coverage)
-endfunction()
 
 # Dependencies managed by vcpkg or find_package
 # Core (always required)
@@ -175,8 +150,7 @@ baysor_find_package(nlohmann_json
     TARGET nlohmann_json::nlohmann_json
     INSTALL_HINT "Ubuntu: sudo apt-get install nlohmann-json3-dev\nmacOS: brew install nlohmann-json\nvcpkg: vcpkg install nlohmann-json"
 )
-# zlib: PNG encoding of the HTML report images (already a dependency of
-# HDF5, TIFF and Arrow/Parquet).
+# zlib: PNG encoding of the report images.
 baysor_find_package(ZLIB
     TARGET ZLIB::ZLIB
     INSTALL_HINT "Ubuntu: sudo apt-get install zlib1g-dev\nmacOS: part of the SDK (or brew install zlib)\nvcpkg: vcpkg install zlib"
@@ -213,32 +187,26 @@ if(BAYSOR_WITH_CUDA)
     add_compile_definitions(BAYSOR_CUDA_ENABLED)
 endif()
 
-# Threads: Baysor's own std::thread pool (and the thread pools of the
-# FetchContent dependencies routed through it) need pthreads on POSIX.
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# Eigen dense products used to be parallelized by OpenMP. Without OpenMP we
-# enable Eigen's own GEMM thread pool when the Eigen in use supports it
-# (EIGEN_GEMM_THREADPOOL, Eigen >= 3.4.90/5.x); otherwise dense products fall
-# back to single-threaded GEMM. The macro must be defined consistently for
-# every translation unit that includes Eigen, so it is added globally here.
-set(_eigen_gemm_threadpool OFF)
+# Eigen >= 3.4.90 runs dense products on a thread pool that Baysor provides
+# (src/utils/thread_pool.cpp). The macro must be the same in every
+# translation unit that includes Eigen, hence global.
+set(_eigen_gemm_threadpool "")
 get_target_property(_eigen_includes Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
 foreach(_dir IN LISTS _eigen_includes)
-    if(EXISTS "${_dir}/Eigen/src/Core/products/Parallelizer.h")
-        file(STRINGS "${_dir}/Eigen/src/Core/products/Parallelizer.h"
-             _eigen_tp REGEX "EIGEN_GEMM_THREADPOOL")
-        if(_eigen_tp)
-            set(_eigen_gemm_threadpool ON)
-        endif()
+    set(_parallelizer "${_dir}/Eigen/src/Core/products/Parallelizer.h")
+    if(EXISTS "${_parallelizer}")
+        file(STRINGS "${_parallelizer}" _eigen_gemm_threadpool REGEX "EIGEN_GEMM_THREADPOOL")
+        break()
     endif()
 endforeach()
 if(_eigen_gemm_threadpool)
     add_compile_definitions(EIGEN_GEMM_THREADPOOL)
-    message(STATUS "Eigen GEMM: parallelized through Eigen's own thread pool (EIGEN_GEMM_THREADPOOL)")
+    message(STATUS "Eigen GEMM: multi-threaded (EIGEN_GEMM_THREADPOOL)")
 else()
-    message(STATUS "Eigen GEMM: this Eigen version has no thread-pool GEMM; dense products run single-threaded")
+    message(STATUS "Eigen GEMM: single-threaded (this Eigen has no EIGEN_GEMM_THREADPOOL)")
 endif()
 
 # --- Library target ---
@@ -302,7 +270,6 @@ target_link_libraries(baysor_umap_wrappers PUBLIC
     umappp
     knncolle::knncolle
 )
-baysor_apply_coverage(baysor_umap_wrappers)
 
 target_include_directories(baysor_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -326,7 +293,6 @@ target_link_libraries(baysor_lib PUBLIC
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(baysor_lib PRIVATE -Wno-stringop-overflow)
 endif()
-baysor_apply_coverage(baysor_lib)
 
 if(BAYSOR_WITH_CUDA)
     target_link_libraries(baysor_lib PUBLIC
@@ -344,10 +310,8 @@ target_link_libraries(baysor PRIVATE baysor_lib)
 target_compile_definitions(baysor PRIVATE BAYSOR_VERSION="${PROJECT_VERSION}")
 install(TARGETS baysor RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-# Release binaries (packaging/) ship the compiler runtime with the executable.
-# On MSVC this installs the VC++ runtime DLLs next to baysor.exe;
-# vcpkg's X_VCPKG_APPLOCAL_DEPS_INSTALL copies the dependency DLLs. Linux and
-# macOS release builds link their runtimes statically, so nothing to do there.
+# Release binaries (packaging/) ship the VC++ runtime DLLs next to baysor.exe;
+# Linux and macOS release builds link their runtimes statically.
 option(BAYSOR_INSTALL_RUNTIME "Install the compiler runtime libraries next to the executable" OFF)
 if(BAYSOR_INSTALL_RUNTIME AND MSVC)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -357,7 +321,6 @@ endif()
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(baysor PRIVATE -Wno-stringop-overflow)
 endif()
-baysor_apply_coverage(baysor)
 
 # --- Tests ---
 if(BAYSOR_WITH_TESTS)
@@ -367,23 +330,10 @@ if(BAYSOR_WITH_TESTS)
         INSTALL_HINT "Ubuntu: sudo apt-get install libgtest-dev\nmacOS: brew install googletest\nvcpkg: enable the 'tests' manifest feature or install gtest"
     )
 
-    # Every tests/test_*.cpp file is compiled into the single test binary, so
-    # new test files are picked up without editing CMake (CONFIGURE_DEPENDS
-    # re-globs on build).
-    file(GLOB BAYSOR_TEST_SOURCES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp"
-    )
-    if(NOT BAYSOR_TEST_SOURCES)
-        message(FATAL_ERROR "BAYSOR_WITH_TESTS is ON but no tests/test_*.cpp files were found.")
-    endif()
-
-    add_executable(baysor_tests
-        ${BAYSOR_TEST_SOURCES}
-    )
+    file(GLOB BAYSOR_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp")
+    add_executable(baysor_tests ${BAYSOR_TEST_SOURCES})
     target_link_libraries(baysor_tests PRIVATE baysor_lib GTest::gtest_main)
-    # End-to-end CLI tests spawn the instrumented `baysor` executable as a
-    # subprocess (its own .gcda counters cover src/cli/main.cpp, which is not
-    # linked into the test binary). Build it first and pass its path in.
+    # CLI tests run the `baysor` executable as a subprocess.
     add_dependencies(baysor_tests baysor)
     target_compile_definitions(baysor_tests PRIVATE
         BAYSOR_CLI_PATH="$<TARGET_FILE:baysor>"
@@ -392,45 +342,48 @@ if(BAYSOR_WITH_TESTS)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(baysor_tests PRIVATE -Wno-stringop-overflow)
     endif()
-    baysor_apply_coverage(baysor_tests)
     add_test(NAME baysor_tests COMMAND baysor_tests)
-    # The suite spawns the CLI as a subprocess; a hung `baysor` must not
-    # stall CI forever (review COV-6).
     set_tests_properties(baysor_tests PROPERTIES TIMEOUT 900)
 endif()
 
-# --- Coverage report ---
-# 'cmake --build <dir> --target coverage' deletes stale .gcda counters, reruns
-# the tests, and writes text/JSON/HTML reports under <build-dir>/coverage/.
+# --- Coverage ---
+# 'cmake --build <dir> --target coverage' reruns the tests from fresh counters
+# and writes text/JSON/HTML reports to <dir>/coverage/.
 if(BAYSOR_WITH_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "BAYSOR_WITH_COVERAGE requires GCC or Clang, not ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+    # Only Baysor's own targets; third-party code stays uninstrumented.
+    foreach(_target baysor_lib baysor_umap_wrappers baysor baysor_tests)
+        if(TARGET ${_target})
+            target_compile_options(${_target} PRIVATE --coverage -O0 -g)
+            target_link_options(${_target} PRIVATE --coverage)
+        endif()
+    endforeach()
+
     find_program(BAYSOR_GCOVR gcovr)
     if(BAYSOR_GCOVR)
-        # Use the gcov that matches the compiler. For conda GCC that is the
-        # triple-prefixed gcov sitting next to the compiler, e.g.
-        # x86_64-conda-linux-gnu-g++ -> x86_64-conda-linux-gnu-gcov.
-        get_filename_component(_baysor_cxx_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
-        get_filename_component(_baysor_cxx_name "${CMAKE_CXX_COMPILER}" NAME)
-        string(REGEX REPLACE "g\\+\\+$" "gcov" _baysor_gcov_name "${_baysor_cxx_name}")
-        if(NOT _baysor_gcov_name STREQUAL _baysor_cxx_name
-                AND EXISTS "${_baysor_cxx_dir}/${_baysor_gcov_name}")
-            set(BAYSOR_GCOV "${_baysor_cxx_dir}/${_baysor_gcov_name}")
-        else()
-            # Fall back to a gcov on PATH; if none is configured gcovr
-            # resolves plain 'gcov' itself.
-            find_program(BAYSOR_GCOV NAMES gcov)
-            if(NOT BAYSOR_GCOV)
-                set(BAYSOR_GCOV gcov)
-            endif()
+        # The gcov of the compiler, e.g. x86_64-conda-linux-gnu-g++ -> x86_64-conda-linux-gnu-gcov.
+        string(REGEX REPLACE "g\\+\\+$" "gcov" _gcov "${CMAKE_CXX_COMPILER}")
+        if(_gcov STREQUAL CMAKE_CXX_COMPILER OR NOT EXISTS "${_gcov}")
+            set(_gcov gcov)
         endif()
-
+        set(_out "${CMAKE_BINARY_DIR}/coverage")
+        # gcovr runs from the source dir, where its relative filters apply.
+        # --exclude-noncode-lines drops lines such as a lone '}' that GCC at -O0
+        # tags with exception-cleanup blocks; the GCOVR_EXCL markers in the
+        # sources also assume GCC at -O0.
         add_custom_target(coverage
-            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_coverage.sh"
-                    "${CMAKE_BINARY_DIR}"
-                    "${CMAKE_SOURCE_DIR}"
-                    "${CMAKE_CTEST_COMMAND}"
-                    "${BAYSOR_GCOVR}"
-                    "${BAYSOR_GCOV}"
-            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+            COMMAND find "${CMAKE_BINARY_DIR}" -name "*.gcda" -delete
+            COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${CMAKE_BINARY_DIR}" --output-on-failure
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_out}"
+            COMMAND "${BAYSOR_GCOVR}" --root "${CMAKE_SOURCE_DIR}" --gcov-executable "${_gcov}"
+                    --filter src/ --filter include/baysor/
+                    --exclude-noncode-lines --exclude-throw-branches --exclude-unreachable-branches
+                    --txt "${_out}/summary.txt" --json-summary "${_out}/coverage.json" --json-summary-pretty
+                    --html-details "${_out}/index.html" "${CMAKE_BINARY_DIR}"
+            COMMAND "${CMAKE_COMMAND}" -E cat "${_out}/summary.txt"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             COMMENT "Running tests and generating gcov coverage reports"
             VERBATIM
         )
