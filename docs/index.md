@@ -54,5 +54,7 @@ on. For Xenium data, start from [the Xenium workflow](xenium.md) instead.
   all options
 - [Outputs](outputs.md) — what Baysor writes
 - [Examples](examples.md) — runnable protocol-specific datasets
+- [Performance](performance/benchmarks.md) — run time, memory and accuracy
+  benchmarks, and profiling
 - [Development](development.md) — tests, coverage, benchmarks, releasing
 - [Citation](citation.md)

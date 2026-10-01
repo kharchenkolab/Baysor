@@ -56,6 +56,9 @@ nav:
       - Configuration: configuration.md
       - Outputs: outputs.md
       - Output files: output_files.md
+  - Performance:
+      - Benchmarks: performance/benchmarks.md
+      - Profiling: performance/profiling.md
   - Migrating from Baysor.jl (v0.7.x): migrating.md
   - Development: development.md
   - Citation: citation.md
