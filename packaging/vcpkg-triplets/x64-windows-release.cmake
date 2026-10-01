@@ -1,7 +1,7 @@
 # Release triplet for the Windows x64 binary.
 #
 # DLLs with the dynamic MSVC runtime (the same linkage as the x64-windows
-# triplet used by CI), release configuration only. The DLLs and the MSVC/OpenMP
+# triplet used by CI), release configuration only. The DLLs and the MSVC
 # runtime are copied next to baysor.exe at install time. MSVC targets SSE2 by
 # default (no /arch flag).
 #

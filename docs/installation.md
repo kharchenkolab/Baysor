@@ -180,7 +180,7 @@ Homebrew, and vcpkg can provide compatible versions.
 | C++ compiler | C++17 compiler; GCC 9.4.0 and Visual Studio 2022 are known to work |
 | Ninja | Recent Ninja; 1.10.0 is known to work |
 | Eigen3 | `>= 3.3` (>= 3.4.90 enables Eigen's own threaded GEMM; older versions run dense products single-threaded) |
-| Threads | A C++17 `std::thread` implementation (pthreads on Linux/macOS; Baysor runs its own thread pool and needs no OpenMP runtime) |
+| Threads | A C++17 `std::thread` implementation (pthreads on Linux/macOS; Baysor runs its own thread pool) |
 | spdlog | Not pinned; 1.5.0 is known to work |
 | CGAL | Not pinned; 5.0.2 is known to work |
 | Arrow / Parquet | Not pinned; 19.0.1 is known to work; Arrow must include compute, CSV, and Parquet support |

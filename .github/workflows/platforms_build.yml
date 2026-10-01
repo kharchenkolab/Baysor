@@ -60,7 +60,7 @@ jobs:
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
-        run: brew install ninja eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff libomp
+        run: brew install ninja eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
 
       - name: Checkout vcpkg
         if: runner.os == 'Windows'

@@ -18,8 +18,7 @@ install baysor, and pack
 
 Linux builds must run in the packaging/linux/Dockerfile image (use
 packaging/linux/build-in-docker.sh); the binary is then checked with
-packaging/linux/check_binary.py. macOS builds first build a static libomp
-from the LLVM sources (Apple clang has no OpenMP runtime).
+packaging/linux/check_binary.py.
 
 vcpkg, its downloads and its binary cache live in --cache-dir (default
 .release-cache/); a warm cache turns a rebuild into a Baysor-only compile.
@@ -33,7 +32,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -48,15 +46,8 @@ PLATFORMS = {
 # Must match CMAKE_OSX_DEPLOYMENT_TARGET in the release-macos-arm64 preset and
 # VCPKG_OSX_DEPLOYMENT_TARGET in packaging/vcpkg-triplets/arm64-osx-release.cmake.
 MACOS_DEPLOYMENT_TARGET = "12.0"
-LIBOMP_VERSION = "19.1.7"
-LIBOMP_SOURCES = {
-    # file name -> sha256
-    f"openmp-{LIBOMP_VERSION}.src.tar.xz": "bd7e6901ab086fd268750363017935fd4a717c153dad3c2aab86cb0140d9e3fe",
-    f"cmake-{LIBOMP_VERSION}.src.tar.xz": "11c5a28f90053b0c43d0dec3d0ad579347fc277199c005206b963c19aae514e3",
-}
 # Installed by InstallRequiredSystemLibraries (BAYSOR_INSTALL_RUNTIME=ON).
-WINDOWS_RUNTIME_DLLS = ["msvcp140.dll", "vcomp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]
-LIBOMP_URL ="https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{name}"
+WINDOWS_RUNTIME_DLLS = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]
 
 
 def log(msg):
@@ -119,84 +110,6 @@ def ensure_vcpkg(cache_dir):
 
 
 # ---------------------------------------------------------------------------
-# Platform-specific OpenMP runtime
-# ---------------------------------------------------------------------------
-
-def linux_openmp_args():
-    """Link GCC's libgomp statically (the image's gcc-toolset ships libgomp.a)."""
-    cc = os.environ.get("CC", "gcc")
-    libgomp = subprocess.run([cc, "-print-file-name=libgomp.a"], capture_output=True,
-                             text=True, check=True).stdout.strip()
-    if not os.path.isabs(libgomp) or not os.path.exists(libgomp):
-        sys.exit(f"error: {cc} has no static libgomp.a (got '{libgomp}'); "
-                 "build inside packaging/linux/Dockerfile")
-    return [f"-DOpenMP_gomp_LIBRARY={libgomp}"]
-
-
-def build_static_libomp(cache_dir, jobs):
-    """Build a static LLVM libomp for the macOS deployment target."""
-    prefix = cache_dir / f"libomp-{LIBOMP_VERSION}-macos{MACOS_DEPLOYMENT_TARGET}-arm64"
-    if (prefix / "lib" / "libomp.a").exists():
-        log(f"Reusing static libomp in {prefix}")
-        return prefix
-
-    log(f"Building static libomp {LIBOMP_VERSION}")
-    src = cache_dir / f"llvm-openmp-{LIBOMP_VERSION}-src"
-    # Not the vcpkg downloads dir: --clean-after-build empties that one.
-    downloads = cache_dir / "libomp-downloads"
-    downloads.mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(src, ignore_errors=True)
-    src.mkdir(parents=True)
-    for name, digest in LIBOMP_SOURCES.items():
-        archive = downloads / name
-        if not archive.exists() or sha256(archive) != digest:
-            url = LIBOMP_URL.format(version=LIBOMP_VERSION, name=name)
-            log(f"Downloading {url}")
-            with urllib.request.urlopen(url) as r, open(archive, "wb") as f:
-                shutil.copyfileobj(r, f)
-        if sha256(archive) != digest:
-            sys.exit(f"error: sha256 mismatch for {archive}")
-        with tarfile.open(archive) as tar:
-            tar.extractall(src, **({"filter": "tar"} if hasattr(tarfile, "tar_filter") else {}))
-        # openmp/ expects the LLVM cmake/ modules next to it.
-        (src / name.replace(f"-{LIBOMP_VERSION}.src.tar.xz", f"-{LIBOMP_VERSION}.src")).rename(
-            src / name.split("-")[0])
-
-    build = src / "build"
-    args = [
-        "cmake", "-S", src / "openmp", "-B", build, "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Release",
-        f"-DCMAKE_INSTALL_PREFIX={prefix}",
-        "-DLIBOMP_ENABLE_SHARED=OFF",
-        "-DLIBOMP_INSTALL_ALIASES=OFF",
-        "-DLIBOMP_OMPT_SUPPORT=OFF",
-        "-DLIBOMP_USE_HWLOC=OFF",
-        "-DOPENMP_ENABLE_LIBOMPTARGET=OFF",
-        "-DOPENMP_ENABLE_OMPT_TOOLS=OFF",
-        "-DOPENMP_ENABLE_TESTING=OFF",
-    ]
-    if sys.platform == "darwin":
-        args += ["-DCMAKE_OSX_ARCHITECTURES=arm64",
-                 f"-DCMAKE_OSX_DEPLOYMENT_TARGET={MACOS_DEPLOYMENT_TARGET}"]
-    run(args)
-    run(["cmake", "--build", build, "--parallel", str(jobs)])
-    run(["cmake", "--install", build])
-    shutil.rmtree(src, ignore_errors=True)
-    return prefix
-
-
-def macos_openmp_args(cache_dir, jobs):
-    prefix = build_static_libomp(cache_dir, jobs)
-    return [
-        f"-DOpenMP_ROOT={prefix}",
-        f"-DOpenMP_CXX_FLAGS=-Xclang -fopenmp -I{prefix / 'include'}",
-        f"-DOpenMP_CXX_INCLUDE_DIR={prefix / 'include'}",
-        "-DOpenMP_CXX_LIB_NAMES=omp",
-        f"-DOpenMP_omp_LIBRARY={prefix / 'lib' / 'libomp.a'}",
-    ]
-
-
-# ---------------------------------------------------------------------------
 # Packaging
 # ---------------------------------------------------------------------------
 
@@ -254,16 +167,10 @@ def main():
         "CMAKE_BUILD_PARALLEL_LEVEL": str(args.jobs),
     })
 
-    extra = []
-    if args.platform == "linux-x86_64":
-        extra += linux_openmp_args()
-    elif args.platform == "macos-arm64":
-        extra += macos_openmp_args(cache_dir, args.jobs)
-
     preset = spec["preset"]
     build_dir = SRC_DIR / "build" / preset
     log(f"Configuring ({preset})")
-    run(["cmake", "--preset", preset, *extra], cwd=SRC_DIR)
+    run(["cmake", "--preset", preset], cwd=SRC_DIR)
     log("Building")
     run(["cmake", "--build", build_dir, "--config", "Release", "--target", "baysor",
          "--parallel", str(args.jobs)])
@@ -293,7 +200,7 @@ def main():
         print("    bundled DLLs: " + ", ".join(dlls))
         missing = [d for d in WINDOWS_RUNTIME_DLLS if d not in dlls]
         if missing:
-            sys.exit("error: MSVC/OpenMP runtime DLLs missing from bin/: " + ", ".join(missing))
+            sys.exit("error: MSVC runtime DLLs missing from bin/: " + ", ".join(missing))
 
     archive = make_archive(stage_root, name, spec["archive"], out_dir)
     log(f"Wrote {archive}")
