@@ -15,10 +15,11 @@ void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
         thresh_set.insert(std::max(static_cast<int>(std::round(mult * min_molecules_per_cell)), 1));
     }
 
+    const int nc = data.n_components();
     std::unordered_map<int, int> entry;
     for (int t : thresh_set) {
         int cnt = 0;
-        for (int c = 0; c < data.n_components(); ++c) {
+        for (int c = 0; c < nc; ++c) {
             if (ids_by_comp.size(c) >= t) cnt++;
         }
         entry[t] = cnt;
