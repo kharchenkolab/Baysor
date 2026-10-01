@@ -2,6 +2,10 @@
 
 #include "baysor/processing/models/bmm_data.h"
 
+#include <type_traits>
+#include <unordered_map>
+#include <vector>
+
 namespace baysor {
 
 /// Record number of components above various molecule-count thresholds
@@ -22,5 +26,18 @@ void trace_assignment_history(BmmData<N>& data, int assignment_history_depth);
 std::unordered_map<int, int> estimate_component_lifespan(
     const std::vector<std::vector<int>>& assignment_history
 );
+
+/// Same for the delta-encoded history of BmmData (no full rows are built).
+std::unordered_map<int, int> estimate_component_lifespan_history(
+    const AssignmentHistory& assignment_history
+);
+
+/// Overload for AssignmentHistory. A template so that a braced `{}` argument
+/// still selects the vector-of-rows overload unambiguously.
+template <class History,
+          std::enable_if_t<std::is_same_v<History, AssignmentHistory>, int> = 0>
+std::unordered_map<int, int> estimate_component_lifespan(const History& assignment_history) {
+    return estimate_component_lifespan_history(assignment_history);
+}
 
 } // namespace baysor

@@ -50,27 +50,19 @@ template<int N>
 void trace_assignment_history(BmmData<N>& data, int assignment_history_depth) {
     if (assignment_history_depth <= 0) return;
 
-    // Build global assignment: replace local 1-based IDs with component GUIDs
-    int n = data.n_molecules();
-    // Recycle the buffer of the entry that is about to be evicted instead of
-    // allocating a new n-int vector per iteration.
-    std::vector<int> global;
-    if (static_cast<int>(data.assignment_history.size()) >= assignment_history_depth) {
-        global = std::move(data.assignment_history.front());
-        data.assignment_history.erase(data.assignment_history.begin());
-    }
-    global.resize(n);
-    for (int i = 0; i < n; ++i) {
-        int a = data.assignment[i];
-        global[i] = (a > 0) ? data.components[a - 1].guid : 0;
+    // Trim to depth - 1 first, so the evicted delta buffer is recycled
+    auto& history = data.assignment_history;
+    while (!history.empty() && static_cast<int>(history.size()) >= assignment_history_depth) {
+        history.pop_front();
     }
 
-    data.assignment_history.push_back(std::move(global));
-
-    // Trim to depth
-    while (static_cast<int>(data.assignment_history.size()) > assignment_history_depth) {
-        data.assignment_history.erase(data.assignment_history.begin());
-    }
+    // Global assignment: local 1-based IDs replaced with component GUIDs
+    const auto& assignment = data.assignment;
+    const auto& components = data.components;
+    history.push_back_generated(data.n_molecules(), [&](int i) {
+        const int a = assignment[i];
+        return (a > 0) ? components[a - 1].guid : 0;
+    });
 }
 
 std::unordered_map<int, int> estimate_component_lifespan(
@@ -99,6 +91,52 @@ std::unordered_map<int, int> estimate_component_lifespan(
             if (present.count(guid)) { lifespans[guid]++; new_tracking.insert(guid); }
         }
         still_tracking = std::move(new_tracking);
+    }
+    return lifespans;
+}
+
+std::unordered_map<int, int> estimate_component_lifespan_history(
+    const AssignmentHistory& history
+) {
+    std::unordered_map<int, int> lifespans;
+    const int total = static_cast<int>(history.size());
+    if (total == 0) return lifespans;
+
+    // Walk the entries backward from the newest one, keeping the current row
+    // and the number of molecules per guid up to date with the deltas.
+    std::vector<int> cur = history.newest();
+    int max_guid = 0;
+    for (int g : cur) max_guid = std::max(max_guid, g);
+    for (int t = 0; t + 1 < total; ++t) {
+        for (const auto& c : history.changes_after(t)) max_guid = std::max(max_guid, c.value);
+    }
+    std::vector<int> count(static_cast<size_t>(max_guid) + 1, 0);
+    std::vector<int> tracking;
+    for (int guid : cur) {
+        if (guid < 0) continue;
+        if (count[guid]++ == 0 && guid > 0) {
+            // Same keys and insertion order as the row-based version
+            lifespans[guid] = 1;
+            tracking.push_back(guid);
+        }
+    }
+
+    // Extend the lifespan only while the consecutive streak is unbroken
+    for (int it = total - 2; it >= 0 && !tracking.empty(); --it) {
+        for (const auto& c : history.changes_after(it)) {
+            const int old_g = cur[c.mol];
+            if (old_g >= 0) --count[old_g];
+            if (c.value >= 0) ++count[c.value];
+            cur[c.mol] = c.value;
+        }
+        size_t kept = 0;
+        for (int guid : tracking) {
+            if (count[guid] > 0) {
+                lifespans[guid]++;
+                tracking[kept++] = guid;
+            }
+        }
+        tracking.resize(kept);
     }
     return lifespans;
 }

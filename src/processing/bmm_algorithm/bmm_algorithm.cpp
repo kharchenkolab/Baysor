@@ -724,31 +724,67 @@ estimate_assignment_by_history(const BmmData<N>& data) {
     for (auto& [g, _] : guid_map) current_guids.insert(g);
     current_guids.insert(0);
 
-    int n_hist = static_cast<int>(data.assignment_history.size());
+    const AssignmentHistory& history = data.assignment_history;
+    const int n_hist = static_cast<int>(history.size());
 
     std::vector<int> reassignment(n, 0);
     std::vector<double> match_frac(n, 0.0);
 
-    for (int i = 0; i < n; ++i) {
-        // Count frequency of each GUID across history (restricted to current_guids)
-        std::unordered_map<int,int> freq;
-        int valid = 0;
-        for (int t = 0; t < n_hist; ++t) {
-            int g = data.assignment_history[t][i];
-            if (current_guids.count(g)) {
-                freq[g]++;
-                valid++;
+    // Parallel over fixed blocks of molecules. Each block reconstructs its
+    // molecules' rows from the newest entry and the backward deltas (sorted
+    // by molecule, so one cursor per delta advances monotonically). The vote
+    // per molecule is unchanged: a fresh hash map fed in history order (here
+    // on a per-block arena; libstdc++'s iteration order does not depend on
+    // the allocator), so ties resolve as before.
+    constexpr std::int64_t kBlock = 4096;
+    parallel_for(0, (static_cast<std::int64_t>(n) + kBlock - 1) / kBlock, 1, [&](std::int64_t blk) {
+        const int b = static_cast<int>(blk * kBlock);
+        const int e = static_cast<int>(std::min<std::int64_t>(n, b + kBlock));
+
+        std::vector<size_t> cursor(std::max(n_hist - 1, 0));
+        for (int t = 0; t + 1 < n_hist; ++t) {
+            const auto& d = history.changes_after(t);
+            cursor[t] = static_cast<size_t>(std::lower_bound(d.begin(), d.end(), b,
+                [](const AssignmentHistory::Change& c, int mol) { return c.mol < mol; }) - d.begin());
+        }
+        std::vector<int> row(n_hist);
+        std::vector<std::byte> arena(4096);
+
+        for (int i = b; i < e; ++i) {
+            row[n_hist - 1] = history.newest()[i];
+            for (int t = n_hist - 2; t >= 0; --t) {
+                const auto& d = history.changes_after(t);
+                size_t& c = cursor[t];
+                if (c < d.size() && d[c].mol == i) {
+                    row[t] = d[c].value;
+                    ++c;
+                } else {
+                    row[t] = row[t + 1];
+                }
             }
-        }
 
-        int best_guid = 0, best_cnt = 0;
-        for (auto& [g, c] : freq) {
-            if (c > best_cnt) { best_cnt = c; best_guid = g; }
-        }
+            // Count frequency of each GUID across history (restricted to current_guids)
+            std::pmr::monotonic_buffer_resource res(arena.data(), arena.size());
+            std::pmr::unordered_map<int, int> freq(&res);
+            int valid = 0;
+            for (int t = 0; t < n_hist; ++t) {
+                int g = row[t];
+                if (current_guids.count(g)) {
+                    freq[g]++;
+                    valid++;
+                }
+            }
 
-        reassignment[i] = (guid_map.count(best_guid)) ? guid_map[best_guid] : 0;
-        match_frac[i] = (valid > 0) ? static_cast<double>(best_cnt) / valid : 0.0;
-    }
+            int best_guid = 0, best_cnt = 0;
+            for (auto& [g, c] : freq) {
+                if (c > best_cnt) { best_cnt = c; best_guid = g; }
+            }
+
+            auto it = guid_map.find(best_guid);
+            reassignment[i] = (it != guid_map.end()) ? it->second : 0;
+            match_frac[i] = (valid > 0) ? static_cast<double>(best_cnt) / valid : 0.0;
+        }
+    });
 
     return {reassignment, match_frac};
 }

@@ -2,6 +2,7 @@
 
 #include "baysor/processing/models/component.h"
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/processing/models/assignment_history.h"
 #include "baysor/processing/models/bmm_workspace.h"
 #include <vector>
 #include <string>
@@ -53,7 +54,7 @@ struct BmmData {
     double real_edge_weight = 1.0;
 
     // --- Tracing ---
-    std::vector<std::vector<int>> assignment_history;
+    AssignmentHistory assignment_history;   // global GUIDs per molecule, delta-encoded
     std::vector<std::unordered_map<int, int>> n_components_trace;
 
     // --- Output: per-molecule assignment confidence (fraction of history agreeing with final) ---
