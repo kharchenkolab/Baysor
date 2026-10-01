@@ -158,3 +158,29 @@ TEST(UmapOptimize, FastPowLayoutStaysCloseToExactLayout) {
     }
     EXPECT_LT(max_diff, 1e-3);
 }
+
+TEST(UmapOptimize, SharedGraphGivesSameEmbeddings) {
+    // umap_embed(data, ...) builds its own graph; the colour code builds the
+    // graph once (umap_fuzzy_graph) and reuses it for the 3-D and 2-D maps.
+    std::mt19937 rng(9);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    Eigen::MatrixXd data(6, 250);
+    for (int j = 0; j < data.cols(); ++j)
+        for (int i = 0; i < data.rows(); ++i) data(i, j) = nd(rng) + (j % 3) * 4.0;
+
+    const baysor::UmapGraph graph = baysor::umap_fuzzy_graph(data, 15);
+    ASSERT_EQ(graph.size(), 250u);
+    for (int ndim : {3, 2}) {
+        const Eigen::MatrixXd direct = baysor::umap_embed(data, ndim, 15, 40, 42, 2.0);
+        const Eigen::MatrixXd shared = baysor::umap_embed_graph(graph, ndim, 40, 42, 2.0);
+        ASSERT_EQ(direct.rows(), ndim);
+        ASSERT_EQ(direct.cols(), 250);
+        ASSERT_EQ(shared.rows(), ndim);
+        ASSERT_EQ(shared.cols(), 250);
+        EXPECT_EQ(std::memcmp(direct.data(), shared.data(), direct.size() * sizeof(double)), 0) << "ndim " << ndim;
+    }
+
+    EXPECT_TRUE(baysor::umap_fuzzy_graph(Eigen::MatrixXd(6, 0), 15).empty());
+    EXPECT_EQ(baysor::umap_embed_graph({}, 3).cols(), 0);
+    EXPECT_EQ(baysor::umap_embed_graph({}, 3).rows(), 3);
+}

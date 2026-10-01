@@ -24,58 +24,25 @@ namespace baysor {
 
 namespace {
 
-// umappp::initialize(neighbors, ndim_out, embedding, opt) followed by
-// Status::run(), with the layout optimised by Baysor's serial optimiser
-// (umap_optimize.h) instead of umappp's. The set-up steps are umappp's own, in
-// umappp's order. The optimiser differs from umappp's serial one only in
-// computing pow(d2, b) with fast_pow (relative error < 1e-13), which is much
-// cheaper than glibc's pow and changes the NCV colours by mean dE ~3.
-// `embedding` holds the initial coordinates (InitializeMethod::NONE);
-// opt.initialize and opt.num_threads are not used.
-void umap_optimize(
-    knncolle::NeighborList<int, double> neighbors,
-    int ndim_out,
-    double* embedding,
-    umappp::Options opt
-) {
+// The fuzzy simplicial set of a kNN list, as umappp::initialize() builds it:
+// smoothed similarities, then the symmetrised union.
+void knn_to_fuzzy_graph(knncolle::NeighborList<int, double>& neighbors) {
+    const umappp::Options opt;
     umappp::internal::neighbor_similarities<int, double>(neighbors, opt.local_connectivity, opt.bandwidth);
     umappp::internal::combine_neighbor_sets<int, double>(neighbors, opt.mix_ratio);
-
-    if (opt.a <= 0 || opt.b <= 0) {
-        auto found = umappp::internal::find_ab(opt.spread, opt.min_dist);
-        opt.a = found.first;
-        opt.b = found.second;
-    }
-    opt.num_epochs = umappp::internal::choose_num_epochs(opt.num_epochs, neighbors.size());
-
-    auto epochs = umappp::internal::similarities_to_epochs<int, double>(
-        neighbors, opt.num_epochs, opt.negative_sample_rate);
-    std::mt19937_64 engine(opt.seed);
-    umap_detail::optimize_layout_dispatch</*FastPow_=*/true>(
-        static_cast<std::size_t>(ndim_out), embedding, epochs,
-        opt.a, opt.b, opt.repulsion_strength, opt.learning_rate,
-        engine, epochs.total_epochs);
 }
 
 } // namespace
 
 // ============================================================================
-// umap_embed — from raw data matrix
+// umap_fuzzy_graph / umap_embed_graph / umap_embed — from raw data matrix
 // ============================================================================
 
-Eigen::MatrixXd umap_embed(
-    const Eigen::MatrixXd& data,
-    int ndim_out,
-    int n_neighbors,
-    int n_epochs,
-    int seed,
-    double spread,
-    double min_dist
-) {
+UmapGraph umap_fuzzy_graph(const Eigen::MatrixXd& data, int n_neighbors) {
     int ndim_in = static_cast<int>(data.rows());
     int nobs    = static_cast<int>(data.cols());
 
-    if (nobs == 0 || ndim_in == 0) return Eigen::MatrixXd(ndim_out, 0);
+    if (nobs == 0 || ndim_in == 0) return {};
     n_neighbors = std::min(n_neighbors, nobs - 1);
 
     // Build KNN via knncolle (Vantage-point tree, Euclidean).
@@ -100,6 +67,31 @@ Eigen::MatrixXd umap_embed(
         }
     });
 
+    knn_to_fuzzy_graph(neighbors);
+    return neighbors;
+}
+
+// umappp::initialize(graph, ...) with InitializeMethod::NONE on a uniform
+// random start, followed by Status::run(), with the layout optimised by
+// Baysor's serial optimiser (umap_optimize.h) instead of umappp's. The set-up
+// steps are umappp's own, in umappp's order. The optimiser differs from
+// umappp's serial one only in computing pow(d2, b) with fast_pow (relative
+// error < 1e-13), which is much cheaper than glibc's pow and changes the NCV
+// colours by mean dE ~3. umappp's parallel optimiser is not used: it is
+// deterministic and matches the serial one at any thread count, but it spawns
+// its own busy-wait worker threads, which measured 1.8x slower at 4 threads
+// and 4.3x slower at 8 on a busy host.
+Eigen::MatrixXd umap_embed_graph(
+    const UmapGraph& graph,
+    int ndim_out,
+    int n_epochs,
+    int seed,
+    double spread,
+    double min_dist
+) {
+    const int nobs = static_cast<int>(graph.size());
+    if (nobs == 0) return Eigen::MatrixXd(ndim_out, 0);
+
     // Random initialization of the embedding (RANDOM init to avoid irlba).
     std::vector<double> emb_buf(ndim_out * nobs);
     {
@@ -113,15 +105,31 @@ Eigen::MatrixXd umap_embed(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.spread     = spread;
     opt.min_dist   = min_dist;
-    // The layout optimizer is serial (umap_optimize): umappp's parallel
-    // optimizer is deterministic and matches the serial one at any thread
-    // count, but it spawns its own busy-wait worker threads, which measured
-    // 1.8x slower at 4 threads and 4.3x slower at 8 on a busy host.
 
-    umap_optimize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
+    const auto ab = umappp::internal::find_ab(opt.spread, opt.min_dist);
+    const int num_epochs = umappp::internal::choose_num_epochs(opt.num_epochs, graph.size());
+    auto epochs = umappp::internal::similarities_to_epochs<int, double>(
+        graph, num_epochs, opt.negative_sample_rate);
+    std::mt19937_64 engine(opt.seed);
+    umap_detail::optimize_layout_dispatch</*FastPow_=*/true>(
+        static_cast<std::size_t>(ndim_out), emb_buf.data(), epochs,
+        ab.first, ab.second, opt.repulsion_strength, opt.learning_rate,
+        engine, epochs.total_epochs);
 
     // Copy result into Eigen matrix (ndim_out x nobs, column-major).
     return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, nobs);
+}
+
+Eigen::MatrixXd umap_embed(
+    const Eigen::MatrixXd& data,
+    int ndim_out,
+    int n_neighbors,
+    int n_epochs,
+    int seed,
+    double spread,
+    double min_dist
+) {
+    return umap_embed_graph(umap_fuzzy_graph(data, n_neighbors), ndim_out, n_epochs, seed, spread, min_dist);
 }
 
 // ============================================================================
@@ -163,23 +171,8 @@ Eigen::MatrixXd umap_embed_precomputed(
             [](const auto& a, const auto& b) { return a.second < b.second; });
     }
 
-    // Random initialization.
-    std::vector<double> emb_buf(ndim_out * n);
-    {
-        std::mt19937 rng(seed);
-        std::uniform_real_distribution<double> ud(-10.0, 10.0);
-        for (auto& v : emb_buf) v = ud(rng);
-    }
-
-    umappp::Options opt;
-    opt.num_epochs = n_epochs;
-    opt.seed       = static_cast<uint64_t>(seed);
-    opt.min_dist   = 0.1;
-    opt.spread     = 1.0;
-
-    umap_optimize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
-
-    return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, n);
+    knn_to_fuzzy_graph(neighbors);
+    return umap_embed_graph(neighbors, ndim_out, n_epochs, seed, /*spread=*/1.0, /*min_dist=*/0.1);
 }
 
 } // namespace baysor

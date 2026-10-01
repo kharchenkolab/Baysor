@@ -260,11 +260,12 @@ static void fill_colors_from_projected_vectors(
 
     Eigen::MatrixXf sample_vecs(basis_vecs.rows(), n_sample);
     for (int i = 0; i < n_sample; ++i) sample_vecs.col(i) = basis_vecs.col(selection.sample_ids[i]);
-    Eigen::MatrixXd sample_vecs_d = sample_vecs.cast<double>();
-    Eigen::MatrixXd sample_emb = umap_embed(sample_vecs_d, 3, graph_k, 200, seed, 2.0);
+    // The 3-D colour UMAP and the 2-D report UMAP share one kNN graph.
+    const UmapGraph umap_graph = umap_fuzzy_graph(sample_vecs.cast<double>(), graph_k);
+    Eigen::MatrixXd sample_emb = umap_embed_graph(umap_graph, 3, 200, seed, 2.0);
 
     if (include_report_umap) {
-        Eigen::MatrixXd sample_umap2d = umap_embed(sample_vecs_d, 2, graph_k, 200, seed, 2.0);
+        Eigen::MatrixXd sample_umap2d = umap_embed_graph(umap_graph, 2, 200, seed, 2.0);
         result.sample_ids.resize(n_sample);
         result.sample_umap_x.resize(n_sample);
         result.sample_umap_y.resize(n_sample);
@@ -414,13 +415,12 @@ NcvReportEmbedding compute_ncv_embedding(
 
     // UMAP fit: use spread=2.0 to match Julia's UmapFit defaults, which produce
     // better colour separation than the umappp default of spread=1.0.
-    Eigen::MatrixXd sample_mat_d = sample_mat.cast<double>();
-    Eigen::MatrixXd sample_emb = umap_embed(sample_mat_d, 3,
-        /*n_neighbors=*/graph_k, /*n_epochs=*/200, seed, /*spread=*/2.0);
+    // The 3-D colour UMAP and the 2-D report UMAP share one kNN graph.
+    const UmapGraph umap_graph = umap_fuzzy_graph(sample_mat.cast<double>(), /*n_neighbors=*/graph_k);
+    Eigen::MatrixXd sample_emb = umap_embed_graph(umap_graph, 3, /*n_epochs=*/200, seed, /*spread=*/2.0);
 
     if (include_report_umap) {
-        Eigen::MatrixXd sample_umap2d = umap_embed(sample_mat_d, 2,
-            /*n_neighbors=*/graph_k, /*n_epochs=*/200, seed, /*spread=*/2.0);
+        Eigen::MatrixXd sample_umap2d = umap_embed_graph(umap_graph, 2, /*n_epochs=*/200, seed, /*spread=*/2.0);
         result.sample_umap_x.resize(sample_size);
         result.sample_umap_y.resize(sample_size);
         for (int i = 0; i < sample_size; ++i) {
