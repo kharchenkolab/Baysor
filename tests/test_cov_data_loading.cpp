@@ -1,8 +1,5 @@
-// Coverage tests for src/data_loading/{data,prior_segmentation}.cpp and
-// include/baysor/data_loading/*.h (task COV-1).
-//
-// File-local helpers live in an anonymous namespace; every suite name is
-// prefixed with Cov1 so it cannot clash with other coverage test files.
+// Tests for src/data_loading/{data,prior_segmentation}.cpp: column readers,
+// CSV/Parquet loaders and the prior-segmentation loaders.
 
 #include <gtest/gtest.h>
 
@@ -17,197 +14,70 @@
 #include "baysor/utils/options.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <cstdio>
-#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "test_cov_helpers.h"
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// Temporary files
-// ---------------------------------------------------------------------------
-
-// Portable RAII temp directory (see tests/test_cov_helpers.h): unique via a
-// counter plus a random suffix, no getpid()/POSIX.
-using TempDir = baysor_test::TempDir;
-
-std::string write_csv(const TempDir& dir, const std::string& name,
-                      const std::string& content) {
-    const std::string p = dir.file(name);
-    std::ofstream f(p);
-    f << content;
-    return p;
-}
+using baysor_test::TempDir;
 
 // ---------------------------------------------------------------------------
 // Arrow array builders
 // ---------------------------------------------------------------------------
 
-template <typename Builder>
+template <class T> struct is_optional : std::false_type {};
+template <class T> struct is_optional<std::optional<T>> : std::true_type {};
+
+template <class Builder>
 std::shared_ptr<arrow::Array> finish(Builder& b) {
     std::shared_ptr<arrow::Array> out;
     EXPECT_TRUE(b.Finish(&out).ok());
     return out;
 }
 
-std::shared_ptr<arrow::Array> arr_f64(const std::vector<double>& v) {
-    arrow::DoubleBuilder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_f64_nulls(const std::vector<std::optional<double>>& v) {
-    arrow::DoubleBuilder b;
-    for (const auto& x : v) {
-        if (x.has_value()) b.Append(*x);
-        else b.AppendNull();
+// Array of `values`; std::nullopt entries become nulls.
+template <class Builder, class T>
+std::shared_ptr<arrow::Array> build(const std::vector<T>& values) {
+    Builder b;
+    for (const auto& v : values) {
+        if constexpr (is_optional<T>::value) EXPECT_TRUE((v ? b.Append(*v) : b.AppendNull()).ok());
+        else EXPECT_TRUE(b.Append(v).ok());
     }
     return finish(b);
 }
 
-std::shared_ptr<arrow::Array> arr_f32(const std::vector<float>& v) {
-    arrow::FloatBuilder b;
-    b.AppendValues(v);
-    return finish(b);
-}
+auto arr_f64(const std::vector<double>& v) { return build<arrow::DoubleBuilder>(v); }
+auto arr_f64_nulls(const std::vector<std::optional<double>>& v) { return build<arrow::DoubleBuilder>(v); }
+auto arr_f32(const std::vector<float>& v) { return build<arrow::FloatBuilder>(v); }
+auto arr_i64(const std::vector<int64_t>& v) { return build<arrow::Int64Builder>(v); }
+auto arr_i64_nulls(const std::vector<std::optional<int64_t>>& v) { return build<arrow::Int64Builder>(v); }
+auto arr_i32(const std::vector<int32_t>& v) { return build<arrow::Int32Builder>(v); }
+auto arr_i16(const std::vector<int16_t>& v) { return build<arrow::Int16Builder>(v); }
+auto arr_i8(const std::vector<int8_t>& v) { return build<arrow::Int8Builder>(v); }
+auto arr_u64(const std::vector<uint64_t>& v) { return build<arrow::UInt64Builder>(v); }
+auto arr_u32(const std::vector<uint32_t>& v) { return build<arrow::UInt32Builder>(v); }
+auto arr_u16(const std::vector<uint16_t>& v) { return build<arrow::UInt16Builder>(v); }
+auto arr_u8(const std::vector<uint8_t>& v) { return build<arrow::UInt8Builder>(v); }
+auto arr_str(const std::vector<std::string>& v) { return build<arrow::StringBuilder>(v); }
+auto arr_lstr(const std::vector<std::string>& v) { return build<arrow::LargeStringBuilder>(v); }
+auto arr_bin(const std::vector<std::string>& v) { return build<arrow::BinaryBuilder>(v); }
 
-std::shared_ptr<arrow::Array> arr_i64(const std::vector<int64_t>& v) {
-    arrow::Int64Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_i64_nulls(const std::vector<std::optional<int64_t>>& v) {
-    arrow::Int64Builder b;
-    for (const auto& x : v) {
-        if (x.has_value()) b.Append(*x);
-        else b.AppendNull();
-    }
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_i32(const std::vector<int32_t>& v) {
-    arrow::Int32Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_i16(const std::vector<int16_t>& v) {
-    arrow::Int16Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_i8(const std::vector<int8_t>& v) {
-    arrow::Int8Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_u64(const std::vector<uint64_t>& v) {
-    arrow::UInt64Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_u32(const std::vector<uint32_t>& v) {
-    arrow::UInt32Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_u16(const std::vector<uint16_t>& v) {
-    arrow::UInt16Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_u8(const std::vector<uint8_t>& v) {
-    arrow::UInt8Builder b;
-    b.AppendValues(v);
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_str(const std::vector<std::string>& v) {
-    arrow::StringBuilder b;
-    for (const auto& s : v) EXPECT_TRUE(b.Append(s).ok());
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_lstr(const std::vector<std::string>& v) {
-    arrow::LargeStringBuilder b;
-    for (const auto& s : v) EXPECT_TRUE(b.Append(s).ok());
-    return finish(b);
-}
-
-std::shared_ptr<arrow::Array> arr_bin(const std::vector<std::string>& v) {
-    arrow::BinaryBuilder b;
-    for (const auto& s : v) EXPECT_TRUE(b.Append(s).ok());
-    return finish(b);
-}
-
-// Dictionary-encoded string array with explicit index type; optional nulls
-// (null entries appear at the given indices).
-std::shared_ptr<arrow::Array> arr_dict(const std::vector<std::string>& dict_values,
-                                       const std::vector<int>& indices_with_nulls,
-                                       const std::shared_ptr<arrow::DataType>& index_type) {
-    std::shared_ptr<arrow::Array> dict = arr_str(dict_values);
-    std::shared_ptr<arrow::Array> indices;
-    if (index_type->id() == arrow::Type::INT8) {
-        arrow::Int8Builder b;
-        for (int i : indices_with_nulls) {
-            if (i < 0) b.AppendNull();
-            else b.Append(static_cast<int8_t>(i));
-        }
-        indices = finish(b);
-    } else if (index_type->id() == arrow::Type::INT16) {
-        arrow::Int16Builder b;
-        for (int i : indices_with_nulls) {
-            if (i < 0) b.AppendNull();
-            else b.Append(static_cast<int16_t>(i));
-        }
-        indices = finish(b);
-    } else if (index_type->id() == arrow::Type::INT32) {
-        arrow::Int32Builder b;
-        for (int i : indices_with_nulls) {
-            if (i < 0) b.AppendNull();
-            else b.Append(static_cast<int32_t>(i));
-        }
-        indices = finish(b);
-    } else if (index_type->id() == arrow::Type::INT64) {
-        arrow::Int64Builder b;
-        for (int i : indices_with_nulls) {
-            if (i < 0) b.AppendNull();
-            else b.Append(static_cast<int64_t>(i));
-        }
-        indices = finish(b);
-    } else {
-        ADD_FAILURE() << "unsupported dictionary index type";
-        return nullptr;
-    }
-    auto result = arrow::DictionaryArray::FromArrays(indices, dict);
-    EXPECT_TRUE(result.ok()) << result.status().ToString();
-    return result.ValueOrDie();
-}
-
-// Dictionary-encoded binary array (dictionary value type is NOT a string type).
-std::shared_ptr<arrow::Array> arr_dict_binary(const std::vector<std::string>& dict_values,
-                                              const std::vector<int>& indices) {
-    std::shared_ptr<arrow::Array> dict = arr_bin(dict_values);
-    arrow::Int8Builder b;
-    for (int i : indices) b.Append(static_cast<int8_t>(i));
-    std::shared_ptr<arrow::Array> idx = finish(b);
-    auto result = arrow::DictionaryArray::FromArrays(idx, dict);
+// Dictionary-encoded array: `indices` (-1 = null) into `values`.
+template <class IndexBuilder = arrow::Int8Builder>
+std::shared_ptr<arrow::Array> arr_dict(const std::shared_ptr<arrow::Array>& values,
+                                       const std::vector<int>& indices) {
+    IndexBuilder b;
+    for (int i : indices) EXPECT_TRUE((i < 0 ? b.AppendNull() : b.Append(i)).ok());
+    auto result = arrow::DictionaryArray::FromArrays(finish(b), values);
     EXPECT_TRUE(result.ok()) << result.status().ToString();
     return result.ValueOrDie();
 }
@@ -217,9 +87,7 @@ std::shared_ptr<arrow::Array> arr_list_i32(const std::vector<std::vector<int32_t
     arrow::ListBuilder lb(arrow::default_memory_pool(), vb);
     for (const auto& row : rows) {
         EXPECT_TRUE(lb.Append(true).ok());
-        for (int32_t v : row) {
-            EXPECT_TRUE(vb->Append(v).ok());
-        }
+        for (int32_t v : row) EXPECT_TRUE(vb->Append(v).ok());
     }
     return finish(lb);
 }
@@ -229,13 +97,18 @@ std::shared_ptr<arrow::Array> arr_list_i32(const std::vector<std::vector<int32_t
 // large_string columns survive the roundtrip)
 // ---------------------------------------------------------------------------
 
-std::string write_parquet(const TempDir& dir, const std::string& name,
-                          const std::vector<std::shared_ptr<arrow::Field>>& fields,
-                          const std::vector<std::shared_ptr<arrow::Array>>& arrays,
+using Columns = std::vector<std::pair<std::string, std::shared_ptr<arrow::Array>>>;
+
+std::string write_parquet(const TempDir& dir, const std::string& name, const Columns& columns,
                           bool store_schema = false) {
     const std::string path = dir.file(name);
-    auto schema = arrow::schema(fields);
-    auto table = arrow::Table::Make(schema, arrays);
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    for (const auto& [col, arr] : columns) {
+        fields.push_back(arrow::field(col, arr->type()));
+        arrays.push_back(arr);
+    }
+    auto table = arrow::Table::Make(arrow::schema(fields), arrays);
     auto sink = arrow::io::FileOutputStream::Open(path).ValueOrDie();
     auto arrow_props = store_schema
         ? parquet::ArrowWriterProperties::Builder().store_schema()->build()
@@ -248,10 +121,6 @@ std::string write_parquet(const TempDir& dir, const std::string& name,
     return path;
 }
 
-std::shared_ptr<arrow::Field> field(const std::string& name,
-                                    const std::shared_ptr<arrow::Array>& arr) {
-    return arrow::field(name, arr->type());
-}
 
 // ---------------------------------------------------------------------------
 // TIFF writers
@@ -302,25 +171,11 @@ void corrupt_tiff_pixel_data(const std::string& path) {
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-std::string write_tiff_u8(const TempDir& dir, const std::string& name,
-                          const std::vector<uint8_t>& pixels, uint32_t w, uint32_t h) {
-    return write_tiff(dir, name, pixels.data(), w, w, h, 8);
-}
-
-std::string write_tiff_u16(const TempDir& dir, const std::string& name,
-                           const std::vector<uint16_t>& pixels, uint32_t w, uint32_t h) {
-    return write_tiff(dir, name, reinterpret_cast<const uint8_t*>(pixels.data()),
-                      static_cast<size_t>(w) * 2, w, h, 16);
-}
-
-std::string write_tiff_u32(const TempDir& dir, const std::string& name,
-                           const std::vector<uint32_t>& pixels, uint32_t w, uint32_t h) {
-    return write_tiff(dir, name, reinterpret_cast<const uint8_t*>(pixels.data()),
-                      static_cast<size_t>(w) * 4, w, h, 32);
-}
-
-baysor::MoleculeInputOptions default_opts() {
-    return baysor::MoleculeInputOptions{};
+template <class T>
+std::string write_tiff_mask(const TempDir& dir, const std::string& name,
+                            const std::vector<T>& pixels, uint32_t w, uint32_t h) {
+    return write_tiff(dir, name, reinterpret_cast<const uint8_t*>(pixels.data()), w * sizeof(T), w, h,
+                      8 * sizeof(T));
 }
 
 } // namespace
@@ -331,38 +186,25 @@ baysor::MoleculeInputOptions default_opts() {
 
 TEST(Cov1Data_Readers, ArrowErrorOnMissingFile) {
     TempDir dir("cov1_data");
-    try {
-        baysor::read_double_column(dir.file("does_not_exist.csv"), "x");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Arrow error:"), std::string::npos);
-    }
-    try {
-        baysor::read_string_column(dir.file("does_not_exist.parquet"), "gene");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Arrow error:"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::read_double_column(dir.file("does_not_exist.csv"), "x"),
+                     std::runtime_error, "Arrow error:");
+    EXPECT_THROW_MSG(baysor::read_string_column(dir.file("does_not_exist.parquet"), "gene"),
+                     std::runtime_error, "Arrow error:");
 }
 
 TEST(Cov1Data_Readers, UnsupportedFileFormat) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "data.txt", "x,y\n1,2\n");
-    try {
-        baysor::read_double_column(path, "x");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Unsupported file format: .txt"),
-                  std::string::npos);
-    }
+    const auto path = dir.write("data.txt", "x,y\n1,2\n");
+    EXPECT_THROW_MSG(baysor::read_double_column(path, "x"),
+                     std::runtime_error, "Unsupported file format: .txt");
 }
 
 TEST(Cov1Data_Readers, ParquetAndPqExtensions) {
     TempDir dir("cov1_data");
     auto x = arr_f64({1.5, 2.5, 3.5});
     auto y = arr_f64({4.0, 5.0, 6.0});
-    auto p1 = write_parquet(dir, "a.parquet", {field("x", x), field("y", y)}, {x, y});
-    auto p2 = write_parquet(dir, "b.pq", {field("x", x), field("y", y)}, {x, y});
+    auto p1 = write_parquet(dir, "a.parquet", {{"x", x}, {"y", y}});
+    auto p2 = write_parquet(dir, "b.pq", {{"x", x}, {"y", y}});
 
     for (const auto& p : {p1, p2}) {
         auto vals = baysor::read_double_column(p, "x");
@@ -374,15 +216,9 @@ TEST(Cov1Data_Readers, ParquetAndPqExtensions) {
 
 TEST(Cov1Data_Readers, MissingColumnMessage) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "d.csv", "x,y\n1,2\n");
-    try {
-        baysor::read_double_column(path, "gene");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        const std::string msg = e.what();
-        EXPECT_NE(msg.find("Column 'gene' not found in the data"), std::string::npos);
-        EXPECT_NE(msg.find("Available columns"), std::string::npos);
-    }
+    const auto path = dir.write("d.csv", "x,y\n1,2\n");
+    EXPECT_THROW_MSG(baysor::read_double_column(path, "gene"), std::runtime_error,
+                     "Column 'gene' not found in the data. Available columns");
 }
 
 TEST(Cov1Data_Readers, DoubleColumnNumericTypes) {
@@ -393,63 +229,36 @@ TEST(Cov1Data_Readers, DoubleColumnNumericTypes) {
     auto x8 = arr_u8({9, 10});
     auto x64 = arr_i64({11, 12});
     auto path = write_parquet(dir, "types.parquet",
-                              {field("xf", xf), field("x32", x32), field("x16", x16),
-                               field("x8", x8), field("x64", x64)},
-                              {xf, x32, x16, x8, x64});
+                              {{"xf", xf}, {"x32", x32}, {"x16", x16}, {"x8", x8}, {"x64", x64}});
 
-    {
-        auto v = baysor::read_double_column(path, "xf");
-        ASSERT_EQ(v.size(), 2u);
-        EXPECT_DOUBLE_EQ(v[1], 2.5);
-    }
-    {
-        auto v = baysor::read_double_column(path, "x32");
-        EXPECT_DOUBLE_EQ(v[1], -3.0);
-    }
-    {
-        auto v = baysor::read_double_column(path, "x16");
-        EXPECT_DOUBLE_EQ(v[0], 5.0);
-    }
-    {
-        auto v = baysor::read_double_column(path, "x8");
-        EXPECT_DOUBLE_EQ(v[1], 10.0);
-    }
-    {
-        auto v = baysor::read_double_column(path, "x64");
-        EXPECT_DOUBLE_EQ(v[0], 11.0);
-    }
+    const std::pair<const char*, std::vector<double>> expected[] = {
+        {"xf", {1.5, 2.5}}, {"x32", {7.0, -3.0}}, {"x16", {5.0, 6.0}}, {"x8", {9.0, 10.0}}, {"x64", {11.0, 12.0}},
+    };
+    for (const auto& [col, values] : expected) EXPECT_EQ(baysor::read_double_column(path, col), values) << col;
 }
 
 TEST(Cov1Data_Readers, DoubleColumnCastFailureThrows) {
     TempDir dir("cov1_data");
     auto lists = arr_list_i32({{1, 2}, {3}});
     auto xs = arr_f64({1.0, 2.0});
-    auto path = write_parquet(dir, "lists.parquet",
-                              {field("bad", lists), field("x", xs)}, {lists, xs});
-    try {
-        baysor::read_double_column(path, "bad");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Cannot convert column 'bad' to double"),
-                  std::string::npos);
-    }
+    auto path = write_parquet(dir, "lists.parquet", {{"bad", lists}, {"x", xs}});
+    EXPECT_THROW_MSG(baysor::read_double_column(path, "bad"),
+                     std::runtime_error, "Cannot convert column 'bad' to double");
 }
 
 TEST(Cov1Data_Readers, StringColumnTypes) {
     TempDir dir("cov1_data");
     auto plain = arr_str({"a", "b"});
     auto large = arr_lstr({"big1", "big2"});
-    auto d8 = arr_dict({"G1", "G2"}, {0, 1}, arrow::int8());
-    auto d16 = arr_dict({"G1", "G2"}, {1, 0}, arrow::int16());
-    auto d32 = arr_dict({"G1", "G2"}, {0, 0}, arrow::int32());
-    auto d64 = arr_dict({"G1", "G2"}, {1, 1}, arrow::int64());
+    auto d8 = arr_dict(arr_str({"G1", "G2"}), {0, 1});
+    auto d16 = arr_dict<arrow::Int16Builder>(arr_str({"G1", "G2"}), {1, 0});
+    auto d32 = arr_dict<arrow::Int32Builder>(arr_str({"G1", "G2"}), {0, 0});
+    auto d64 = arr_dict<arrow::Int64Builder>(arr_str({"G1", "G2"}), {1, 1});
     auto num = arr_i64({101, 202});
 
     auto path = write_parquet(dir, "strings.parquet",
-                              {field("plain", plain), field("large", large),
-                               field("d8", d8), field("d16", d16), field("d32", d32),
-                               field("d64", d64), field("num", num)},
-                              {plain, large, d8, d16, d32, d64, num},
+                              {{"plain", plain}, {"large", large}, {"d8", d8}, {"d16", d16},
+                               {"d32", d32}, {"d64", d64}, {"num", num}},
                               /*store_schema=*/true);
 
     EXPECT_EQ(baysor::read_string_column(path, "plain"), (std::vector<std::string>{"a", "b"}));
@@ -467,12 +276,12 @@ TEST(Cov1Data_Readers, StringColumnTypes) {
 
 TEST(Cov1Data_ReadTabular, KeepsVaryingZ) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "z3d.csv",
+    const auto path = dir.write("z3d.csv",
         "x,y,z,gene\n"
         "1,2,10,A\n"
         "3,4,20,B\n"
         "5,6,30,A\n");
-    auto raw = baysor::read_tabular_file(path, default_opts());
+    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
     EXPECT_TRUE(raw.has_z);
     ASSERT_EQ(raw.z.size(), 3u);
     EXPECT_DOUBLE_EQ(raw.z[2], 30.0);
@@ -483,22 +292,22 @@ TEST(Cov1Data_ReadTabular, KeepsVaryingZ) {
 
 TEST(Cov1Data_ReadTabular, DropsConstantZ) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "zconst.csv",
+    const auto path = dir.write("zconst.csv",
         "x,y,z,gene\n"
         "1,2,7,A\n"
         "3,4,7,B\n");
-    auto raw = baysor::read_tabular_file(path, default_opts());
+    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
     EXPECT_FALSE(raw.has_z);
     EXPECT_TRUE(raw.z.empty());
 }
 
 TEST(Cov1Data_ReadTabular, Force2DSkipsZColumn) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "zforce.csv",
+    const auto path = dir.write("zforce.csv",
         "x,y,z,gene\n"
         "1,2,10,A\n"
         "3,4,20,B\n");
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     opts.force_2d = true;
     auto raw = baysor::read_tabular_file(path, opts);
     EXPECT_FALSE(raw.has_z);
@@ -507,10 +316,10 @@ TEST(Cov1Data_ReadTabular, Force2DSkipsZColumn) {
 
 TEST(Cov1Data_ReadTabular, NoZColumn) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "plain.csv",
+    const auto path = dir.write("plain.csv",
         "x,y,gene\n"
         "1,2,A\n");
-    auto raw = baysor::read_tabular_file(path, default_opts());
+    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
     EXPECT_FALSE(raw.has_z);
     ASSERT_EQ(raw.gene_str.size(), 1u);
 }
@@ -521,13 +330,13 @@ TEST(Cov1Data_ReadTabular, NoZColumn) {
 
 TEST(Cov1Data_LoadCsv, OptionalMetadataColumnsAndQvFilter) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "meta.csv",
+    const auto path = dir.write("meta.csv",
         "x,y,gene,confidence,cluster,nuclei_probs,qv,transcript_id\n"
         "1,1,G1,0.9,1,0.5,30,1000\n"
         "2,2,G2,0.8,2,0.6,40,1001\n"
         "3,3,G1,0.7,1,0.4,10,1002\n");
 
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     opts.min_qv = 20.0;
     auto data = baysor::load_molecules(path, opts);
 
@@ -547,13 +356,13 @@ TEST(Cov1Data_LoadCsv, OptionalMetadataColumnsAndQvFilter) {
 
 TEST(Cov1Data_LoadCsv, SpatialBoundsFilter) {
     TempDir dir("cov1_data");
-    const auto path = write_csv(dir, "bounds.csv",
+    const auto path = dir.write("bounds.csv",
         "x,y,gene\n"
         "1,1,A\n"
         "50,1,A\n"
         "3,90,A\n"
         "2,2,B\n");
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     opts.x_max = 10.0;
     opts.y_max = 10.0;
     auto data = baysor::load_molecules(path, opts);
@@ -580,14 +389,10 @@ TEST(Cov1Data_LoadParquet, AllOptionalColumns) {
     auto cell = arr_str({"c1", "c1", "c2", "0"});
 
     auto path = write_parquet(dir, "rich.parquet",
-                              {field("x", x), field("y", y), field("z", z),
-                               field("gene", gene), field("qv", qv),
-                               field("confidence", conf), field("cluster", clus),
-                               field("nuclei_probs", nuclei),
-                               field("transcript_id", tx), field("cell_id", cell)},
-                              {x, y, z, gene, qv, conf, clus, nuclei, tx, cell});
+                              {{"x", x}, {"y", y}, {"z", z}, {"gene", gene}, {"qv", qv}, {"confidence", conf},
+                               {"cluster", clus}, {"nuclei_probs", nuclei}, {"transcript_id", tx}, {"cell_id", cell}});
 
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     baysor::PriorInputOptions prior;
     prior.type = baysor::PriorInputType::Column;
     prior.column_name = "cell_id";
@@ -636,10 +441,8 @@ TEST(Cov1Data_LoadParquet, CoordinateNumericTypes) {
         auto y = arr_f64({1, 2});
         auto gene = arr_str({"A", "A"});
         auto path = write_parquet(dir, std::string(c.name) + ".parquet",
-                                  {arrow::field(c.name, c.arr->type()),
-                                   field("y", y), field("gene", gene)},
-                                  {c.arr, y, gene});
-        auto opts = default_opts();
+                                  {{c.name, c.arr}, {"y", y}, {"gene", gene}});
+        baysor::MoleculeInputOptions opts;
         opts.x_col = c.name;
         auto data = baysor::load_molecules(path, opts);
         ASSERT_EQ(data.n_molecules(), 2) << c.name;
@@ -650,10 +453,8 @@ TEST(Cov1Data_LoadParquet, CoordinateNumericTypes) {
     auto xnull = arr_f64_nulls({1.0, std::nullopt});
     auto y = arr_f64({1, 2});
     auto gene = arr_str({"A", "B"});
-    auto path = write_parquet(dir, "xnull.parquet",
-                              {field("x", xnull), field("y", y), field("gene", gene)},
-                              {xnull, y, gene});
-    auto data = baysor::load_molecules(path, default_opts());
+    auto path = write_parquet(dir, "xnull.parquet", {{"x", xnull}, {"y", y}, {"gene", gene}});
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 1);
     EXPECT_DOUBLE_EQ(data.x[0], 1.0);
 }
@@ -684,10 +485,8 @@ TEST(Cov1Data_LoadParquet, TranscriptIdTypes) {
         auto y = arr_f64({1, 2});
         auto gene = arr_str({"A", "A"});
         auto path = write_parquet(dir, std::string(c.name) + ".parquet",
-                                  {field("x", x), field("y", y), field("gene", gene),
-                                   arrow::field("transcript_id", c.arr->type())},
-                                  {x, y, gene, c.arr});
-        auto data = baysor::load_molecules(path, default_opts());
+                                  {{"x", x}, {"y", y}, {"gene", gene}, {"transcript_id", c.arr}});
+        auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
         ASSERT_EQ(data.n_molecules(), 2) << c.name;
         ASSERT_EQ(data.source_transcript_id.size(), 2u) << c.name;
         EXPECT_EQ(data.source_transcript_id, c.expect) << c.name;
@@ -699,10 +498,8 @@ TEST(Cov1Data_LoadParquet, TranscriptIdTypes) {
     auto y = arr_f64({1, 2});
     auto gene = arr_str({"A", "A"});
     auto path = write_parquet(dir, "tnull.parquet",
-                              {field("x", x), field("y", y), field("gene", gene),
-                               field("transcript_id", tnull)},
-                              {x, y, gene, tnull});
-    auto data = baysor::load_molecules(path, default_opts());
+                              {{"x", x}, {"y", y}, {"gene", gene}, {"transcript_id", tnull}});
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.source_transcript_id.size(), 2u);
     EXPECT_EQ(data.source_transcript_id[0], 5u);
     EXPECT_EQ(data.source_transcript_id[1], std::uint64_t(-1));
@@ -713,16 +510,14 @@ TEST(Cov1Data_LoadParquet, DictionaryEncodedGene) {
     auto x = arr_f64({1, 2, 3, 4, 5});
     auto y = arr_f64({1, 1, 1, 1, 1});
     // gene: [A, B, null, A, B]; cell_id: [c1, c1, null, c2, c2]
-    auto gene = arr_dict({"A", "B"}, {0, 1, -1, 0, 1}, arrow::int8());
-    auto cell = arr_dict({"c1", "c2"}, {0, 0, -1, 1, 1}, arrow::int8());
+    auto gene = arr_dict(arr_str({"A", "B"}), {0, 1, -1, 0, 1});
+    auto cell = arr_dict(arr_str({"c1", "c2"}), {0, 0, -1, 1, 1});
 
     auto path = write_parquet(dir, "dict.parquet",
-                              {field("x", x), field("y", y),
-                               field("gene", gene), field("cell_id", cell)},
-                              {x, y, gene, cell},
+                              {{"x", x}, {"y", y}, {"gene", gene}, {"cell_id", cell}},
                               /*store_schema=*/true);
 
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     baysor::PriorInputOptions prior;
     prior.type = baysor::PriorInputType::Column;
     prior.column_name = "cell_id";
@@ -746,10 +541,9 @@ TEST(Cov1Data_LoadParquet, LargeStringGene) {
     auto y = arr_f64({1, 2});
     auto gene = arr_lstr({"GeneX", "GeneY"});
     auto path = write_parquet(dir, "lstr.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene},
+                              {{"x", x}, {"y", y}, {"gene", gene}},
                               /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, default_opts());
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 2);
     EXPECT_EQ(data.gene_names, (std::vector<std::string>{"GeneX", "GeneY"}));
 }
@@ -758,22 +552,12 @@ TEST(Cov1Data_LoadParquet, DictionaryLargeStringGene) {
     TempDir dir("cov1_data");
     auto x = arr_f64({1, 2, 3});
     auto y = arr_f64({1, 1, 1});
-    // Build the dictionary values as large_string manually.
-    auto dict_vals = arr_lstr({"LG1", "LG2"});
-    arrow::Int8Builder ib;
-    ib.Append(0);
-    ib.Append(1);
-    ib.Append(0);
-    std::shared_ptr<arrow::Array> idx = finish(ib);
-    auto gene_res = arrow::DictionaryArray::FromArrays(idx, dict_vals);
-    ASSERT_TRUE(gene_res.ok()) << gene_res.status().ToString();
-    auto gene = gene_res.ValueOrDie();
+    auto gene = arr_dict(arr_lstr({"LG1", "LG2"}), {0, 1, 0});
 
     auto path = write_parquet(dir, "dict_large.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene},
+                              {{"x", x}, {"y", y}, {"gene", gene}},
                               /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, default_opts());
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 3);
     EXPECT_EQ(data.gene_names, (std::vector<std::string>{"LG1", "LG2"}));
     EXPECT_EQ(data.gene, (std::vector<int>{1, 2, 1}));
@@ -783,12 +567,11 @@ TEST(Cov1Data_LoadParquet, BinaryDictionaryGene) {
     TempDir dir("cov1_data");
     auto x = arr_f64({1, 2});
     auto y = arr_f64({1, 2});
-    auto gene = arr_dict_binary({"bin1", "bin2"}, {0, 1});
+    auto gene = arr_dict(arr_bin({"bin1", "bin2"}), {0, 1});
     auto path = write_parquet(dir, "dict_bin.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene},
+                              {{"x", x}, {"y", y}, {"gene", gene}},
                               /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, default_opts());
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 2);
     ASSERT_EQ(data.n_genes(), 2);
     // Binary dictionary values are decoded as text (GetView), so the gene
@@ -804,19 +587,11 @@ TEST(Cov1Data_LoadParquet, NumericDictionaryGene) {
     // Dictionary-encoded numeric gene column. Parquet does not keep numeric
     // dictionaries, so it is read back as a plain int64 column and goes
     // through the numeric gene-name path ("7", "9").
-    auto values = arr_i64({7, 9});
-    arrow::Int8Builder ib;
-    EXPECT_TRUE(ib.Append(0).ok());
-    EXPECT_TRUE(ib.Append(1).ok());
-    std::shared_ptr<arrow::Array> idx = finish(ib);
-    auto gene_res = arrow::DictionaryArray::FromArrays(idx, values);
-    ASSERT_TRUE(gene_res.ok()) << gene_res.status().ToString();
-    auto gene = gene_res.ValueOrDie();
+    auto gene = arr_dict(arr_i64({7, 9}), {0, 1});
     auto path = write_parquet(dir, "dict_num.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene},
+                              {{"x", x}, {"y", y}, {"gene", gene}},
                               /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, default_opts());
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 2);
     EXPECT_EQ(data.gene_names, (std::vector<std::string>{"7", "9"}));
     EXPECT_EQ(data.gene, (std::vector<int>{1, 2}));
@@ -827,10 +602,8 @@ TEST(Cov1Data_LoadParquet, NumericGeneColumn) {
     auto x = arr_f64({1, 2, 3});
     auto y = arr_f64({1, 1, 1});
     auto gene = arr_i64({7, 7, 9});
-    auto path = write_parquet(dir, "numgene.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene});
-    auto data = baysor::load_molecules(path, default_opts());
+    auto path = write_parquet(dir, "numgene.parquet", {{"x", x}, {"y", y}, {"gene", gene}});
+    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
     ASSERT_EQ(data.n_molecules(), 3);
     EXPECT_EQ(data.gene_names, (std::vector<std::string>{"7", "9"}));
 }
@@ -840,11 +613,9 @@ TEST(Cov1Data_LoadParquet, ExcludeGenePatternSpecialCharacters) {
     auto x = arr_f64({1, 2, 3, 4});
     auto y = arr_f64({1, 1, 1, 1});
     auto gene = arr_str({"Blank-1", "GeneA", "GeneB", "MALAT1"});
-    auto path = write_parquet(dir, "excl.parquet",
-                              {field("x", x), field("y", y), field("gene", gene)},
-                              {x, y, gene});
+    auto path = write_parquet(dir, "excl.parquet", {{"x", x}, {"y", y}, {"gene", gene}});
 
-    auto opts = default_opts();
+    baysor::MoleculeInputOptions opts;
     // One pattern containing every metacharacter the compiler escapes (none
     // of which match), plus patterns that actually match some genes.
     opts.exclude_genes = "Blank*,MALAT1,Q?rph,never[matches]^,$,x|y,(z)+,{2}\\.";
@@ -858,15 +629,9 @@ TEST(Cov1Data_LoadParquet, MissingRequiredColumn) {
     TempDir dir("cov1_data");
     auto x = arr_f64({1});
     auto gene = arr_str({"A"});
-    auto path = write_parquet(dir, "nocol.parquet",
-                              {field("x", x), field("gene", gene)}, {x, gene});
-    try {
-        baysor::load_molecules(path, default_opts());
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Column 'y' not found in the data"),
-                  std::string::npos);
-    }
+    auto path = write_parquet(dir, "nocol.parquet", {{"x", x}, {"gene", gene}});
+    EXPECT_THROW_MSG(baysor::load_molecules(path, baysor::MoleculeInputOptions{}),
+                     std::runtime_error, "Column 'y' not found in the data");
 }
 
 // ============================================================================
@@ -939,13 +704,8 @@ TEST(Cov1Data_Prior, EstimateScaleRejectsAllUnassigned) {
     pos << 0, 1, 2, 3,
            0, 0, 0, 0;
     std::vector<int> zeros(4, 0);
-    try {
-        baysor::estimate_scale_from_assignment(pos, zeros, 2);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("No assigned molecules"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::estimate_scale_from_assignment(pos, zeros, 2),
+                     std::runtime_error, "No assigned molecules");
 }
 
 TEST(Cov1Data_Prior, EstimateScaleFromImageAreas) {
@@ -961,13 +721,8 @@ TEST(Cov1Data_Prior, EstimateScaleFromImageAreas) {
     EXPECT_NEAR(even.first, (r + r2) / 2.0, 1e-12);
 
     // Zero-area components are skipped before the n < 3 check.
-    try {
-        baysor::estimate_scale_from_image_areas({100, 100, 0, 0});
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Not enough prior cells"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::estimate_scale_from_image_areas({100, 100, 0, 0}),
+                     std::runtime_error, "Not enough prior cells");
     EXPECT_THROW(baysor::estimate_scale_from_image_areas({}), std::runtime_error);
 }
 
@@ -1001,7 +756,7 @@ std::string write_boundary_csv(const TempDir& dir, const std::string& name,
     square(5, 0, "2");
     square(10, 0, "3");
     if (far_polygon) square(1000, 1000, "4");
-    return write_csv(dir, name, ss.str());
+    return dir.write(name, ss.str());
 }
 
 } // namespace
@@ -1056,13 +811,8 @@ TEST(Cov1Data_Prior, ColumnPriorNotLoadedThrows) {
     baysor::PriorInputOptions prior;
     prior.type = baysor::PriorInputType::Column;
     prior.column_name = "cell_id";
-    try {
-        baysor::load_prior_segmentation(data, prior, 3);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("no prior labels were loaded"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_prior_segmentation(data, prior, 3),
+                     std::runtime_error, "no prior labels were loaded");
 }
 
 TEST(Cov1Data_Prior, NoneReturnsSentinel) {
@@ -1081,13 +831,8 @@ TEST(Cov1Data_Prior, TiffMultiChannelRejected) {
     TempDir dir("cov1_data");
     std::vector<uint8_t> rgb(8 * 8 * 3, 255);
     const auto path = write_tiff(dir, "rgb.tif", rgb.data(), 8 * 3, 8, 8, 8, /*spp=*/3);
-    try {
-        baysor::load_prior_from_image(path, {2}, {2}, 1);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Only single-channel TIFF masks"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_prior_from_image(path, {2}, {2}, 1),
+                     std::runtime_error, "Only single-channel TIFF masks");
 }
 
 TEST(Cov1Data_Prior, TiffUnsupportedBitsPerSample) {
@@ -1095,13 +840,8 @@ TEST(Cov1Data_Prior, TiffUnsupportedBitsPerSample) {
     // 8 pixels wide at 4 bits/sample = 4 bytes per row.
     std::vector<uint8_t> rows(4 * 8, 0xF0);
     const auto path = write_tiff(dir, "bps4.tif", rows.data(), 4, 8, 8, /*bps=*/4);
-    try {
-        baysor::load_prior_from_image(path, {2, 3}, {2, 3}, 1);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Unsupported TIFF bits/sample: 4"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_prior_from_image(path, {2, 3}, {2, 3}, 1),
+                     std::runtime_error, "Unsupported TIFF bits/sample: 4");
 }
 
 TEST(Cov1Data_Prior, TiffCorruptScanlineThrows) {
@@ -1113,19 +853,14 @@ TEST(Cov1Data_Prior, TiffCorruptScanlineThrows) {
                                  /*bps=*/8, /*spp=*/1, /*deflate=*/true);
     corrupt_tiff_pixel_data(path);
 
-    try {
-        baysor::load_prior_from_image(path, {2, 3}, {2, 3}, 1);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Error reading TIFF scanline"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_prior_from_image(path, {2, 3}, {2, 3}, 1),
+                     std::runtime_error, "Error reading TIFF scanline");
 }
 
 TEST(Cov1Data_Prior, TiffNoMoleculesYieldsEmptyResult) {
     TempDir dir("cov1_data");
     std::vector<uint8_t> px(8 * 8, 255);
-    const auto path = write_tiff_u8(dir, "m8.tif", px, 8, 8);
+    const auto path = write_tiff_mask(dir, "m8.tif", px, 8, 8);
 
     // No molecules at all.
     auto res = baysor::load_prior_from_image(path, {}, {}, 1);
@@ -1136,7 +871,7 @@ TEST(Cov1Data_Prior, TiffNoMoleculesYieldsEmptyResult) {
 TEST(Cov1Data_Prior, TiffMoleculesOutOfBounds) {
     TempDir dir("cov1_data");
     std::vector<uint8_t> px(8 * 8, 255);
-    const auto path = write_tiff_u8(dir, "m8b.tif", px, 8, 8);
+    const auto path = write_tiff_mask(dir, "m8b.tif", px, 8, 8);
 
     // All molecules outside the image -> nothing to load.
     auto res = baysor::load_prior_from_image(path, {100, 200}, {100, 200}, 1);
@@ -1153,7 +888,7 @@ TEST(Cov1Data_Prior, TiffFullImageWindowLogs) {
     TempDir dir("cov1_data");
     // Molecules at the extreme corners -> window equals the full image.
     std::vector<uint8_t> px(6 * 6, 255);
-    const auto path = write_tiff_u8(dir, "full.tif", px, 6, 6);
+    const auto path = write_tiff_mask(dir, "full.tif", px, 6, 6);
     auto res = baysor::load_prior_from_image(path, {1, 6, 3}, {1, 6, 3}, 1);
     ASSERT_EQ(res.segment_per_molecule.size(), 3u);
     EXPECT_GT(res.segment_per_molecule[0], 0);
@@ -1162,49 +897,27 @@ TEST(Cov1Data_Prior, TiffFullImageWindowLogs) {
     EXPECT_EQ(res.component_pixel_areas[0], 36u);
 }
 
-TEST(Cov1Data_Prior, Tiff16BitMultiLabel) {
+TEST(Cov1Data_Prior, Tiff16And32BitMultiLabel) {
     TempDir dir("cov1_data");
-    std::vector<uint16_t> px(8 * 8);
-    for (uint32_t r = 0; r < 8; ++r)
-        for (uint32_t c = 0; c < 8; ++c)
-            px[r * 8 + c] = (c < 4) ? 10 : 20;
-    const auto path = write_tiff_u16(dir, "m16.tif", px, 8, 8);
-
-    std::vector<double> x{2, 2, 2, 6, 6, 6};
-    std::vector<double> y{2, 3, 4, 2, 3, 4};
-
-    auto res = baysor::load_prior_from_image(path, x, y, /*min=*/1);
-    EXPECT_EQ(res.segment_per_molecule, (std::vector<int>{10, 10, 10, 20, 20, 20}));
-    ASSERT_EQ(res.component_pixel_areas.size(), 2u);
-    auto areas16 = res.component_pixel_areas;
-    std::sort(areas16.begin(), areas16.end());
-    EXPECT_EQ(areas16, (std::vector<size_t>{6, 9}));
-
-    // Molecule-count filtering zeroes every label when min is too large.
-    auto res2 = baysor::load_prior_from_image(path, x, y, /*min=*/4);
-    EXPECT_EQ(res2.segment_per_molecule, std::vector<int>(6, 0));
-}
-
-TEST(Cov1Data_Prior, Tiff32BitMultiLabel) {
-    TempDir dir("cov1_data");
-    std::vector<uint32_t> px(8 * 8);
-    for (uint32_t r = 0; r < 8; ++r)
-        for (uint32_t c = 0; c < 8; ++c)
-            px[r * 8 + c] = (c < 4) ? 100 : 200;
-    const auto path = write_tiff_u32(dir, "m32.tif", px, 8, 8);
-
-    std::vector<double> x{2, 2, 6, 6};
-    std::vector<double> y{2, 3, 2, 3};
-
-    auto res = baysor::load_prior_from_image(path, x, y, /*min=*/1);
-    EXPECT_EQ(res.segment_per_molecule, (std::vector<int>{100, 100, 200, 200}));
-    ASSERT_EQ(res.component_pixel_areas.size(), 2u);
-    auto areas32 = res.component_pixel_areas;
-    std::sort(areas32.begin(), areas32.end());
-    EXPECT_EQ(areas32, (std::vector<size_t>{4, 6}));
-
-    auto res2 = baysor::load_prior_from_image(path, x, y, /*min=*/3);
-    EXPECT_EQ(res2.segment_per_molecule, std::vector<int>(4, 0));
+    const std::vector<double> x{2, 2, 2, 6, 6, 6};
+    const std::vector<double> y{2, 3, 4, 2, 3, 4};
+    auto check = [&](const std::string& path, int left, int right) {
+        auto res = baysor::load_prior_from_image(path, x, y, /*min=*/1);
+        EXPECT_EQ(res.segment_per_molecule, (std::vector<int>{left, left, left, right, right, right}));
+        auto areas = res.component_pixel_areas;
+        std::sort(areas.begin(), areas.end());
+        EXPECT_EQ(areas, (std::vector<size_t>{6, 9}));
+        // Molecule-count filtering zeroes every label when min is too large.
+        EXPECT_EQ(baysor::load_prior_from_image(path, x, y, /*min=*/4).segment_per_molecule, std::vector<int>(6, 0));
+    };
+    // 8x8 masks: label `left` in columns 0-3, `right` in columns 4-7.
+    auto mask = [](auto left, auto right) {
+        std::vector<decltype(left)> px(8 * 8);
+        for (size_t i = 0; i < px.size(); ++i) px[i] = (i % 8 < 4) ? left : right;
+        return px;
+    };
+    check(write_tiff_mask(dir, "m16.tif", mask(uint16_t{10}, uint16_t{20}), 8, 8), 10, 20);
+    check(write_tiff_mask(dir, "m32.tif", mask(uint32_t{100}, uint32_t{200}), 8, 8), 100, 200);
 }
 
 TEST(Cov1Data_Prior, ImageScaleFallbackWhenNoMoleculesInMask) {
@@ -1213,7 +926,7 @@ TEST(Cov1Data_Prior, ImageScaleFallbackWhenNoMoleculesInMask) {
     // so the scale estimate falls back to the (all-unassigned) assignment and
     // fails, leaving the -1 sentinel.
     std::vector<uint8_t> px(8 * 8, 0);
-    const auto path = write_tiff_u8(dir, "empty_mask.tif", px, 8, 8);
+    const auto path = write_tiff_mask(dir, "empty_mask.tif", px, 8, 8);
 
     auto data = make_molecules({2, 3, 4}, {2, 3, 4});
     baysor::PriorInputOptions prior;
@@ -1240,7 +953,7 @@ TEST(Cov1Data_Prior, ImageScaleFromComponents) {
     blob(1, 1);  // molecules (2,2), (2,3)
     blob(5, 5);  // molecules (6,6), (6,7)
     blob(5, 1);  // molecules (2,6), (2,7)
-    const auto path = write_tiff_u8(dir, "three_blobs.tif", px, 8, 8);
+    const auto path = write_tiff_mask(dir, "three_blobs.tif", px, 8, 8);
 
     auto data = make_molecules({2, 2, 6, 6, 2, 2}, {2, 3, 6, 7, 6, 7});
     baysor::PriorInputOptions prior;
