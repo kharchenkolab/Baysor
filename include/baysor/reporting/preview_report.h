@@ -11,6 +11,18 @@
 
 namespace baysor {
 
+/// Default of the `[plotting] max_plot_size` config key (PlottingOptions).
+constexpr int kDefaultMaxPlotSize = 3000;
+
+/// Width in pixels of a molecule scatter of (x, y) whose longer side is
+/// max_size_px (height follows the data aspect ratio as in rasterize_scatter,
+/// so tall data gets a narrower image). Values < 1 mean kDefaultMaxPlotSize.
+int scatter_width_for_max_size(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    int max_size_px
+);
+
 /// RGB raster of a scatter plot: row-major, 3 bytes per pixel.
 struct ScatterRaster {
     std::vector<uint8_t> pixels;
@@ -87,14 +99,16 @@ nlohmann::json vega_gene_frequency(
 /// Generate Vega-Lite spec: gene structure scatter (UMAP of genes by spatial co-occurrence)
 nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb);
 
-/// Generate complete HTML preview report
+/// Generate complete HTML preview report. The molecule images are at most
+/// max_plot_size pixels on their longer side.
 std::string generate_preview_html(
     const MoleculeData& data,
     const std::vector<std::string>& gene_colors,
     const std::vector<double>& edge_lengths,
     const NoiseFitResult& noise_result,
     int confidence_nn_id,
-    const GeneStructureEmbedding* gene_structure = nullptr
+    const GeneStructureEmbedding* gene_structure = nullptr,
+    int max_plot_size = kDefaultMaxPlotSize
 );
 
 } // namespace baysor

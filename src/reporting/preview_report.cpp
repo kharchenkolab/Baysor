@@ -186,6 +186,21 @@ static RasterViewport make_viewport(
     return RasterViewport{xmin, xmax, ymin, ymax, xrange, yrange, width_px, height_px};
 }
 
+int scatter_width_for_max_size(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    int max_size_px
+) {
+    if (max_size_px < 1) max_size_px = kDefaultMaxPlotSize;
+    if (x.empty() || y.empty()) return max_size_px;
+    const RasterViewport vp = make_viewport(x, y, max_size_px);
+    if (vp.height_px <= max_size_px) return max_size_px;
+    // Taller than wide: height = width * yrange / xrange (capped at 4x the
+    // width), so pick the width that brings the height down to max_size_px.
+    const int width = std::max(static_cast<int>(max_size_px * vp.xrange / vp.yrange), max_size_px / 4);
+    return std::max(1, width);
+}
+
 static inline std::pair<int, int> map_to_pixel(double x, double y, const RasterViewport& vp) {
     int px = static_cast<int>((x - vp.xmin) / vp.xrange * vp.width_px);
     int py = static_cast<int>((vp.ymax - y) / vp.yrange * vp.height_px);
@@ -712,15 +727,17 @@ std::string generate_preview_html(
     const std::vector<double>& edge_lengths,
     const NoiseFitResult& noise_result,
     int confidence_nn_id,
-    const GeneStructureEmbedding* gene_structure
+    const GeneStructureEmbedding* gene_structure,
+    int max_plot_size
 ) {
     // Render PNG images (can be slow — done before HTML assembly); the two
     // images are encoded concurrently.
     std::string scatter_png, conf_png;
     {
+        const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
         std::vector<ScatterRaster> rasters;
-        rasters.push_back(rasterize_scatter(data.x, data.y, gene_colors));
-        rasters.push_back(rasterize_confidence(data.x, data.y, data.confidence));
+        rasters.push_back(rasterize_scatter(data.x, data.y, gene_colors, nullptr, width_px));
+        rasters.push_back(rasterize_confidence(data.x, data.y, data.confidence, width_px));
         auto pngs = encode_png_data_uris(rasters);
         scatter_png = std::move(pngs[0]);
         conf_png = std::move(pngs[1]);

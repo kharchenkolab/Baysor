@@ -54,8 +54,9 @@ Existing config files keep working: `[data]`, `[segmentation]`, and
 `[molecules]` section). New configs should put prior settings in the
 `[prior]` section; `[segmentation].unassigned_prior_label` and
 `[segmentation].estimate_scale_from_centers` remain accepted for
-compatibility. `ncv_method`, `min_pixels_per_cell`, and `max_plot_size` are
-accepted but currently unused by the C++ pipeline.
+compatibility. `ncv_method` and `min_pixels_per_cell` are accepted but
+currently unused by the C++ pipeline; `max_plot_size` sets the size of the
+molecule images in the HTML reports.
 
 ## Outputs
 

@@ -491,19 +491,21 @@ std::string generate_run_segmentation_html(
     const std::vector<int>& assignment,
     const std::vector<std::string>& ncv_color,
     const std::vector<int>* molecule_clusters,
-    const PolygonCollection* polygons
+    const PolygonCollection* polygons,
+    int max_plot_size
 ) {
     // Rasterize the (up to) three molecule images one after another — each
     // rasterization uses the whole pool — then encode them concurrently.
     std::string assign_png, ncv_png, cluster_png;
     {
+        const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
         std::vector<ScatterRaster> rasters(3);
-        rasters[0] = rasterize_scatter(data.x, data.y, assignment_colors(assignment), polygons);
+        rasters[0] = rasterize_scatter(data.x, data.y, assignment_colors(assignment), polygons, width_px);
         if (!ncv_color.empty()) {
-            rasters[1] = rasterize_scatter(data.x, data.y, ncv_color, polygons);
+            rasters[1] = rasterize_scatter(data.x, data.y, ncv_color, polygons, width_px);
         }
         if (molecule_clusters && !molecule_clusters->empty()) {
-            rasters[2] = rasterize_scatter(data.x, data.y, cluster_colors(*molecule_clusters), polygons);
+            rasters[2] = rasterize_scatter(data.x, data.y, cluster_colors(*molecule_clusters), polygons, width_px);
         }
         auto pngs = encode_png_data_uris(rasters);
         assign_png = std::move(pngs[0]);

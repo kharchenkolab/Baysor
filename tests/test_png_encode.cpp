@@ -3,6 +3,8 @@
 // filter types) and check the pixels.
 
 #include "baysor/reporting/preview_report.h"
+#include "baysor/reporting/run_report.h"
+#include "baysor/utils/options.h"
 #include "baysor/utils/thread_pool.h"
 
 #include <Eigen/Dense>
@@ -13,6 +15,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <random>
+#include <regex>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -230,4 +233,57 @@ TEST(PngEncode, LargeImageIsSplitIntoSeveralIdatChunks) {
     EXPECT_EQ(img.width, 1500u);
     EXPECT_GT(img.n_idat, 1);
     EXPECT_EQ(img.rgb.size(), size_t(img.width) * img.height * 3);
+}
+
+TEST(PlotSize, DefaultMatchesPlottingOptions) {
+    EXPECT_EQ(baysor::kDefaultMaxPlotSize, baysor::PlottingOptions{}.max_plot_size);
+}
+
+TEST(PlotSize, LongerSideIsMaxPlotSize) {
+    using baysor::scatter_width_for_max_size;
+    auto raster_dims = [](const std::vector<double>& x, const std::vector<double>& y, int max_size) {
+        const int w = scatter_width_for_max_size(x, y, max_size);
+        const auto r = baysor::rasterize_scatter(x, y, std::vector<std::string>(x.size(), "#000000"), nullptr, w, 1);
+        return std::make_pair(r.width_px, r.height_px);
+    };
+    // Square and wide data: the width is the longer side.
+    EXPECT_EQ(raster_dims({0, 10, 0, 10}, {0, 0, 10, 10}, 500), std::make_pair(500, 500));
+    auto wide = raster_dims({0, 30}, {0, 10}, 600);
+    EXPECT_EQ(wide.first, 600);
+    EXPECT_LE(wide.second, 600);
+    // Tall data: the height is the longer side and stays within the limit.
+    auto tall = raster_dims({0, 10}, {0, 25}, 1000);
+    EXPECT_LE(tall.second, 1000);
+    EXPECT_GE(tall.second, 995);
+    EXPECT_NEAR(tall.first, 400, 2);
+    // Taller than 4:1: the height is capped at 4x the width, so the width is max/4.
+    auto very_tall = raster_dims({0, 1}, {0, 100}, 1000);
+    EXPECT_EQ(very_tall, std::make_pair(250, 1000));
+    // Invalid limits fall back to the default; empty data keeps the limit.
+    EXPECT_EQ(scatter_width_for_max_size({0, 1}, {0, 1}, 0), baysor::kDefaultMaxPlotSize);
+    EXPECT_EQ(scatter_width_for_max_size({}, {}, 700), 700);
+}
+
+TEST(PlotSize, SegmentationReportHonoursMaxPlotSize) {
+    baysor::MoleculeData d;
+    for (int i = 0; i < 200; ++i) {
+        d.x.push_back(i % 20);
+        d.y.push_back(i / 20 * 4.0);  // 19 x 36: taller than wide
+        d.gene.push_back(1 + i % 2);
+        d.confidence.push_back(0.9);
+    }
+    d.gene_names = {"A", "B"};
+    std::vector<int> assignment(200, 1);
+    std::vector<std::string> ncv(200, "#336699");
+    const std::string html = baysor::generate_run_segmentation_html(d, assignment, ncv, nullptr, nullptr, 320);
+    const std::regex uri_re("data:image/png;base64,[A-Za-z0-9+/=]+");
+    int n_images = 0;
+    for (auto it = std::sregex_iterator(html.begin(), html.end(), uri_re); it != std::sregex_iterator(); ++it) {
+        const DecodedPng img = decode_png_data_uri(it->str());
+        EXPECT_LE(std::max(img.width, img.height), 320u);
+        EXPECT_GE(img.height, 315u);
+        EXPECT_LT(img.width, img.height);
+        ++n_images;
+    }
+    EXPECT_EQ(n_images, 2);  // assignment and NCV colours
 }

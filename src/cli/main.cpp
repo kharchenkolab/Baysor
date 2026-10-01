@@ -554,7 +554,8 @@ int cmd_run(
                 bm_data.assignment,
                 ncv_color,
                 mol_clusters.empty() ? nullptr : &mol_clusters,
-                have_polygons ? &poly_joined : nullptr
+                have_polygons ? &poly_joined : nullptr,
+                opts.plotting.max_plot_size
             );
             std::ofstream seg_plot_file(out_paths.molecule_plot);
             if (!seg_plot_file) {
@@ -636,7 +637,8 @@ int cmd_preview(
 
     // Generate HTML report
     spdlog::info("Generating HTML report...");
-    auto html = generate_preview_html(data, gene_colors, edge_lengths, noise_result, nn_id, &gene_structure);
+    auto html = generate_preview_html(data, gene_colors, edge_lengths, noise_result, nn_id, &gene_structure,
+                                      opts.plotting.max_plot_size);
 
     std::ofstream out_file(output);
     if (!out_file) {
