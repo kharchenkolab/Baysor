@@ -1,6 +1,6 @@
 {
   "name": "baysor",
-  "version-string": "0.8.3",
+  "version-string": "0.9.0",
   "description": "C++ implementation of Baysor for imaging-based spatial transcriptomics segmentation.",
   "dependencies": [
     "eigen3",

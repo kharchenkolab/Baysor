@@ -2,216 +2,61 @@
 
 All notable changes to the C++ line of Baysor are documented here.
 
-## Unreleased
+## [cpp-0.9.0] — 2026-10-02
 
 ### Added
 
-- `--polygon-format GeometryCollectionLegacy` for Xenium Ranger 3.x: the same
-  `GeometryCollection` layout as `GeometryCollection` but with integer `cell`
-  ids (Baysor v0.7.1 format, stripped of the old `C<run_id>-` prefix). Xenium
-  Ranger 4.0+ reads the default `FeatureCollection`, so the legacy format is
-  only needed for Ranger 3.x. The option is now case-insensitive and rejected
-  with a clear error for unknown values instead of silently writing
-  `FeatureCollection`.
-
-- `--threads` / `-t` on `run`, `preview` and `segfree` (and a top-level
-  `threads` config key) to set the number of worker threads. Defaults to
-  `OMP_NUM_THREADS` (backward compatibility for existing scripts), then the
-  number of physical CPU cores.
-  The effective thread count is logged at start-up.
-
-- Prebuilt binaries for every published GitHub release, built by the
-  `release` GitHub Actions workflow: `baysor-<version>-linux-x86_64.tar.gz`,
-  `baysor-<version>-macos-arm64.tar.gz`, `baysor-<version>-windows-x86_64.zip`
-  and `SHA256SUMS`. They need no extra packages and run on any CPU of their
-  architecture: Linux x86_64 with glibc 2.28 or newer, macOS 12 or newer on
-  Apple silicon, 64-bit Windows 10 or newer.
-- `baysor --version` prints the version.
-- `packaging/`: the release build scripts; the Linux binary can be rebuilt
-  locally in Docker with `packaging/linux/build-in-docker.sh`. The release
-  procedure is described in `RELEASING.md`.
-- A versioned documentation site (MkDocs + Material, versioned with `mike`):
-  `mkdocs.yml`, rewritten `docs/` pages, and the `docs` GitHub workflow that
-  builds the site strictly on docs changes and deploys one site version per
-  GitHub release. The `latest` alias only points at the newest stable
-  release: pre-releases, backport releases, and `workflow_dispatch` redeploys
-  of older tags are deployed without moving `latest`.
-- Release-binary installation documentation (Linux x86-64, macOS arm64,
-  Windows x86-64 archives with `SHA256SUMS`), plus a Docker section on the
-  installation page.
-- A "Migrating from Baysor.jl (v0.7.x)" page and developer docs (source
-  builds, tests, coverage, benchmarks, releasing).
-- `docs/tools/check_cli_docs.py`, which fails when the docs mention a CLI
-  option or config key that the sources do not define.
-- `docs/tools/migrate_gh_pages.py`, a one-time maintainer migration for the
-  `gh-pages` branch: archives the Julia site as `0.7.1 (Julia)` and keeps old
-  `/dev/...` links working via redirect stubs.
-- A dry-run mode for the `release` workflow (`workflow_dispatch` with
-  `dry_run=true` plus optional `ref` and `platforms` inputs): builds and
-  smoke-tests the release archives for any branch or commit without needing a
-  release and without uploading to one, so the release build can be verified
-  before tagging. On build failure the workflow uploads vcpkg's per-port
-  build logs as the `vcpkg-logs-<platform>` artifact.
-- Docker images of every release, built from the release binary by the
-  `docker` job of the `release` workflow (`packaging/docker/Dockerfile`, a
-  `debian:12-slim` runtime image with the extracted Linux archive,
-  non-root user, `WORKDIR /data`) and pushed to GHCR
-  (`ghcr.io/<owner>/baysor`; the package is private until made public once in
-  its settings) and to Docker Hub (`vpetukhov/baysor`, or the
-  `DOCKERHUB_REPOSITORY` repository variable) when the
-  `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets exist — otherwise Docker Hub
-  is skipped with a warning and GHCR still works. Tags are `X.Y.Z`, plus
-  `latest` only for the newest stable release, decided by
-  `packaging/is_latest_release.py` with the same rule as the docs site's
-  `latest` (unit-tested by `packaging/is_latest_release_test.py`). The image
-  is smoke-tested in the container (`--version`, `--help`, a synthetic
-  `baysor run`) before any push; dry runs build and smoke-test it without
-  pushing. See `RELEASING.md`, "Docker images", and the installation docs.
-
-- `[plotting] max_z_slices` (default 10) controls how many z-layers are used
-  for 3D polygon estimation (kharchenkolab/Baysor#169). A volumetric run with
-  more distinct z values (e.g. Xenium) bins the z-stack into this many layers;
-  the `Too many z values` warning now names the option. Must be >= 1.
+- Prebuilt binaries for every release: Linux x86-64 (glibc 2.28+), macOS arm64
+  (macOS 12+) and Windows x86-64, with `SHA256SUMS`. No extra packages are needed.
+- Docker images for every release on GHCR and Docker Hub (`X.Y.Z`, and `latest`
+  for the newest stable release).
+- Versioned documentation site with pages rewritten for the C++ implementation,
+  a "Migrating from Baysor.jl (v0.7.x)" page and a "Performance" section.
+- `-t, --threads` for `run`, `preview` and `segfree` (and the `threads` config
+  key). By default Baysor uses `OMP_NUM_THREADS`, then the number of physical
+  CPU cores.
+- `--version` for `baysor` and every subcommand; `baysor run --version` prints a
+  bare version string, as expected by Sopa.
+- `--polygon-format GeometryCollectionLegacy` (integer cell ids) for Xenium
+  Ranger 3.x.
+- `[plotting] max_z_slices` sets the number of z-layers used for 3D polygons
+  (default 10, #169).
 
 ### Changed
 
-- The molecule graph's CGAL Delaunay triangulation is built once per `run`
-  instead of twice (REPORT.md 6.4, ISSUES.md 8b): the confidence estimate
-  computes the unfiltered edges once (`compute_molecule_adjacency`, returned
-  as `ConfidenceEstimationDetails::adjacency`) and the segmentation graph is
-  built from them with `build_molecule_graph(..., precomputed_edges)`, which
-  applies the long-edge filter (n_mads=2.0) and produces a bit-identical
-  graph to the former rebuild. Slides with exact duplicate coordinates —
-  where the two historical `normalize_points()` runs drew different jitter
-  batches — fall back to recomputing (`AdjacencyResult::normalize_rng_draws`
-  records the batch size), so 1-thread output is bitwise identical in all
-  cases. The confidence kNN keeps its results in
-  flat `n x k` arrays with an in-place tied-run index sort instead of
-  per-molecule vectors and a full `stable_sort` (review-bmm.md C7-1/C7-2),
-  and the confidence estimate (and `preview`) read the kth-neighbour distance
-  from a block-wise streaming query (`knn_kth_distances`) instead of holding
-  the whole-slide `n x k` result (3.0 GiB and 223 M allocations at 10.6M
-  molecules).
-
-- The benchmark suite moved out of this repository into
-  [baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks)
-  (former `benchmarks/`, history preserved); `docs/development.md` links to
-  it. Datasets and baselines stay under the local `.bench-data/` directory.
-- OpenMP is no longer used or required (no `libomp`, `vcomp140.dll`, or
-  `-fopenmp` anywhere): all parallelism runs on Baysor's own persistent
-  `std::thread` pool (`include/baysor/utils/thread_pool.h`), which also backs
-  the FetchContent dependencies (umappp, knncolle, irlba, CppKmeans) through
-  subpar's custom-parallelization hooks. Multi-threaded runs are
-  deterministic: the E-step RNG streams are keyed by (iteration, chunk), and
-  parallel reductions merge in a fixed order, so repeated runs are
-  byte-identical and results do not depend on thread scheduling. With
-  `--threads 1` results are bitwise identical to the previous OpenMP build.
-  Where the Eigen version supports it (>= 3.4.90), Eigen's own GEMM thread
-  pool replaces OpenMP for dense matrix products; older Eigen versions run
-  dense products single-threaded. The pool wakes workers individually (no
-  thundering herd), uses a short bounded spin-then-block on job hand-off and
-  region completion (tunable via `BAYSOR_POOL_SPIN_US`, 0 disables), and the
-  default thread count is the number of physical CPU cores. The umappp/kNN
-  neighborhood-graph construction for NCV color embedding now also runs on
-  the pool. Release packaging ships no OpenMP runtime either: the release
-  build no longer compiles a static `libomp` for macOS, no longer expects
-  `libgomp.a` on Linux, and the Windows archive contains only the MSVC
-  runtime DLLs (no `vcomp140.dll`).
-- Molecule clustering scales to large gene panels:
-  - The NCV neighbourhood k-NN searches (k = genes / 10, used by
-    `--cluster-method louvain|leiden` and the NCV colours) keep the k best
-    candidates in a heap instead of an insertion-sorted array; same
-    neighbours in the same order. About half the instructions of a whole run
-    on an 8,400-gene CosMx crop.
-  - These searches run in blocks bounded to ~32 MiB instead of 32,768
-    queries, and the neighbourhood count matrix is assembled in place: peak
-    RSS of that crop 475 → 233 MiB. Output unchanged.
-  - The MRF clustering (`--cluster-method mrf`, the default) computes its
-    convergence check inside the parallel E-step and runs the M-step in
-    parallel over genes. Output unchanged at any thread count.
-  - ICA initialisation of the MRF clustering on panels above 3,000 genes
-    builds the gene co-occurrence matrix sparse and computes only the
-    `n_clusters` leading eigenvectors (truncated SVD, irlba) instead of a dense
-    eigen-decomposition whose cost grows with the cube of the gene count.
-    A 150k-molecule, 17,500-gene CosMx whole-transcriptome crop with the
-    default method now finishes in 86 s at 8 threads (1.1 GB peak RSS); it
-    was stopped after > 70 min at 9.8 GB before.
-    Panels up to 3,000 genes are unchanged. Above 3,000 genes the eigenvector
-    signs, and with them the FastICA start, can differ from before, so
-    clusters and segmentation may change within the usual run-to-run range.
-
-- `run --plot` and `preview` reports are much faster: PNG images are
-  encoded with zlib (level 1) instead of stb_image_write and several images
-  are encoded in parallel. zlib is now an explicit build dependency (it was
-  already required by HDF5 and libtiff).
-- `[plotting] max_plot_size` (default 3000) is now honoured: it sets the
-  longer side, in pixels, of the molecule images of the `run --plot`
-  segmentation report and of the `preview` report (previously always
-  6000 px wide), which halves the HTML size of a square dataset.
-- Faster BMM segmentation loop with less memory. The E-step accumulates
-  neighbour weights per distinct cell before the Julia-order dictionary
-  (only molecules with two or more adjacent cells use it), hoists
-  loop-invariant `exp`/`pow` factors and evaluates one `exp` per candidate
-  instead of two. Grouping molecules by cell, the connected-component split,
-  dropping empty cells, the cluster mode of the M-step, the prior-segment
-  bookkeeping and applying the E-step result no longer allocate per call
-  and run in parallel. Each iteration runs as one persistent parallel region
-  of the thread pool (`parallel_region`, with work-shared loops, barriers and
-  single blocks) instead of waking the pool for every loop; per-worker
-  scratch no longer shares cache lines between workers; barrier waiters
-  sleep on a futex on Linux and do not spin when there are more threads than
-  physical cores (`BAYSOR_POOL_SPIN_US` still overrides). The assignment
-  history keeps the newest entry plus per-iteration changes instead of
-  `depth` full copies (about 63 instead of 200 bytes per molecule at the
-  default depth), the history vote runs in parallel, and the molecule graph
-  is moved into the BMM data instead of being copied. Results are unchanged
-  except for possible last-bit differences of the E-step densities from the
-  fused `exp`.
-
-- `README.md` now points to the documentation site and release binaries.
-- The documentation pages were rewritten against the C++ implementation
-  (required `--min-molecules-per-cell`, actual option defaults, complete
-  config-key reference, corrected output-file descriptions).
+- OpenMP is no longer used: all parallel code runs on Baysor's own thread pool.
+  Multi-threaded runs are deterministic and give the same result at any thread
+  count.
+- Faster segmentation with less memory than cpp-0.8.3: about 2–3× faster at
+  6 threads and 20–30 % faster at 1 thread, with 10–40 % lower peak memory.
+- Molecule clustering scales to large gene panels: above 3,000 genes the ICA
+  initialisation uses a truncated sparse decomposition, which is up to 60×
+  faster with 5× less memory. On such panels clusters and segmentation can
+  differ slightly from cpp-0.8.3.
+- `run --plot` and `preview` reports are faster, and `[plotting] max_plot_size`
+  is now honoured.
+- The default thread count is the number of physical cores instead of all
+  logical CPUs.
+- Invalid config values are reported as errors naming the key instead of
+  silently falling back to the default. Integer keys accept `50.0`, `1e2` and
+  `1_000`, as in Baysor.jl.
+- `--polygon-format` is case-insensitive, and unknown values are an error.
 
 ### Fixed
 
-- `baysor run --version`, `preview --version` and `segfree --version` now
-  exit successfully and print a bare version string, as expected by Sopa's
-  direct `packaging.version.Version` parsing (the top-level output is unchanged).
-- Documented how to install the legacy Julia v0.7.1 package by pinning
-  `rev="v0.7.1"`; C++ release binaries are recommended because the default
-  repository branch now contains the C++ implementation.
-- `--prior-segmentation-confidence 1` now keeps every prior cell together:
-  all molecules sharing a prior label (including exact duplicate coordinates,
-  e.g. the duplicated CosMx transcripts from
-  [#117](https://github.com/kharchenkolab/Baysor/issues/117)) end up in the
-  same final cell instead of being split across several cells or partly
-  dropped to noise. Prior cells can still be renamed, expanded or merged;
-  molecules without a prior label are unaffected. See the confidence-1
-  guarantee in `docs/priors.md`.
-- Segmented molecule table and polygons are now always mutually consistent
-  (kharchenkolab/Baysor#165): every cell with at least one assigned molecule
-  gets exactly one polygon in `segmentation_polygons_2d.json` (and in the
-  GeoParquet boundaries). Cells whose free-form boundary estimation fails or
-  produces fewer than three vertices (for example collinear cells, whose
-  Delaunay triangulation has no faces) previously disappeared from
-  `FeatureCollection` output and made Xenium Ranger report
-  `MissingCellPolygon`. They now get a fallback rectangle around the cell's
-  molecules. Polygon keys are also guaranteed to use the same `cell_<n>`
-  names as `segmentation.csv`, including when a component id exceeds the
-  current component count.
-- Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
-  inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
-  them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`
-  backports the upstream vcpkg fix (microsoft/vcpkg#53437, in no release yet).
-- Release build on macOS: thrift (an Arrow/Parquet dependency) needs a bison
-  newer than the Apple one (2.3) to generate its parser, so the release build
-  installs Homebrew's bison.
-- CLI help: `--tol` now shows its actual default (`0`), and `preview`/`segfree`
-  `-o` is described as an output file rather than a file or directory;
-  `configs/example_config.toml` shows the actual `max_plot_size` default
-  (3000).
-
+- `--prior-segmentation-confidence 1` keeps all molecules of a prior cell in one
+  final cell, including duplicated CosMx transcripts (#117).
+- Every cell in `segmentation.csv` gets exactly one polygon, so Xenium Ranger
+  no longer reports `MissingCellPolygon` (#165).
+- Multi-threaded runs reused the same random numbers in every iteration, which
+  made results depend on the thread count (e.g. about 7 % more cells on an ISS
+  dataset at 6 threads).
+- Single-threaded results no longer depend on the output path.
+- Crashes on very small inputs: `--n-cells-init 1` or too few molecules for
+  `-m`, fewer genes than clusters in the ICA initialisation, and NCV colours
+  with very few anchors.
+- Gene names stored in Parquet binary-dictionary columns are decoded as text.
+- CLI help shows the actual `--tol` default.
 
 ## [cpp-0.8.3] — 2026-07-31
 

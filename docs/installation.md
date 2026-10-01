@@ -51,9 +51,9 @@ and the Windows archive carries the DLLs it needs next to `baysor.exe`
 Example on Linux:
 
 ```bash
-tar xzf baysor-0.8.3-linux-x86_64.tar.gz
-./baysor-0.8.3-linux-x86_64/bin/baysor --version
-./baysor-0.8.3-linux-x86_64/bin/baysor run --help
+tar xzf baysor-0.9.0-linux-x86_64.tar.gz
+./baysor-0.9.0-linux-x86_64/bin/baysor --version
+./baysor-0.9.0-linux-x86_64/bin/baysor run --help
 ```
 
 Optionally verify the download against `SHA256SUMS`:
@@ -73,7 +73,7 @@ built from the same archive as the other platforms:
 Images exist from the C++ release that introduced them (the first one is
 tagged with its version like all later ones); older tags on Docker Hub
 (`v0.4`–`v0.7.1`) are the Julia-era images. Tags are the release version
-(e.g. `0.8.3`) plus `latest`, which always points at the newest stable
+(e.g. `0.9.0`) plus `latest`, which always points at the newest stable
 release.
 
 ```bash
