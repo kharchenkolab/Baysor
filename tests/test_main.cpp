@@ -27,7 +27,6 @@
 #include "baysor/reporting/run_report.h"
 
 #include <Eigen/Dense>
-#include "baysor/utils/thread_pool.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -44,6 +43,8 @@
 #include <parquet/arrow/writer.h>
 #include <hdf5.h>
 #include <tiffio.h>
+
+#include "test_cov_helpers.h"
 
 // Helper: write a temp CSV file and return its path
 static std::string write_temp_csv(const std::string& content, const std::string& suffix = ".csv") {
@@ -1136,12 +1137,10 @@ TEST(PriorSegmentation, EstimateScaleMatchesExactNearestCenterReference) {
     const double expected_std =
         ((abs_devs[n_cells / 2 - 1] + abs_devs[n_cells / 2]) / 2.0) * 1.4826;
 
-    int old_threads = baysor::thread_pool_size();
-    baysor::set_thread_pool_size(1);
+    baysor_test::PoolSizeGuard pool(1);
     auto [scale_1, scale_std_1] = baysor::estimate_scale_from_assignment(pos, assignment, mols_per_cell);
     baysor::set_thread_pool_size(4);
     auto [scale_4, scale_std_4] = baysor::estimate_scale_from_assignment(pos, assignment, mols_per_cell);
-    baysor::set_thread_pool_size(old_threads);
 
     EXPECT_NEAR(scale_1, expected_scale, 1e-10);
     EXPECT_NEAR(scale_std_1, expected_std, 1e-10);
@@ -1850,14 +1849,12 @@ TEST(BoundaryEstimation, BoundaryPolygonsAutoStableAcrossThreadCounts) {
     add_square(3, 0.0, 10.0, 1.0);
     add_square(4, 10.0, 10.0, 1.0);
 
-    int old_threads = baysor::thread_pool_size();
-    baysor::set_thread_pool_size(1);
+    baysor_test::PoolSizeGuard pool(1);
     auto [joined_1, stack_1] = baysor::boundary_polygons_auto(
         pos, assignment, /*estimate_per_z=*/true, &cell_names, /*verbose=*/false);
     baysor::set_thread_pool_size(4);
     auto [joined_4, stack_4] = baysor::boundary_polygons_auto(
         pos, assignment, /*estimate_per_z=*/true, &cell_names, /*verbose=*/false);
-    baysor::set_thread_pool_size(old_threads);
 
     expect_polygon_collection_near(joined_4, joined_1);
     ASSERT_EQ(stack_4.size(), stack_1.size());
@@ -2744,8 +2741,7 @@ TEST(MoleculeClustering, GraphPartitionToTargetStableAcrossThreadCounts) {
     auto adj = baysor::build_knn_similarity_graph(mol_vecs, confidence, /*k=*/5);
 
     for (auto method : {baysor::ClusterMethod::Louvain, baysor::ClusterMethod::Leiden}) {
-        int old_threads = baysor::thread_pool_size();
-        baysor::set_thread_pool_size(1);
+        baysor_test::PoolSizeGuard pool(1);
         baysor::GraphClusteringSummary summary_1;
         auto assignment_1 = baysor::graph_partition_to_target(
             adj, mol_vecs, confidence, method,
@@ -2757,7 +2753,6 @@ TEST(MoleculeClustering, GraphPartitionToTargetStableAcrossThreadCounts) {
             adj, mol_vecs, confidence, method,
             /*target_clusters=*/4, /*resolution_seed=*/1.0, /*max_passes=*/100, &summary_4
         );
-        baysor::set_thread_pool_size(old_threads);
 
         EXPECT_EQ(assignment_4, assignment_1);
         EXPECT_EQ(summary_4.micro_clusters, summary_1.micro_clusters);
@@ -3148,12 +3143,10 @@ TEST(BmmLoop, ConnectedComponentSplitMatchesAcrossThreadCounts) {
     one_thread.assignment.assign(one_thread.assignment.size(), 1);
     many_threads.assignment = one_thread.assignment;
 
-    int old_threads = baysor::thread_pool_size();
-    baysor::set_thread_pool_size(1);
+    baysor_test::PoolSizeGuard pool(1);
     baysor::split_cells_by_connected_components(one_thread);
     baysor::set_thread_pool_size(4);
     baysor::split_cells_by_connected_components(many_threads);
-    baysor::set_thread_pool_size(old_threads);
 
     const std::vector<int> expected = {1, 1, 1, 0, 0, 0, 0, 0};
     EXPECT_EQ(one_thread.assignment, expected);
