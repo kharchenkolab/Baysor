@@ -1,7 +1,5 @@
-// HeapKnnResultSet (include/baysor/processing/data_processing/heap_knn_result_set.h)
-// must return exactly the neighbours nanoflann::KNNResultSet returns, in the
-// (distance, index) order the NCV k-NN callers produce with a stable sort, on
-// inputs with many tied distances (duplicate points, integer grids).
+// HeapKnnResultSet must return exactly the neighbours nanoflann::KNNResultSet
+// returns, ordered by (distance, index), also with many tied distances.
 
 #include <gtest/gtest.h>
 
@@ -13,7 +11,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <numeric>
 #include <random>
 #include <vector>
 
@@ -36,67 +33,62 @@ struct ColMajorAdaptor {
 using Tree = nanoflann::KDTreeSingleIndexAdaptor<
     nanoflann::L2_Simple_Adaptor<double, ColMajorAdaptor>, ColMajorAdaptor, -1, int>;
 
-// Reference: KNNResultSet followed by the callers' stable sort by (distance, index).
-void reference_knn(const Tree& tree, const double* query, int k,
-                   std::vector<int>& idx, std::vector<double>& dist) {
-    idx.assign(k, -1);
-    dist.assign(k, 0.0);
+using Neighbours = std::vector<std::pair<double, int>>;  // (distance, index)
+
+// Reference: KNNResultSet, then ordered by (distance, index).
+Neighbours reference_knn(const Tree& tree, const double* query, int k) {
+    std::vector<int> idx(k, -1);
+    std::vector<double> dist(k, 0.0);
     nanoflann::KNNResultSet<double, int> rs(k);
     rs.init(idx.data(), dist.data());
     tree.findNeighbors(rs, query, nanoflann::SearchParameters(0.0f, true));
-    std::vector<int> order(k);
-    std::iota(order.begin(), order.end(), 0);
-    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        if (dist[a] != dist[b]) return dist[a] < dist[b];
-        return idx[a] < idx[b];
-    });
-    std::vector<int> si(k);
-    std::vector<double> sd(k);
-    for (int j = 0; j < k; ++j) { si[j] = idx[order[j]]; sd[j] = dist[order[j]]; }
-    idx.swap(si);
-    dist.swap(sd);
+    Neighbours out;
+    for (int j = 0; j < k; ++j) out.emplace_back(dist[j], idx[j]);
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
-void heap_knn(const Tree& tree, const double* query, int k,
-              std::vector<int>& idx, std::vector<double>& dist) {
+Neighbours heap_knn(const Tree& tree, const double* query, int k) {
     std::vector<HeapKnnEntry> buf(k);
     HeapKnnResultSet rs(static_cast<size_t>(k), buf.data());
     tree.findNeighbors(rs, query, nanoflann::SearchParameters(0.0f, true));
-    ASSERT_TRUE(rs.full());
-    idx.assign(k, -1);
-    dist.assign(k, 0.0);
+    EXPECT_TRUE(rs.full());
+    std::vector<int> idx(k, -1);
+    std::vector<double> dist(k, 0.0);
     rs.extract_sorted(idx.data(), dist.data());
+    Neighbours out;
+    for (int j = 0; j < k; ++j) out.emplace_back(dist[j], idx[j]);
+    return out;
 }
 
-// Points on a small integer grid with duplicates: almost every distance is tied.
-Eigen::MatrixXd grid_points(int n, int side, std::mt19937& rng) {
-    std::uniform_int_distribution<int> coord(0, side - 1);
-    Eigen::MatrixXd pts(2, n);
-    for (int i = 0; i < n; ++i) {
-        pts(0, i) = coord(rng);
-        pts(1, i) = coord(rng);
+void expect_matches_reference(const Eigen::MatrixXd& pts, const std::vector<int>& ks,
+                              const std::vector<int>& queries) {
+    ColMajorAdaptor adaptor(pts);
+    Tree tree(static_cast<int>(pts.rows()), adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    for (int k : ks) {
+        for (int q : queries) {
+            ASSERT_EQ(heap_knn(tree, pts.col(q).data(), k), reference_knn(tree, pts.col(q).data(), k))
+                << "k=" << k << " query=" << q;
+        }
     }
-    return pts;
 }
 
 } // namespace
 
 TEST(HeapKnnResultSet, MatchesKnnResultSetOnTiedGridPoints) {
+    // Points on a small integer grid with duplicates: almost every distance is tied.
     std::mt19937 rng(7);
+    std::vector<int> queries;
+    for (int q = 0; q < 2000; q += 97) queries.push_back(q);
     for (int side : {3, 8, 30}) {
-        Eigen::MatrixXd pts = grid_points(2000, side, rng);
-        ColMajorAdaptor adaptor(pts);
-        Tree tree(2, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
-        for (int k : {1, 2, 33, 100, 517, 2000}) {
-            for (int q = 0; q < pts.cols(); q += 97) {
-                std::vector<int> ri, hi;
-                std::vector<double> rd, hd;
-                reference_knn(tree, pts.col(q).data(), k, ri, rd);
-                heap_knn(tree, pts.col(q).data(), k, hi, hd);
-                ASSERT_EQ(ri, hi) << "side=" << side << " k=" << k << " query=" << q;
-                ASSERT_EQ(rd, hd) << "side=" << side << " k=" << k << " query=" << q;
-            }
+        SCOPED_TRACE(side);
+        std::uniform_int_distribution<int> coord(0, side - 1);
+        Eigen::MatrixXd pts(2, 2000);
+        for (int i = 0; i < pts.cols(); ++i) {
+            pts(0, i) = coord(rng);
+            pts(1, i) = coord(rng);
         }
+        expect_matches_reference(pts, {1, 2, 33, 100, 517, 2000}, queries);
     }
 }
 
@@ -108,18 +100,7 @@ TEST(HeapKnnResultSet, MatchesKnnResultSetOnContinuousPoints) {
         for (int d = 0; d < 3; ++d) pts(d, i) = nd(rng);
     // A block of exact duplicates of one point.
     for (int i = 0; i < 50; ++i) pts.col(100 + i) = pts.col(5);
-    ColMajorAdaptor adaptor(pts);
-    Tree tree(3, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(10));
-    for (int k : {40, 300}) {
-        for (int q : {5, 100, 149, 2999}) {
-            std::vector<int> ri, hi;
-            std::vector<double> rd, hd;
-            reference_knn(tree, pts.col(q).data(), k, ri, rd);
-            heap_knn(tree, pts.col(q).data(), k, hi, hd);
-            ASSERT_EQ(ri, hi) << "k=" << k << " query=" << q;
-            ASSERT_EQ(rd, hd) << "k=" << k << " query=" << q;
-        }
-    }
+    expect_matches_reference(pts, {40, 300}, {5, 100, 149, 2999});
 }
 
 // Direct addPoint sequences, including candidates that are not better than
