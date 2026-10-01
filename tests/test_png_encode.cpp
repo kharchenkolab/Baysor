@@ -1,11 +1,11 @@
-// PNG images of the HTML reports: decode the base64 data URIs produced by the
-// renderers with an independent minimal PNG reader (zlib inflate + all five
-// filter types) and check the pixels.
+// PNG images of the HTML reports: decode the base64 data URIs with an
+// independent minimal PNG reader and check the pixels.
 
 #include "baysor/reporting/preview_report.h"
 #include "baysor/reporting/run_report.h"
 #include "baysor/utils/options.h"
-#include "baysor/utils/thread_pool.h"
+
+#include "test_cov_helpers.h"
 
 #include <Eigen/Dense>
 #include <gtest/gtest.h>
@@ -13,7 +13,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <random>
 #include <regex>
 #include <set>
@@ -59,12 +58,8 @@ uint32_t be32(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
 }
 
-uint8_t paeth(int a, int b, int c) {
-    const int p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
-    return static_cast<uint8_t>((pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c));
-}
-
-// Minimal reader for 8-bit RGB, non-interlaced PNGs.
+// Minimal reader for 8-bit RGB, non-interlaced PNGs with filter types None
+// and Sub (the ones the encoder writes).
 DecodedPng decode_png_data_uri(const std::string& uri) {
     const std::string prefix = "data:image/png;base64,";
     if (uri.compare(0, prefix.size(), prefix) != 0) throw std::runtime_error("not a PNG data URI");
@@ -107,34 +102,16 @@ DecodedPng decode_png_data_uri(const std::string& uri) {
 
     out.rgb.assign(stride * out.height, 0);
     for (size_t y = 0; y < out.height; ++y) {
-        const uint8_t f = raw[y * (stride + 1)];
+        const uint8_t filter = raw[y * (stride + 1)];
+        if (filter > 1) throw std::runtime_error("unsupported filter type");
         const uint8_t* src = &raw[y * (stride + 1) + 1];
         uint8_t* dst = &out.rgb[y * stride];
-        const uint8_t* up = y > 0 ? &out.rgb[(y - 1) * stride] : nullptr;
         for (size_t i = 0; i < stride; ++i) {
-            const int a = i >= 3 ? dst[i - 3] : 0, b = up ? up[i] : 0, c = (up && i >= 3) ? up[i - 3] : 0;
-            int pred = 0;
-            switch (f) {
-                case 0: pred = 0; break;
-                case 1: pred = a; break;
-                case 2: pred = b; break;
-                case 3: pred = (a + b) / 2; break;
-                case 4: pred = paeth(a, b, c); break;
-                default: throw std::runtime_error("bad filter type");
-            }
-            dst[i] = static_cast<uint8_t>(src[i] + pred);
+            dst[i] = static_cast<uint8_t>(src[i] + (filter == 1 && i >= 3 ? dst[i - 3] : 0));
         }
     }
     return out;
 }
-
-class PoolSizeGuard {
-public:
-    explicit PoolSizeGuard(int n) : old_(baysor::thread_pool_size()) { baysor::set_thread_pool_size(n); }
-    ~PoolSizeGuard() { baysor::set_thread_pool_size(old_); }
-private:
-    int old_;
-};
 
 baysor::ScatterRaster test_raster(int n_points, int width, unsigned seed) {
     std::mt19937 rng(seed);
@@ -158,30 +135,24 @@ baysor::ScatterRaster test_raster(int n_points, int width, unsigned seed) {
 
 } // namespace
 
-TEST(PngEncode, RasterRoundTripsThroughPng) {
-    const baysor::ScatterRaster r = test_raster(3000, 517, 1);
-    ASSERT_FALSE(r.empty());
-    const DecodedPng img = decode_png_data_uri(baysor::encode_png_data_uris({r})[0]);
-    EXPECT_EQ(img.width, static_cast<uint32_t>(r.width_px));
-    EXPECT_EQ(img.height, static_cast<uint32_t>(r.height_px));
-    EXPECT_EQ(img.rgb, r.pixels);
-}
-
-TEST(PngEncode, ConcurrentEncodingMatchesSerialAndKeepsOrder) {
+TEST(PngEncode, RastersRoundTripInOrderForAnyThreadCount) {
     std::vector<baysor::ScatterRaster> rasters = {
         test_raster(2000, 400, 2), baysor::ScatterRaster{}, test_raster(500, 123, 3), test_raster(4000, 700, 4)};
     std::vector<std::string> serial;
     {
-        PoolSizeGuard guard(1);
+        baysor_test::PoolSizeGuard guard(1);
         serial = baysor::encode_png_data_uris(rasters);
     }
-    PoolSizeGuard guard(4);
+    baysor_test::PoolSizeGuard guard(4);
     const std::vector<std::string> parallel = baysor::encode_png_data_uris(rasters);
     ASSERT_EQ(parallel.size(), rasters.size());
     EXPECT_EQ(parallel, serial);
     EXPECT_EQ(parallel[1], "");
     for (size_t i : {0u, 2u, 3u}) {
-        EXPECT_EQ(decode_png_data_uri(parallel[i]).rgb, rasters[i].pixels) << "image " << i;
+        const DecodedPng img = decode_png_data_uri(parallel[i]);
+        EXPECT_EQ(img.width, static_cast<uint32_t>(rasters[i].width_px)) << "image " << i;
+        EXPECT_EQ(img.height, static_cast<uint32_t>(rasters[i].height_px)) << "image " << i;
+        EXPECT_EQ(img.rgb, rasters[i].pixels) << "image " << i;
     }
 }
 
