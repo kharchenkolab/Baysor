@@ -1,31 +1,15 @@
 #pragma once
 
-// Baysor's own persistent thread pool, replacing OpenMP for all internal
-// parallel loops (and, via the subpar custom-parallel hooks, for the
-// FetchContent dependencies that would otherwise spawn threads per call).
-//
-// Design notes:
-//  - One global pool, sized once at start-up from `--threads` (see
-//    `set_thread_pool_size`). Workers are persistent and block on a condition
-//    variable when idle, so an idle pool burns no CPU.
-//  - `parallel_for` supports static and dynamic chunking. Dynamic chunking
-//    hands out fixed-size chunks through an atomic counter; chunk boundaries
-//    therefore do not depend on the number of threads or on scheduling, which
-//    is what makes the chunk-keyed RNG scheme in the E-step deterministic.
-//  - `run_parallel_chunks` additionally reports the executing worker index so
-//    bodies can use per-worker scratch buffers.
-//  - A thread-local "inside a parallel region" flag makes nested parallel calls
-//    run serially on the current thread (replacing `omp_in_parallel`).
-//  - Exceptions thrown in worker tasks are rethrown on the calling thread.
-//  - With 1 thread no worker threads exist at all: everything runs inline on
-//    the calling thread in index order, preserving the exact serial code path
-//    (single-threaded results stay bitwise identical to the OpenMP build with
-//    OMP_NUM_THREADS=1).
-//  - `parallel_reduce` accumulates into a fixed number of buckets that depends
-//    on the data size but not on the thread count, and merges the buckets in
-//    index order. This keeps floating-point reductions deterministic and
-//    (for >1 thread) independent of the thread count. With 1 thread the whole
-//    range is a single bucket, i.e. a plain sequential accumulation.
+// Baysor's persistent thread pool. It runs all internal parallel loops and,
+// through the subpar/umappp hooks at the end of this file, those of the
+// FetchContent dependencies.
+//  - One global pool sized by `set_thread_pool_size` (`--threads`); idle
+//    workers block, so an idle pool burns no CPU.
+//  - With 1 thread, and for calls nested in a parallel loop or region,
+//    everything runs inline on the calling thread in index order.
+//  - Dynamic chunk boundaries depend only on (begin, end, chunk), never on the
+//    thread count or scheduling: the chunk-keyed E-step RNG relies on this.
+//  - Exceptions thrown by loop bodies are rethrown on the calling thread.
 
 #include <algorithm>
 #include <cstdint>
@@ -36,227 +20,168 @@
 namespace baysor {
 
 enum class Scheduling {
-    Static,   ///< contiguous blocks, one per worker (OpenMP `schedule(static)`)
-    Dynamic   ///< fixed-size chunks handed out via an atomic counter (OpenMP `schedule(dynamic, chunk)`)
+    Static,   ///< one contiguous chunk per worker; `chunk` is ignored
+    Dynamic   ///< chunks of `chunk` indices handed out in index order
 };
 
-/// Number of worker threads of the global pool (>= 1). This is the value the
-/// pool was configured with, even on nested/serial paths.
+/// Number of threads of the global pool (>= 1).
 int thread_pool_size();
 
-/// Default thread count when nothing is configured explicitly: the number of
-/// physical CPU cores when detectable (SMT siblings add little here and double
-/// wake-up costs), otherwise std::thread::hardware_concurrency().
+/// Number of physical CPU cores when detectable (SMT siblings add little here
+/// and double wake-up costs), otherwise std::thread::hardware_concurrency().
 int default_thread_count();
 
-/// (Re)configure the global pool to `n_threads` workers. Values <= 1 configure
-/// the serial fallback (no worker threads). Must be called before parallel
-/// work; in practice once at start-up from `--threads`.
+/// Sizes the global pool; values < 1 mean 1. Must not run concurrently with
+/// parallel work; in practice called once at start-up from `--threads`.
 void set_thread_pool_size(int n_threads);
 
-/// True while executing inside a parallel region (on a pool worker or in a
-/// serial nested run). Nested parallel calls run serially.
-bool inside_parallel_region();
-
-/// Index in [0, thread_pool_size()) of the current worker thread, for indexing
-/// per-worker scratch buffers. Returns 0 on non-pool threads (the calling
-/// thread, which only ever runs when the pool is serial, i.e. with 1 thread).
-int current_worker_index();
-
-/// Core primitive: run `fn(chunk_begin, chunk_end, worker_index)` on disjoint
-/// half-open index ranges covering [begin, end).
-///  - Dynamic: ranges are chunks of `chunk` indices handed out via an atomic
-///    counter; chunk boundaries are fixed given (begin, end, chunk).
-///  - Static: `chunk` is ignored and [begin, end) is split into contiguous
-///    blocks (one per worker) as evenly as possible.
-/// With 1 thread (or when nested inside another parallel region) everything
-/// runs inline on the calling thread in index order.
+/// Runs `fn(chunk_begin, chunk_end, worker)` on disjoint chunks covering
+/// [begin, end). `worker` is in [0, thread_pool_size()) and indexes per-worker
+/// scratch buffers; nested calls keep the worker of the enclosing chunk.
 void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
                          Scheduling sched,
                          const std::function<void(std::int64_t, std::int64_t, int)>& fn);
 
 namespace detail {
 
-// Detects bodies taking (index) vs (index, worker_index).
-template <class Fn, class = void>
-struct takes_worker : std::false_type {};
+// Chunk body running a per-index `fn(index)` or `fn(index, worker)`.
 template <class Fn>
-struct takes_worker<Fn, std::void_t<decltype(std::declval<Fn&>()(std::int64_t(0), 0))>>
-    : std::true_type {};
+auto per_index(Fn& fn) {
+    return [&fn](std::int64_t b, std::int64_t e, int worker) {
+        for (std::int64_t i = b; i < e; ++i) {
+            if constexpr (std::is_invocable_v<Fn&, std::int64_t, int>) {
+                fn(i, worker);
+            } else {
+                fn(i);
+            }
+        }
+    };
+}
 
 } // namespace detail
 
-/// Per-index parallel loop over [begin, end). `fn` takes either (index) or
-/// (index, worker_index). `chunk` is the dynamic chunk size (see
-/// run_parallel_chunks).
+/// Per-index loop over [begin, end) in dynamic chunks of `chunk` indices;
+/// `fn` takes (index) or (index, worker).
 template <class Fn>
-void parallel_for(std::int64_t begin, std::int64_t end, std::int64_t chunk, Fn&& fn,
-                  Scheduling sched = Scheduling::Dynamic) {
-    auto body = [f = std::forward<Fn>(fn)](std::int64_t b, std::int64_t e, int worker) mutable {
-        if constexpr (detail::takes_worker<Fn>::value) {
-            for (std::int64_t i = b; i < e; ++i) f(i, worker);
-        } else {
-            for (std::int64_t i = b; i < e; ++i) f(i);
-        }
-    };
-    run_parallel_chunks(begin, end, chunk, sched, body);
+void parallel_for(std::int64_t begin, std::int64_t end, std::int64_t chunk, Fn&& fn) {
+    run_parallel_chunks(begin, end, chunk, Scheduling::Dynamic, detail::per_index(fn));
 }
 
-/// Per-index serial-or-parallel loop for `schedule(static)` sites.
+/// parallel_for with one contiguous chunk per worker.
 template <class Fn>
 void parallel_for_static(std::int64_t begin, std::int64_t end, Fn&& fn) {
-    parallel_for(begin, end, /*chunk=*/0, std::forward<Fn>(fn), Scheduling::Static);
+    run_parallel_chunks(begin, end, 0, Scheduling::Static, detail::per_index(fn));
 }
 
-/// Deterministic reduction over [begin, end). The range is split into a fixed
-/// number of buckets (depending on the range size and `bucket_size`, but never
-/// on the thread count; with 1 thread there is exactly one bucket covering the
-/// whole range). `fn(bucket_begin, bucket_end, T& acc)` accumulates into a
-/// private bucket initialized to `init`, and the buckets are merged in index
-/// order with `combine(acc, bucket)`. The final fold is
-/// `out = init; out = combine(out, bucket_i)` in bucket order, so with one
-/// bucket this is exactly the sequential accumulation.
+/// Deterministic reduction over [begin, end). `fn(chunk_begin, chunk_end, acc)`
+/// accumulates into one of at most 64 buckets initialized to `init`, which are
+/// then folded in index order: `out = combine(out, bucket)`, starting from
+/// `out = init`. The buckets depend on the range size and `bucket_size` but
+/// never on the thread count; with 1 thread there is a single bucket.
 template <class T, class Fn, class Combine>
 T parallel_reduce(std::int64_t begin, std::int64_t end, std::int64_t bucket_size,
                   T init, Fn&& fn, Combine&& combine) {
     if (end <= begin) return init;
-
-    constexpr std::int64_t kMaxBuckets = 64;
-    std::int64_t n = end - begin;
-    std::int64_t n_buckets;
-    if (bucket_size <= 0 || thread_pool_size() <= 1) {
-        n_buckets = 1;
-    } else {
-        n_buckets = (n + bucket_size - 1) / bucket_size;
-        if (n_buckets > kMaxBuckets) n_buckets = kMaxBuckets;
-        if (n_buckets < 1) n_buckets = 1;
-    }
-    std::int64_t stride = (n + n_buckets - 1) / n_buckets;
+    const std::int64_t n = end - begin;
+    const std::int64_t n_buckets = (bucket_size <= 0 || thread_pool_size() <= 1)
+        ? 1 : std::min<std::int64_t>((n + bucket_size - 1) / bucket_size, 64);
+    const std::int64_t stride = (n + n_buckets - 1) / n_buckets;
 
     std::vector<T> accs(static_cast<size_t>(n_buckets), init);
     run_parallel_chunks(begin, end, stride, Scheduling::Dynamic,
         [&](std::int64_t b, std::int64_t e, int) {
-            std::int64_t bucket = (b - begin) / stride;
-            fn(b, e, accs[static_cast<size_t>(bucket)]);
+            fn(b, e, accs[static_cast<size_t>((b - begin) / stride)]);
         });
-
-    T out = init;
-    for (auto& acc : accs) {
-        out = combine(out, acc);
-    }
-    return out;
+    for (auto& acc : accs) init = combine(init, acc);
+    return init;
 }
 
 // ---------------------------------------------------------------------------
 // Persistent parallel regions
 // ---------------------------------------------------------------------------
 // `parallel_region(body)` wakes the pool once and runs `body(region)` on every
-// worker (OpenMP `#pragma omp parallel`). Inside, the participants execute
-// work-shared loops, barriers and single blocks, so a sequence of parallel
-// phases with short serial glue costs one wake-up instead of one per loop.
-//
-// Rules (as in OpenMP):
+// worker (OpenMP `#pragma omp parallel`), so a sequence of work-shared loops
+// with short serial glue costs one wake-up instead of one per loop.
 //  - Every participant must call the work-sharing constructs (`for_chunks`,
 //    `for_each`, `barrier`, `single`) in the same order with the same
 //    arguments; control flow that depends on shared data must read it only
 //    after a barrier that orders its last write.
-//  - Exceptions thrown inside `for_chunks` bodies and `single` blocks are
-//    recorded, the remaining constructs are skipped (`cancelled()` becomes
-//    true after the next barrier), and the first exception is rethrown on the
-//    calling thread when the region ends. The body itself must not throw
-//    outside these constructs.
-//  - With 1 thread, or when called inside another parallel region, the body
-//    runs once on the calling thread with `n_workers() == 1`; loops then run
-//    their chunks inline in index order, exactly like run_parallel_chunks.
-//  - Nested parallel_for / run_parallel_chunks calls inside the region run
-//    serially on the calling participant.
+//  - An exception in a loop body or `single` block cancels the region: the
+//    remaining constructs are skipped, `cancelled()` is true on every
+//    participant after the next barrier, and the first exception is rethrown
+//    when the region ends.
+//  - With 1 thread, or nested in a parallel loop or region, the body runs once
+//    inline with `n_workers() == 1`.
 
 namespace detail { struct RegionShared; }
 
 class ParallelRegion {
 public:
-    /// Index of this participant in [0, n_workers()). The calling thread is
-    /// n_workers() - 1 (it also runs `single` blocks).
-    int worker_index() const { return worker_; }
-    int n_workers() const { return n_workers_; }
-    bool is_master() const { return worker_ == n_workers_ - 1; }
-
-    /// Work-shared loop over [begin, end), followed by a barrier.
-    ///  - Dynamic: fixed chunks of `chunk` indices handed out through a shared
-    ///    counter; chunk boundaries never depend on the thread count.
-    ///  - Static: [begin, end) split into n_workers() contiguous blocks as
-    ///    evenly as possible; participant w processes block w (if non-empty),
-    ///    so per-worker partial results can be indexed by worker_index().
-    /// `fn(chunk_begin, chunk_end, worker_index)`.
-    void for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
-                    Scheduling sched,
-                    const std::function<void(std::int64_t, std::int64_t, int)>& fn);
-
-    /// Per-index work-shared loop; `fn` takes (index) or (index, worker_index).
-    template <class Fn>
-    void for_each(std::int64_t begin, std::int64_t end, std::int64_t chunk, Fn&& fn,
-                  Scheduling sched = Scheduling::Dynamic) {
-        for_chunks(begin, end, chunk, sched,
-            [&fn](std::int64_t b, std::int64_t e, int worker) {
-                if constexpr (detail::takes_worker<Fn>::value) {
-                    for (std::int64_t i = b; i < e; ++i) fn(i, worker);
-                } else {
-                    for (std::int64_t i = b; i < e; ++i) fn(i);
-                }
-            });
-    }
-
-    /// All participants wait until every participant has arrived.
-    void barrier();
-
-    /// Run `fn()` on the master participant only, then barrier.
-    template <class Fn>
-    void single(Fn&& fn) {
-        if (is_master() && !cancelled()) {
-            run_guarded([&fn]() { fn(); });
-        }
-        barrier();
-    }
-
-    /// True once a construct has failed (stable between barriers).
-    bool cancelled() const;
-
     ParallelRegion(detail::RegionShared* shared, int worker, int n_workers)
         : shared_(shared), worker_(worker), n_workers_(n_workers) {}
     ParallelRegion(const ParallelRegion&) = delete;
     ParallelRegion& operator=(const ParallelRegion&) = delete;
 
-private:
-    void run_guarded(const std::function<void()>& fn);
+    /// Index of this participant in [0, n_workers()). The master, which runs
+    /// `single` blocks, is the calling thread: n_workers() - 1.
+    int worker_index() const { return worker_; }
+    int n_workers() const { return n_workers_; }
+    bool is_master() const { return worker_ == n_workers_ - 1; }
 
-    detail::RegionShared* shared_;  // nullptr: serial region
+    /// Work-shared loop with the chunks of run_parallel_chunks, then a barrier.
+    /// `worker` is worker_index().
+    void for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
+                    Scheduling sched,
+                    const std::function<void(std::int64_t, std::int64_t, int)>& fn);
+
+    /// Per-index for_chunks in dynamic chunks; `fn` takes (index) or (index, worker).
+    template <class Fn>
+    void for_each(std::int64_t begin, std::int64_t end, std::int64_t chunk, Fn&& fn) {
+        for_chunks(begin, end, chunk, Scheduling::Dynamic, detail::per_index(fn));
+    }
+
+    /// Waits until every participant has arrived.
+    void barrier();
+
+    /// Runs `fn()` on the master only, then a barrier.
+    template <class Fn>
+    void single(Fn&& fn) {
+        if (is_master() && !cancelled()) {
+            try {
+                fn();
+            } catch (...) {
+                record_error();
+            }
+        }
+        barrier();
+    }
+
+    /// True once a construct has failed.
+    bool cancelled() const;
+
+private:
+    void record_error();
+
+    detail::RegionShared* shared_;
     int worker_;
     int n_workers_;
-    std::int64_t chunk_base_ = 0;   // this participant's view of the shared chunk counter
+    std::int64_t chunk_base_ = 0;  // this participant's view of the shared chunk counter
 };
 
-/// Run `body` once on every pool worker (see above). Blocks until all
-/// participants have returned; rethrows the first recorded exception.
+/// Runs `body` once on every pool worker (see above) and returns when all
+/// participants have finished; rethrows the first exception.
 void parallel_region(const std::function<void(ParallelRegion&)>& body);
 
-} // namespace baysor
-
 // ---------------------------------------------------------------------------
-// Custom-parallelization hooks for the FetchContent dependencies
+// Custom-parallelization hooks of the FetchContent dependencies
 // ---------------------------------------------------------------------------
-// Defined as SUBPAR_CUSTOM_PARALLELIZE_RANGE / SUBPAR_CUSTOM_PARALLELIZE_SIMPLE
-// / UMAPPP_CUSTOM_PARALLEL (see src/processing/data_processing/umap_wrappers.cpp,
-// which must include this header before the dependency headers) so that
-// umappp, knncolle, irlba and CppKmeans run their parallel loops on the Baysor
-// pool instead of OpenMP or per-call std::thread spawns.
+// src/processing/data_processing/umap_wrappers.cpp defines
+// SUBPAR_CUSTOM_PARALLELIZE_RANGE / _SIMPLE and UMAPPP_CUSTOM_PARALLEL as these
+// functions, so umappp, knncolle, irlba and CppKmeans run on the Baysor pool.
 
-namespace baysor {
-
-/// Drop-in replacement for `subpar::parallelize_range`. Keeps subpar's default
-/// contiguous split (worker w gets `num_tasks / num_workers` tasks plus one
-/// extra while w < `num_tasks % num_workers`), so per-worker data indexed by
-/// `w` behaves exactly as with subpar's own scheme. `run_task_range(w, start,
-/// length)` is invoked once per worker slot.
+/// `subpar::parallelize_range` with subpar's split: worker w of
+/// W = min(num_workers, num_tasks) gets num_tasks / W tasks, plus one while
+/// w < num_tasks % W, so per-worker data indexed by `w` behaves as in subpar.
 template <class Task_, class Run_>
 void subpar_parallelize_range(int num_workers, Task_ num_tasks, Run_ run_task_range) {
     if (num_tasks <= Task_(0)) return;
@@ -264,39 +189,29 @@ void subpar_parallelize_range(int num_workers, Task_ num_tasks, Run_ run_task_ra
         run_task_range(0, Task_(0), num_tasks);
         return;
     }
-    std::int64_t W = std::min<std::int64_t>(num_workers, static_cast<std::int64_t>(num_tasks));
-    std::int64_t tpu = static_cast<std::int64_t>(num_tasks) / W;
-    std::int64_t rem = static_cast<std::int64_t>(num_tasks) % W;
-    parallel_for(0, W, 1, [&](std::int64_t w) {
-        Task_ start = static_cast<Task_>(w * tpu + std::min<std::int64_t>(w, rem));
-        Task_ len = static_cast<Task_>(tpu + (w < rem ? 1 : 0));
-        run_task_range(static_cast<int>(w), start, len);
+    const auto n = static_cast<std::int64_t>(num_tasks);
+    const std::int64_t n_workers = std::min<std::int64_t>(num_workers, n);
+    const std::int64_t per_worker = n / n_workers;
+    const std::int64_t rem = n % n_workers;
+    parallel_for(0, n_workers, 1, [&](std::int64_t w) {
+        run_task_range(static_cast<int>(w), static_cast<Task_>(w * per_worker + std::min(w, rem)),
+                       static_cast<Task_>(per_worker + (w < rem ? 1 : 0)));
     });
 }
 
-/// Drop-in replacement for `subpar::parallelize_simple` (1:1 task/worker).
+/// `subpar::parallelize_simple`: one task per worker.
 template <class Task_, class Run_>
 void subpar_parallelize_simple(Task_ num_tasks, Run_ run_task) {
-    if (num_tasks <= Task_(0)) return;
-    parallel_for(0, static_cast<std::int64_t>(num_tasks), 1, [&](std::int64_t w) {
-        run_task(static_cast<Task_>(w));
+    parallel_for(0, static_cast<std::int64_t>(num_tasks), 1, [&](std::int64_t t) {
+        run_task(static_cast<Task_>(t));
     });
 }
 
-/// Drop-in replacement for umappp's `UMAPPP_CUSTOM_PARALLEL`: split
-/// [0, num_tasks) into contiguous ranges and call `run(first, last)` on each.
+/// umappp's `UMAPPP_CUSTOM_PARALLEL`: `run(first, last)` on contiguous ranges.
 template <class Task_, class Run_>
 void umappp_parallel_range(Task_ num_tasks, Run_ run, int num_threads) {
-    if (num_tasks <= Task_(0)) return;
-    std::int64_t W = std::min<std::int64_t>(
-        std::max(1, num_threads), static_cast<std::int64_t>(num_tasks));
-    std::int64_t tpu = static_cast<std::int64_t>(num_tasks) / W;
-    std::int64_t rem = static_cast<std::int64_t>(num_tasks) % W;
-    parallel_for(0, W, 1, [&](std::int64_t w) {
-        std::int64_t start = w * tpu + std::min<std::int64_t>(w, rem);
-        std::int64_t len = tpu + (w < rem ? 1 : 0);
-        run(static_cast<Task_>(start), static_cast<Task_>(start + len));
-    });
+    subpar_parallelize_range(num_threads, num_tasks,
+                             [&](int, Task_ start, Task_ len) { run(start, start + len); });
 }
 
 } // namespace baysor
