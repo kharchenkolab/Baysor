@@ -10,7 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
-#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -42,39 +42,40 @@ namespace {
 thread_local int t_worker_index = 0;
 thread_local int t_region_depth = 0;
 
-inline void cpu_relax() {
-#if defined(__x86_64__) || defined(__i386__)
-    __builtin_ia32_pause();
-#elif defined(__aarch64__) || defined(__arm__)
-    __asm__ __volatile__("yield" ::: "memory");
-#else
-    std::this_thread::yield();
-#endif
-}
+// Spin budget before blocking at job hand-off, job completion and region
+// barriers: it absorbs the wake-up latency of back-to-back parallel loops.
+constexpr int kSpinUs = 20;
 
-// Spin-then-block budget for job hand-off and region completion (microseconds).
-// A short bounded spin captures the latency win of busy waiting at light load
-// without its catastrophic behaviour on a loaded host (where OpenMP-style
-// spinning measured slower than a single thread). 0 disables spinning.
-// Explicit BAYSOR_POOL_SPIN_US value, or -1 when unset/invalid.
-int spin_budget_env() {
-    static const int value = [] {
-        if (const char* env = std::getenv("BAYSOR_POOL_SPIN_US")) {
-            try {
-                int v = std::stoi(env);
-                if (v >= 0) return v;
-            } catch (...) {
-                // fall through: unset
-            }
+// `us`, unless BAYSOR_POOL_SPIN_US overrides it: the profiling suite sets 0
+// under Valgrind, where the spin (bounded by a wall-clock deadline) would
+// make instruction counts depend on host timing.
+int spin_budget(int us) {
+    static const int env_us = [] {
+        const char* env = std::getenv("BAYSOR_POOL_SPIN_US");
+        try {
+            return env != nullptr ? std::max(std::stoi(env), -1) : -1;
+        } catch (const std::logic_error&) {  // not a number, or out of range
+            return -1;
         }
-        return -1;
     }();
-    return value;
+    return env_us >= 0 ? env_us : us;
 }
 
-int spin_budget_us() {
-    const int env = spin_budget_env();
-    return env >= 0 ? env : 20;
+// Busy-waits up to `us` microseconds for `ready()`; returns its last value.
+template <class Pred>
+bool spin_until(Pred ready, int us) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(us);
+    while (!ready()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+#if defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+        __asm__ __volatile__("yield" ::: "memory");
+#else
+        std::this_thread::yield();
+#endif
+    }
+    return true;
 }
 
 #ifdef __linux__
@@ -240,21 +241,10 @@ private:
                 continue;
             }
 
-            // Spin-then-block on the hand-off: a short bounded spin absorbs
-            // the wake-up latency of back-to-back regions, then block for
-            // real so an idle pool burns no CPU.
-            if (spin_budget_us() > 0) {
-                const auto deadline = std::chrono::steady_clock::now() +
-                    std::chrono::microseconds(spin_budget_us());
-                while (w.gen.load(std::memory_order_acquire) == seen) {
-                    if (std::chrono::steady_clock::now() >= deadline) break;
-                    cpu_relax();
-                }
-                if (w.gen.load(std::memory_order_acquire) != seen) continue;
-            }
-
+            const auto woken = [&] { return w.gen.load(std::memory_order_acquire) != seen; };
+            if (spin_until(woken, spin_budget(kSpinUs))) continue;
             std::unique_lock<std::mutex> lk(w.mutex);
-            w.cv.wait(lk, [&] { return w.gen.load(std::memory_order_acquire) != seen; });
+            w.cv.wait(lk, woken);
         }
     }
 
@@ -295,19 +285,10 @@ private:
     }
 
     void wait_for_done(Job& job) {
-        // Spin-then-block on the region barrier: short regions complete within
-        // the spin budget and skip the futex round-trip entirely.
-        if (spin_budget_us() > 0) {
-            const auto deadline = std::chrono::steady_clock::now() +
-                std::chrono::microseconds(spin_budget_us());
-            while (!job.done.load(std::memory_order_acquire)) {
-                if (std::chrono::steady_clock::now() >= deadline) break;
-                cpu_relax();
-            }
-        }
-        if (job.done.load(std::memory_order_acquire)) return;
+        const auto done = [&] { return job.done.load(std::memory_order_acquire); };
+        if (spin_until(done, spin_budget(kSpinUs))) return;
         std::unique_lock<std::mutex> lk(done_mutex_);
-        done_cv_.wait(lk, [&] { return job.done.load(std::memory_order_acquire); });
+        done_cv_.wait(lk, done);
     }
 
     int n_workers_;
@@ -396,11 +377,7 @@ namespace detail {
 
 struct RegionShared {
     int n_workers = 1;
-    // Barrier spin budget (us). Without an explicit BAYSOR_POOL_SPIN_US it is
-    // 0 when the region has more workers than physical cores: spinning
-    // waiters then take CPU time from preempted participants that everyone
-    // is waiting for.
-    int spin_us = 0;
+    int spin_us = 0;  // barrier spin budget
 
     // Dynamic loops: one monotonically increasing chunk counter for the whole
     // region. Every participant claims chunks of a loop until it overshoots,
@@ -663,17 +640,8 @@ void ParallelRegion::barrier() {
         return;
     }
 
-    // Spin-then-block: barriers between balanced phases resolve within the
-    // spin budget; long serial sections (single blocks) put waiters to sleep.
-    if (sh.spin_us > 0) {
-        const auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::microseconds(sh.spin_us);
-        while (sh.generation.load(std::memory_order_acquire) == gen) {
-            if (std::chrono::steady_clock::now() >= deadline) break;
-            cpu_relax();
-        }
-    }
-    if (sh.generation.load(std::memory_order_acquire) != gen) return;
+    const auto released = [&] { return sh.generation.load(std::memory_order_acquire) != gen; };
+    if (spin_until(released, sh.spin_us)) return;
 #ifdef __linux__
     sh.sleepers.fetch_add(1, std::memory_order_seq_cst);
     while (sh.generation.load(std::memory_order_seq_cst) == gen) {
@@ -683,7 +651,7 @@ void ParallelRegion::barrier() {
 #else
     std::unique_lock<std::mutex> lk(sh.mutex);
     sh.sleepers.fetch_add(1, std::memory_order_relaxed);
-    sh.cv.wait(lk, [&] { return sh.generation.load(std::memory_order_acquire) != gen; });
+    sh.cv.wait(lk, released);
     sh.sleepers.fetch_sub(1, std::memory_order_relaxed);
 #endif
 }
@@ -712,9 +680,10 @@ void parallel_region(const std::function<void(ParallelRegion&)>& body) {
 
     detail::RegionShared shared;
     shared.n_workers = pool->n_workers();
+    // No barrier spinning with more workers than physical cores: spinning
+    // waiters take CPU time from the preempted participants they wait for.
     static const int physical_cores = default_thread_count();
-    shared.spin_us = spin_budget_env() >= 0 ? spin_budget_env()
-                   : (shared.n_workers > physical_cores ? 0 : spin_budget_us());
+    shared.spin_us = spin_budget(shared.n_workers > physical_cores ? 0 : kSpinUs);
     const std::function<void(int)> participant = [&](int worker) {
         ParallelRegion region(&shared, worker, shared.n_workers);
         body(region);
