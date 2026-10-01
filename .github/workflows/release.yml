@@ -1,18 +1,9 @@
 name: release
 
-# Builds portable Baysor binaries for a GitHub release and attaches them to it:
-#   baysor-<version>-linux-x86_64.tar.gz, baysor-<version>-macos-arm64.tar.gz,
-#   baysor-<version>-windows-x86_64.zip and SHA256SUMS.
-# It also builds a Docker image of the Linux binary and pushes it to GHCR
-# and (when the secrets are configured) Docker Hub — see the `docker` job and
-# RELEASING.md, "Docker images". The build scripts live in packaging/;
-# see RELEASING.md.
-#
-# For real releases (a published release, or workflow_dispatch with a tag) the
-# behaviour is: check the version, build all platforms, attach the archives to
-# the release (even partially, failing if any platform is missing). The same
-# build can be exercised without a release via workflow_dispatch with
-# dry_run=true (see RELEASING.md, "Dry-run builds").
+# Builds the portable Baysor archives for a GitHub release and attaches them,
+# with SHA256SUMS, to it; the `docker` job publishes an image of the Linux
+# binary. With workflow_dispatch and dry_run=true the same builds run for any
+# ref without a release and without uploading. See RELEASING.md.
 
 on:
   release:
@@ -66,28 +57,19 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
           REF: ${{ inputs.ref }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
-          dry_run="${DRY_RUN:-false}"
-          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
-            dry_run=false
-          fi
-          if [[ "$dry_run" == "true" ]]; then
-            # No release is needed: build the requested ref, or the one the
-            # workflow runs on, whatever it is.
+          if [[ "$DRY_RUN" == true ]]; then
             ref="${REF:-$GITHUB_REF}"
             echo "Dry run of $ref (no release, no upload)"
-            echo "tag=" >> "$GITHUB_OUTPUT"
-            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+            TAG=
+          elif [[ -n "$TAG" ]]; then
+            ref="refs/tags/$TAG"
           else
-            if [[ -z "$TAG" ]]; then
-              echo "::error::no release tag (set the tag input, or dry_run=true)"
-              exit 1
-            fi
-            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-            echo "ref=refs/tags/$TAG" >> "$GITHUB_OUTPUT"
+            echo "::error::no release tag (set the tag input, or dry_run=true)"
+            exit 1
           fi
-          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          { echo "tag=$TAG"; echo "ref=$ref"; echo "dry_run=$DRY_RUN"; } >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -101,19 +83,13 @@ jobs:
           TAG: ${{ steps.resolve.outputs.tag }}
         run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft
 
+      # Without a tag (dry run) the version is that of the sources.
       - name: Derive and check version
         id: version
         env:
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          if [[ -n "$TAG" ]]; then
-            version="$(packaging/release_version.sh "$TAG")"
-          else
-            # Dry run: version from the sources; release_version.sh re-checks
-            # that CMakeLists.txt and vcpkg.json agree on it.
-            version="$(sed -n 's/^project(baysor VERSION \([^ )]*\).*/\1/p' CMakeLists.txt)"
-            packaging/release_version.sh "cpp-$version" > /dev/null
-          fi
+          version="$(packaging/release_version.sh "$TAG")"
           echo "version $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -122,26 +98,23 @@ jobs:
         env:
           PLATFORMS: ${{ inputs.platforms }}
         run: |
-          include='[
+          matrix='[
             {"platform": "linux-x86_64", "os": "ubuntu-24.04", "archive": "tar.gz"},
             {"platform": "macos-arm64", "os": "macos-14", "archive": "tar.gz"},
             {"platform": "windows-x86_64", "os": "windows-2022", "archive": "zip"}
           ]'
           if [[ -n "${PLATFORMS// /}" ]]; then
-            want="$(printf '%s' "$PLATFORMS" | tr ',' '\n' | tr -d ' ' | grep -v '^$' | jq -R . | jq -cs .)"
-            for p in $(jq -r '.[]' <<< "$want"); do
-              jq -e --arg p "$p" 'any(.[].platform; . == $p)' <<< "$include" > /dev/null \
+            for p in ${PLATFORMS//,/ }; do
+              jq -e --arg p "$p" 'any(.[]; .platform == $p)' <<< "$matrix" > /dev/null \
                 || { echo "::error::unknown platform in the platforms input: $p"; exit 1; }
             done
-            include="$(jq -c --argjson want "$want" \
-              '[.[] | select(.platform as $p | $want | index($p))]' <<< "$include")"
+            matrix="$(jq --arg want "${PLATFORMS// /}" '[.[] | select(.platform | IN($want | split(",")[]))]' <<< "$matrix")"
           fi
-          if [[ "$include" == "[]" ]]; then
+          if [[ "$(jq length <<< "$matrix")" == 0 ]]; then
             echo "::error::no platforms selected"
             exit 1
           fi
-          include="$(jq -c . <<< "$include")"
-          echo "matrix=$include" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -c . <<< "$matrix")" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.platform }})
@@ -162,34 +135,9 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.ref }}
 
-      # Refs that predate the vcpkg overlay fix (the fork's v0.8.3 test tag)
-      # carry neither vcpkg-configuration.json nor
-      # packaging/vcpkg-overlay-ports/; without them every Windows build dies
-      # on the MSYS2 autoconf2.71 package that MSYS2 dropped from its mirrors
-      # (microsoft/vcpkg#53437). Take both files from the ref the workflow
-      # definition comes from when the built ref lacks them — a no-op for
-      # every ref that carries them, i.e. for all releases after the fix.
-      - name: Provide the vcpkg overlay fix for older refs
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -f vcpkg-configuration.json && -d packaging/vcpkg-overlay-ports ]]; then
-            echo "The built ref carries the vcpkg configuration; nothing to copy"
-            exit 0
-          fi
-          wf_ref="${GITHUB_WORKFLOW_REF#*@}"
-          git fetch --depth 1 origin "$wf_ref"
-          if git checkout FETCH_HEAD -- vcpkg-configuration.json packaging/vcpkg-overlay-ports; then
-            echo "Copied vcpkg-configuration.json and packaging/vcpkg-overlay-ports/ from $wf_ref"
-          else
-            echo "::warning::the vcpkg overlay fix is missing from both the built ref and $wf_ref; the Windows build may fail (microsoft/vcpkg#53437)"
-          fi
-
-      # vcpkg binary packages. The key covers everything that changes
-      # package ABIs; a hit turns the build into a Baysor-only compile.
-      # Restore and save are separate steps so that the packages built by a
-      # failed run (a cold build takes hours) are still saved and reused by
-      # the rerun.
+      # vcpkg binary packages; a hit turns the build into a Baysor-only
+      # compile. Saved even when the build fails, so that a rerun reuses the
+      # packages built so far (a cold build takes hours).
       - name: Compute cache key
         id: cache-key
         shell: bash
@@ -198,8 +146,7 @@ jobs:
       - name: Restore build cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            .release-cache/vcpkg-bincache
+          path: .release-cache/vcpkg-bincache
           key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ${{ steps.cache-key.outputs.prefix }}-
@@ -229,14 +176,10 @@ jobs:
         if: always() && !cancelled()
         uses: actions/cache/save@v4
         with:
-          path: |
-            .release-cache/vcpkg-bincache
+          path: .release-cache/vcpkg-bincache
           key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # vcpkg keeps the configure/build logs of every port under buildtrees/
-      # (removed only after the port builds successfully), so they survive a
-      # failed build; upload them to make the failure diagnosable without a
-      # rerun.
+      # vcpkg removes a port's logs only after it builds successfully.
       - name: Upload vcpkg failure logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -246,38 +189,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Check archive name
-        shell: bash
-        run: |
-          ls -l dist
-          test -f "dist/$ASSET.${{ matrix.archive }}"
-          { echo "### $ASSET"; echo '```'; ls -l "dist/$ASSET.${{ matrix.archive }}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Smoke test (Linux; native, almalinux:8, debian:10, qemu64)
         if: runner.os == 'Linux'
         run: packaging/linux/test-in-docker.sh "dist/$ASSET.tar.gz"
 
-      - name: Smoke test (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p "$RUNNER_TEMP/smoke"
-          tar -xzf "dist/$ASSET.tar.gz" -C "$RUNNER_TEMP/smoke"
-          packaging/smoke_test.sh "$RUNNER_TEMP/smoke/$ASSET/bin/baysor" "$VERSION"
-
-      - name: Extract archive (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Expand-Archive -Path "dist/$env:ASSET.zip" -DestinationPath "$env:RUNNER_TEMP/smoke"
-
-      # A minimal PATH, so that DLLs missing from the archive cannot be picked
-      # up from tools installed on the runner.
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
+      # A minimal PATH, so that DLLs missing from the Windows archive cannot be
+      # picked up from tools installed on the runner.
+      - name: Smoke test (macOS, Windows)
+        if: runner.os != 'Linux'
         shell: bash
         run: |
-          smoke_dir="$(cygpath -u "$RUNNER_TEMP")/smoke/$ASSET"
-          PATH="/usr/bin:/c/Windows/System32:/c/Windows" \
-            bash packaging/smoke_test.sh "$smoke_dir/bin/baysor.exe" "$VERSION"
+          mkdir smoke && (cd smoke && cmake -E tar xf "../dist/$ASSET.${{ matrix.archive }}")
+          PATH="/usr/bin:/bin:/c/Windows/System32:/c/Windows" \
+            bash packaging/smoke_test.sh "smoke/$ASSET/bin/baysor${{ runner.os == 'Windows' && '.exe' || '' }}" "$VERSION"
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
@@ -290,7 +214,6 @@ jobs:
   # Runs even if some platforms failed: the archives that were built are
   # attached, and the job then fails, listing the missing platforms, so the
   # run stays red until they are rebuilt (workflow_dispatch with the tag).
-  # Skipped for dry runs: nothing is uploaded anywhere.
   publish:
     name: Upload to release
     needs: [version, build]
@@ -312,24 +235,16 @@ jobs:
       - name: Write SHA256SUMS
         id: sums
         run: |
-          mkdir -p dist
-          cd dist
-          expected=(
-            "baysor-$VERSION-linux-x86_64.tar.gz"
-            "baysor-$VERSION-macos-arm64.tar.gz"
-            "baysor-$VERSION-windows-x86_64.zip"
-          )
-          present=()
+          mkdir -p dist && cd dist
           missing=()
-          for f in "${expected[@]}"; do
-            if [[ -f "$f" ]]; then present+=("$f"); else missing+=("$f"); fi
+          for a in linux-x86_64.tar.gz macos-arm64.tar.gz windows-x86_64.zip; do
+            [[ -f "baysor-$VERSION-$a" ]] || missing+=("baysor-$VERSION-$a")
           done
-          if (( ${#present[@]} == 0 )); then
+          if (( ${#missing[@]} == 3 )); then
             echo "::error::no archives were built"
             exit 1
           fi
-          sha256sum "${present[@]}" > SHA256SUMS
-          cat SHA256SUMS
+          sha256sum baysor-"$VERSION"-* | tee SHA256SUMS
           echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
 
       - name: Upload to release
@@ -348,22 +263,15 @@ jobs:
           echo "::error::not attached to the release (build failed): $MISSING"
           exit 1
 
-  # Builds a small runtime image from the Linux release archive
-  # (packaging/docker/Dockerfile) with docker/build-push-action, smoke-tests
-  # it in the container and pushes it to GHCR, plus Docker Hub when its
-  # secrets exist. Independent of `publish` on purpose: neither job needs the
-  # other, so a Docker failure does not stop the archives from being attached
-  # to the release and a failed upload does not hide a broken image — the run
-  # turns red either way. See RELEASING.md, "Docker images".
+  # Builds a runtime image from the Linux archive, smoke-tests it and pushes it
+  # to GHCR, and to Docker Hub when its secrets exist (RELEASING.md, "Docker
+  # images"). Independent of `publish`, so that neither failure hides the
+  # other; skipped when the platforms input leaves out linux-x86_64.
   docker:
     name: Docker image
     needs: [version, build]
-    # Implied: version and all selected builds succeeded (default success()),
-    # and linux-x86_64 is among them — a `platforms` subset without the Linux
-    # build skips this job.
     if: contains(needs.version.outputs.matrix, 'linux-x86_64')
     runs-on: ubuntu-24.04
-    # The image push needs packages:write; scoped to this job only.
     permissions:
       contents: read
       packages: write
@@ -372,15 +280,10 @@ jobs:
       DRY_RUN: ${{ needs.version.outputs.dry_run }}
       TAG: ${{ needs.version.outputs.tag }}
     steps:
-      # The Dockerfile, the latest-decision script and the smoke test come
-      # from the ref the workflow runs on: for `release` events that is the
-      # tag (like every other job, the tag must contain packaging/), for
-      # workflow_dispatch it is the branch the workflow definition is taken
-      # from (a tag may predate packaging/docker/).
+      # The workflow's own ref, not the built one: a rebuilt tag may predate
+      # packaging/docker/.
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
 
       - name: Download Linux archive
         uses: actions/download-artifact@v4
@@ -388,138 +291,79 @@ jobs:
           name: baysor-${{ needs.version.outputs.version }}-linux-x86_64
           path: docker-context
 
-      # Without both secrets (forks, local runners) the Docker Hub push is
-      # skipped with a warning; GHCR only needs GITHUB_TOKEN.
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Tags: X.Y.Z always; `latest` only when packaging/is_latest_release.py
-      # says the release is the newest stable one (not a pre-release and its
-      # version >= every published stable release's — the same rule as the
-      # docs site's `latest`, so Julia-era v0.* releases are just older
-      # versions). Dry runs consult no release and push nothing.
+      # X.Y.Z always, plus `latest` for the newest stable release. Dry runs
+      # consult no release and push nothing.
       - name: Compute image names and tags
         id: meta
         env:
           GH_TOKEN: ${{ github.token }}
-          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
-          DOCKERHUB_AVAILABLE: ${{ steps.dockerhub.outputs.available }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'vpetukhov/baysor' }}
         run: |
           set -euo pipefail
-          owner_lc="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          ghcr="ghcr.io/$owner_lc/baysor"
-          dockerhub="${DOCKERHUB_REPOSITORY:-vpetukhov/baysor}"
-
-          is_latest=false
-          if [[ "$DRY_RUN" != "true" ]]; then
-            prerelease="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)"
-            args=("$VERSION" --repo "$GITHUB_REPOSITORY")
-            if [[ "$prerelease" == "true" ]]; then args+=(--prerelease); fi
-            is_latest="$(packaging/is_latest_release.py "${args[@]}")"
-          fi
-          echo "is_latest=$is_latest" >> "$GITHUB_OUTPUT"
-
-          ghcr_tags=("$ghcr:$VERSION")
-          if [[ "$is_latest" == "true" ]]; then ghcr_tags+=("$ghcr:latest"); fi
-          dockerhub_tags=()
-          if [[ "$DRY_RUN" != "true" && "$DOCKERHUB_AVAILABLE" == "true" ]]; then
-            dockerhub_tags=("$dockerhub:$VERSION")
-            if [[ "$is_latest" == "true" ]]; then dockerhub_tags+=("$dockerhub:latest"); fi
-          fi
-
-          echo "image=$ghcr:$VERSION" >> "$GITHUB_OUTPUT"
-          {
-            echo "ghcr_tags<<GHA_EOF"
-            printf '%s\n' "${ghcr_tags[@]}"
-            echo "GHA_EOF"
-            if ((${#dockerhub_tags[@]})); then
-              echo "dockerhub_tags<<GHA_EOF"
-              printf '%s\n' "${dockerhub_tags[@]}"
-              echo "GHA_EOF"
+          ghcr="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/baysor"
+          dockerhub=""
+          versions=("$VERSION")
+          if [[ "$DRY_RUN" != true ]]; then
+            if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+              dockerhub="$DOCKERHUB_REPOSITORY"
             else
-              echo "dockerhub_tags="
+              echo "::warning::Docker Hub secrets DOCKERHUB_USERNAME/DOCKERHUB_TOKEN are not configured; pushing to GHCR only"
             fi
+            pre=()
+            if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" == true ]]; then
+              pre=(--prerelease)
+            fi
+            if [[ "$(packaging/is_latest_release.py "$VERSION" "${pre[@]}" --repo "$GITHUB_REPOSITORY")" == true ]]; then
+              versions+=(latest)
+            fi
+          fi
+          ghcr_tags=("${versions[@]/#/$ghcr:}")
+          dockerhub_tags=()
+          if [[ -n "$dockerhub" ]]; then dockerhub_tags=("${versions[@]/#/$dockerhub:}"); fi
+          {
+            echo "image=${ghcr_tags[0]}"
+            echo "ghcr_tags<<EOF"; printf '%s\n' "${ghcr_tags[@]}"; echo "EOF"
+            if [[ -n "$dockerhub" ]]; then echo "dockerhub_tags<<EOF"; printf '%s\n' "${dockerhub_tags[@]}"; echo "EOF"; fi
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Docker image tags"
-            echo
-            printf -- "- \`%s\`\n" "${ghcr_tags[@]}"
-            if ((${#dockerhub_tags[@]})); then
-              printf -- "- \`%s\`\n" "${dockerhub_tags[@]}"
-            else
-              echo "- (Docker Hub: skipped — no DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets)"
-            fi
-            if [[ "$DRY_RUN" == "true" ]]; then
-              echo
-              echo "Dry run: the image is built and smoke-tested, not pushed."
-            fi
+            printf -- "- \`%s\`\n" "${ghcr_tags[@]}" "${dockerhub_tags[@]}"
+            if [[ "$DRY_RUN" == true ]]; then echo "Dry run: the image is built and smoke-tested, not pushed."; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Loaded into the local daemon and pushed below only after the smoke
+      # test; no provenance, since `docker push` drops attestations anyway.
       - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: docker-context
           file: packaging/docker/Dockerfile
-          # Load into the local daemon for the smoke test; pushing happens
-          # in separate steps below, only after the image proved good.
-          # provenance off: attestations are dropped on `docker push` anyway
-          # and the docker exporter does not reliably support them.
           load: true
-          push: false
           provenance: false
           build-args: |
-            VERSION=${{ needs.version.outputs.version }}
+            VERSION=${{ env.VERSION }}
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
           tags: |
             ${{ steps.meta.outputs.ghcr_tags }}
             ${{ steps.meta.outputs.dockerhub_tags }}
 
-      # `--version` must print the release version, `--help` must work, and a
-      # small synthetic dataset must segment inside the container — the same
-      # packaging/smoke_test.sh the platform builds use, bind-mounted and
-      # run through bash (the image ships bash, awk and coreutils, no
-      # compilers). The container runs as the image's non-root user with
-      # WORKDIR /data; the script uses mktemp in /tmp.
+      # The entrypoint must print the version; packaging/smoke_test.sh then
+      # checks --help and segments a synthetic dataset in the container, as
+      # the image's non-root user.
       - name: Smoke-test image
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
         run: |
-          set -euo pipefail
           out="$(docker run --rm "$IMAGE" --version)"
-          echo "--version: $out"
-          [[ "$out" == "baysor $VERSION" ]] \
-            || { echo "::error::expected 'baysor $VERSION', got '$out'"; exit 1; }
-          docker run --rm "$IMAGE" --help > image-help.txt
-          for sub in run preview segfree; do
-            grep -q "$sub" image-help.txt \
-              || { echo "::error::--help does not list '$sub'"; exit 1; }
-          done
-          docker run --rm \
+          [[ "$out" == "baysor $VERSION" ]] || { echo "::error::expected 'baysor $VERSION', got '$out'"; exit 1; }
+          docker run --rm --entrypoint bash \
             --mount "type=bind,src=$PWD/packaging/smoke_test.sh,dst=/smoke/smoke_test.sh,readonly" \
-            --entrypoint bash \
             "$IMAGE" /smoke/smoke_test.sh /usr/local/bin/baysor "$VERSION"
-          echo "image smoke test: OK"
-          {
-            echo "### Docker image smoke test"
-            echo
-            echo "\`baysor --version\`, \`--help\` and a synthetic \`run\` passed in \`$IMAGE\`."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Warn that Docker Hub will be skipped
-        if: env.DRY_RUN != 'true' && steps.dockerhub.outputs.available != 'true'
-        run: echo "::warning::Docker Hub secrets DOCKERHUB_USERNAME/DOCKERHUB_TOKEN are not configured; pushing to GHCR only"
 
       - name: Log in to GHCR
         if: env.DRY_RUN != 'true'
@@ -533,27 +377,17 @@ jobs:
         if: env.DRY_RUN != 'true'
         env:
           TAGS: ${{ steps.meta.outputs.ghcr_tags }}
-        run: |
-          set -euo pipefail
-          for t in $TAGS; do
-            echo "Pushing $t"
-            docker push "$t"
-          done
+        run: for t in $TAGS; do docker push "$t"; done
 
       - name: Log in to Docker Hub
-        if: env.DRY_RUN != 'true' && steps.dockerhub.outputs.available == 'true'
+        if: steps.meta.outputs.dockerhub_tags != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Push image to Docker Hub
-        if: env.DRY_RUN != 'true' && steps.dockerhub.outputs.available == 'true'
+        if: steps.meta.outputs.dockerhub_tags != ''
         env:
           TAGS: ${{ steps.meta.outputs.dockerhub_tags }}
-        run: |
-          set -euo pipefail
-          for t in $TAGS; do
-            echo "Pushing $t"
-            docker push "$t"
-          done
+        run: for t in $TAGS; do docker push "$t"; done

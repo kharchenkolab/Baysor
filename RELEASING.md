@@ -112,14 +112,6 @@ contain `packaging/` (every release after `cpp-0.8.3`). Existing assets are
 replaced (`--clobber`). To rerun only failed jobs of a run, use **Re-run failed
 jobs** on the run page.
 
-For tags that predate the vcpkg overlay fix (`vcpkg-configuration.json` +
-`packaging/vcpkg-overlay-ports/`, i.e. anything without `packaging/` at all,
-including the fork's `v0.8.3` test tag) the build jobs copy those two files
-from the ref the workflow definition comes from when the built ref lacks
-them: without them the Windows build dies on the MSYS2 autoconf2.71 package
-that MSYS2 dropped from its mirrors (microsoft/vcpkg#53437). The copy is a
-no-op for every ref that carries the files.
-
 ## Dry-run builds
 
 To exercise the full release build before tagging — for example to verify a
@@ -198,11 +190,11 @@ mounted into the container. Pushing happens only after all of that passes.
 smoke-tested but not pushed, and no release is consulted (no `latest`
 decision). A `platforms` subset without `linux-x86_64` skips the job.
 
-**Which ref provides the image files.** The job checks out `github.ref` —
-for `release` events the tag (so tags must contain `packaging/`, including
-`packaging/docker/` and `packaging/is_latest_release.py`), for
-`workflow_dispatch` the branch the workflow definition came from, which may
-be newer than the tag being rebuilt.
+**Which ref provides the image files.** The job checks out the commit the
+workflow runs on — for `release` events the tag (so tags must contain
+`packaging/`, including `packaging/docker/` and
+`packaging/is_latest_release.py`), for `workflow_dispatch` the branch the
+workflow definition came from, which may be newer than the tag being rebuilt.
 
 To build the same image locally:
 
