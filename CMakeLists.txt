@@ -356,7 +356,7 @@ if(BAYSOR_WITH_COVERAGE)
     # Only Baysor's own targets; third-party code stays uninstrumented.
     foreach(_target baysor_lib baysor_umap_wrappers baysor baysor_tests)
         if(TARGET ${_target})
-            target_compile_options(${_target} PRIVATE --coverage -O0 -g)
+            target_compile_options(${_target} PRIVATE --coverage -fprofile-update=atomic -O0 -g)
             target_link_options(${_target} PRIVATE --coverage)
         endif()
     endforeach()
