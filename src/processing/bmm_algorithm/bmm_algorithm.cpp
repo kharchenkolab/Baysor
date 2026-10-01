@@ -38,6 +38,26 @@ static double noise_composition_density(const BmmData<N>& data) {
     return acc / std::max(n_comps, 1.0);
 }
 
+// Group molecule ids by component into a reusable CSR (counting sort; ids
+// ascending inside each group, i.e. the same groups as
+// split_ids(assignment, nc, drop_zero=true)) instead of nc freshly allocated
+// vectors per call.
+static void group_ids_by_component(const std::vector<int>& assignment, int nc,
+                                   IdsByComponent& out, std::vector<int>& fill) {
+    out.offsets.assign(nc + 1, 0);
+    for (int f : assignment) {
+        if (f > 0 && f <= nc) out.offsets[f]++;
+    }
+    for (int c = 0; c < nc; ++c) out.offsets[c + 1] += out.offsets[c];
+    out.ids.resize(out.offsets[nc]);
+    fill.assign(out.offsets.begin(), out.offsets.end() - 1);
+    const int n = static_cast<int>(assignment.size());
+    for (int i = 0; i < n; ++i) {
+        int f = assignment[i];
+        if (f > 0 && f <= nc) out.ids[fill[f - 1]++] = i;
+    }
+}
+
 // ============================================================================
 // maximize (M-step)
 // ============================================================================
@@ -45,10 +65,10 @@ static double noise_composition_density(const BmmData<N>& data) {
 template<int N>
 void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
     int nc = data.n_components();
-    int n  = data.n_molecules();
 
     // Group molecule indices by component (1-based → 0-based component index)
-    auto ids_by_comp = split_ids(data.assignment, nc, /*drop_zero=*/true);
+    IdsByComponent& ids_by_comp = data.workspace.ids_by_comp;
+    group_ids_by_component(data.assignment, nc, ids_by_comp, data.workspace.group_fill);
 
     // Resize cluster_per_cell if needed
     if (!data.cluster_per_molecule.empty()) {
@@ -58,8 +78,8 @@ void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
     // Small chunks of a few cells: per-cell work varies widely with the cell
     // size, and preemption on shared hosts is the dominant source of imbalance.
     parallel_for(0, nc, 2, [&](int ci) {
-        const auto& mol_ids = ids_by_comp[ci];
-        int np = static_cast<int>(mol_ids.size());
+        const int* mol_ids = ids_by_comp.begin(ci);
+        int np = ids_by_comp.size(ci);
 
         const std::vector<double>* nuc_probs =
             data.nuclei_prob_per_molecule.empty() ? nullptr : &data.nuclei_prob_per_molecule;
@@ -67,7 +87,7 @@ void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
         data.components[ci].maximize_indexed(
             data.position_data,
             data.composition_data,
-            mol_ids.data(), np,
+            mol_ids, np,
             nuc_probs,
             data.min_nuclei_frac,
             freeze_position,
@@ -106,10 +126,10 @@ static void adjust_densities_by_prior_segmentation(
     const std::vector<int>& adj_classes,
     int segment_id,
     int largest_cell_id,      // 1-based component ID
-    const BmmData<N>& data
+    const BmmData<N>& data,
+    double seg_prior_pow,     // psc * exp(3 psc), loop-invariant
+    double sqrt_one_m_psc     // pow(1 - psc, 0.5), loop-invariant
 ) {
-    double psc = data.prior_seg_confidence;
-    double seg_prior_pow = psc * std::exp(3.0 * psc);
     int seg_size = data.n_molecules_per_segment[segment_id - 1];  // segment_id is 1-based
 
     // largest_cell_size: min(mols of largest_cell in this segment + 1, seg_size)
@@ -142,12 +162,12 @@ static void adjust_densities_by_prior_segmentation(
 
         if (main_seg == segment_id || main_seg == 0) {
             // Part against over-segmentation
-            denses[j] *= std::pow(1.0 - psc, 0.5)
+            denses[j] *= sqrt_one_m_psc
                          * std::pow(static_cast<double>(n_cell_mols_per_seg)
-                                    / largest_cell_size, psc);
+                                    / largest_cell_size, data.prior_seg_confidence);
         } else {
             // Part against under-segmentation and overlap
-            denses[j] *= std::pow(1.0 - psc, 0.5)
+            denses[j] *= sqrt_one_m_psc
                          * std::pow(1.0 - static_cast<double>(n_cell_mols_per_seg)
                                     / seg_size, seg_prior_pow);
         }
@@ -182,23 +202,40 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
     bool has_segments = !data.segment_per_molecule.empty();
     bool has_clusters  = !data.cluster_per_molecule.empty();
 
-    // Jacobi snapshot: read from old_assignment during parallel phase
-    std::vector<int> old_assignment = data.assignment;
-    std::vector<int> new_assignment(n, 0);
+    // Jacobi update: data.assignment is not written during the parallel
+    // phase (results go to new_assignment), so it is read in place.
+    const std::vector<int>& old_assignment = data.assignment;
+    BmmWorkspace& ws = data.workspace;
+    std::vector<int>& new_assignment = ws.new_assignment;
+    new_assignment.assign(n, 0);
 
     int n_threads = thread_pool_size();
 
-    // Per-thread buffers
-    std::vector<JuliaIntDoubleDict>  component_weights_buf(n_threads);
-    std::vector<std::vector<int>>    adj_classes_buf(n_threads);
-    std::vector<std::vector<double>> adj_weights_buf(n_threads);
-    std::vector<std::vector<double>> denses_buf(n_threads);
-    constexpr size_t reserve_hint = 64;
-    for (int t = 0; t < n_threads; ++t) {
-        adj_classes_buf[t].reserve(reserve_hint);
-        adj_weights_buf[t].reserve(reserve_hint);
-        denses_buf[t].reserve(reserve_hint);
+    // Per-worker buffers, kept across iterations
+    auto& component_weights_buf = ws.component_weights;
+    auto& adj_classes_buf = ws.adj_classes;
+    auto& adj_weights_buf = ws.adj_weights;
+    auto& denses_buf = ws.denses;
+    if (static_cast<int>(adj_classes_buf.size()) != n_threads) {
+        constexpr size_t reserve_hint = 64;
+        adj_classes_buf.assign(n_threads, {});
+        adj_weights_buf.assign(n_threads, {});
+        denses_buf.assign(n_threads, {});
+        for (int t = 0; t < n_threads; ++t) {
+            adj_classes_buf[t].reserve(reserve_hint);
+            adj_weights_buf[t].reserve(reserve_hint);
+            denses_buf[t].reserve(reserve_hint);
+        }
     }
+    // Fresh 16-slot dictionaries per call: the table size persists after a
+    // grow() and determines the slot order, so it must not leak from one
+    // E-step call into the next.
+    component_weights_buf.assign(n_threads, JuliaIntDoubleDict());
+
+    // Loop-invariant factors of adjust_densities_by_prior_segmentation
+    const double psc = data.prior_seg_confidence;
+    const double seg_prior_pow = psc * std::exp(3.0 * psc);
+    const double sqrt_one_m_psc = std::pow(1.0 - psc, 0.5);
 
     // For single-thread parity, continue the same RNG stream used by earlier
     // preprocessing steps such as duplicate-point jitter in normalize_points.
@@ -221,7 +258,13 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
         for (int mol_id = static_cast<int>(chunk_begin); mol_id < static_cast<int>(chunk_end); ++mol_id) {
 
         // ---- aggregate_adjacent_component_weights ----
-        comp_weights.clear();
+        // Accumulate the neighbour weights per distinct class in first-seen
+        // order (typically 1-3 classes, linear search). The Julia Dict slot
+        // order depends only on the insertion order of distinct keys, and each
+        // key's sum is formed in the same neighbour order, so feeding the
+        // per-class sums into the dict in first-seen order reproduces the
+        // dict's slot order and values bitwise. Single-class molecules skip
+        // the dict entirely.
         adj_classes.clear();
         adj_weights.clear();
 
@@ -237,13 +280,29 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
             if (c_id == 0) {
                 bg_comp_weight += cw;
             } else {
-                comp_weights.add(c_id, cw);
+                const int m = static_cast<int>(adj_classes.size());
+                int j = 0;
+                while (j < m && adj_classes[j] != c_id) ++j;
+                if (j == m) {
+                    adj_classes.push_back(c_id);
+                    adj_weights.push_back(cw);
+                } else {
+                    adj_weights[j] += cw;
+                }
             }
         }
-        comp_weights.for_each([&](int c_id, double cw) {
-            adj_classes.push_back(c_id);
-            adj_weights.push_back(cw);
-        });
+        if (adj_classes.size() > 1) {
+            comp_weights.clear();
+            for (size_t j = 0; j < adj_classes.size(); ++j) {
+                comp_weights.add(adj_classes[j], adj_weights[j]);
+            }
+            adj_classes.clear();
+            adj_weights.clear();
+            comp_weights.for_each([&](int c_id, double cw) {
+                adj_classes.push_back(c_id);
+                adj_weights.push_back(cw);
+            });
+        }
 
         int n_adj = static_cast<int>(adj_classes.size());
         if (n_adj == 0 && data.confidence[mol_id] >= 1.0) {
@@ -312,7 +371,8 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
         // Prior segmentation adjustment
         if (has_segments && segment_id > 0 && largest_cell_id > 0) {
             adjust_densities_by_prior_segmentation<N>(
-                denses, adj_classes, segment_id, largest_cell_id, data);
+                denses, adj_classes, segment_id, largest_cell_id, data,
+                seg_prior_pow, sqrt_one_m_psc);
         }
 
         // Noise term: only added when confidence < 1.0
@@ -412,10 +472,19 @@ void split_cells_by_connected_components(BmmData<N>& data) {
     if (nc == 0) return;
 
     const std::vector<int> assignment_snapshot = data.assignment;
-    auto ids_per_cell = split_ids(data.assignment, nc, /*drop_zero=*/true);
+    BmmWorkspace& ws = data.workspace;
+    IdsByComponent& ids_per_cell = ws.ids_by_comp;
+    group_ids_by_component(data.assignment, nc, ids_per_cell, ws.group_fill);
+
+    // Position of each molecule inside its cell's id list. Every molecule
+    // belongs to one cell, so the writes of different cells are disjoint and
+    // one shared array replaces a per-cell hash map. A neighbour passes the
+    // assignment_snapshot check only if it is in the same cell, i.e. in
+    // mol_ids, so the lookup always hits.
+    std::vector<int>& mol_pos = ws.mol_pos;
+    mol_pos.resize(data.n_molecules());
 
     struct SplitScratch {
-        std::unordered_map<int,int> mol_pos;
         std::vector<int> label;
         std::vector<int> queue;
         std::vector<int> cc_size;
@@ -424,25 +493,22 @@ void split_cells_by_connected_components(BmmData<N>& data) {
 
     parallel_for(0, nc, 1, [&](int cell_id_0, int ti) {
         auto& scratch = scratch_buf[ti];
-        auto& mol_pos = scratch.mol_pos;
         auto& label = scratch.label;
         auto& queue = scratch.queue;
         auto& cc_size = scratch.cc_size;
 
-        const auto& mol_ids = ids_per_cell[cell_id_0];
-            if (mol_ids.size() <= 1) return;
+        const int* mol_ids = ids_per_cell.begin(cell_id_0);
+            const int nm = ids_per_cell.size(cell_id_0);
+            if (nm <= 1) return;
 
             int cell_id_1 = cell_id_0 + 1;  // 1-based
 
-            // Build fast lookup: mol_id → position in mol_ids
-            mol_pos.clear();
-            mol_pos.reserve(mol_ids.size());
-            for (int k = 0; k < static_cast<int>(mol_ids.size()); ++k) {
+            // Fast lookup: mol_id → position in mol_ids
+            for (int k = 0; k < nm; ++k) {
                 mol_pos[mol_ids[k]] = k;
             }
 
             // BFS to find connected components among mol_ids
-            int nm = static_cast<int>(mol_ids.size());
             label.assign(nm, -1);
             int n_cc = 0;
 
@@ -460,9 +526,7 @@ void split_cells_by_connected_components(BmmData<N>& data) {
                     for (int ai = 0; ai < nc_adj; ++ai) {
                         int nb = nb_ids[ai];
                         if (assignment_snapshot[nb] != cell_id_1) continue;
-                        auto it = mol_pos.find(nb);
-                        if (it == mol_pos.end()) continue;
-                        int nk = it->second;
+                        int nk = mol_pos[nb];
                         if (label[nk] >= 0) continue;
                         label[nk] = n_cc;
                         queue.push_back(nk);
@@ -632,7 +696,11 @@ void bmm(BmmData<N>& data,
 
         // Tracing
         trace_n_components(data, disp_thresh);
-        trace_assignment_history(data, assignment_history_depth);
+        // With tol == 0 all n_iters iterations run, so only the last
+        // assignment_history_depth entries can survive the trimming.
+        if (tol > 0.0 || iter > n_iters - assignment_history_depth) {
+            trace_assignment_history(data, assignment_history_depth);
+        }
 
         if (verbose) {
             spdlog::info("Iter {:4d}/{}: {}", iter, n_iters, build_diag_str());

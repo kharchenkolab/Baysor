@@ -2,6 +2,7 @@
 
 #include "baysor/processing/models/component.h"
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/processing/models/bmm_workspace.h"
 #include <vector>
 #include <string>
 #include <any>
@@ -57,6 +58,9 @@ struct BmmData {
 
     // --- Output: per-molecule assignment confidence (fraction of history agreeing with final) ---
     std::vector<double> assignment_confidence;
+
+    // --- Scratch buffers of the BMM loop (no algorithm state) ---
+    BmmWorkspace workspace;
 
     // --- Accessors ---
     int n_molecules() const { return static_cast<int>(position_data.cols()); }

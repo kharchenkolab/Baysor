@@ -36,7 +36,14 @@ void trace_assignment_history(BmmData<N>& data, int assignment_history_depth) {
 
     // Build global assignment: replace local 1-based IDs with component GUIDs
     int n = data.n_molecules();
-    std::vector<int> global(n);
+    // Recycle the buffer of the entry that is about to be evicted instead of
+    // allocating a new n-int vector per iteration.
+    std::vector<int> global;
+    if (static_cast<int>(data.assignment_history.size()) >= assignment_history_depth) {
+        global = std::move(data.assignment_history.front());
+        data.assignment_history.erase(data.assignment_history.begin());
+    }
+    global.resize(n);
     for (int i = 0; i < n; ++i) {
         int a = data.assignment[i];
         global[i] = (a > 0) ? data.components[a - 1].guid : 0;
