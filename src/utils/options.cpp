@@ -7,6 +7,7 @@
 #include <cctype>
 #include <climits>
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <functional>
@@ -41,7 +42,7 @@ std::string cluster_method_to_string(ClusterMethod method) {
         case ClusterMethod::Louvain: return "louvain";
         case ClusterMethod::Leiden: return "leiden";
     }
-    return "mrf"; // GCOVR_EXCL_LINE: unreachable, the switch above handles every ClusterMethod enumerator
+    return "mrf"; // GCOVR_EXCL_LINE: unreachable
 }
 
 int default_cluster_count(ClusterMethod method) {
@@ -200,9 +201,8 @@ std::string toml_get(const TomlSection& sec, const std::string& key, const std::
     return it != sec.end() ? it->second.raw : def;
 }
 
-// Remove TOML digit separators (`1_000` -> `1000`), but only when the
-// underscore sits between two digits; any other underscore is left in place
-// so the value still fails to parse, as in TOML.jl.
+// Remove TOML digit separators (`1_000` -> `1000`). Other underscores are
+// kept, so such values fail to parse as in TOML.jl.
 std::string strip_digit_separators(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -217,58 +217,43 @@ std::string strip_digit_separators(const std::string& s) {
     return out;
 }
 
-// Julia never silently keeps a default for an unparsable or wrong-typed
-// config value: `TOML.parsefile` rejects malformed values and
-// `Configurations.from_dict` raises `FieldTypeConversionError` naming the
-// field, the actual and the expected type (see origin/master
-// src/utils/options.jl and Configurations.jl). Match that with a clear error.
+// Like Julia (TOML.jl, Configurations.jl), reject malformed or wrong-typed
+// values instead of silently keeping the default.
+[[noreturn]] void throw_invalid_value(const std::string& raw, const std::string& key,
+                                      const std::string& expected) {
+    throw std::runtime_error(
+        "Invalid value '" + raw + "' for config key '" + key + "': expected " + expected);
+}
+
+// The whole value as a number, or nullopt if it does not parse.
+std::optional<double> parse_number(const std::string& raw) {
+    const std::string s = strip_digit_separators(raw);
+    try {
+        size_t pos = 0;
+        const double value = std::stod(s, &pos);
+        if (pos == s.size()) return value;
+    } catch (const std::exception&) {}
+    return std::nullopt;
+}
+
 int toml_get_int(const TomlSection& sec, const std::string& key, int def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    const std::string& raw = it->second.raw;
-    const std::string val = strip_digit_separators(raw);
-    try {
-        size_t pos = 0;
-        const int value = std::stoi(val, &pos);
-        if (pos == val.size()) return value;  // whole value consumed
-    } catch (...) {
-        // fall through to the float fallback below
+    // Integral floats (`50.0`, `1e2`) are accepted, as Configurations.jl
+    // converts them with `Base.convert(Int, ...)`.
+    const auto value = parse_number(it->second.raw);
+    if (!value || *value != std::trunc(*value) || *value < INT_MIN || *value > INT_MAX) {
+        throw_invalid_value(it->second.raw, key, "an integer");
     }
-    // Configurations.jl converts integral floats with `Base.convert(Int, ...)`
-    // (`50.0` -> 50, `1e2` -> 100), and raises `InexactError` for a
-    // non-integral value or one out of Int range. Mirror that: accept the
-    // double only when it is a whole number that fits in `int`.
-    try {
-        size_t pos = 0;
-        const double value = std::stod(val, &pos);
-        if (pos == val.size() && std::isfinite(value) &&
-            value == std::trunc(value) &&
-            value >= static_cast<double>(INT_MIN) &&
-            value <= static_cast<double>(INT_MAX)) {
-            return static_cast<int>(value);
-        }
-    } catch (...) {
-        // fall through to the error below
-    }
-    throw std::runtime_error(
-        "Invalid value '" + raw + "' for config key '" + key +
-        "': expected an integer");
+    return static_cast<int>(*value);
 }
 
 double toml_get_double(const TomlSection& sec, const std::string& key, double def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    const std::string raw = strip_digit_separators(it->second.raw);
-    try {
-        size_t pos = 0;
-        const double value = std::stod(raw, &pos);
-        if (pos == raw.size()) return value;  // whole value consumed
-    } catch (...) {
-        // fall through to the error below
-    }
-    throw std::runtime_error(
-        "Invalid value '" + it->second.raw + "' for config key '" + key +
-        "': expected a number");
+    const auto value = parse_number(it->second.raw);
+    if (!value) throw_invalid_value(it->second.raw, key, "a number");
+    return *value;
 }
 
 bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
@@ -278,9 +263,7 @@ bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
     std::transform(v.begin(), v.end(), v.begin(), ::tolower);
     if (v == "true" || v == "1") return true;
     if (v == "false" || v == "0") return false;
-    throw std::runtime_error(
-        "Invalid value '" + it->second.raw + "' for config key '" + key +
-        "': expected a boolean (true or false)");
+    throw_invalid_value(it->second.raw, key, "a boolean (true or false)");
 }
 
 } // anonymous namespace
@@ -374,9 +357,7 @@ RunOptions load_config(const std::string& path) {
         else if (type == "column") opts.prior.type = PriorInputType::Column;
         else if (type == "image") opts.prior.type = PriorInputType::Image;
         else if (type == "boundary") opts.prior.type = PriorInputType::Boundary;
-        else throw std::runtime_error(
-            "Invalid value '" + type_raw + "' for config key 'type': expected "
-            "one of 'none', 'column', 'image', 'boundary'");
+        else throw_invalid_value(type_raw, "type", "one of 'none', 'column', 'image', 'boundary'");
         opts.prior.path = toml_get(sec, "path", opts.prior.path);
         opts.prior.column_name = toml_get(sec, "column_name", opts.prior.column_name);
         opts.prior.unassigned_label = toml_get(
