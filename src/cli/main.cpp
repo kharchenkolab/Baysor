@@ -41,21 +41,18 @@
 
 using namespace baysor;
 
-// Resolve the worker-thread count for the global thread pool:
-// explicit --threads (or config `threads`) > BAYSOR_NUM_THREADS >
-// OMP_NUM_THREADS (kept for backward compatibility with scripts and the
-// benchmark harness) > std::thread::hardware_concurrency().
+// Thread-pool size: --threads (or config `threads`), else BAYSOR_NUM_THREADS,
+// else OMP_NUM_THREADS (kept for existing scripts), else the physical cores.
 static int resolve_thread_count(int requested) {
     if (requested > 0) return requested;
     for (const char* var : {"BAYSOR_NUM_THREADS", "OMP_NUM_THREADS"}) {
         if (const char* env = std::getenv(var)) {
-            // OMP_NUM_THREADS may be a comma-separated list; take the first.
+            // stoi takes the first entry of an OMP_NUM_THREADS list ("8,4");
+            // malformed values are ignored.
             try {
                 int n = std::stoi(env);
                 if (n > 0) return n;
-            } catch (...) {
-                // ignore malformed values and fall through
-            }
+            } catch (...) {}
         }
     }
     return default_thread_count();
@@ -133,7 +130,7 @@ int cmd_run(
                     prior_based_n_cells_init = std::max(prior_based_n_cells_init, n_active_prior_segments);
                     inferred_n_cells_init = std::min(inferred_n_cells_init, prior_based_n_cells_init);
 
-                    spdlog::info( // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+                    spdlog::info( // GCOVR_EXCL_LINE: gcov artifact
                         "Using prior-aware n_cells_init={} (active prior segments={}, unassigned molecules={}, "
                         "default without prior would be {}).",
                         inferred_n_cells_init, n_active_prior_segments, n_unassigned,
@@ -151,30 +148,20 @@ int cmd_run(
         return 1;
     }
 
-    spdlog::info("Using scale={:.2f}, scale_std={}", // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+    spdlog::info("Using scale={:.2f}, scale_std={}", // GCOVR_EXCL_LINE: gcov artifact
                  opts.segmentation.scale, opts.segmentation.scale_std);
 
     double psc = opts.segmentation.prior_segmentation_confidence;
 
-    std::vector<double> noise_edge_lengths;
-    NoiseFitResult noise_fit;
-    int confidence_nn_id = opts.molecules.confidence_nn_id;
     spdlog::info("Estimating confidence...");
     auto conf_details = estimate_confidence_details(data, opts.molecules.confidence_nn_id, psc);
     data.confidence.resize(data.n_molecules());
     for (int i = 0; i < data.n_molecules(); ++i) {
         data.confidence[i] = conf_details.fit_result.assignment_probs(i, 0);
     }
-    if (plot) {
-        confidence_nn_id = conf_details.nn_id;
-        noise_edge_lengths = std::move(conf_details.edge_lengths);
-        noise_fit = std::move(conf_details.fit_result);
-    }
 
-    // Build molecule adjacency graph (MRF) from the edges the confidence step
-    // already computed: the Delaunay triangulation is built once per run and
-    // reused here (filtering to the long-edge-trimmed segmentation graph),
-    // instead of being rebuilt a second time (REPORT.md 6.4).
+    // Build molecule adjacency graph (MRF), reusing the Delaunay edges of the
+    // confidence step.
     spdlog::info("Building molecule graph...");
     auto adj_list = build_molecule_graph(
         data, /*filter=*/true, /*use_local_gene_similarities=*/false,
@@ -279,7 +266,7 @@ int cmd_run(
         // History depth: match Julia's round(iters * 0.1)
         int history_depth = std::max(1, n_iters / 10);
 
-        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...", // GCOVR_EXCL_LINE: gcov attributes only this multi-line call's exception-cleanup block to its first line; the call itself is counted on the following lines
+        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...", // GCOVR_EXCL_LINE: gcov artifact
                      n_iters, history_depth, opts.segmentation.tol);
         // Julia hardcodes min_n_samples=2 in drop_unused_components! — match that exactly.
         // min_mols = min_molecules_per_cell = display threshold only.
@@ -342,17 +329,11 @@ int cmd_run(
         spdlog::info("Saving cell stats...");
         Eigen::MatrixXd cell_stats_mat;
         std::vector<std::string> cell_stat_col_names;
-        // Names are indexed by component id. After the final component drop
-        // `bm_data.assignment` should use exactly 1..n_cells_final, but size
-        // the vector to the largest label as well so the polygon writer can
-        // never fall back to a different name than the molecule CSV
-        // (kharchenkolab/Baysor#165). The cell-stats writer only reads the
-        // first n_cells_final entries.
-        int max_assigned_label = 0;
-        for (int a : bm_data.assignment) {
-            if (a > max_assigned_label) max_assigned_label = a;
-        }
-        const int n_cell_names = std::max(n_cells_final, max_assigned_label);
+        // Names are indexed by component id. Cover every assigned label so the
+        // polygons are named exactly like the molecule table (#165); the
+        // cell-stats writer reads only the first n_cells_final names.
+        int n_cell_names = n_cells_final;
+        for (int a : bm_data.assignment) n_cell_names = std::max(n_cell_names, a);
         std::vector<std::string> cell_names(n_cell_names);
         for (int i = 0; i < n_cell_names; ++i) {
             cell_names[i] = "cell_" + std::to_string(i + 1);
@@ -548,9 +529,9 @@ int cmd_run(
             spdlog::info("Generating HTML run report...");
             auto diagnostic_html = generate_run_diagnostic_html(
                 data,
-                noise_edge_lengths,
-                noise_fit,
-                confidence_nn_id,
+                conf_details.edge_lengths,
+                conf_details.fit_result,
+                conf_details.nn_id,
                 bm_data.assignment,
                 bm_data.n_components_trace,
                 bm_data.assignment_confidence,
@@ -622,8 +603,6 @@ int cmd_preview(
     if (nn_id <= 0) nn_id = std::max(data.n_genes() / 10, 10);
 
     auto pos = data.position_matrix();
-    // Block-wise kth-neighbour distances (same values the former full kNN
-    // result held; only these distances are read).
     std::vector<double> edge_lengths = knn_kth_distances(pos, nn_id + 1, nn_id);
 
     auto adj_list    = build_molecule_graph(data, false);
@@ -766,12 +745,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Subcommands print a bare version string: Sopa feeds it directly to
+    // packaging.version.Version.
+    auto add_subcommand = [&app](const std::string& name, const std::string& description) {
+        auto* sub = app.add_subcommand(name, description);
+        sub->set_version_flag("--version", BAYSOR_VERSION, "Print the Baysor version and exit");
+        return sub;
+    };
+    auto add_threads_option = [&opts](CLI::App* sub) {
+        sub->add_option("-t,--threads", opts.threads,
+            "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
+            "then the number of physical CPU cores)");
+    };
+
     // ---- run ----
-    auto* run = app.add_subcommand("run", "Run cell segmentation");
-    // Sopa feeds this output directly to packaging.version.Version, so unlike
-    // the unchanged top-level flag this must be a bare version string.
-    run->set_version_flag("--version", BAYSOR_VERSION,
-                          "Print the Baysor version and exit");
+    auto* run = add_subcommand("run", "Run cell segmentation");
 
     std::string run_coordinates, run_prior_seg;
     std::string run_output = "segmentation";
@@ -875,14 +863,10 @@ int main(int argc, char* argv[]) {
         "Initial number of cells (default: auto)");
     run->add_option("--unassigned-prior-label", opts.prior.unassigned_label,
         "Label for unassigned cells in prior segmentation (default: 0)");
-    run->add_option("-t,--threads", opts.threads,
-        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of physical CPU cores)");
+    add_threads_option(run);
 
     // ---- preview ----
-    auto* preview = app.add_subcommand("preview", "Plot a dataset preview");
-    preview->set_version_flag("--version", BAYSOR_VERSION,
-                              "Print the Baysor version and exit");
+    auto* preview = add_subcommand("preview", "Plot a dataset preview");
 
     std::string prev_coordinates;
     std::string prev_output = "preview.html";
@@ -922,14 +906,10 @@ int main(int argc, char* argv[]) {
         "Output HTML file (default: preview.html)");
     preview->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
-    preview->add_option("-t,--threads", opts.threads,
-        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of physical CPU cores)");
+    add_threads_option(preview);
 
     // ---- segfree ----
-    auto* segfree = app.add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
-    segfree->set_version_flag("--version", BAYSOR_VERSION,
-                              "Print the Baysor version and exit");
+    auto* segfree = add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
 
     std::string sf_coordinates;
     std::string sf_output = "ncvs.loom";
@@ -972,9 +952,7 @@ int main(int argc, char* argv[]) {
         "Output .loom file (default: ncvs.loom)");
     segfree->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
-    segfree->add_option("-t,--threads", opts.threads,
-        "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of physical CPU cores)");
+    add_threads_option(segfree);
 
     // ---- Parse ----
     CLI11_PARSE(app, argc, argv);
@@ -1050,17 +1028,12 @@ int main(int argc, char* argv[]) {
         if (preview->parsed()) {
             return cmd_preview(resolve_xenium_input(prev_coordinates), opts, prev_output);
         }
-
-        if (segfree->parsed()) {
-            return cmd_segfree(resolve_xenium_input(sf_coordinates), opts, sf_k_neighbors, sf_output);
-        }
+        return cmd_segfree(resolve_xenium_input(sf_coordinates), opts, sf_k_neighbors, sf_output);
     } catch (const std::exception& e) {
         spdlog::error("{}", e.what());
         return 1;
     } catch (...) {
-        spdlog::error("Unknown error"); // GCOVR_EXCL_LINE: unreachable, every exception thrown by Baysor or its dependencies derives from std::exception
-        return 1; // GCOVR_EXCL_LINE: unreachable, only reachable via the never-entered catch-all above
+        spdlog::error("Unknown error"); // GCOVR_EXCL_LINE: unreachable
+        return 1; // GCOVR_EXCL_LINE: unreachable
     }
-
-    return 0; // GCOVR_EXCL_LINE: unreachable, require_subcommand(1) guarantees exactly one subcommand and run/preview/segfree are all dispatched above
 }
