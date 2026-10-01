@@ -349,3 +349,180 @@ TEST(ThreadPool, ManySmallRegionsDoNotDeadlock) {
         EXPECT_EQ(count.load(), 3);
     }
 }
+
+// ============================================================================
+// Persistent regions (parallel_region / ParallelRegion)
+// ============================================================================
+
+TEST(ThreadPoolRegion, OneThreadRunsBodyOnceInlineInIndexOrder) {
+    PoolSizeGuard guard(1);
+    int calls = 0;
+    std::vector<int> order;
+    baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        ++calls;
+        EXPECT_EQ(r.n_workers(), 1);
+        EXPECT_EQ(r.worker_index(), 0);
+        EXPECT_TRUE(r.is_master());
+        EXPECT_TRUE(baysor::inside_parallel_region());
+        r.for_each(0, 50, 7, [&](int i) { order.push_back(i); });
+        r.for_chunks(50, 60, 0, baysor::Scheduling::Static,
+                     [&](std::int64_t b, std::int64_t e, int) {
+            EXPECT_EQ(b, 50);
+            EXPECT_EQ(e, 60);
+            for (std::int64_t i = b; i < e; ++i) order.push_back(static_cast<int>(i));
+        });
+        r.barrier();
+        r.single([&]() { order.push_back(-1); });
+    });
+    EXPECT_EQ(calls, 1);
+    std::vector<int> expected(60);
+    std::iota(expected.begin(), expected.end(), 0);
+    expected.push_back(-1);
+    EXPECT_EQ(order, expected);
+    EXPECT_FALSE(baysor::inside_parallel_region());
+}
+
+TEST(ThreadPoolRegion, EveryWorkerRunsTheBodyOnce) {
+    for (int n_threads : {2, 3, 8}) {
+        PoolSizeGuard guard(n_threads);
+        std::vector<std::atomic<int>> seen(n_threads);
+        for (auto& s : seen) s.store(0);
+        std::atomic<int> masters{0};
+        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            ASSERT_EQ(r.n_workers(), n_threads);
+            ASSERT_GE(r.worker_index(), 0);
+            ASSERT_LT(r.worker_index(), n_threads);
+            seen[r.worker_index()].fetch_add(1);
+            if (r.is_master()) masters.fetch_add(1);
+        });
+        for (int w = 0; w < n_threads; ++w) {
+            EXPECT_EQ(seen[w].load(), 1) << "threads " << n_threads << " worker " << w;
+        }
+        EXPECT_EQ(masters.load(), 1);
+    }
+}
+
+TEST(ThreadPoolRegion, SequencesOfLoopsCoverEachIndexOnceWithBarriersBetween) {
+    PoolSizeGuard guard(4);
+    constexpr int n = 3001;
+    std::vector<int> a(n, 0), b(n, 0);
+    std::atomic<int> violations{0};
+    std::vector<long> per_worker(4, 0);
+    long total = -1;
+    baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        for (int rep = 0; rep < 50; ++rep) {
+            // Dynamic loop with an odd chunk, then a loop that reads what the
+            // previous loop wrote at other indices (needs the implicit barrier).
+            r.for_each(0, n, 13, [&](int i) { a[i] = rep * n + i; });
+            r.for_each(0, n, 29, [&](int i) {
+                int j = n - 1 - i;
+                if (a[j] != rep * n + j) violations.fetch_add(1);
+                b[i] += 1;
+            });
+            // Empty loops must not desynchronise the participants.
+            r.for_each(5, 5, 4, [&](int) { violations.fetch_add(1); });
+        }
+        // Static blocks: worker w gets block w.
+        r.for_chunks(0, n, 0, baysor::Scheduling::Static,
+                     [&](std::int64_t lo, std::int64_t hi, int w) {
+            EXPECT_EQ(w, r.worker_index());
+            for (std::int64_t i = lo; i < hi; ++i) per_worker[w] += b[i];
+        });
+        r.single([&]() { total = per_worker[0] + per_worker[1] + per_worker[2] + per_worker[3]; });
+        // After single's barrier every participant sees the result.
+        if (total != 50L * n) violations.fetch_add(1);
+    });
+    EXPECT_EQ(violations.load(), 0);
+    EXPECT_EQ(total, 50L * n);
+    for (int i = 0; i < n; ++i) ASSERT_EQ(b[i], 50) << i;
+}
+
+TEST(ThreadPoolRegion, DynamicChunkBoundariesAreFixed) {
+    for (int n_threads : {1, 2, 5}) {
+        PoolSizeGuard guard(n_threads);
+        std::mutex m;
+        std::set<std::pair<std::int64_t, std::int64_t>> chunks;
+        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            r.for_chunks(3, 103, 10, baysor::Scheduling::Dynamic,
+                         [&](std::int64_t b, std::int64_t e, int) {
+                std::lock_guard<std::mutex> lk(m);
+                chunks.insert({b, e});
+            });
+        });
+        std::set<std::pair<std::int64_t, std::int64_t>> expected;
+        for (std::int64_t b = 3; b < 103; b += 10) expected.insert({b, std::min<std::int64_t>(103, b + 10)});
+        EXPECT_EQ(chunks, expected) << "threads " << n_threads;
+    }
+}
+
+TEST(ThreadPoolRegion, NestedParallelCallsRunSerially) {
+    PoolSizeGuard guard(4);
+    std::atomic<int> count{0};
+    baysor::parallel_region([&](baysor::ParallelRegion& r) {
+        r.for_each(0, 8, 1, [&](int) {
+            EXPECT_TRUE(baysor::inside_parallel_region());
+            baysor::parallel_for(0, 10, 3, [&](int) { count.fetch_add(1); });
+            // A nested region runs serially as well.
+            baysor::parallel_region([&](baysor::ParallelRegion& inner) {
+                EXPECT_EQ(inner.n_workers(), 1);
+                inner.for_each(0, 5, 2, [&](int) { count.fetch_add(1); });
+            });
+        });
+    });
+    EXPECT_EQ(count.load(), 8 * 15);
+}
+
+TEST(ThreadPoolRegion, ExceptionsCancelTheRegionAndPropagate) {
+    for (int n_threads : {1, 4}) {
+        PoolSizeGuard guard(n_threads);
+        std::atomic<int> after{0};
+        EXPECT_THROW(
+            baysor::parallel_region([&](baysor::ParallelRegion& r) {
+                r.for_each(0, 100, 4, [&](int i) {
+                    if (i == 37) throw std::runtime_error("boom");
+                });
+                if (!r.cancelled()) {
+                    // Not reached with >1 thread: cancelled() is consistent
+                    // across participants after the loop's barrier.
+                    after.fetch_add(1);
+                }
+                r.single([&]() { after.fetch_add(100); });  // skipped once cancelled
+            }),
+            std::runtime_error);
+        EXPECT_EQ(after.load(), 0) << "threads " << n_threads;
+
+        // A throwing single block is reported as well.
+        EXPECT_THROW(
+            baysor::parallel_region([&](baysor::ParallelRegion& r) {
+                r.single([&]() { throw std::logic_error("single"); });
+                r.for_each(0, 10, 1, [&](int) { after.fetch_add(1); });
+            }),
+            std::logic_error);
+        EXPECT_EQ(after.load(), 0) << "threads " << n_threads;
+
+        // The pool stays usable afterwards.
+        std::atomic<int> count{0};
+        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            r.for_each(0, 64, 4, [&](int) { count.fetch_add(1); });
+        });
+        EXPECT_EQ(count.load(), 64);
+    }
+}
+
+TEST(ThreadPoolRegion, ManyRegionsWithLongSerialSectionsDoNotDeadlock) {
+    PoolSizeGuard guard(4);
+    long sum = 0;
+    for (int rep = 0; rep < 200; ++rep) {
+        std::vector<int> v(64, 0);
+        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            r.for_each(0, 64, 1, [&](int i) { v[i] = i; });
+            r.single([&]() {
+                // Longer than the spin budget every few reps: waiters block.
+                if (rep % 20 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                for (int x : v) sum += x;
+            });
+            r.barrier();
+        });
+    }
+    EXPECT_EQ(sum, 200L * (63 * 64 / 2));
+}
