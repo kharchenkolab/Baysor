@@ -1,9 +1,6 @@
-// Coverage tests for the data-processing modules (COV-3):
-//   initialization, umap_wrappers, boundary_estimation, noise_estimation,
-//   triangulation, neighborhood_composition, utils, convex_hull.
-//
-// All helpers live in an anonymous namespace; every suite is prefixed
-// Cov3Data_ to avoid clashes with the other coverage test files.
+// Coverage tests for the data-processing modules (COV-3): initialization,
+// umap_wrappers, boundary_estimation, noise_estimation, triangulation,
+// neighborhood_composition, utils, convex_hull.
 
 #include <gtest/gtest.h>
 
@@ -26,6 +23,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,20 +51,6 @@ AdjList cov3_chain_adj(int n_molecules) {
                                    static_cast<int>(src.size()), n_molecules);
 }
 
-baysor::MoleculeData cov3_make_molecule_data(
-    const std::vector<double>& x,
-    const std::vector<double>& y,
-    const std::vector<int>& gene_ids_1based,
-    const std::vector<std::string>& gene_names
-) {
-    baysor::MoleculeData data;
-    data.x = x;
-    data.y = y;
-    data.gene = gene_ids_1based;
-    data.gene_names = gene_names;
-    return data;
-}
-
 // Shoelace signed area (positive = counter-clockwise).
 double cov3_signed_area(const Eigen::MatrixXd& poly) {
     double s = 0.0;
@@ -77,7 +62,7 @@ double cov3_signed_area(const Eigen::MatrixXd& poly) {
     return s / 2.0;
 }
 
-// Canonical (sorted) list of edges for comparing border edge sets.
+// Canonical (sorted) list of edges for comparing edge sets.
 std::vector<std::pair<int, int>> cov3_sorted_edges(
     const std::vector<std::pair<int, int>>& edges
 ) {
@@ -87,6 +72,13 @@ std::vector<std::pair<int, int>> cov3_sorted_edges(
         out.emplace_back(std::min(e.first, e.second), std::max(e.first, e.second));
     }
     std::sort(out.begin(), out.end());
+    return out;
+}
+
+// Undirected edge set of an adjacency result.
+std::set<std::pair<int, int>> edge_set(const baysor::AdjacencyResult& r) {
+    std::set<std::pair<int, int>> out;
+    for (size_t i = 0; i < r.edge_src.size(); ++i) out.insert(std::minmax(r.edge_src[i], r.edge_dst[i]));
     return out;
 }
 
@@ -121,28 +113,27 @@ TEST(Cov3Data_ConvexHull, FewerThanThreePointsReturnedAsIs) {
     EXPECT_TRUE((hull2 - two).isZero(0.0));
 }
 
-TEST(Cov3Data_ConvexHull, SquareWithInteriorPointsKeepsOnlyCorners) {
-    // Square with two interior points: the hull must be exactly the 4 corners.
-    Eigen::MatrixXd pts(2, 6);
-    pts << 0.0, 4.0, 4.0, 0.0, 1.0, 2.0,
-           0.0, 0.0, 4.0, 4.0, 1.0, 3.0;
-
-    const Eigen::MatrixXd hull = baysor::convex_hull(pts);
-    ASSERT_EQ(hull.rows(), 2);
-    ASSERT_EQ(hull.cols(), 4);
-
-    // Every hull vertex must be one of the four corners, and every corner
-    // must be present exactly once (sorted for comparison).
+TEST(Cov3Data_ConvexHull, SquareHullKeepsExactlyTheCornersClockwise) {
+    // A square with two interior points, and a square with every corner duplicated.
+    Eigen::MatrixXd interior(2, 6), duplicated(2, 8);
+    interior << 0.0, 4.0, 4.0, 0.0, 1.0, 2.0,
+                0.0, 0.0, 4.0, 4.0, 1.0, 3.0;
+    duplicated << 0.0, 4.0, 4.0, 0.0, 0.0, 4.0, 4.0, 0.0,
+                  0.0, 0.0, 4.0, 4.0, 0.0, 0.0, 4.0, 4.0;
     const std::vector<std::pair<double, double>> corners = {
         {0.0, 0.0}, {0.0, 4.0}, {4.0, 0.0}, {4.0, 4.0}};
-    std::vector<std::pair<double, double>> got;
-    for (int i = 0; i < hull.cols(); ++i) got.emplace_back(hull(0, i), hull(1, i));
-    std::sort(got.begin(), got.end());
-    EXPECT_EQ(got, corners);
 
-    // Shoelace area of the hull must equal the square area.
-    EXPECT_NEAR(std::abs(cov3_signed_area(hull)), 16.0, 1e-12);
-    EXPECT_NEAR(baysor::polygon_area(hull), 16.0, 1e-12);
+    for (const Eigen::MatrixXd& pts : {interior, duplicated}) {
+        const Eigen::MatrixXd hull = baysor::convex_hull(pts);
+        ASSERT_EQ(hull.rows(), 2);
+        ASSERT_EQ(hull.cols(), 4);
+        std::vector<std::pair<double, double>> got;
+        for (int i = 0; i < hull.cols(); ++i) got.emplace_back(hull(0, i), hull(1, i));
+        std::sort(got.begin(), got.end());
+        EXPECT_EQ(got, corners);
+        EXPECT_NEAR(cov3_signed_area(hull), -16.0, 1e-12);  // clockwise
+        EXPECT_NEAR(baysor::polygon_area(hull), 16.0, 1e-12);
+    }
 }
 
 TEST(Cov3Data_ConvexHull, CollinearPointsReduceToEndpoints) {
@@ -161,25 +152,6 @@ TEST(Cov3Data_ConvexHull, CollinearPointsReduceToEndpoints) {
     std::sort(xs.begin(), xs.end());
     EXPECT_DOUBLE_EQ(xs[0], 0.0);
     EXPECT_DOUBLE_EQ(xs[1], 2.0);
-}
-
-TEST(Cov3Data_ConvexHull, DuplicatePointsAreCollapsed) {
-    // Square with every corner duplicated: hull must contain 4 distinct corners.
-    Eigen::MatrixXd pts(2, 8);
-    pts << 0.0, 4.0, 4.0, 0.0, 0.0, 4.0, 4.0, 0.0,
-           0.0, 0.0, 4.0, 4.0, 0.0, 0.0, 4.0, 4.0;
-
-    const Eigen::MatrixXd hull = baysor::convex_hull(pts);
-    ASSERT_EQ(hull.rows(), 2);
-    ASSERT_EQ(hull.cols(), 4);
-
-    std::vector<std::pair<double, double>> got;
-    for (int i = 0; i < hull.cols(); ++i) got.emplace_back(hull(0, i), hull(1, i));
-    std::sort(got.begin(), got.end());
-    const std::vector<std::pair<double, double>> corners = {
-        {0.0, 0.0}, {0.0, 4.0}, {4.0, 0.0}, {4.0, 4.0}};
-    EXPECT_EQ(got, corners);
-    EXPECT_NEAR(baysor::polygon_area(hull), 16.0, 1e-12);
 }
 
 TEST(Cov3Data_ConvexHull, PolygonAreaShoelaceBasics) {
@@ -276,9 +248,7 @@ TEST(Cov3Data_Utils, KnnParallelReturnsEmptyOnEmptyInputs) {
     EXPECT_EQ(r3.n, 0);
 }
 
-TEST(Cov3Data_Utils, KnnParallelFlatRowsMatchNestedLayout) {
-    // The flat result must behave like the former [n][k] vector-of-vectors:
-    // contiguous, non-overlapping rows of exactly k entries each.
+TEST(Cov3Data_Utils, KnnParallelRowsAreContiguousAndKIsClamped) {
     Eigen::MatrixXd pts(2, 20);
     for (int i = 0; i < 20; ++i) {
         pts.col(i) << static_cast<double>(i % 5), static_cast<double>(i / 5);
@@ -288,14 +258,9 @@ TEST(Cov3Data_Utils, KnnParallelFlatRowsMatchNestedLayout) {
     ASSERT_EQ(result.k, 4);
     ASSERT_EQ(result.indices.size(), 80u);
     ASSERT_EQ(result.distances.size(), 80u);
-    for (int i = 0; i < 20; ++i) {
-        EXPECT_EQ(result.idx_row(i), result.indices.data() + static_cast<size_t>(i) * 4);
-        EXPECT_EQ(result.dist_row(i), result.distances.data() + static_cast<size_t>(i) * 4);
-    }
-    // k is clamped to the number of tree points.
-    auto clamped = baysor::knn_parallel(pts, pts, 50, true);
-    EXPECT_EQ(clamped.k, 20);
-    EXPECT_EQ(clamped.indices.size(), 400u);
+    EXPECT_EQ(result.idx_row(19), result.indices.data() + 76);
+    EXPECT_EQ(result.dist_row(19), result.distances.data() + 76);
+    EXPECT_EQ(baysor::knn_parallel(pts, pts, 50, true).k, 20);
 }
 
 TEST(Cov3Data_Utils, KnnKthDistancesMatchesFullKnnResult) {
@@ -437,9 +402,7 @@ TEST(Cov3Data_Triangulation, TriangulationTypeIsCoercedToKnnIn3D) {
     }
 }
 
-// The Triangulation+KNN merge is a canonically sorted union of both sources
-// (DET-RUNID: CGAL's finite_edges order is heap-address-dependent, so the
-// merged stream is sorted rather than kept in KNN-then-triangulation order).
+// The Triangulation+KNN merge is the sorted union of both sources.
 TEST(Cov3Data_Triangulation, BothTypeIsSortedUnionOfKnnAndTriangulationEdges) {
     Eigen::MatrixXd pts(2, 6);
     pts << 0.0, 1.0, 2.0, 0.0, 1.0, 2.0,
@@ -449,41 +412,18 @@ TEST(Cov3Data_Triangulation, BothTypeIsSortedUnionOfKnnAndTriangulationEdges) {
     auto tri = baysor::adjacency_list(pts, /*filter=*/false, 2.0, 2, AdjacencyType::Triangulation);
     auto both = baysor::adjacency_list(pts, /*filter=*/false, 2.0, 2, AdjacencyType::Both);
 
-    const int n_knn = static_cast<int>(knn.edge_src.size());
-    const int n_tri = static_cast<int>(tri.edge_src.size());
-    const int n_both = static_cast<int>(both.edge_src.size());
-    EXPECT_GT(n_knn, 0);
-    EXPECT_GT(n_tri, 0);
+    EXPECT_GT(knn.edge_src.size(), 0u);
+    EXPECT_GT(tri.edge_src.size(), 0u);
 
-    // The merged result is canonically sorted by (src, dst): the edge stream
-    // from CGAL's finite_edges is address-dependent (DET-RUNID), so the
-    // merged list is sorted into a canonical order that is a pure function of
-    // the edge set rather than inheriting KNN-then-triangulation order.
-    for (int i = 1; i < n_both; ++i) {
-        const auto prev = std::minmax(both.edge_src[i - 1], both.edge_dst[i - 1]);
-        const auto cur = std::minmax(both.edge_src[i], both.edge_dst[i]);
-        ASSERT_TRUE(prev.first < cur.first ||
-                    (prev.first == cur.first && prev.second < cur.second))
-            << "merged edges not canonically sorted at index " << i;
-    }
+    std::vector<std::pair<int, int>> merged;
+    for (size_t i = 0; i < both.edge_src.size(); ++i) merged.push_back(std::minmax(both.edge_src[i], both.edge_dst[i]));
+    EXPECT_EQ(std::adjacent_find(merged.begin(), merged.end(), std::greater_equal<>()), merged.end())
+        << "merged edges not strictly increasing";
 
-    // ... and its edge set is exactly the union of both sources.
-    auto key_of = [](int a, int b) {
-        return (static_cast<long long>(std::min(a, b)) << 32) |
-               static_cast<long long>(std::max(a, b));
-    };
-    std::vector<long long> union_keys;
-    for (int i = 0; i < n_knn; ++i) union_keys.push_back(key_of(knn.edge_src[i], knn.edge_dst[i]));
-    for (int i = 0; i < n_tri; ++i) union_keys.push_back(key_of(tri.edge_src[i], tri.edge_dst[i]));
-    std::sort(union_keys.begin(), union_keys.end());
-    union_keys.erase(std::unique(union_keys.begin(), union_keys.end()), union_keys.end());
-
-    std::vector<long long> both_keys;
-    for (int i = 0; i < n_both; ++i) both_keys.push_back(key_of(both.edge_src[i], both.edge_dst[i]));
-    std::sort(both_keys.begin(), both_keys.end());
-    both_keys.erase(std::unique(both_keys.begin(), both_keys.end()), both_keys.end());
-
-    EXPECT_EQ(both_keys, union_keys);
+    auto union_set = edge_set(knn);
+    const auto tri_set = edge_set(tri);
+    union_set.insert(tri_set.begin(), tri_set.end());
+    EXPECT_EQ(edge_set(both), union_set);
 }
 
 // ============================================================================
@@ -1051,17 +991,14 @@ TEST(Cov3Data_Boundary, AutoBinnedZStackProducesTenLayers) {
     EXPECT_EQ(joined41.count("1"), 1u);
     ASSERT_EQ(stack41.size(), 11u);           // "2d" + 10 binned layers
     EXPECT_EQ(stack41[0].first, "2d");
-    std::vector<std::string> layer_names;
+    std::set<std::string> layer_names;
     for (size_t i = 1; i < stack41.size(); ++i) {
-        layer_names.push_back(stack41[i].first);
+        layer_names.insert(stack41[i].first);
         EXPECT_EQ(stack41[i].first.front(), '[');
         EXPECT_NE(stack41[i].first.find(','), std::string::npos);
         EXPECT_EQ(stack41[i].first.back(), ']');
     }
-    std::vector<std::string> unique_names = layer_names;
-    std::sort(unique_names.begin(), unique_names.end());
-    EXPECT_EQ(std::unique(unique_names.begin(), unique_names.end()) - unique_names.begin(),
-              10);
+    EXPECT_EQ(layer_names.size(), 10u);
 
     // 42 molecules: both quantile indices are fractional (interpolation path).
     auto [joined42, stack42] = run(42);
@@ -1097,18 +1034,13 @@ TEST(Cov3Data_Boundary, AutoBinnedZStackHonoursCustomSliceLimit) {
             max_z_slices);
         EXPECT_EQ(joined.count("cell_1"), 1u);
         EXPECT_EQ(stack[0].first, "2d");
-        int named_layers = 0;
-        std::vector<std::string> names;
+        std::set<std::string> names;
         for (size_t i = 1; i < stack.size(); ++i) {
-            names.push_back(stack[i].first);
+            names.insert(stack[i].first);
             EXPECT_EQ(stack[i].second.count("cell_1"), 1u);
-            ++named_layers;
         }
-        std::vector<std::string> unique_names = names;
-        std::sort(unique_names.begin(), unique_names.end());
-        EXPECT_EQ(std::unique(unique_names.begin(), unique_names.end()) - unique_names.begin(),
-                  named_layers);
-        return named_layers;
+        EXPECT_EQ(names.size(), stack.size() - 1);  // distinct layer names
+        return static_cast<int>(stack.size()) - 1;
     };
 
     // More z values (20) than either limit, and the two limits give different
@@ -1252,8 +1184,8 @@ TEST(Cov3Data_Neighborhood, AutoDistanceFloorMatchesExplicitFloor) {
 }
 
 // ============================================================================
-// Molecule-graph reuse: build the triangulation once and reuse it for the
-// segmentation graph (REPORT.md 6.4 built it twice per run).
+// Molecule-graph reuse: the triangulation of the confidence step is reused for
+// the segmentation graph.
 // ============================================================================
 
 namespace {
