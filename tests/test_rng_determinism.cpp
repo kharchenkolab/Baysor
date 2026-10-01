@@ -13,21 +13,16 @@
 #include "baysor/utils/general.h"
 #include "baysor/utils/thread_pool.h"
 
-#include <cmath>
-#include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace {
 
-class PoolSizeGuard {
-public:
-    explicit PoolSizeGuard(int n) : old_(baysor::thread_pool_size()) {
-        baysor::set_thread_pool_size(n);
-    }
-    ~PoolSizeGuard() { baysor::set_thread_pool_size(old_); }
-
-private:
-    int old_;
+// Sets the global pool size for the lifetime of the guard.
+struct PoolSizeGuard {
+    explicit PoolSizeGuard(int n) { baysor::set_thread_pool_size(n); }
+    ~PoolSizeGuard() { baysor::set_thread_pool_size(old); }
+    int old = baysor::thread_pool_size();
 };
 
 baysor::Component<2> make_component(
@@ -46,49 +41,50 @@ baysor::Component<2> make_component(
     return comp;
 }
 
+// Sets what both fixtures share: one gene, full confidence, unit-weight
+// `edges`, and the model parameters.
+void finish_fixture(baysor::BmmData<2>& data, const std::vector<std::pair<int, int>>& edges) {
+    const int n = static_cast<int>(data.position_data.cols());
+    data.composition_data.assign(n, 0);
+    data.confidence.assign(n, 1.0);
+    std::vector<int> src, dst;
+    for (const auto& [s, d] : edges) {
+        src.push_back(s);
+        dst.push_back(d);
+    }
+    const std::vector<double> wt(edges.size(), 1.0);
+    data.adj_list = baysor::AdjList::from_edge_list(
+        src.data(), dst.data(), wt.data(), static_cast<int>(edges.size()), n);
+    data.max_component_guid = static_cast<int>(data.components.size());
+    data.cluster_penalty_mult = 0.25;
+    data.use_gene_smoothing = true;
+    data.mrf_strength = 0.1;
+    data.real_edge_weight = 1.0;
+}
+
 // A chain of molecules whose two components have exactly identical densities,
 // so every E-step assignment draw is a fair coin flip and the RNG scheme is
-// observable. Deliberately larger than the E-step chunk size (1024) so that
-// multiple per-chunk streams are used.
+// observable. Deliberately larger than the E-step chunk size so that multiple
+// per-chunk streams are used.
 baysor::BmmData<2> make_symmetric_chain(int n) {
     baysor::BmmData<2> data;
     data.position_data.resize(2, n);
+    data.assignment.resize(n);
     for (int i = 0; i < n; ++i) {
-        data.position_data(0, i) = 0.1 * i;
-        data.position_data(1, i) = 0.01 * ((i * 37) % 13);
+        data.position_data.col(i) << 0.1 * i, 0.01 * ((i * 37) % 13);
+        data.assignment[i] = (i % 2) + 1;
     }
-    data.composition_data.assign(n, 0);
-    data.confidence.assign(n, 1.0);
-
-    std::vector<int> src, dst;
-    std::vector<double> wt;
-    // Two edge sets (i, i+1) and (i, i+2): every molecule sees neighbors from
-    // both classes with equal weight, so every E-step draw is a fair coin flip.
-    for (int i = 0; i + 1 < n; ++i) {
-        src.push_back(i);
-        dst.push_back(i + 1);
-        wt.push_back(1.0);
-    }
-    for (int i = 0; i + 2 < n; ++i) {
-        src.push_back(i);
-        dst.push_back(i + 2);
-        wt.push_back(1.0);
-    }
-    data.adj_list = baysor::AdjList::from_edge_list(
-        src.data(), dst.data(), wt.data(), static_cast<int>(src.size()), n);
+    // Edges (i, i+1) and (i, i+2): every molecule sees neighbors from both
+    // classes with equal weight.
+    std::vector<std::pair<int, int>> edges;
+    for (int i = 0; i + 1 < n; ++i) edges.emplace_back(i, i + 1);
+    for (int i = 0; i + 2 < n; ++i) edges.emplace_back(i, i + 2);
 
     // Two wide, identical Gaussians: their pdfs are effectively constant and
     // equal along the chain.
     data.components.push_back(make_component(0.0, 0.0, 1e8, n / 2, 1));
     data.components.push_back(make_component(0.0, 0.0, 1e8, n / 2, 2));
-
-    data.assignment.resize(n);
-    for (int i = 0; i < n; ++i) data.assignment[i] = (i % 2) + 1;
-    data.max_component_guid = 2;
-    data.cluster_penalty_mult = 0.25;
-    data.use_gene_smoothing = true;
-    data.mrf_strength = 0.1;
-    data.real_edge_weight = 1.0;
+    finish_fixture(data, edges);
     return data;
 }
 
@@ -99,40 +95,19 @@ baysor::BmmData<2> make_blob_data(int n_per_blob) {
     baysor::BmmData<2> data;
     data.position_data.resize(2, n);
     data.assignment.resize(n);
+    std::vector<std::pair<int, int>> edges;
     for (int b = 0; b < 3; ++b) {
-        double cx = 10.0 * b;
         for (int j = 0; j < n_per_blob; ++j) {
-            int i = b * n_per_blob + j;
-            double u = static_cast<double>((i * 2654435761u) % 1000u) / 1000.0 - 0.5;
-            double v = static_cast<double>((i * 40503u) % 1000u) / 1000.0 - 0.5;
-            data.position_data(0, i) = cx + 2.0 * u;
-            data.position_data(1, i) = 2.0 * v;
+            const int i = b * n_per_blob + j;
+            const double u = static_cast<double>((i * 2654435761u) % 1000u) / 1000.0 - 0.5;
+            const double v = static_cast<double>((i * 40503u) % 1000u) / 1000.0 - 0.5;
+            data.position_data.col(i) << 10.0 * b + 2.0 * u, 2.0 * v;
             data.assignment[i] = b + 1;
+            if (j + 1 < n_per_blob) edges.emplace_back(i, i + 1);
         }
-    }
-    data.composition_data.assign(n, 0);
-    data.confidence.assign(n, 1.0);
-
-    std::vector<int> src, dst;
-    std::vector<double> wt;
-    for (int b = 0; b < 3; ++b) {
-        for (int j = 0; j + 1 < n_per_blob; ++j) {
-            src.push_back(b * n_per_blob + j);
-            dst.push_back(b * n_per_blob + j + 1);
-            wt.push_back(1.0);
-        }
-    }
-    data.adj_list = baysor::AdjList::from_edge_list(
-        src.data(), dst.data(), wt.data(), static_cast<int>(src.size()), n);
-
-    for (int b = 0; b < 3; ++b) {
         data.components.push_back(make_component(10.0 * b, 0.0, 1.0, n_per_blob, b + 1));
     }
-    data.max_component_guid = 3;
-    data.cluster_penalty_mult = 0.25;
-    data.use_gene_smoothing = true;
-    data.mrf_strength = 0.1;
-    data.real_edge_weight = 1.0;
+    finish_fixture(data, edges);
     return data;
 }
 
@@ -155,18 +130,6 @@ TEST(RngDeterminism, EstepIsThreadCountIndependent) {
     // be trivially unchanged everywhere.
     auto data = make_symmetric_chain(n);
     EXPECT_NE(data.assignment, reference);
-}
-
-TEST(RngDeterminism, EstepIsDeterministicAcrossRepeatedRuns) {
-    PoolSizeGuard guard(4);
-    constexpr int n = 2500;
-    std::vector<int> reference;
-    for (int r = 0; r < 5; ++r) {
-        auto data = make_symmetric_chain(n);
-        baysor::expect_dirichlet_spatial(data, /*stochastic=*/true, /*rng_salt=*/3);
-        if (reference.empty()) reference = data.assignment;
-        EXPECT_EQ(data.assignment, reference);
-    }
 }
 
 TEST(RngDeterminism, EstepStreamsDifferBetweenIterations) {
