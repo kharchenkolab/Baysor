@@ -398,9 +398,9 @@ std::pair<double, double> estimate_scale_from_assignment(
     std::vector<double> radii(n_centers);
     for (int i = 0; i < n_centers; ++i) {
         double min_dist = std::numeric_limits<double>::max();
-        const auto& ids = knn.indices[i];
-        const auto& dists = knn.distances[i];
-        for (int j = 0; j < static_cast<int>(ids.size()); ++j) {
+        const int* ids = knn.idx_row(i);
+        const double* dists = knn.dist_row(i);
+        for (int j = 0; j < knn.k; ++j) {
             if (ids[j] == i) continue;
             min_dist = dists[j];
             break;

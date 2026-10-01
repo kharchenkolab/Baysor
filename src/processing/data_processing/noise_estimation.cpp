@@ -279,14 +279,10 @@ ConfidenceEstimationDetails estimate_confidence_details(
 
     Eigen::MatrixXd pos = data.position_matrix();
 
-    // KNN: find nn_id+1 neighbors (first is self), extract distance to the (nn_id+1)-th
-    auto knn = knn_parallel(pos, pos, nn_id + 1, true);
-
-    std::vector<double> mean_dists(n);
-    for (int i = 0; i < n; ++i) {
-        int k = static_cast<int>(knn.distances[i].size());
-        mean_dists[i] = (k > nn_id) ? knn.distances[i][nn_id] : knn.distances[i].back();
-    }
+    // KNN distance to the (nn_id+1)-th neighbor (first is self): computed
+    // block-wise, only the kth distance per molecule is kept (the full n x k
+    // result peaked at 3 GiB on whole slides, REPORT.md 6.4).
+    std::vector<double> mean_dists = knn_kth_distances(pos, nn_id + 1, nn_id);
 
     // Build molecule graph (unfiltered, matching Julia)
     auto adj_list = build_molecule_graph(data, /*filter=*/false);

@@ -1596,14 +1596,16 @@ TEST(KNN, SmallGrid) {
 
     auto result = baysor::knn_parallel(pts, pts, 3, true);
 
-    ASSERT_EQ(result.indices.size(), 4u);
-    ASSERT_EQ(result.distances.size(), 4u);
+    ASSERT_EQ(result.n, 4);
+    ASSERT_EQ(result.k, 3);
+    ASSERT_EQ(result.indices.size(), 12u);
+    ASSERT_EQ(result.distances.size(), 12u);
 
     // For point (0,0), nearest is itself (dist=0), then (1,0) or (0,1) (dist=1)
-    EXPECT_EQ(result.indices[0][0], 0);  // self
-    EXPECT_NEAR(result.distances[0][0], 0.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][1], 1.0, 1e-10);  // adjacent
-    EXPECT_NEAR(result.distances[0][2], 1.0, 1e-10);  // adjacent
+    EXPECT_EQ(result.idx_row(0)[0], 0);  // self
+    EXPECT_NEAR(result.dist_row(0)[0], 0.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[1], 1.0, 1e-10);  // adjacent
+    EXPECT_NEAR(result.dist_row(0)[2], 1.0, 1e-10);  // adjacent
 }
 
 TEST(KNN, SelfQuery) {
@@ -1616,8 +1618,8 @@ TEST(KNN, SelfQuery) {
 
     // First neighbor is always self
     for (int i = 0; i < 3; ++i) {
-        EXPECT_EQ(result.indices[i][0], i);
-        EXPECT_NEAR(result.distances[i][0], 0.0, 1e-10);
+        EXPECT_EQ(result.idx_row(i)[0], i);
+        EXPECT_NEAR(result.dist_row(i)[0], 0.0, 1e-10);
     }
 }
 
@@ -1628,8 +1630,8 @@ TEST(KNN, 3D) {
 
     auto result = baysor::knn_parallel(pts, pts, 2, true);
 
-    EXPECT_NEAR(result.distances[0][1], 5.0, 1e-10);
-    EXPECT_NEAR(result.distances[1][1], 5.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[1], 5.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(1)[1], 5.0, 1e-10);
 }
 
 TEST(KNN, 3DTieOrderIsDeterministic) {
@@ -1644,15 +1646,15 @@ TEST(KNN, 3DTieOrderIsDeterministic) {
 
     auto result = baysor::knn_parallel(pts, query, 4, true);
 
-    ASSERT_EQ(result.indices.size(), 1u);
-    ASSERT_EQ(result.indices[0].size(), 4u);
-    EXPECT_EQ(result.indices[0][0], 0);
-    EXPECT_EQ(result.indices[0][1], 1);
-    EXPECT_EQ(result.indices[0][2], 2);
-    EXPECT_EQ(result.indices[0][3], 3);
-    EXPECT_NEAR(result.distances[0][1], 1.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][2], 1.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][3], 1.0, 1e-10);
+    ASSERT_EQ(result.n, 1);
+    ASSERT_EQ(result.k, 4);
+    EXPECT_EQ(result.idx_row(0)[0], 0);
+    EXPECT_EQ(result.idx_row(0)[1], 1);
+    EXPECT_EQ(result.idx_row(0)[2], 2);
+    EXPECT_EQ(result.idx_row(0)[3], 3);
+    EXPECT_NEAR(result.dist_row(0)[1], 1.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[2], 1.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[3], 1.0, 1e-10);
 }
 
 // ============================================================================

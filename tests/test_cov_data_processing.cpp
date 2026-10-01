@@ -260,16 +260,80 @@ TEST(Cov3Data_Utils, KnnParallelReturnsEmptyOnEmptyInputs) {
     auto r1 = baysor::knn_parallel(empty_tree, queries, 3, true);
     EXPECT_TRUE(r1.indices.empty());
     EXPECT_TRUE(r1.distances.empty());
+    EXPECT_EQ(r1.n, 0);
+    EXPECT_EQ(r1.k, 0);
 
     Eigen::MatrixXd tree(2, 3);
     tree.setZero();
     Eigen::MatrixXd empty_query(2, 0);
     auto r2 = baysor::knn_parallel(tree, empty_query, 2, true);
     EXPECT_TRUE(r2.indices.empty());
+    EXPECT_EQ(r2.n, 0);
 
     // k <= 0 is rejected as well.
     auto r3 = baysor::knn_parallel(tree, queries, 0, true);
     EXPECT_TRUE(r3.indices.empty());
+    EXPECT_EQ(r3.n, 0);
+}
+
+TEST(Cov3Data_Utils, KnnParallelFlatRowsMatchNestedLayout) {
+    // The flat result must behave like the former [n][k] vector-of-vectors:
+    // contiguous, non-overlapping rows of exactly k entries each.
+    Eigen::MatrixXd pts(2, 20);
+    for (int i = 0; i < 20; ++i) {
+        pts.col(i) << static_cast<double>(i % 5), static_cast<double>(i / 5);
+    }
+    auto result = baysor::knn_parallel(pts, pts, 4, true);
+    ASSERT_EQ(result.n, 20);
+    ASSERT_EQ(result.k, 4);
+    ASSERT_EQ(result.indices.size(), 80u);
+    ASSERT_EQ(result.distances.size(), 80u);
+    for (int i = 0; i < 20; ++i) {
+        EXPECT_EQ(result.idx_row(i), result.indices.data() + static_cast<size_t>(i) * 4);
+        EXPECT_EQ(result.dist_row(i), result.distances.data() + static_cast<size_t>(i) * 4);
+    }
+    // k is clamped to the number of tree points.
+    auto clamped = baysor::knn_parallel(pts, pts, 50, true);
+    EXPECT_EQ(clamped.k, 20);
+    EXPECT_EQ(clamped.indices.size(), 400u);
+}
+
+TEST(Cov3Data_Utils, KnnKthDistancesMatchesFullKnnResult) {
+    // Deterministic pseudo-random points with duplicated columns (distance
+    // ties): the streamed kth-distance result must be bitwise equal to the
+    // row of the full knn_parallel result for every k/kth combination.
+    Eigen::MatrixXd pts(2, 300);
+    std::uint64_t s = 987654321;
+    auto next = [&s]() {
+        s = s * 6364136223846793005ULL + 1442655040888963407ULL;
+        return static_cast<double>((s >> 16) & 0xFFFFFF) / 16777216.0;
+    };
+    for (int i = 0; i < 300; ++i) {
+        double v = next() * 50.0;
+        pts.col(i) << v, next() * 50.0;
+    }
+    for (int dup = 0; dup < 30; ++dup) {
+        pts.col(dup * 10) = pts.col(dup * 10 + 1);  // exact duplicate pair
+    }
+
+    for (int k : {1, 2, 7, 40, 300, 400}) {
+        auto full = baysor::knn_parallel(pts, pts, k, /*sorted=*/true);
+        const int k_eff = std::min(k, 300);
+        for (int kth : {0, 1, k_eff / 2, k_eff - 1, k_eff, 2 * k_eff}) {
+            auto streamed = baysor::knn_kth_distances(pts, k, kth);
+            ASSERT_EQ(static_cast<int>(streamed.size()), 300) << "k=" << k;
+            const int kth_eff = std::min(std::max(kth, 0), k_eff - 1);
+            for (int i = 0; i < 300; ++i) {
+                ASSERT_EQ(streamed[i], full.dist_row(i)[kth_eff])
+                    << "k=" << k << " kth=" << kth << " i=" << i;
+            }
+        }
+    }
+
+    // Degenerate inputs mirror knn_parallel's empty result.
+    Eigen::MatrixXd no_points(2, 0);
+    EXPECT_TRUE(baysor::knn_kth_distances(no_points, 3, 1).empty());
+    EXPECT_TRUE(baysor::knn_kth_distances(pts, 0, 0).empty());
 }
 
 // ============================================================================

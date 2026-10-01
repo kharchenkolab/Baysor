@@ -601,13 +601,9 @@ int cmd_preview(
     if (nn_id <= 0) nn_id = std::max(data.n_genes() / 10, 10);
 
     auto pos = data.position_matrix();
-    auto knn = knn_parallel(pos, pos, nn_id + 1, true);
-
-    std::vector<double> edge_lengths(data.n_molecules());
-    for (int i = 0; i < data.n_molecules(); ++i) {
-        int k = static_cast<int>(knn.distances[i].size());
-        edge_lengths[i] = (k > nn_id) ? knn.distances[i][nn_id] : knn.distances[i].back();
-    }
+    // Block-wise kth-neighbour distances (same values the former full kNN
+    // result held; only these distances are read).
+    std::vector<double> edge_lengths = knn_kth_distances(pos, nn_id + 1, nn_id);
 
     auto adj_list    = build_molecule_graph(data, false);
     auto noise_result = fit_noise_probabilities(edge_lengths, adj_list, nullptr, 100, 0.005, true);

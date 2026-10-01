@@ -43,7 +43,7 @@ Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points) {
         auto knn = knn_parallel(out, out, 2, true);
         auto& rng = global_xoshiro_rng();
         for (int i = 0; i < n; ++i) {
-            if (knn.distances[i].size() >= 2 && knn.distances[i][1] < 1e-6) {
+            if (knn.k >= 2 && knn.dist_row(i)[1] < 1e-6) {
                 for (int d = 0; d < dims; ++d) {
                     out(d, i) += (rng.rand_float64() - 0.5) * 2e-5;
                 }
@@ -175,8 +175,9 @@ AdjacencyResult adjacency_list(
         auto knn = knn_parallel(norm_pts, norm_pts, k_adj + 1, true);
         for (int i = 0; i < n; ++i) {
             // Skip self (index 0 is the point itself when sorted)
-            for (int j = 1; j < static_cast<int>(knn.indices[i].size()); ++j) {
-                int nb = knn.indices[i][j];
+            const int* row = knn.idx_row(i);
+            for (int j = 1; j < knn.k; ++j) {
+                int nb = row[j];
                 int lo = std::min(i, nb);
                 int hi = std::max(i, nb);
                 knn_edges.push_back({lo, hi});

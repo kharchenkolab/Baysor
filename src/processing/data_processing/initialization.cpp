@@ -170,7 +170,7 @@ InitialParams<N> cell_centers_uniformly(
     auto knn = knn_parallel(center_mat, pos_data, 1, /*sorted=*/false);
     std::vector<int> cluster_labels(n_mols);
     for (int i = 0; i < n_mols; ++i) {
-        cluster_labels[i] = knn.indices[i][0] + 1;  // 1-based
+        cluster_labels[i] = knn.idx_row(i)[0] + 1;  // 1-based
     }
 
     // Build covariances

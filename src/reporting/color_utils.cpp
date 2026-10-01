@@ -473,9 +473,11 @@ NcvReportEmbedding compute_ncv_embedding(
     parallel_for_static(0, n_mols, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
-        for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
-            double w = 1.0 / (knn.distances[i][j] + dist_offset);
-            weighted += w * sample_emb.col(knn.indices[i][j]);
+        const int* nn_indices = knn.idx_row(i);
+        const double* nn_distances = knn.dist_row(i);
+        for (int j = 0; j < knn.k; ++j) {
+            double w = 1.0 / (nn_distances[j] + dist_offset);
+            weighted += w * sample_emb.col(nn_indices[j]);
             w_sum    += w;
         }
         emb.col(i) = weighted / w_sum;
@@ -681,9 +683,11 @@ Eigen::MatrixXd interpolate_ncv_embedding(
     parallel_for_static(0, n_query, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
-        for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
-            double w = 1.0 / (knn.distances[i][j] + dist_offset);
-            weighted += w * model.anchor_emb.col(knn.indices[i][j]);
+        const int* nn_indices = knn.idx_row(i);
+        const double* nn_distances = knn.dist_row(i);
+        for (int j = 0; j < knn.k; ++j) {
+            double w = 1.0 / (nn_distances[j] + dist_offset);
+            weighted += w * model.anchor_emb.col(nn_indices[j]);
             w_sum += w;
         }
         emb.col(i) = weighted / w_sum;
