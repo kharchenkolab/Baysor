@@ -387,9 +387,14 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
             int c_idx = c_adj - 1;         // 0-based
             const auto& comp = data.components[c_idx];
 
-            double c_dens = conf
-                * std::exp(data.mrf_strength * adj_weights[j])
-                * comp.pdf(x, gene, data.use_gene_smoothing);
+            // conf * exp(mrf * w) * Component::pdf with one exp of the summed
+            // exponents instead of exp(mrf * w) * exp(log_pdf) (class F: may
+            // change the densities in the last bits).
+            double comp_p = comp.prior_probability * comp.confidence
+                * std::exp(data.mrf_strength * adj_weights[j]
+                           + comp.position_params.log_pdf(x));
+            if (gene >= 0) comp_p *= comp.composition_params.pdf(gene, data.use_gene_smoothing);
+            double c_dens = conf * comp_p;
 
             // TODO(parity): Julia currently uses `< length(cluster_per_cell)`
             // here, which skips the last component from this penalty path.
