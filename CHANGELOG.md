@@ -16,8 +16,8 @@ All notable changes to the C++ line of Baysor are documented here.
 
 - `--threads` / `-t` on `run`, `preview` and `segfree` (and a top-level
   `threads` config key) to set the number of worker threads. Defaults to
-  `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS` (backward compatibility for
-  existing scripts and the benchmark harness), then the number of CPU cores.
+  `OMP_NUM_THREADS` (backward compatibility for existing scripts), then the
+  number of physical CPU cores.
   The effective thread count is logged at start-up.
 
 - Prebuilt binaries for every published GitHub release, built by the

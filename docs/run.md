@@ -151,14 +151,9 @@ count with `--threads` (or `-t`), available on `run`, `preview` and `segfree`:
 baysor run --threads 8 ...
 ```
 
-Without `--threads`, the count is taken from the `BAYSOR_NUM_THREADS`
-environment variable, then from `OMP_NUM_THREADS` (kept for backward
-compatibility with existing scripts), and finally defaults to the number of
-physical CPU cores:
-
-```bash
-BAYSOR_NUM_THREADS=20 baysor run ...
-```
+Without `--threads`, the count is taken from the `OMP_NUM_THREADS`
+environment variable (kept for backward compatibility with existing scripts)
+and otherwise defaults to the number of physical CPU cores.
 
 The effective thread count is logged at start-up. Some phases are
 intentionally serial or only partially parallel, so CPU use may not stay at

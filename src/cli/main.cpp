@@ -40,19 +40,16 @@
 
 using namespace baysor;
 
-// Thread-pool size: --threads (or config `threads`), else BAYSOR_NUM_THREADS,
-// else OMP_NUM_THREADS (kept for existing scripts), else the physical cores.
+// Thread-pool size: --threads (or config `threads`), else OMP_NUM_THREADS
+// (kept for existing scripts), else the physical cores.
 static int resolve_thread_count(int requested) {
     if (requested > 0) return requested;
-    for (const char* var : {"BAYSOR_NUM_THREADS", "OMP_NUM_THREADS"}) {
-        if (const char* env = std::getenv(var)) {
-            // stoi takes the first entry of an OMP_NUM_THREADS list ("8,4");
-            // malformed values are ignored.
-            try {
-                int n = std::stoi(env);
-                if (n > 0) return n;
-            } catch (...) {}
-        }
+    if (const char* env = std::getenv("OMP_NUM_THREADS")) {
+        // stoi takes the first entry of a list ("8,4"); malformed values are ignored.
+        try {
+            int n = std::stoi(env);
+            if (n > 0) return n;
+        } catch (...) {}
     }
     return default_thread_count();
 }
@@ -752,7 +749,7 @@ int main(int argc, char* argv[]) {
     };
     auto add_threads_option = [&opts](CLI::App* sub) {
         sub->add_option("-t,--threads", opts.threads,
-            "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
+            "Number of worker threads (default: OMP_NUM_THREADS, "
             "then the number of physical CPU cores)");
     };
 

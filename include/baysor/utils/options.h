@@ -83,7 +83,7 @@ struct RunOptions {
     PriorInputOptions prior;
     SegmentationOptions segmentation;
     PlottingOptions plotting;
-    int threads = 0;  ///< thread-pool size; 0 = BAYSOR_NUM_THREADS, OMP_NUM_THREADS or physical cores
+    int threads = 0;  ///< thread-pool size; 0 = OMP_NUM_THREADS or physical cores
 };
 
 /// Parse scale_std: "25%" relative to scale, or absolute number like "5.0"

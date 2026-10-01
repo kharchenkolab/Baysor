@@ -31,7 +31,7 @@ Keys outside any `[section]` apply to the whole run.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `threads` | int | `0` | Worker threads for the internal thread pool. `0` = auto: `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS`, then the number of physical CPU cores |
+| `threads` | int | `0` | Worker threads for the internal thread pool. `0` = auto: `OMP_NUM_THREADS`, then the number of physical CPU cores |
 
 ## `[molecules]` / `[data]`
 
