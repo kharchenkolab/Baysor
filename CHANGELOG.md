@@ -170,6 +170,14 @@ All notable changes to the C++ line of Baysor are documented here.
 - Documented how to install the legacy Julia v0.7.1 package by pinning
   `rev="v0.7.1"`; C++ release binaries are recommended because the default
   repository branch now contains the C++ implementation.
+- `--prior-segmentation-confidence 1` now keeps every prior cell together:
+  all molecules sharing a prior label (including exact duplicate coordinates,
+  e.g. the duplicated CosMx transcripts from
+  [#117](https://github.com/kharchenkolab/Baysor/issues/117)) end up in the
+  same final cell instead of being split across several cells or partly
+  dropped to noise. Prior cells can still be renamed, expanded or merged;
+  molecules without a prior label are unaffected. See the confidence-1
+  guarantee in `docs/priors.md`.
 - Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
   inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
   them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`

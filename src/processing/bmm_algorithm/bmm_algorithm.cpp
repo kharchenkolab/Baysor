@@ -777,9 +777,16 @@ static void split_phase(ParallelRegion& region, BmmData<N>& data,
         int largest_cc = static_cast<int>(
             std::max_element(cc_size.begin(), cc_size.end()) - cc_size.begin());
 
-        // Molecules of the non-largest components go to noise
+        // Molecules of the non-largest components go to noise. At confidence
+        // 1 the prior is a hard constraint: a molecule with a prior label is
+        // never detached here, so a prior segment cannot be thinned to noise
+        // before enforce_prior_consistency() has had a chance to keep it in
+        // one piece (issue #117).
+        const bool keep_prior =
+            data.prior_seg_confidence >= 1.0 && !data.segment_per_molecule.empty();
         for (int k = 0; k < nm; ++k) {
             if (label[k] != largest_cc) {
+                if (keep_prior && data.segment_per_molecule[mol_ids[k]] > 0) continue;
                 scratch.dropped.push_back(mol_ids[k]);
             }
         }
@@ -790,6 +797,51 @@ static void split_phase(ParallelRegion& region, BmmData<N>& data,
         for (int mol : dropped) data.assignment[mol] = 0;
         dropped.clear();
     });
+}
+
+// ============================================================================
+// enforce_prior_consistency
+// ============================================================================
+
+// With prior_seg_confidence == 1 the prior is a hard constraint: every prior
+// segment must map to exactly one final component. The E-step picks a
+// component per molecule from its adjacent candidates, so a segment whose
+// molecules have different neighbourhoods can end up spread over several
+// components or partly in noise — the violation reported in issue #117,
+// which duplicated molecules at identical coordinates make much more likely.
+// This pass picks, for every prior segment, the component holding the most of
+// its molecules (ties: lowest component index) and moves all molecules of the
+// segment there; a segment with no molecule in any component stays in noise.
+// Serial and deterministic, so thread count and scheduling cannot change it.
+// Only called when the prior is a hard constraint; without a prior, or at
+// psc < 1, it is a no-op.
+template<int N>
+static void enforce_prior_consistency(BmmData<N>& data) {
+    if (data.prior_seg_confidence < 1.0 || data.segment_per_molecule.empty()) return;
+    const int nc = data.n_components();
+    const int n = data.n_molecules();
+    if (nc == 0 || n == 0) return;
+
+    // Best component per segment. Components are scanned in ascending order,
+    // so the first one with the maximum count wins the tie deterministically.
+    std::unordered_map<int, std::pair<int, int>> best;  // seg -> (component, count)
+    best.reserve(64);
+    for (int ci = 0; ci < nc; ++ci) {
+        for (const auto& [seg, cnt] : data.components[ci].n_molecules_per_segment) {
+            auto it = best.find(seg);
+            if (it == best.end() || cnt > it->second.second) {
+                best[seg] = {ci + 1, cnt};
+            }
+        }
+    }
+
+    for (int i = 0; i < n; ++i) {
+        const int seg = data.segment_per_molecule[i];
+        if (seg <= 0) continue;
+        auto it = best.find(seg);
+        const int target = (it == best.end()) ? 0 : it->second.first;
+        if (data.assignment[i] != target) data.assign(i, target);
+    }
 }
 
 template<int N>
@@ -1005,6 +1057,15 @@ void bmm(BmmData<N>& data,
                 split_phase(region, data, ws.ids_by_comp);
             }
 
+            // Hard prior constraint at confidence 1: after the E-step and the
+            // connectivity split (which may have moved prior molecules to
+            // noise) all molecules of a prior segment are put back into one
+            // component, so the dropped, recorded and maximized assignment is
+            // already consistent. No-op at lower confidence or without prior.
+            if (has_segments && data.prior_seg_confidence >= 1.0) {
+                region.single([&]() { enforce_prior_consistency(data); });
+            }
+
             // Grouping of the current assignment: per-cell counts for the
             // drop step and the M-step grouping. Drop components with fewer
             // than min_molecules_drop molecules (matches Julia's
@@ -1067,12 +1128,19 @@ void bmm(BmmData<N>& data,
             auto [new_assign, conf] = estimate_assignment_by_history(data);
             data.assignment = std::move(new_assign);
             data.assignment_confidence = std::move(conf);
+            // The per-component prior bookkeeping still describes the
+            // assignment from before the history-based reassignment; rebuild
+            // it so the enforcement below sees the current counts.
+            data.update_n_mols_per_segment();
             maximize(data);
         }
 
         if (!freeze_components) {
             drop_unused_components(data, 1);  // keep any cell with >= 1 molecule (matches Julia)
         }
+        // The history vote and the connectivity heuristic are not aware of
+        // the hard prior constraint; re-apply it to the final assignment.
+        enforce_prior_consistency(data);
         maximize(data);
 
         if (verbose) {
