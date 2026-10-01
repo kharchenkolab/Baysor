@@ -21,9 +21,9 @@ struct IdsByComponent {
     int size(int c) const { return offsets[c + 1] - offsets[c]; }
 };
 
-/// Per-worker scratch sits on its own cache lines: the vectors' headers are
-/// written on every push_back, and adjacent headers of different workers
-/// would otherwise share a line (false sharing).
+/// Per-worker (per-block) scratch sits on its own cache lines: the vectors'
+/// headers are written on every push_back, and adjacent headers written by
+/// different workers would otherwise share a line (false sharing).
 constexpr std::size_t kCacheLine = 64;
 
 /// Scratch state of the BMM loop, kept across iterations so that the E-step,
@@ -53,10 +53,10 @@ struct BmmWorkspace {
 
     // Applying the E-step result
     std::vector<std::int64_t> block_count;
-    struct alignas(kCacheLine) WorkerList {
+    struct alignas(kCacheLine) BlockIds {
         std::vector<int> ids;
     };
-    std::vector<WorkerList> changed;         // per block, with prior segments
+    std::vector<BlockIds> changed;           // per block, with prior segments
     std::vector<int> seg_op_offsets;         // per-component segment-map operations
     std::vector<int> seg_ops;
     std::int64_t n_changed = 0;

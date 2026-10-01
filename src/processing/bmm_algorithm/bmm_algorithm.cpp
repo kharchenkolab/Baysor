@@ -11,12 +11,10 @@
 #include <cstddef>
 #include <memory_resource>
 #include <optional>
-#include <sstream>
 #include <cmath>
 #include <numeric>
-#include <random>
 #include <unordered_map>
-#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace baysor {
@@ -51,15 +49,7 @@ static void prepare_workspace(BmmData<N>& data) {
     const int n_threads = thread_pool_size();
 
     ws.new_assignment.resize(n);  // every molecule is written by the E-step
-    if (static_cast<int>(ws.estep.size()) != n_threads) {
-        constexpr size_t reserve_hint = 64;
-        ws.estep.assign(n_threads, {});
-        for (auto& sc : ws.estep) {
-            sc.adj_classes.reserve(reserve_hint);
-            sc.adj_weights.reserve(reserve_hint);
-            sc.denses.reserve(reserve_hint);
-        }
-    }
+    ws.estep.resize(n_threads);
     // Fresh 16-slot dictionaries per E-step call: the table size persists
     // after a grow() and determines the slot order, so it must not leak from
     // one E-step call into the next.
@@ -68,10 +58,7 @@ static void prepare_workspace(BmmData<N>& data) {
     if (static_cast<int>(ws.cluster_mode_arena.size()) != n_threads) {
         ws.cluster_mode_arena.assign(n_threads, std::vector<std::byte>(16384));
     }
-    if (static_cast<int>(ws.split_scratch.size()) != n_threads) {
-        ws.split_scratch.assign(n_threads, {});
-    }
-    for (auto& sc : ws.split_scratch) sc.dropped.clear();
+    ws.split_scratch.resize(n_threads);
     ws.mol_pos.resize(n);
 
     // O(n) loops run over fixed molecule blocks claimed dynamically (a
@@ -87,22 +74,39 @@ static void prepare_workspace(BmmData<N>& data) {
     ws.seg_op_offsets.resize(nc + 1);
 }
 
-// Group molecule ids by component into a reusable CSR (ids ascending inside
-// each group, i.e. the same groups as split_ids(assignment, nc,
+// Counting-sort prefix sums: the per-block counts hist[blk * nc + c] become
+// the first output position of block blk in group c, groups in component
+// order and blocks in index order; offsets (nc + 1 entries) get the group
+// starts.
+static void block_counts_to_offsets(int* hist, int n_blocks, int nc, int* offsets) {
+    int pos = 0;
+    for (int c = 0; c < nc; ++c) {
+        offsets[c] = pos;
+        for (int blk = 0; blk < n_blocks; ++blk) {
+            pos += std::exchange(hist[static_cast<size_t>(blk) * nc + c], pos);
+        }
+    }
+    offsets[nc] = pos;
+}
+
+// Group molecule ids by component into workspace.ids_by_comp (ids ascending
+// inside each group, i.e. the same groups as split_ids(assignment, nc,
 // drop_zero=true)) instead of nc freshly allocated vectors per call.
-// Parallel counting sort: per-block histograms, prefix sums in (component,
-// block) order, then each block scatters its molecules in ascending order.
-// The result does not depend on the number of workers. `after_prefix` runs
-// in the same single block as the prefix sums (the group sizes are final
-// there). Work-shared.
-static void group_phase(ParallelRegion& region, const std::vector<int>& assignment, int nc,
-                        IdsByComponent& out, BmmWorkspace& ws,
+// Parallel counting sort: per-block histograms, prefix sums, then each block
+// scatters its molecules in ascending order, so the result does not depend
+// on the number of workers. `after_prefix` runs in the single block of the
+// prefix sums (the group sizes are final there). Work-shared.
+template<int N>
+static void group_phase(ParallelRegion& region, BmmData<N>& data,
                         const std::function<void()>& after_prefix = nullptr) {
+    BmmWorkspace& ws = data.workspace;
+    IdsByComponent& out = ws.ids_by_comp;
+    const std::vector<int>& assignment = data.assignment;
     const std::int64_t n = static_cast<std::int64_t>(assignment.size());
-    const int n_blocks = ws.n_blocks;
+    const int nc = data.n_components();
     const std::int64_t len = ws.block_len;
     int* hist = ws.group_hist.data();
-    region.for_each(0, n_blocks, 1, [&](int blk) {
+    region.for_each(0, ws.n_blocks, 1, [&](int blk) {
         int* h = hist + static_cast<size_t>(blk) * nc;
         std::fill(h, h + nc, 0);
         const std::int64_t e = std::min(n, (blk + 1) * len);
@@ -112,23 +116,12 @@ static void group_phase(ParallelRegion& region, const std::vector<int>& assignme
         }
     });
     region.single([&]() {
-        // hist[blk][c] becomes the first output position of block blk in group c.
         out.offsets.resize(nc + 1);
-        int pos = 0;
-        for (int c = 0; c < nc; ++c) {
-            out.offsets[c] = pos;
-            for (int blk = 0; blk < n_blocks; ++blk) {
-                int& h = hist[static_cast<size_t>(blk) * nc + c];
-                const int cnt = h;
-                h = pos;
-                pos += cnt;
-            }
-        }
-        out.offsets[nc] = pos;
-        out.ids.resize(pos);
+        block_counts_to_offsets(hist, ws.n_blocks, nc, out.offsets.data());
+        out.ids.resize(out.offsets[nc]);
         if (after_prefix) after_prefix();
     });
-    region.for_each(0, n_blocks, 1, [&](int blk) {
+    region.for_each(0, ws.n_blocks, 1, [&](int blk) {
         int* h = hist + static_cast<size_t>(blk) * nc;
         const std::int64_t e = std::min(n, (blk + 1) * len);
         for (std::int64_t i = blk * len; i < e; ++i) {
@@ -142,15 +135,6 @@ static void group_phase(ParallelRegion& region, const std::vector<int>& assignme
 // maximize (M-step)
 // ============================================================================
 
-// Before an M-step: cluster_per_cell gets one zero-initialized entry per
-// component (when molecule clusters are used). Serial.
-template<int N>
-static void reset_cluster_per_cell(BmmData<N>& data) {
-    if (!data.cluster_per_molecule.empty()) {
-        data.cluster_per_cell.assign(data.n_components(), 0);
-    }
-}
-
 // After an M-step. Serial.
 template<int N>
 static void update_noise_density(BmmData<N>& data) {
@@ -161,23 +145,21 @@ static void update_noise_density(BmmData<N>& data) {
     }
 }
 
-// M-step from `ids_by_comp`, the grouping of the current assignment, after
-// reset_cluster_per_cell(); update_noise_density() must follow. Work-shared.
+// M-step from workspace.ids_by_comp, the grouping of the current assignment;
+// cluster_per_cell must have one entry per component when molecule clusters
+// are used, and update_noise_density() must follow. Work-shared.
 template<int N>
 static void maximize_phase(ParallelRegion& region, BmmData<N>& data,
-                           const IdsByComponent& ids_by_comp,
                            bool freeze_composition, bool freeze_position) {
-    int nc = data.n_components();
     BmmWorkspace& ws = data.workspace;
+    const std::vector<double>* nuc_probs =
+        data.nuclei_prob_per_molecule.empty() ? nullptr : &data.nuclei_prob_per_molecule;
 
     // Small chunks of a few cells: per-cell work varies widely with the cell
     // size, and preemption on shared hosts is the dominant source of imbalance.
-    region.for_each(0, nc, 2, [&](int ci, int w) {
-        const int* mol_ids = ids_by_comp.begin(ci);
-        int np = ids_by_comp.size(ci);
-
-        const std::vector<double>* nuc_probs =
-            data.nuclei_prob_per_molecule.empty() ? nullptr : &data.nuclei_prob_per_molecule;
+    region.for_each(0, data.n_components(), 2, [&](int ci, int w) {
+        const int* mol_ids = ws.ids_by_comp.begin(ci);
+        int np = ws.ids_by_comp.size(ci);
 
         data.components[ci].maximize_indexed(
             data.position_data,
@@ -190,10 +172,11 @@ static void maximize_phase(ParallelRegion& region, BmmData<N>& data,
         );
 
         // cluster_per_cell: mode of cluster_per_molecule for this component
-        if (!data.cluster_per_molecule.empty() && np > 0) {
+        // (0 for an empty one)
+        if (!data.cluster_per_molecule.empty()) {
             // A std::unordered_map on a per-worker arena instead of the heap:
             // libstdc++'s hashing, bucket policy and iteration order do not
-            // depend on the allocator, so ties resolve exactly as before.
+            // depend on the allocator, so ties resolve as with the heap.
             auto& arena = ws.cluster_mode_arena[w];
             std::pmr::monotonic_buffer_resource res(arena.data(), arena.size());
             std::pmr::unordered_map<int, int> cnt(&res);
@@ -211,13 +194,13 @@ static void maximize_phase(ParallelRegion& region, BmmData<N>& data,
 
 template<int N>
 void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
-    BmmWorkspace& ws = data.workspace;
     prepare_workspace(data);
+    if (!data.cluster_per_molecule.empty()) {
+        data.cluster_per_cell.resize(data.n_components());
+    }
     parallel_region([&](ParallelRegion& region) {
-        // Group molecule indices by component (1-based → 0-based component index)
-        group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws,
-                    [&]() { reset_cluster_per_cell(data); });
-        maximize_phase(region, data, ws.ids_by_comp, freeze_composition, freeze_position);
+        group_phase(region, data);
+        maximize_phase(region, data, freeze_composition, freeze_position);
     });
     update_noise_density(data);
 }
@@ -318,10 +301,6 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
     BmmWorkspace& ws = data.workspace;
     std::vector<int>& new_assignment = ws.new_assignment;
 
-    // Per-worker buffers, kept across iterations (sized and reset by
-    // prepare_workspace)
-    auto& scratch_buf = ws.estep;
-
     // Loop-invariant factors of adjust_densities_by_prior_segmentation
     const double psc = data.prior_seg_confidence;
     const double seg_prior_pow = psc * std::exp(3.0 * psc);
@@ -329,178 +308,165 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
 
     // For single-thread parity, continue the same RNG stream used by earlier
     // preprocessing steps such as duplicate-point jitter in normalize_points.
-    // Multi-threaded runs draw from per-chunk streams keyed by
-    // (rng_salt, chunk index), so results do not depend on scheduling or on
-    // the number of threads.
     const bool single_threaded = (thread_pool_size() <= 1);
 
     region.for_chunks(0, n, kEstepChunkSize, Scheduling::Dynamic,
         [&](std::int64_t chunk_begin, std::int64_t chunk_end, int ti) {
         std::optional<Xoshiro256pp> chunk_rng;
-        if (!single_threaded) {
-            chunk_rng.emplace(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
-        }
-        auto& comp_weights = scratch_buf[ti].component_weights;
-        auto& adj_classes  = scratch_buf[ti].adj_classes;
-        auto& adj_weights  = scratch_buf[ti].adj_weights;
-        auto& denses       = scratch_buf[ti].denses;
+        Xoshiro256pp& rng = single_threaded ? global_xoshiro_rng()
+            : chunk_rng.emplace(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
+        auto& comp_weights = ws.estep[ti].component_weights;
+        auto& adj_classes  = ws.estep[ti].adj_classes;
+        auto& adj_weights  = ws.estep[ti].adj_weights;
+        auto& denses       = ws.estep[ti].denses;
 
         for (int mol_id = static_cast<int>(chunk_begin); mol_id < static_cast<int>(chunk_end); ++mol_id) {
-
-        // ---- aggregate_adjacent_component_weights ----
-        // Accumulate the neighbour weights per distinct class in first-seen
-        // order (typically 1-3 classes, linear search). The Julia Dict slot
-        // order depends only on the insertion order of distinct keys, and each
-        // key's sum is formed in the same neighbour order, so feeding the
-        // per-class sums into the dict in first-seen order reproduces the
-        // dict's slot order and values bitwise. Single-class molecules skip
-        // the dict entirely.
-        adj_classes.clear();
-        adj_weights.clear();
-
-        int  nc_adj = data.adj_list.neighbor_count(mol_id);
-        const int32_t* nb_ids  = data.adj_list.neighbor_ids(mol_id);
-        const double*  nb_wts  = data.adj_list.neighbor_weights(mol_id);
-
-        double bg_comp_weight = 0.0;
-        for (int ai = 0; ai < nc_adj; ++ai) {
-            int nb   = nb_ids[ai];
-            int c_id = old_assignment[nb];
-            double cw = nb_wts[ai];
-            if (c_id == 0) {
-                bg_comp_weight += cw;
-            } else {
-                const int m = static_cast<int>(adj_classes.size());
-                int j = 0;
-                while (j < m && adj_classes[j] != c_id) ++j;
-                if (j == m) {
-                    adj_classes.push_back(c_id);
-                    adj_weights.push_back(cw);
-                } else {
-                    adj_weights[j] += cw;
-                }
-            }
-        }
-        if (adj_classes.size() > 1) {
-            comp_weights.clear();
-            for (size_t j = 0; j < adj_classes.size(); ++j) {
-                comp_weights.add(adj_classes[j], adj_weights[j]);
-            }
+            // ---- aggregate_adjacent_component_weights ----
+            // Sum the neighbour weights per class in first-seen order (linear
+            // search; typically 1-3 classes). The Julia Dict slot order
+            // depends only on the insertion order of the keys, so feeding
+            // these sums to the dict in the same order reproduces its slot
+            // order and values bitwise; single-class molecules skip it.
             adj_classes.clear();
             adj_weights.clear();
-            comp_weights.for_each([&](int c_id, double cw) {
-                adj_classes.push_back(c_id);
-                adj_weights.push_back(cw);
-            });
-        }
 
-        int n_adj = static_cast<int>(adj_classes.size());
-        if (n_adj == 0 && data.confidence[mol_id] >= 1.0) {
-            // No adjacent cells and high confidence → stays noise
-            new_assignment[mol_id] = 0;
-            continue;
-        }
+            int  nc_adj = data.adj_list.neighbor_count(mol_id);
+            const int32_t* nb_ids  = data.adj_list.neighbor_ids(mol_id);
+            const double*  nb_wts  = data.adj_list.neighbor_weights(mol_id);
 
-        // ---- expect_density_for_molecule ----
-        const double* x = data.position_data.col(mol_id).data();
-        int gene         = data.composition_data[mol_id];
-        double conf      = data.confidence[mol_id];
-        int mol_cluster  = has_clusters ? data.cluster_per_molecule[mol_id] : -1;
-        int segment_id   = has_segments ? data.segment_per_molecule[mol_id] : 0;
-
-        denses.resize(n_adj);
-        int largest_cell_id   = 0;
-        int largest_cell_size = 0;
-
-        for (int j = 0; j < n_adj; ++j) {
-            int c_adj = adj_classes[j];    // 1-based
-            int c_idx = c_adj - 1;         // 0-based
-            const auto& comp = data.components[c_idx];
-
-            // conf * exp(mrf * w) * Component::pdf with one exp of the summed
-            // exponents instead of exp(mrf * w) * exp(log_pdf) (class F: may
-            // change the densities in the last bits).
-            double comp_p = comp.prior_probability * comp.confidence
-                * std::exp(data.mrf_strength * adj_weights[j]
-                           + comp.position_params.log_pdf(x));
-            if (gene >= 0) comp_p *= comp.composition_params.pdf(gene, data.use_gene_smoothing);
-            double c_dens = conf * comp_p;
-
-            // TODO(parity): Julia currently uses `< length(cluster_per_cell)`
-            // here, which skips the last component from this penalty path.
-            // That looks like an indexing quirk rather than intended model
-            // behavior, but we keep it for parity for now.
-            // Cluster penalty
-            if (has_clusters
-                && c_adj > 0
-                && c_adj < static_cast<int>(data.cluster_per_cell.size())
-                && data.cluster_per_cell[c_idx] != mol_cluster) {
-                c_dens *= data.cluster_penalty_mult;
-            }
-
-            // Track largest cell for prior segmentation
-            if (has_segments && segment_id > 0) {
-                int main_seg = (c_idx < static_cast<int>(data.main_segment_per_cell.size()))
-                               ? data.main_segment_per_cell[c_idx] : 0;
-                if (main_seg == segment_id || main_seg == 0) {
-                    int cur_mols = 0;
-                    auto it = comp.n_molecules_per_segment.find(segment_id);
-                    if (it != comp.n_molecules_per_segment.end()) cur_mols = it->second;
-                    int seg_size = (segment_id <= static_cast<int>(data.n_molecules_per_segment.size()))
-                                   ? data.n_molecules_per_segment[segment_id - 1] : 1;
-                    int cur_mols_per_seg = std::min(cur_mols + 1, seg_size);
-
-                    if (cur_mols_per_seg > largest_cell_size
-                        || (cur_mols_per_seg == largest_cell_size
-                            && comp.n_samples > (largest_cell_id > 0
-                                ? data.components[largest_cell_id-1].n_samples : 0))) {
-                        largest_cell_size = cur_mols_per_seg;
-                        largest_cell_id   = c_adj;
+            double bg_comp_weight = 0.0;
+            for (int ai = 0; ai < nc_adj; ++ai) {
+                int nb   = nb_ids[ai];
+                int c_id = old_assignment[nb];
+                double cw = nb_wts[ai];
+                if (c_id == 0) {
+                    bg_comp_weight += cw;
+                } else {
+                    const int m = static_cast<int>(adj_classes.size());
+                    int j = 0;
+                    while (j < m && adj_classes[j] != c_id) ++j;
+                    if (j == m) {
+                        adj_classes.push_back(c_id);
+                        adj_weights.push_back(cw);
+                    } else {
+                        adj_weights[j] += cw;
                     }
                 }
             }
-
-            denses[j] = c_dens;
-        }
-
-        // Prior segmentation adjustment
-        if (has_segments && segment_id > 0 && largest_cell_id > 0) {
-            adjust_densities_by_prior_segmentation<N>(
-                denses, adj_classes, segment_id, largest_cell_id, data,
-                seg_prior_pow, sqrt_one_m_psc);
-        }
-
-        // Noise term: only added when confidence < 1.0
-        if (conf < 1.0) {
-            denses.push_back(
-                (1.0 - conf)
-                * std::exp(data.mrf_strength * bg_comp_weight)
-                * data.noise_density);
-            adj_classes.push_back(0);
-        }
-
-        // ---- estimate_molecule_cell_assignment ----
-        int n_total = static_cast<int>(adj_classes.size());
-        double sum_d = 0.0;
-        for (double d : denses) sum_d += d;
-
-        if (sum_d < 1e-100) {
-            new_assignment[mol_id] = 0;
-        } else if (!stochastic) {
-            int best = 0;
-            double best_d = -1.0;
-            for (int j = 0; j < n_total; ++j) {
-                if (denses[j] > best_d) { best_d = denses[j]; best = j; }
+            if (adj_classes.size() > 1) {
+                comp_weights.clear();
+                for (size_t j = 0; j < adj_classes.size(); ++j) {
+                    comp_weights.add(adj_classes[j], adj_weights[j]);
+                }
+                adj_classes.clear();
+                adj_weights.clear();
+                comp_weights.for_each([&](int c_id, double cw) {
+                    adj_classes.push_back(c_id);
+                    adj_weights.push_back(cw);
+                });
             }
-            new_assignment[mol_id] = adj_classes[best];
-        } else {
-            if (single_threaded) {
-                new_assignment[mol_id] =
-                    fsample(adj_classes.data(), denses.data(), n_total, global_xoshiro_rng());
+
+            int n_adj = static_cast<int>(adj_classes.size());
+            if (n_adj == 0 && data.confidence[mol_id] >= 1.0) {
+                // No adjacent cells and high confidence → stays noise
+                new_assignment[mol_id] = 0;
+                continue;
+            }
+
+            // ---- expect_density_for_molecule ----
+            const double* x = data.position_data.col(mol_id).data();
+            int gene         = data.composition_data[mol_id];
+            double conf      = data.confidence[mol_id];
+            int mol_cluster  = has_clusters ? data.cluster_per_molecule[mol_id] : -1;
+            int segment_id   = has_segments ? data.segment_per_molecule[mol_id] : 0;
+
+            denses.resize(n_adj);
+            int largest_cell_id   = 0;
+            int largest_cell_size = 0;
+
+            for (int j = 0; j < n_adj; ++j) {
+                int c_adj = adj_classes[j];    // 1-based
+                int c_idx = c_adj - 1;         // 0-based
+                const auto& comp = data.components[c_idx];
+
+                // conf * exp(mrf * w) * Component::pdf, with one exp of the
+                // summed exponents (may differ from two exps in the last bits)
+                double comp_p = comp.prior_probability * comp.confidence
+                    * std::exp(data.mrf_strength * adj_weights[j]
+                               + comp.position_params.log_pdf(x));
+                if (gene >= 0) comp_p *= comp.composition_params.pdf(gene, data.use_gene_smoothing);
+                double c_dens = conf * comp_p;
+
+                // TODO(parity): Julia currently uses `< length(cluster_per_cell)`
+                // here, which skips the last component from this penalty path.
+                // That looks like an indexing quirk rather than intended model
+                // behavior, but we keep it for parity for now.
+                // Cluster penalty
+                if (has_clusters
+                    && c_adj > 0
+                    && c_adj < static_cast<int>(data.cluster_per_cell.size())
+                    && data.cluster_per_cell[c_idx] != mol_cluster) {
+                    c_dens *= data.cluster_penalty_mult;
+                }
+
+                // Track largest cell for prior segmentation
+                if (has_segments && segment_id > 0) {
+                    int main_seg = (c_idx < static_cast<int>(data.main_segment_per_cell.size()))
+                                   ? data.main_segment_per_cell[c_idx] : 0;
+                    if (main_seg == segment_id || main_seg == 0) {
+                        int cur_mols = 0;
+                        auto it = comp.n_molecules_per_segment.find(segment_id);
+                        if (it != comp.n_molecules_per_segment.end()) cur_mols = it->second;
+                        int seg_size = (segment_id <= static_cast<int>(data.n_molecules_per_segment.size()))
+                                       ? data.n_molecules_per_segment[segment_id - 1] : 1;
+                        int cur_mols_per_seg = std::min(cur_mols + 1, seg_size);
+
+                        if (cur_mols_per_seg > largest_cell_size
+                            || (cur_mols_per_seg == largest_cell_size
+                                && comp.n_samples > (largest_cell_id > 0
+                                    ? data.components[largest_cell_id-1].n_samples : 0))) {
+                            largest_cell_size = cur_mols_per_seg;
+                            largest_cell_id   = c_adj;
+                        }
+                    }
+                }
+
+                denses[j] = c_dens;
+            }
+
+            // Prior segmentation adjustment
+            if (has_segments && segment_id > 0 && largest_cell_id > 0) {
+                adjust_densities_by_prior_segmentation<N>(
+                    denses, adj_classes, segment_id, largest_cell_id, data,
+                    seg_prior_pow, sqrt_one_m_psc);
+            }
+
+            // Noise term: only added when confidence < 1.0
+            if (conf < 1.0) {
+                denses.push_back(
+                    (1.0 - conf)
+                    * std::exp(data.mrf_strength * bg_comp_weight)
+                    * data.noise_density);
+                adj_classes.push_back(0);
+            }
+
+            // ---- estimate_molecule_cell_assignment ----
+            int n_total = static_cast<int>(adj_classes.size());
+            double sum_d = 0.0;
+            for (double d : denses) sum_d += d;
+
+            if (sum_d < 1e-100) {
+                new_assignment[mol_id] = 0;
+            } else if (!stochastic) {
+                int best = 0;
+                double best_d = -1.0;
+                for (int j = 0; j < n_total; ++j) {
+                    if (denses[j] > best_d) { best_d = denses[j]; best = j; }
+                }
+                new_assignment[mol_id] = adj_classes[best];
             } else {
-                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, *chunk_rng);
+                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, rng);
             }
-        }
         }
     });
 }
@@ -514,99 +480,84 @@ static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
     const int n_blocks = ws.n_blocks;
     const std::int64_t len = ws.block_len;
 
-    if (!data.segment_per_molecule.empty()) {
-        // BmmData::assign() for a changed molecule with a prior segment does
-        // ++ in the new component's per-segment map and -- (erasing at 0) in
-        // the old one's. Unchanged molecules are no-ops. Each map must receive
-        // its operations in ascending molecule order, as in the serial loop;
-        // different maps are independent. So: find the changed molecules
-        // per block (ascending), bucket their map operations by component
-        // (counting sort, stable), then replay every component's operations
-        // in parallel.
-        const int nc = data.n_components();
-        int* hist = ws.group_hist.data();
+    if (data.segment_per_molecule.empty()) {
+        // Without prior segments assign() only stores the value: count the
+        // changes in parallel and swap the vectors.
         region.for_each(0, n_blocks, 1, [&](int blk) {
-            auto& out = ws.changed[blk].ids;
-            int* h = hist + static_cast<size_t>(blk) * nc;
-            out.clear();
-            std::fill(h, h + nc, 0);
+            std::int64_t cnt = 0;
             const std::int64_t e = std::min(n, (blk + 1) * len);
             for (std::int64_t i = blk * len; i < e; ++i) {
-                const int old_c = data.assignment[i];
-                const int new_c = ws.new_assignment[i];
-                if (old_c == new_c) continue;
-                out.push_back(static_cast<int>(i));
-                if (data.segment_per_molecule[i] <= 0) continue;
-                if (new_c > 0) h[new_c - 1]++;
-                if (old_c > 0) h[old_c - 1]++;
+                cnt += (data.assignment[i] != ws.new_assignment[i]);
             }
+            ws.block_count[blk] = cnt;
         });
         region.single([&]() {
-            int pos = 0;
-            for (int c = 0; c < nc; ++c) {
-                ws.seg_op_offsets[c] = pos;
-                for (int blk = 0; blk < n_blocks; ++blk) {
-                    int& h = hist[static_cast<size_t>(blk) * nc + c];
-                    const int cnt = h;
-                    h = pos;
-                    pos += cnt;
-                }
-            }
-            ws.seg_op_offsets[nc] = pos;
-            ws.seg_ops.resize(pos);
-            std::int64_t cnt = 0;
-            for (int blk = 0; blk < n_blocks; ++blk) {
-                cnt += static_cast<std::int64_t>(ws.changed[blk].ids.size());
-            }
-            ws.n_changed = cnt;
-        });
-        // Operation code: mol + 1 for ++ (molecule enters), -(mol + 1) for --.
-        region.for_each(0, n_blocks, 1, [&](int blk) {
-            int* h = hist + static_cast<size_t>(blk) * nc;
-            for (int mol : ws.changed[blk].ids) {
-                const int old_c = data.assignment[mol];
-                const int new_c = ws.new_assignment[mol];
-                if (data.segment_per_molecule[mol] > 0) {
-                    if (new_c > 0) ws.seg_ops[h[new_c - 1]++] = mol + 1;
-                    if (old_c > 0) ws.seg_ops[h[old_c - 1]++] = -(mol + 1);
-                }
-                data.assignment[mol] = new_c;
-            }
-        });
-        region.for_each(0, nc, 4, [&](int c) {
-            auto& seg_map = data.components[c].n_molecules_per_segment;
-            for (int k = ws.seg_op_offsets[c]; k < ws.seg_op_offsets[c + 1]; ++k) {
-                const int op = ws.seg_ops[k];
-                const int seg_id = data.segment_per_molecule[(op > 0 ? op : -op) - 1];
-                if (op > 0) {
-                    seg_map[seg_id]++;
-                } else {
-                    auto it = seg_map.find(seg_id);
-                    if (it != seg_map.end()) {
-                        it->second--;
-                        if (it->second <= 0) seg_map.erase(it);
-                    }
-                }
-            }
+            ws.n_changed = std::accumulate(ws.block_count.begin(), ws.block_count.end(),
+                                           std::int64_t{0});
+            data.assignment.swap(ws.new_assignment);
         });
         return ws.n_changed;
     }
 
-    // Without prior segments assign() only stores the value: count the
-    // changes in parallel and swap the vectors.
+    // BmmData::assign() for a changed molecule with a prior segment does ++
+    // in the new component's per-segment map and -- (erasing at 0) in the old
+    // one's. Each map must receive its operations in ascending molecule
+    // order, as in the serial loop; different maps are independent. So: find
+    // the changed molecules per block (ascending), bucket their map
+    // operations by component (counting sort, stable), then replay every
+    // component's operations in parallel.
+    const int nc = data.n_components();
+    int* hist = ws.group_hist.data();
     region.for_each(0, n_blocks, 1, [&](int blk) {
-        std::int64_t cnt = 0;
+        auto& out = ws.changed[blk].ids;
+        int* h = hist + static_cast<size_t>(blk) * nc;
+        out.clear();
+        std::fill(h, h + nc, 0);
         const std::int64_t e = std::min(n, (blk + 1) * len);
         for (std::int64_t i = blk * len; i < e; ++i) {
-            cnt += (data.assignment[i] != ws.new_assignment[i]);
+            const int old_c = data.assignment[i];
+            const int new_c = ws.new_assignment[i];
+            if (old_c == new_c) continue;
+            out.push_back(static_cast<int>(i));
+            if (data.segment_per_molecule[i] <= 0) continue;
+            if (new_c > 0) h[new_c - 1]++;
+            if (old_c > 0) h[old_c - 1]++;
         }
-        ws.block_count[blk] = cnt;
     });
     region.single([&]() {
-        std::int64_t cnt = 0;
-        for (int blk = 0; blk < n_blocks; ++blk) cnt += ws.block_count[blk];
-        ws.n_changed = cnt;
-        data.assignment.swap(ws.new_assignment);
+        block_counts_to_offsets(hist, n_blocks, nc, ws.seg_op_offsets.data());
+        ws.seg_ops.resize(ws.seg_op_offsets[nc]);
+        ws.n_changed = 0;
+        for (const auto& c : ws.changed) ws.n_changed += static_cast<std::int64_t>(c.ids.size());
+    });
+    // Operation code: mol + 1 for ++ (molecule enters), -(mol + 1) for --.
+    region.for_each(0, n_blocks, 1, [&](int blk) {
+        int* h = hist + static_cast<size_t>(blk) * nc;
+        for (int mol : ws.changed[blk].ids) {
+            const int old_c = data.assignment[mol];
+            const int new_c = ws.new_assignment[mol];
+            if (data.segment_per_molecule[mol] > 0) {
+                if (new_c > 0) ws.seg_ops[h[new_c - 1]++] = mol + 1;
+                if (old_c > 0) ws.seg_ops[h[old_c - 1]++] = -(mol + 1);
+            }
+            data.assignment[mol] = new_c;
+        }
+    });
+    region.for_each(0, nc, 4, [&](int c) {
+        auto& seg_map = data.components[c].n_molecules_per_segment;
+        for (int k = ws.seg_op_offsets[c]; k < ws.seg_op_offsets[c + 1]; ++k) {
+            const int op = ws.seg_ops[k];
+            const int seg_id = data.segment_per_molecule[(op > 0 ? op : -op) - 1];
+            if (op > 0) {
+                seg_map[seg_id]++;
+            } else {
+                auto it = seg_map.find(seg_id);
+                if (it != seg_map.end()) {
+                    it->second--;
+                    if (it->second <= 0) seg_map.erase(it);
+                }
+            }
+        }
     });
     return ws.n_changed;
 }
@@ -628,34 +579,31 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
 // ============================================================================
 
 // Decide which components to drop (fewer than min_n_samples molecules in
-// `ids_by_comp`, the grouping of the current assignment): fills
+// workspace.ids_by_comp, the grouping of the current assignment): fills
 // workspace.id_map (old 1-based → new 1-based, 0 = dropped) and returns true
 // when anything is dropped. Serial.
 template<int N>
-static bool drop_decide(BmmData<N>& data, int min_n_samples, const IdsByComponent& ids_by_comp) {
+static bool drop_decide(BmmData<N>& data, int min_n_samples) {
     BmmWorkspace& ws = data.workspace;
     const int nc = data.n_components();
     ws.id_map.assign(nc, 0);
     int new_idx = 0;
     for (int i = 0; i < nc; ++i) {
-        if (ids_by_comp.size(i) >= min_n_samples) {
+        if (ws.ids_by_comp.size(i) >= min_n_samples) {
             ws.id_map[i] = ++new_idx;
         }
     }
     return new_idx != nc;
 }
 
-// Drop the components selected by drop_decide when `dropping` (the same
-// value on every participant): remap the assignment, compact the components
-// and rebuild `ids_by_comp`, so on return it is again the grouping of the
-// current assignment. `after_regroup` runs in the regrouping's prefix single
-// block. Work-shared.
+// Drop the components selected by drop_decide when workspace.dropping:
+// remap the assignment, compact the components and regroup, so that on
+// return workspace.ids_by_comp is again the grouping of the current
+// assignment. Work-shared.
 template<int N>
-static void drop_apply_phase(ParallelRegion& region, BmmData<N>& data, bool dropping,
-                             IdsByComponent& ids_by_comp,
-                             const std::function<void()>& after_regroup = nullptr) {
-    if (!dropping) return;
+static void drop_apply_phase(ParallelRegion& region, BmmData<N>& data) {
     BmmWorkspace& ws = data.workspace;
+    if (!ws.dropping) return;
     const int nc = data.n_components();
     const std::int64_t n = data.n_molecules();
     const std::int64_t len = ws.block_len;
@@ -689,17 +637,17 @@ static void drop_apply_phase(ParallelRegion& region, BmmData<N>& data, bool drop
         }
     });
 
-    group_phase(region, data.assignment, data.n_components(), ids_by_comp, ws, after_regroup);
+    group_phase(region, data);
 }
 
 template<int N>
 void drop_unused_components(BmmData<N>& data, int min_n_samples) {
-    BmmWorkspace& ws = data.workspace;
     prepare_workspace(data);
     parallel_region([&](ParallelRegion& region) {
-        group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws,
-                    [&]() { ws.dropping = drop_decide(data, min_n_samples, ws.ids_by_comp); });
-        drop_apply_phase(region, data, ws.dropping, ws.ids_by_comp);
+        group_phase(region, data, [&]() {
+            data.workspace.dropping = drop_decide(data, min_n_samples);
+        });
+        drop_apply_phase(region, data);
     });
 }
 
@@ -708,12 +656,10 @@ void drop_unused_components(BmmData<N>& data, int min_n_samples) {
 // ============================================================================
 
 // Reassign all but the largest connected component of every cell to noise.
-// `ids_per_cell` must be the grouping of the current assignment; on return
-// it is stale. Work-shared.
+// workspace.ids_by_comp must be the grouping of the current assignment; on
+// return it is stale. Work-shared.
 template<int N>
-static void split_phase(ParallelRegion& region, BmmData<N>& data,
-                        const IdsByComponent& ids_per_cell) {
-    const int nc = data.n_components();
+static void split_phase(ParallelRegion& region, BmmData<N>& data) {
     BmmWorkspace& ws = data.workspace;
 
     // Position of each molecule inside its cell's id list. Every molecule
@@ -723,16 +669,21 @@ static void split_phase(ParallelRegion& region, BmmData<N>& data,
     // mol_ids, so the lookup always hits.
     std::vector<int>& mol_pos = ws.mol_pos;  // sized by prepare_workspace
 
+    // At confidence 1 molecules with a prior label are never detached here:
+    // enforce_prior_consistency() keeps their segment in one piece.
+    const bool keep_prior =
+        data.prior_seg_confidence >= 1.0 && !data.segment_per_molecule.empty();
+
     // data.assignment is only read in this loop: the molecules to drop are
     // collected per worker and reset after it.
-    region.for_each(0, nc, 1, [&](int cell_id_0, int ti) {
+    region.for_each(0, data.n_components(), 1, [&](int cell_id_0, int ti) {
         auto& scratch = ws.split_scratch[ti];
         auto& label = scratch.label;
         auto& queue = scratch.queue;
         auto& cc_size = scratch.cc_size;
 
-        const int* mol_ids = ids_per_cell.begin(cell_id_0);
-        const int nm = ids_per_cell.size(cell_id_0);
+        const int* mol_ids = ws.ids_by_comp.begin(cell_id_0);
+        const int nm = ws.ids_by_comp.size(cell_id_0);
         if (nm <= 1) return;
 
         int cell_id_1 = cell_id_0 + 1;  // 1-based
@@ -777,13 +728,7 @@ static void split_phase(ParallelRegion& region, BmmData<N>& data,
         int largest_cc = static_cast<int>(
             std::max_element(cc_size.begin(), cc_size.end()) - cc_size.begin());
 
-        // Molecules of the non-largest components go to noise. At confidence
-        // 1 the prior is a hard constraint: a molecule with a prior label is
-        // never detached here, so a prior segment cannot be thinned to noise
-        // before enforce_prior_consistency() has had a chance to keep it in
-        // one piece (issue #117).
-        const bool keep_prior =
-            data.prior_seg_confidence >= 1.0 && !data.segment_per_molecule.empty();
+        // Reassign non-largest CC molecules to noise
         for (int k = 0; k < nm; ++k) {
             if (label[k] != largest_cc) {
                 if (keep_prior && data.segment_per_molecule[mol_ids[k]] > 0) continue;
@@ -799,34 +744,34 @@ static void split_phase(ParallelRegion& region, BmmData<N>& data,
     });
 }
 
+template<int N>
+void split_cells_by_connected_components(BmmData<N>& data) {
+    if (data.n_components() == 0) return;
+    prepare_workspace(data);
+    parallel_region([&](ParallelRegion& region) {
+        group_phase(region, data);
+        split_phase(region, data);
+    });
+}
+
 // ============================================================================
 // enforce_prior_consistency
 // ============================================================================
 
 // With prior_seg_confidence == 1 the prior is a hard constraint: every prior
-// segment must map to exactly one final component. The E-step picks a
-// component per molecule from its adjacent candidates, so a segment whose
-// molecules have different neighbourhoods can end up spread over several
-// components or partly in noise — the violation reported in issue #117,
-// which duplicated molecules at identical coordinates make much more likely.
-// This pass picks, for every prior segment, the component holding the most of
-// its molecules (ties: lowest component index) and moves all molecules of the
-// segment there; a segment with no molecule in any component stays in noise.
-// Serial and deterministic, so thread count and scheduling cannot change it.
-// Only called when the prior is a hard constraint; without a prior, or at
-// psc < 1, it is a no-op.
+// segment must end up in exactly one component. The E-step decides per
+// molecule, so a segment can get spread over several components or partly
+// into noise (issue #117). This pass moves all molecules of every prior
+// segment to the component holding most of them (ties: lowest index); a
+// segment with no molecule in any component goes to noise. Serial, so the
+// result does not depend on the thread count. No-op at psc < 1 or without a
+// prior.
 template<int N>
 static void enforce_prior_consistency(BmmData<N>& data) {
     if (data.prior_seg_confidence < 1.0 || data.segment_per_molecule.empty()) return;
-    const int nc = data.n_components();
-    const int n = data.n_molecules();
-    if (nc == 0 || n == 0) return;
 
-    // Best component per segment. Components are scanned in ascending order,
-    // so the first one with the maximum count wins the tie deterministically.
     std::unordered_map<int, std::pair<int, int>> best;  // seg -> (component, count)
-    best.reserve(64);
-    for (int ci = 0; ci < nc; ++ci) {
+    for (int ci = 0; ci < data.n_components(); ++ci) {
         for (const auto& [seg, cnt] : data.components[ci].n_molecules_per_segment) {
             auto it = best.find(seg);
             if (it == best.end() || cnt > it->second.second) {
@@ -835,24 +780,12 @@ static void enforce_prior_consistency(BmmData<N>& data) {
         }
     }
 
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < data.n_molecules(); ++i) {
         const int seg = data.segment_per_molecule[i];
         if (seg <= 0) continue;
         auto it = best.find(seg);
-        const int target = (it == best.end()) ? 0 : it->second.first;
-        if (data.assignment[i] != target) data.assign(i, target);
+        data.assign(i, (it == best.end()) ? 0 : it->second.first);
     }
-}
-
-template<int N>
-void split_cells_by_connected_components(BmmData<N>& data) {
-    if (data.n_components() == 0) return;
-    BmmWorkspace& ws = data.workspace;
-    prepare_workspace(data);
-    parallel_region([&](ParallelRegion& region) {
-        group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws);
-        split_phase(region, data, ws.ids_by_comp);
-    });
 }
 
 // ============================================================================
@@ -875,10 +808,6 @@ estimate_assignment_by_history(const BmmData<N>& data) {
     for (int i = 0; i < data.n_components(); ++i) {
         guid_map[data.components[i].guid] = i + 1;
     }
-    // current_guids includes 0 (noise)
-    std::unordered_set<int> current_guids;
-    for (auto& [g, _] : guid_map) current_guids.insert(g);
-    current_guids.insert(0);
 
     const AssignmentHistory& history = data.assignment_history;
     const int n_hist = static_cast<int>(history.size());
@@ -889,9 +818,9 @@ estimate_assignment_by_history(const BmmData<N>& data) {
     // Parallel over fixed blocks of molecules. Each block reconstructs its
     // molecules' rows from the newest entry and the backward deltas (sorted
     // by molecule, so one cursor per delta advances monotonically). The vote
-    // per molecule is unchanged: a fresh hash map fed in history order (here
-    // on a per-block arena; libstdc++'s iteration order does not depend on
-    // the allocator), so ties resolve as before.
+    // counts in a hash map fed in history order, on a per-block arena
+    // (libstdc++'s iteration order, hence the tie-break, does not depend on
+    // the allocator).
     constexpr std::int64_t kBlock = 4096;
     parallel_for(0, (static_cast<std::int64_t>(n) + kBlock - 1) / kBlock, 1, [&](std::int64_t blk) {
         const int b = static_cast<int>(blk * kBlock);
@@ -919,13 +848,14 @@ estimate_assignment_by_history(const BmmData<N>& data) {
                 }
             }
 
-            // Count frequency of each GUID across history (restricted to current_guids)
+            // Count frequency of each GUID across history (restricted to the
+            // current components and noise)
             std::pmr::monotonic_buffer_resource res(arena.data(), arena.size());
             std::pmr::unordered_map<int, int> freq(&res);
             int valid = 0;
             for (int t = 0; t < n_hist; ++t) {
                 int g = row[t];
-                if (current_guids.count(g)) {
+                if (g == 0 || guid_map.count(g)) {
                     freq[g]++;
                     valid++;
                 }
@@ -967,16 +897,16 @@ void bmm(BmmData<N>& data,
     // Simplified: report at >=1, >=drop_thresh, >=disp_thresh (omit duplicates).
     // This gives comparable output to Julia's tracer thresholds.
     // Called right after an M-step: the per-cell counts come from its grouping.
-    const IdsByComponent& groups = data.workspace.ids_by_comp;
+    BmmWorkspace& ws = data.workspace;
     auto build_diag_str = [&]() -> std::string {
         int n1 = 0, nd = 0, ndisp = 0;
         for (int c = 0; c < data.n_components(); ++c) {
-            const int m = groups.size(c);
+            const int m = ws.ids_by_comp.size(c);
             if (m >= 1)           ++n1;
             if (m >= min_molecules_drop)  ++nd;
             if (m >= disp_thresh) ++ndisp;
         }
-        const int n_noise = data.n_molecules() - static_cast<int>(groups.ids.size());
+        const int n_noise = data.n_molecules() - static_cast<int>(ws.ids_by_comp.ids.size());
         double noise_pct = 100.0 * n_noise / std::max(data.n_molecules(), 1);
 
         // Format: "noise=X%, total=N, >=drop=N, >=disp=N"
@@ -996,10 +926,13 @@ void bmm(BmmData<N>& data,
 
     // Initial maximize to warm-start parameters + trace
     maximize(data, freeze_composition, freeze_position);
-    trace_n_components(data, disp_thresh, groups);
+    trace_n_components(data, disp_thresh, ws.ids_by_comp);
 
-    BmmWorkspace& ws = data.workspace;
     const bool has_segments = !data.segment_per_molecule.empty();
+    auto guid_of = [&](int i) {
+        const int a = data.assignment[i];
+        return (a > 0) ? data.components[a - 1].guid : 0;
+    };
 
     for (int iter = 1; iter <= n_iters; ++iter) {
         const bool split_now = (iter % component_split_step == 0) || (iter == n_iters);
@@ -1022,15 +955,10 @@ void bmm(BmmData<N>& data,
             data.assignment_history.begin_push(data.n_molecules(),
                                                static_cast<size_t>(assignment_history_depth));
         }
-        auto guid_of = [&](int i) {
-            const int a = data.assignment[i];
-            return (a > 0) ? data.components[a - 1].guid : 0;
-        };
 
         // One parallel region per iteration: the pool wakes once, and the
         // phases are separated by barriers. Serial work in between runs in
-        // `single` blocks. The order of operations is the one of the serial
-        // loop, so the result is unchanged.
+        // `single` blocks, in the order of the serial loop.
         parallel_region([&](ParallelRegion& region) {
             if (has_segments) {
                 // Prior probabilities and prior-segmentation bookkeeping, per
@@ -1039,60 +967,51 @@ void bmm(BmmData<N>& data,
                 region.for_each(0, data.n_components(), 2, [&](int ci) {
                     auto& comp = data.components[ci];
                     comp.prior_probability = static_cast<double>(comp.n_samples);
-                    data.update_n_mols_per_segment_of(ci, groups);
+                    data.update_n_mols_per_segment_of(ci, ws.ids_by_comp);
                 });
             }
 
-            // E-step — track assignment changes for convergence.
-            // rng_salt = iteration index: multi-threaded draws come from
-            // per-chunk streams keyed by (iteration, chunk), so different
-            // every iteration.
+            // E-step — track assignment changes for convergence
             estep_phase(region, data, /*stochastic=*/true, /*rng_salt=*/static_cast<std::uint64_t>(iter));
             const std::int64_t changed = apply_phase(region, data);
             if (region.is_master()) n_changed = changed;
 
             // Periodic connected component splitting
             if (split_now) {
-                group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws);
-                split_phase(region, data, ws.ids_by_comp);
+                group_phase(region, data);
+                split_phase(region, data);
             }
 
-            // Hard prior constraint at confidence 1: after the E-step and the
-            // connectivity split (which may have moved prior molecules to
-            // noise) all molecules of a prior segment are put back into one
-            // component, so the dropped, recorded and maximized assignment is
-            // already consistent. No-op at lower confidence or without prior.
+            // Hard prior constraint at confidence 1, after the E-step and the
+            // split, so that the dropped, recorded and maximized assignment is
+            // consistent.
             if (has_segments && data.prior_seg_confidence >= 1.0) {
                 region.single([&]() { enforce_prior_consistency(data); });
             }
 
-            // Grouping of the current assignment: per-cell counts for the
-            // drop step and the M-step grouping. Drop components with fewer
-            // than min_molecules_drop molecules (matches Julia's
-            // drop_unused_components!(data), which has hardcoded default
-            // min_n_samples=2); the decision is taken with the group sizes.
-            group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws, [&]() {
-                ws.dropping = !freeze_components &&
-                              drop_decide(data, min_molecules_drop, ws.ids_by_comp);
-                if (!ws.dropping) reset_cluster_per_cell(data);
+            // Drop components with fewer than min_molecules_drop molecules
+            // (matches Julia's drop_unused_components!(data), which has
+            // hardcoded default min_n_samples=2). The grouping is also the one
+            // of the M-step.
+            group_phase(region, data, [&]() {
+                ws.dropping = !freeze_components && drop_decide(data, min_molecules_drop);
             });
-            drop_apply_phase(region, data, ws.dropping, ws.ids_by_comp,
-                             [&]() { reset_cluster_per_cell(data); });
+            drop_apply_phase(region, data);
 
-            // History entry (global GUIDs): the assignment and the component
-            // list are final for this iteration.
+            // History entry (global GUIDs) of the final assignment and
+            // components of this iteration
             if (record_history) {
                 data.assignment_history.push_rows(region, data.n_molecules(), guid_of);
             }
 
             // M-step
-            maximize_phase(region, data, ws.ids_by_comp, freeze_composition, freeze_position);
+            maximize_phase(region, data, freeze_composition, freeze_position);
         });
         update_noise_density(data);
         if (record_history) data.assignment_history.end_push();
 
         // Tracing
-        trace_n_components(data, disp_thresh, groups);
+        trace_n_components(data, disp_thresh, ws.ids_by_comp);
 
         // Compute fraction of changed assignments
         if (tol > 0.0) {
@@ -1128,9 +1047,7 @@ void bmm(BmmData<N>& data,
             auto [new_assign, conf] = estimate_assignment_by_history(data);
             data.assignment = std::move(new_assign);
             data.assignment_confidence = std::move(conf);
-            // The per-component prior bookkeeping still describes the
-            // assignment from before the history-based reassignment; rebuild
-            // it so the enforcement below sees the current counts.
+            // Prior bookkeeping of the new assignment, for the enforcement below
             data.update_n_mols_per_segment();
             maximize(data);
         }
