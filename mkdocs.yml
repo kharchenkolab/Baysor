@@ -3,7 +3,7 @@
 # The site is versioned with mike (https://github.com/jimporter/mike):
 # every GitHub release publishes a new version directory on the gh-pages
 # branch and moves the `latest` alias to it. See .github/workflows/docs.yml
-# and docs/tools/migrate_gh_pages.sh for the publishing machinery.
+# and docs/tools/migrate_gh_pages.py for the publishing machinery.
 
 site_name: Baysor
 site_description: Documentation for Baysor, Bayesian segmentation of imaging-based spatial transcriptomics data (C++ line)
