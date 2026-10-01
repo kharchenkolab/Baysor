@@ -2,6 +2,8 @@
 
 #include "baysor/utils/julia_int_dict.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace baysor {
@@ -34,11 +36,30 @@ struct BmmWorkspace {
     // grouping of the current assignment, which stays valid until the next
     // E-step changes the assignment.
     IdsByComponent ids_by_comp;
-    std::vector<int> group_fill;
+    std::vector<int> group_hist;      // per-worker histograms of the counting sort
+
+    // Applying the E-step result
+    std::vector<std::int64_t> worker_count;
+    std::int64_t n_changed = 0;
+
+    // M-step: per-worker arenas for the cluster-mode count maps
+    std::vector<std::vector<std::byte>> cluster_mode_arena;
+
+    // drop_unused_components
+    std::vector<int> id_map;
+    int n_kept = 0;
 
     // Connected-component split: position of each molecule inside its
-    // cell's id list (molecule-indexed, written per cell).
+    // cell's id list (molecule-indexed, written per cell), and per-worker
+    // BFS scratch plus the molecules to reset to noise.
     std::vector<int> mol_pos;
+    struct SplitScratch {
+        std::vector<int> label;
+        std::vector<int> queue;
+        std::vector<int> cc_size;
+        std::vector<int> dropped;
+    };
+    std::vector<SplitScratch> split_scratch;
 };
 
 } // namespace baysor
