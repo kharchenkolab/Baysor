@@ -4,6 +4,7 @@
 #include "baysor/reporting/color_utils.h"
 #include "baysor/utils/options.h"
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <memory>
 #include <vector>
 
@@ -92,6 +93,16 @@ ClusteringResult cluster_molecules_on_mrf(
     const Eigen::MatrixXd* exprs_init = nullptr  // nullptr → hash-based fallback
 );
 
+/// Gene panels up to this size whiten the ICA input with the dense
+/// covariance eigen-decomposition (Julia's algorithm, O(genes^3): ~1.5 min of
+/// CPU and ~0.4 GB at 3,000 genes); larger panels use the top-k eigenpairs
+/// from a truncated SVD (irlba). Both give the same eigenpairs up to the
+/// eigenvector signs, which are arbitrary in the dense solver and fixed in the
+/// truncated one, so the threshold also decides which panels keep their
+/// previous FastICA start: on a 2,672-gene Xenium 5K crop the truncated path
+/// changes the segmentation by about as much as a different thread count.
+constexpr int ica_dense_whitening_max_genes = 3000;
+
 /// ICA-initialized molecule clustering (matches Julia's DataFrame wrapper).
 /// Computes pairwise gene spatial co-occurrence → FastICA → initializes EM.
 /// Falls back to hash initialization if ICA fails to converge.
@@ -103,8 +114,39 @@ ClusteringResult cluster_molecules_ica(
     double tol       = 0.01,
     double mrf_weight = 1.0,
     int max_iters    = -1,
-    bool verbose     = true
+    bool verbose     = true,
+    int dense_whitening_max_genes = ica_dense_whitening_max_genes
 );
+
+namespace detail {
+
+/// Top-k eigenpairs of the row covariance of an ICA input matrix, in
+/// decreasing eigenvalue order.
+struct IcaWhitening {
+    Eigen::VectorXd eigenvalues;   // k
+    Eigen::MatrixXd eigenvectors;  // n_features × k
+};
+
+/// Dense covariance + full symmetric eigen-decomposition (Julia's whitening).
+IcaWhitening ica_whitening_dense(const Eigen::MatrixXd& X, int k);
+
+/// Truncated SVD (irlba) of the implicitly centred X; each eigenvector's
+/// largest-magnitude entry is positive.
+IcaWhitening ica_whitening_truncated(const Eigen::SparseMatrix<double>& X, int k);
+
+/// Sparse pairwise_gene_spatial_cor: the same co-occurrence matrix with only
+/// the gene pairs that are neighbours somewhere stored. The co-occurrence sums
+/// are accumulated in the dense builder's order; the normalising row and
+/// column sums are summed over the non-zeros, so values can differ from the
+/// dense matrix in the last bits.
+Eigen::SparseMatrix<double> sparse_gene_spatial_cor(
+    const std::vector<int>& genes,
+    const std::vector<double>& confidence,
+    const AdjList& adj_list,
+    double confidence_threshold = 0.95
+);
+
+} // namespace detail
 
 ClusteringResult cluster_molecules_louvain(
     const Eigen::MatrixXd& pos_data,

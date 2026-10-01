@@ -271,6 +271,7 @@ add_library(baysor_lib
     # Processing - bmm_algorithm
     src/processing/bmm_algorithm/bmm_algorithm.cpp
     src/processing/bmm_algorithm/molecule_clustering.cpp
+    src/processing/bmm_algorithm/molecule_clustering_ica.cpp
     src/processing/bmm_algorithm/molecule_clustering_louvain.cpp
     src/processing/bmm_algorithm/compartment_segmentation.cpp
     src/processing/bmm_algorithm/tracing.cpp
