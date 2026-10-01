@@ -207,48 +207,22 @@ ThreadPool& pool() {
 }
 
 #ifdef EIGEN_GEMM_THREADPOOL
-// Eigen's own GEMM pool (Eigen >= 3.4.90). Sized to `--threads` minus one,
-// mirroring the Baysor pool (background threads plus the calling thread).
-// Baysor never runs Eigen GEMM inside a pool region and never runs a pool
-// region inside a GEMM, so the two pools are never active at the same time
-// and the total runnable thread count stays bounded by `--threads`.
-//
-// Eigen::setGemmThreadPool never destroys the previously registered pool (its
-// parallelizer keeps dereferencing the registered pointer even when
-// single-threaded), so pools are kept alive here and reused by size. A process
-// that configures a handful of distinct thread counts parks at most one idle
-// set of pool threads per distinct size; idle threads block on a condition
-// variable and burn no CPU.
-struct EigenPoolRegistry {
-    std::vector<std::unique_ptr<Eigen::ThreadPool>> owned;
-    Eigen::ThreadPool* registered = nullptr;
-    int registered_threads = 0;
-};
-
-EigenPoolRegistry& eigen_pool_registry() {
-    static EigenPoolRegistry reg;
-    return reg;
-}
-
+// Eigen's GEMM pool gets `--threads` - 1 threads, as the Baysor pool (the
+// calling thread takes part). GEMMs and pool jobs never run at the same time,
+// so the runnable threads stay bounded by `--threads`. Eigen keeps using a
+// registered pool even when single-threaded, so pools are never destroyed.
 void configure_eigen_gemm(int n_threads) {
-    auto& reg = eigen_pool_registry();
-    if (n_threads >= 3) {
-        if (reg.registered != nullptr && reg.registered_threads == n_threads - 1) {
-            return;  // already configured for this size
-        }
-        reg.owned.push_back(std::make_unique<Eigen::ThreadPool>(n_threads - 1));
-        Eigen::ThreadPool* pool = reg.owned.back().get();
-        Eigen::setGemmThreadPool(pool);
-        reg.registered = pool;
-        reg.registered_threads = n_threads - 1;
-    } else {
-        // 1-2 threads: run GEMM inline on the calling thread (bitwise identical
-        // to the serial path). setNbThreads(1) makes the parallelizer take the
-        // serial code path; the registered pool (if any) is left in place but
-        // never scheduled on.
-        reg.registered_threads = 0;
-        Eigen::setNbThreads(1);
+    static std::vector<std::unique_ptr<Eigen::ThreadPool>> pools;
+    if (n_threads < 3) {
+        Eigen::setNbThreads(1);  // GEMM inline on the calling thread
+        return;
     }
+    Eigen::ThreadPool* gemm_pool = Eigen::getGemmThreadPool();
+    if (gemm_pool == nullptr || gemm_pool->NumThreads() != n_threads - 1) {
+        pools.push_back(std::make_unique<Eigen::ThreadPool>(n_threads - 1));
+        gemm_pool = pools.back().get();
+    }
+    Eigen::setGemmThreadPool(gemm_pool);  // also restores setNbThreads
 }
 #endif
 
@@ -280,28 +254,16 @@ struct RegionShared {
 
 int default_thread_count() {
 #ifdef __linux__
-    // Prefer physical cores over logical CPUs (hardware_concurrency counts
-    // SMT siblings; on this workload Hyper-Threading adds little and doubles
-    // wake-up costs). Count unique (package, core) pairs in sysfs.
-    try {
-        std::set<std::string> cores;
-        for (int cpu = 0; cpu < 4096; ++cpu) {
-            std::ifstream pkg("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
-                              "/topology/physical_package_id");
-            if (!pkg.is_open()) break;
-            std::string package_id, core_id;
-            std::getline(pkg, package_id);
-            std::ifstream core("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
-                               "/topology/core_id");
-            if (!std::getline(core, core_id)) break;
-            cores.insert(package_id + ":" + core_id);
-        }
-        if (!cores.empty()) {
-            return static_cast<int>(cores.size());
-        }
-    } catch (...) {
-        // fall through to hardware_concurrency
+    // Count the distinct (package, core) pairs.
+    std::set<std::string> cores;
+    for (int cpu = 0;; ++cpu) {
+        const std::string dir = "/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/topology/";
+        std::ifstream package_file(dir + "physical_package_id"), core_file(dir + "core_id");
+        std::string package, core;
+        if (!std::getline(package_file, package) || !std::getline(core_file, core)) break;
+        cores.insert(package + ":" + core);
     }
+    if (!cores.empty()) return static_cast<int>(cores.size());
 #endif
     return static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
 }
