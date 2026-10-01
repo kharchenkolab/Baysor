@@ -124,16 +124,9 @@ All notable changes to the C++ line of Baysor are documented here.
     signs, and with them the FastICA start, can differ from before, so
     clusters and segmentation may change within the usual run-to-run range.
 
-- NCV colours are cheaper to compute: the UMAP layout optimiser runs with a
-  fixed 2-D/3-D embedding dimension and evaluates the gradient's
-  `pow(d², b)` with a lower-latency table-driven approximation (relative error < 1e-13)
-  instead of libm's `pow`. Segmentation results are unchanged; the
-  `ncv_color` values change slightly (mean CIE76 ΔE 1.7–4.9 on test crops,
-  far below the difference between two UMAP seeds).
-- `run --plot` and `preview` reports are much faster: the 3-D colour UMAP
-  and the 2-D report UMAP share one neighbour graph, PNG images are encoded
-  with zlib (level 1) instead of stb_image_write and several images are
-  encoded in parallel. zlib is now an explicit build dependency (it was
+- `run --plot` and `preview` reports are much faster: PNG images are
+  encoded with zlib (level 1) instead of stb_image_write and several images
+  are encoded in parallel. zlib is now an explicit build dependency (it was
   already required by HDF5 and libtiff).
 - `[plotting] max_plot_size` (default 3000) is now honoured: it sets the
   longer side, in pixels, of the molecule images of the `run --plot`

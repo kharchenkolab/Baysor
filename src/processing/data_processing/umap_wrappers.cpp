@@ -13,7 +13,6 @@
 
 #include "knncolle/knncolle.hpp"
 #include "umappp/umappp.hpp"
-#include "baysor/processing/data_processing/umap_optimize.h"
 
 #include <algorithm>
 #include <numeric>
@@ -22,27 +21,23 @@
 
 namespace baysor {
 
-namespace {
-
-// The fuzzy simplicial set of a kNN list, as umappp::initialize() builds it:
-// smoothed similarities, then the symmetrised union.
-void knn_to_fuzzy_graph(knncolle::NeighborList<int, double>& neighbors) {
-    const umappp::Options opt;
-    umappp::internal::neighbor_similarities<int, double>(neighbors, opt.local_connectivity, opt.bandwidth);
-    umappp::internal::combine_neighbor_sets<int, double>(neighbors, opt.mix_ratio);
-}
-
-} // namespace
-
 // ============================================================================
-// umap_fuzzy_graph / umap_embed_graph / umap_embed — from raw data matrix
+// umap_embed — from raw data matrix
 // ============================================================================
 
-UmapGraph umap_fuzzy_graph(const Eigen::MatrixXd& data, int n_neighbors) {
+Eigen::MatrixXd umap_embed(
+    const Eigen::MatrixXd& data,
+    int ndim_out,
+    int n_neighbors,
+    int n_epochs,
+    int seed,
+    double spread,
+    double min_dist
+) {
     int ndim_in = static_cast<int>(data.rows());
     int nobs    = static_cast<int>(data.cols());
 
-    if (nobs == 0 || ndim_in == 0) return {};
+    if (nobs == 0 || ndim_in == 0) return Eigen::MatrixXd(ndim_out, 0);
     n_neighbors = std::min(n_neighbors, nobs - 1);
 
     // Build KNN via knncolle (Vantage-point tree, Euclidean).
@@ -67,31 +62,6 @@ UmapGraph umap_fuzzy_graph(const Eigen::MatrixXd& data, int n_neighbors) {
         }
     });
 
-    knn_to_fuzzy_graph(neighbors);
-    return neighbors;
-}
-
-// umappp::initialize(graph, ...) with InitializeMethod::NONE on a uniform
-// random start, followed by Status::run(), with the layout optimised by
-// Baysor's serial optimiser (umap_optimize.h) instead of umappp's. The set-up
-// steps are umappp's own, in umappp's order. The optimiser differs from
-// umappp's serial one only in computing pow(d2, b) with fast_pow (relative
-// error < 1e-13), which is much cheaper than glibc's pow and changes the NCV
-// colours by mean dE ~3. umappp's parallel optimiser is not used: it is
-// deterministic and matches the serial one at any thread count, but it spawns
-// its own busy-wait worker threads, which measured 1.8x slower at 4 threads
-// and 4.3x slower at 8 on a busy host.
-Eigen::MatrixXd umap_embed_graph(
-    const UmapGraph& graph,
-    int ndim_out,
-    int n_epochs,
-    int seed,
-    double spread,
-    double min_dist
-) {
-    const int nobs = static_cast<int>(graph.size());
-    if (nobs == 0) return Eigen::MatrixXd(ndim_out, 0);
-
     // Random initialization of the embedding (RANDOM init to avoid irlba).
     std::vector<double> emb_buf(ndim_out * nobs);
     {
@@ -105,31 +75,20 @@ Eigen::MatrixXd umap_embed_graph(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.spread     = spread;
     opt.min_dist   = min_dist;
+    opt.num_threads = thread_pool_size();
+    // Keep umappp's parallel layout optimizer off: its output is deterministic
+    // and matches the serial optimizer at any thread count, but it spawns its
+    // own busy-wait worker threads, which measured 1.8x slower at 4 threads
+    // and 4.3x slower at 8 on a busy host. The KNN search and similarity
+    // smoothing run on the Baysor pool through UMAPPP_CUSTOM_PARALLEL.
+    opt.parallel_optimization = false;
+    opt.initialize = umappp::InitializeMethod::NONE; // use our pre-filled buffer
 
-    const auto ab = umappp::internal::find_ab(opt.spread, opt.min_dist);
-    const int num_epochs = umappp::internal::choose_num_epochs(opt.num_epochs, graph.size());
-    auto epochs = umappp::internal::similarities_to_epochs<int, double>(
-        graph, num_epochs, opt.negative_sample_rate);
-    std::mt19937_64 engine(opt.seed);
-    umap_detail::optimize_layout_dispatch</*FastPow_=*/true>(
-        static_cast<std::size_t>(ndim_out), emb_buf.data(), epochs,
-        ab.first, ab.second, opt.repulsion_strength, opt.learning_rate,
-        engine, epochs.total_epochs);
+    auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
+    status.run();
 
     // Copy result into Eigen matrix (ndim_out x nobs, column-major).
     return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, nobs);
-}
-
-Eigen::MatrixXd umap_embed(
-    const Eigen::MatrixXd& data,
-    int ndim_out,
-    int n_neighbors,
-    int n_epochs,
-    int seed,
-    double spread,
-    double min_dist
-) {
-    return umap_embed_graph(umap_fuzzy_graph(data, n_neighbors), ndim_out, n_epochs, seed, spread, min_dist);
 }
 
 // ============================================================================
@@ -171,8 +130,27 @@ Eigen::MatrixXd umap_embed_precomputed(
             [](const auto& a, const auto& b) { return a.second < b.second; });
     }
 
-    knn_to_fuzzy_graph(neighbors);
-    return umap_embed_graph(neighbors, ndim_out, n_epochs, seed, /*spread=*/1.0, /*min_dist=*/0.1);
+    // Random initialization.
+    std::vector<double> emb_buf(ndim_out * n);
+    {
+        std::mt19937 rng(seed);
+        std::uniform_real_distribution<double> ud(-10.0, 10.0);
+        for (auto& v : emb_buf) v = ud(rng);
+    }
+
+    umappp::Options opt;
+    opt.num_epochs = n_epochs;
+    opt.seed       = static_cast<uint64_t>(seed);
+    opt.min_dist   = 0.1;
+    opt.spread     = 1.0;
+    opt.num_threads = thread_pool_size();
+    opt.parallel_optimization = false;
+    opt.initialize = umappp::InitializeMethod::NONE;
+
+    auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
+    status.run();
+
+    return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, n);
 }
 
 } // namespace baysor
