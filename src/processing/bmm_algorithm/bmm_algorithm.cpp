@@ -481,35 +481,87 @@ template<int N>
 static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
     BmmWorkspace& ws = data.workspace;
     const int n = data.n_molecules();
-    std::int64_t n_changed = 0;
 
     if (!data.segment_per_molecule.empty()) {
-        // assign() updates the per-segment maps of the old and new component;
-        // call it only for changed molecules (unchanged ones are no-ops in
-        // assign), in ascending order, so every map receives the same
-        // operation sequence as before. The changed molecules are found in
-        // parallel (static blocks: ascending within and across workers).
+        // BmmData::assign() for a changed molecule with a prior segment does
+        // ++ in the new component's per-segment map and -- (erasing at 0) in
+        // the old one's. Unchanged molecules are no-ops. Each map must receive
+        // its operations in ascending molecule order, as in the serial loop;
+        // different maps are independent. So: find the changed molecules
+        // (static blocks, ascending), bucket their map operations by
+        // component (counting sort, stable), then replay every component's
+        // operations in parallel.
+        const int nc = data.n_components();
+        const int n_workers = region.n_workers();
         region.single([&]() {
-            if (static_cast<int>(ws.changed.size()) != region.n_workers()) {
-                ws.changed.assign(region.n_workers(), {});
+            if (static_cast<int>(ws.changed.size()) != n_workers) {
+                ws.changed.assign(n_workers, {});
             }
+            // Workers without a block (n < n_workers) keep empty lists
+            for (auto& list : ws.changed) list.clear();
+            ws.group_hist.assign(static_cast<size_t>(n_workers) * nc, 0);
+            ws.seg_op_offsets.resize(nc + 1);
         });
         region.for_chunks(0, n, 0, Scheduling::Static,
             [&](std::int64_t b, std::int64_t e, int w) {
             auto& out = ws.changed[w];
-            out.clear();
+            int* h = ws.group_hist.data() + static_cast<size_t>(w) * nc;
             for (std::int64_t i = b; i < e; ++i) {
-                if (data.assignment[i] != ws.new_assignment[i]) out.push_back(static_cast<int>(i));
+                const int old_c = data.assignment[i];
+                const int new_c = ws.new_assignment[i];
+                if (old_c == new_c) continue;
+                out.push_back(static_cast<int>(i));
+                if (data.segment_per_molecule[i] <= 0) continue;
+                if (new_c > 0) h[new_c - 1]++;
+                if (old_c > 0) h[old_c - 1]++;
             }
         });
         region.single([&]() {
-            std::int64_t cnt = 0;
-            for (auto& list : ws.changed) {
-                for (int mol_id : list) data.assign(mol_id, ws.new_assignment[mol_id]);
-                cnt += static_cast<std::int64_t>(list.size());
-                list.clear();
+            int pos = 0;
+            for (int c = 0; c < nc; ++c) {
+                ws.seg_op_offsets[c] = pos;
+                for (int w = 0; w < n_workers; ++w) {
+                    int& h = ws.group_hist[static_cast<size_t>(w) * nc + c];
+                    const int cnt = h;
+                    h = pos;
+                    pos += cnt;
+                }
             }
+            ws.seg_op_offsets[nc] = pos;
+            ws.seg_ops.resize(pos);
+            std::int64_t cnt = 0;
+            for (const auto& list : ws.changed) cnt += static_cast<std::int64_t>(list.size());
             ws.n_changed = cnt;
+        });
+        // Operation code: mol + 1 for ++ (molecule enters), -(mol + 1) for --.
+        region.for_chunks(0, n, 0, Scheduling::Static,
+            [&](std::int64_t, std::int64_t, int w) {
+            int* h = ws.group_hist.data() + static_cast<size_t>(w) * nc;
+            for (int mol : ws.changed[w]) {
+                const int old_c = data.assignment[mol];
+                const int new_c = ws.new_assignment[mol];
+                if (data.segment_per_molecule[mol] > 0) {
+                    if (new_c > 0) ws.seg_ops[h[new_c - 1]++] = mol + 1;
+                    if (old_c > 0) ws.seg_ops[h[old_c - 1]++] = -(mol + 1);
+                }
+                data.assignment[mol] = new_c;
+            }
+        });
+        region.for_each(0, nc, 4, [&](int c) {
+            auto& seg_map = data.components[c].n_molecules_per_segment;
+            for (int k = ws.seg_op_offsets[c]; k < ws.seg_op_offsets[c + 1]; ++k) {
+                const int op = ws.seg_ops[k];
+                const int seg_id = data.segment_per_molecule[(op > 0 ? op : -op) - 1];
+                if (op > 0) {
+                    seg_map[seg_id]++;
+                } else {
+                    auto it = seg_map.find(seg_id);
+                    if (it != seg_map.end()) {
+                        it->second--;
+                        if (it->second <= 0) seg_map.erase(it);
+                    }
+                }
+            }
         });
         return ws.n_changed;
     }
@@ -531,8 +583,7 @@ static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
         ws.n_changed = cnt;
         data.assignment.swap(ws.new_assignment);
     });
-    n_changed = ws.n_changed;
-    return n_changed;
+    return ws.n_changed;
 }
 
 template<int N>
