@@ -9,6 +9,8 @@
 #include <numeric>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace baysor {
 
@@ -305,25 +307,29 @@ std::string generate_run_diagnostic_html(
         auto umap_x = ncv_report->sample_umap_x;
         auto umap_y = ncv_report->sample_umap_y;
         normalize_to_unit_square(umap_x, umap_y);
-        ncv_umap_png = render_scatter_png(
+        std::vector<ScatterRaster> rasters;
+        rasters.push_back(rasterize_scatter(
             umap_x,
             umap_y,
             subset_colors(ncv_report->colors, ncv_report->sample_ids),
             nullptr,
             1540,
             2
-        );
+        ));
         if (clustering_result && clustering_result->assignment.size() == data.n_molecules()) {
             auto sampled_clusters = subset_ints(clustering_result->assignment, ncv_report->sample_ids);
-            cluster_umap_png = render_scatter_png(
+            rasters.push_back(rasterize_scatter(
                 umap_x,
                 umap_y,
                 cluster_colors(sampled_clusters),
                 nullptr,
                 1540,
                 2
-            );
+            ));
         }
+        auto pngs = encode_png_data_uris(rasters);
+        ncv_umap_png = std::move(pngs[0]);
+        if (pngs.size() > 1) cluster_umap_png = std::move(pngs[1]);
     }
 
     int n_noise = 0;
@@ -487,15 +493,22 @@ std::string generate_run_segmentation_html(
     const std::vector<int>* molecule_clusters,
     const PolygonCollection* polygons
 ) {
-    std::string assign_png = render_scatter_png(data.x, data.y, assignment_colors(assignment), polygons);
-    std::string ncv_png;
-    if (!ncv_color.empty()) {
-        ncv_png = render_scatter_png(data.x, data.y, ncv_color, polygons);
-    }
-
-    std::string cluster_png;
-    if (molecule_clusters && !molecule_clusters->empty()) {
-        cluster_png = render_scatter_png(data.x, data.y, cluster_colors(*molecule_clusters), polygons);
+    // Rasterize the (up to) three molecule images one after another — each
+    // rasterization uses the whole pool — then encode them concurrently.
+    std::string assign_png, ncv_png, cluster_png;
+    {
+        std::vector<ScatterRaster> rasters(3);
+        rasters[0] = rasterize_scatter(data.x, data.y, assignment_colors(assignment), polygons);
+        if (!ncv_color.empty()) {
+            rasters[1] = rasterize_scatter(data.x, data.y, ncv_color, polygons);
+        }
+        if (molecule_clusters && !molecule_clusters->empty()) {
+            rasters[2] = rasterize_scatter(data.x, data.y, cluster_colors(*molecule_clusters), polygons);
+        }
+        auto pngs = encode_png_data_uris(rasters);
+        assign_png = std::move(pngs[0]);
+        ncv_png = std::move(pngs[1]);
+        cluster_png = std::move(pngs[2]);
     }
 
     std::ostringstream html;

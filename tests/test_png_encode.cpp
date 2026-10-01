@@ -3,13 +3,16 @@
 // filter types) and check the pixels.
 
 #include "baysor/reporting/preview_report.h"
+#include "baysor/utils/thread_pool.h"
 
+#include <Eigen/Dense>
 #include <gtest/gtest.h>
 #include <zlib.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -122,7 +125,62 @@ DecodedPng decode_png_data_uri(const std::string& uri) {
     return out;
 }
 
+class PoolSizeGuard {
+public:
+    explicit PoolSizeGuard(int n) : old_(baysor::thread_pool_size()) { baysor::set_thread_pool_size(n); }
+    ~PoolSizeGuard() { baysor::set_thread_pool_size(old_); }
+private:
+    int old_;
+};
+
+baysor::ScatterRaster test_raster(int n_points, int width, unsigned seed) {
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> u(0.0, 100.0);
+    std::uniform_int_distribution<int> c(0, 15);
+    const char* hex = "0123456789abcdef";
+    std::vector<double> x(n_points), y(n_points);
+    std::vector<std::string> colors(n_points);
+    for (int i = 0; i < n_points; ++i) {
+        x[i] = u(rng);
+        y[i] = u(rng) * 0.7;
+        colors[i] = std::string("#") + hex[c(rng)] + hex[c(rng)] + hex[c(rng)] + hex[c(rng)] + hex[c(rng)] + hex[c(rng)];
+    }
+    baysor::PolygonCollection polygons;
+    Eigen::MatrixXd quad(2, 4);
+    quad << 10.0, 60.0, 60.0, 10.0,
+            10.0, 10.0, 50.0, 50.0;
+    polygons["c1"] = quad;
+    return baysor::rasterize_scatter(x, y, colors, &polygons, width);
+}
+
 } // namespace
+
+TEST(PngEncode, RasterRoundTripsThroughPng) {
+    const baysor::ScatterRaster r = test_raster(3000, 517, 1);
+    ASSERT_FALSE(r.empty());
+    const DecodedPng img = decode_png_data_uri(baysor::encode_png_data_uris({r})[0]);
+    EXPECT_EQ(img.width, static_cast<uint32_t>(r.width_px));
+    EXPECT_EQ(img.height, static_cast<uint32_t>(r.height_px));
+    EXPECT_EQ(img.rgb, r.pixels);
+}
+
+TEST(PngEncode, ConcurrentEncodingMatchesSerialAndKeepsOrder) {
+    std::vector<baysor::ScatterRaster> rasters = {
+        test_raster(2000, 400, 2), baysor::ScatterRaster{}, test_raster(500, 123, 3), test_raster(4000, 700, 4)};
+    std::vector<std::string> serial;
+    {
+        PoolSizeGuard guard(1);
+        serial = baysor::encode_png_data_uris(rasters);
+    }
+    PoolSizeGuard guard(4);
+    const std::vector<std::string> parallel = baysor::encode_png_data_uris(rasters);
+    ASSERT_EQ(parallel.size(), rasters.size());
+    EXPECT_EQ(parallel, serial);
+    EXPECT_EQ(parallel[1], "");
+    for (size_t i : {0u, 2u, 3u}) {
+        EXPECT_EQ(decode_png_data_uri(parallel[i]).rgb, rasters[i].pixels) << "image " << i;
+    }
+}
 
 TEST(PngEncode, ScatterPngDecodesToTheDrawnColours) {
     // Points on a grid with distinct colours; the raster is mostly white.

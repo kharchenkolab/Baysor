@@ -13,6 +13,7 @@
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace baysor {
@@ -303,7 +304,7 @@ static void overlay_polygons(
     }
 }
 
-static std::string render_scatter_impl(
+static ScatterRaster rasterize_impl(
     const std::vector<double>& x,
     const std::vector<double>& y,
     int n,
@@ -357,10 +358,10 @@ static std::string render_scatter_impl(
         overlay_polygons(pixels, vp, *polygons);
     }
 
-    return pixels_to_base64_png(pixels, vp.width_px, vp.height_px);
+    return ScatterRaster{std::move(pixels), vp.width_px, vp.height_px};
 }
 
-std::string render_scatter_png(
+ScatterRaster rasterize_scatter(
     const std::vector<double>& x,
     const std::vector<double>& y,
     const std::vector<std::string>& colors,
@@ -373,10 +374,34 @@ std::string render_scatter_png(
     std::vector<uint8_t> cr(n), cg(n), cb(n);
     for (int i = 0; i < n; ++i) hex_to_rgb(colors[i], cr[i], cg[i], cb[i]);
 
-    return render_scatter_impl(x, y, n, width_px, polygons, point_radius_px,
+    return rasterize_impl(x, y, n, width_px, polygons, point_radius_px,
         [&](int i, uint8_t& r, uint8_t& g, uint8_t& b) {
             r = cr[i]; g = cg[i]; b = cb[i];
         });
+}
+
+std::vector<std::string> encode_png_data_uris(const std::vector<ScatterRaster>& rasters) {
+    // One task per image: PNG encoding is serial per image and dominates the
+    // report, while the rasterisation before it already uses the whole pool.
+    // Each image is encoded independently, so the bytes do not depend on the
+    // thread count.
+    std::vector<std::string> uris(rasters.size());
+    parallel_for(0, static_cast<std::int64_t>(rasters.size()), 1, [&](std::int64_t i) {
+        const ScatterRaster& r = rasters[static_cast<size_t>(i)];
+        if (!r.empty()) uris[static_cast<size_t>(i)] = pixels_to_base64_png(r.pixels, r.width_px, r.height_px);
+    });
+    return uris;
+}
+
+std::string render_scatter_png(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    const std::vector<std::string>& colors,
+    const PolygonCollection* polygons,
+    int width_px,
+    int point_radius_px
+) {
+    return encode_png_data_uris({rasterize_scatter(x, y, colors, polygons, width_px, point_radius_px)})[0];
 }
 
 // Blue-orange colormap matching Vega-Lite's "blueorange" scheme.
@@ -400,7 +425,7 @@ static void blueorange_color(double conf,
     }
 }
 
-std::string render_confidence_png(
+ScatterRaster rasterize_confidence(
     const std::vector<double>& x,
     const std::vector<double>& y,
     const std::vector<double>& confidence,
@@ -408,10 +433,20 @@ std::string render_confidence_png(
     int point_radius_px
 ) {
     int n = static_cast<int>(x.size());
-    return render_scatter_impl(x, y, n, width_px, nullptr, point_radius_px,
+    return rasterize_impl(x, y, n, width_px, nullptr, point_radius_px,
         [&](int i, uint8_t& r, uint8_t& g, uint8_t& b) {
             blueorange_color(confidence[i], r, g, b);
         });
+}
+
+std::string render_confidence_png(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    const std::vector<double>& confidence,
+    int width_px,
+    int point_radius_px
+) {
+    return encode_png_data_uris({rasterize_confidence(x, y, confidence, width_px, point_radius_px)})[0];
 }
 
 // ============================================================================
@@ -679,9 +714,17 @@ std::string generate_preview_html(
     int confidence_nn_id,
     const GeneStructureEmbedding* gene_structure
 ) {
-    // Render PNG images (can be slow — done before HTML assembly)
-    std::string scatter_png = render_scatter_png(data.x, data.y, gene_colors);
-    std::string conf_png    = render_confidence_png(data.x, data.y, data.confidence);
+    // Render PNG images (can be slow — done before HTML assembly); the two
+    // images are encoded concurrently.
+    std::string scatter_png, conf_png;
+    {
+        std::vector<ScatterRaster> rasters;
+        rasters.push_back(rasterize_scatter(data.x, data.y, gene_colors));
+        rasters.push_back(rasterize_confidence(data.x, data.y, data.confidence));
+        auto pngs = encode_png_data_uris(rasters);
+        scatter_png = std::move(pngs[0]);
+        conf_png = std::move(pngs[1]);
+    }
 
     // Generate Vega-Lite specs for smaller charts
     auto noise_spec = vega_noise_histogram(

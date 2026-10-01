@@ -5,10 +5,47 @@
 #include "baysor/processing/data_processing/noise_estimation.h"
 #include "baysor/reporting/color_utils.h"
 #include <nlohmann/json.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace baysor {
+
+/// RGB raster of a scatter plot: row-major, 3 bytes per pixel.
+struct ScatterRaster {
+    std::vector<uint8_t> pixels;
+    int width_px = 0;
+    int height_px = 0;
+
+    bool empty() const { return pixels.empty(); }
+};
+
+/// Rasterize all molecules, coloured by the given hex strings, with optional
+/// polygon outlines. width_px controls the output width; height is derived
+/// from the data aspect ratio (at most 4x the width). Empty input gives an
+/// empty raster.
+ScatterRaster rasterize_scatter(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    const std::vector<std::string>& colors,
+    const PolygonCollection* polygons = nullptr,
+    int width_px = 6000,
+    int point_radius_px = 0
+);
+
+/// Rasterize molecules coloured by confidence (blue-orange gradient).
+ScatterRaster rasterize_confidence(
+    const std::vector<double>& x,
+    const std::vector<double>& y,
+    const std::vector<double>& confidence,
+    int width_px = 6000,
+    int point_radius_px = 0
+);
+
+/// Encode rasters as base64 PNG data URIs ("" for an empty raster). The images
+/// are encoded concurrently on the thread pool, one task per image; the output
+/// does not depend on the thread count.
+std::vector<std::string> encode_png_data_uris(const std::vector<ScatterRaster>& rasters);
 
 /// Render all molecules as a PNG (base64-encoded), coloured by the given hex strings.
 /// width_px controls the output width; height is derived from the data aspect ratio.
