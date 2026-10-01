@@ -56,7 +56,10 @@ Existing config files keep working: `[data]`, `[segmentation]`, and
 `[segmentation].estimate_scale_from_centers` remain accepted for
 compatibility. `ncv_method` and `min_pixels_per_cell` are accepted but
 currently unused by the C++ pipeline; `max_plot_size` sets the size of the
-molecule images in the HTML reports.
+molecule images in the HTML reports. `max_z_slices` (default `10`) is new: it
+sets the number of z-layers used for 3D polygon estimation, which the Julia
+line fixed at 10 and exposed only as an internal keyword argument, not as a
+CLI flag or config key.
 
 ## Outputs
 

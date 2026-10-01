@@ -131,6 +131,12 @@ Structure: each value is a 2D polygon collection in the same schema as
 `segmentation_polygons_2d.json`, describing the cell polygons within that
 z-layer.
 
+The number of layers is controlled by
+[`[plotting] max_z_slices`](configuration.md#plotting) (default `10`). When
+the run has more distinct z values than that (common for Xenium, whose z
+column is continuous), the z-stack is binned into `max_z_slices` layers before
+the polygons are estimated.
+
 ### `segmentation_counts.loom`
 
 HDF5 layout (Loom spec `3.0.0`):

@@ -60,6 +60,11 @@ All notable changes to the C++ line of Baysor are documented here.
   `baysor run`) before any push; dry runs build and smoke-test it without
   pushing. See `RELEASING.md`, "Docker images", and the installation docs.
 
+- `[plotting] max_z_slices` (default 10) controls how many z-layers are used
+  for 3D polygon estimation (kharchenkolab/Baysor#169). A volumetric run with
+  more distinct z values (e.g. Xenium) bins the z-stack into this many layers;
+  the `Too many z values` warning now names the option. Must be >= 1.
+
 ### Changed
 
 - The molecule graph's CGAL Delaunay triangulation is built once per `run`

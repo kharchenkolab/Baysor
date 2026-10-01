@@ -318,6 +318,16 @@ TEST(Cov1Utils_Options, FillAndCheckPlottingOptions) {
     // A non-positive min_molecules_per_cell makes the default lookup throw.
     baysor::PlottingOptions zero;
     EXPECT_THROW(baysor::fill_and_check_plotting_options(zero, 0, 10), std::runtime_error);
+
+    // max_z_slices must be at least 1.
+    baysor::PlottingOptions bad_z;
+    bad_z.max_z_slices = 0;
+    try {
+        baysor::fill_and_check_plotting_options(bad_z, 10, 10);
+        FAIL() << "expected throw";
+    } catch (const std::runtime_error& e) {
+        EXPECT_NE(std::string(e.what()).find("max_z_slices"), std::string::npos);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -369,6 +379,7 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
         "gene_composition_neighborhood = 25\n"
         "min_pixels_per_cell = 20\n"
         "max_plot_size = 500\n"
+        "max_z_slices = 20\n"
         "ncv_method = \"dense\"\n");
 
     auto opts = baysor::load_config(path);
@@ -403,6 +414,7 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
     EXPECT_EQ(opts.plotting.gene_composition_neighborhood, 25);
     EXPECT_EQ(opts.plotting.min_pixels_per_cell, 20);
     EXPECT_EQ(opts.plotting.max_plot_size, 500);
+    EXPECT_EQ(opts.plotting.max_z_slices, 20);
     EXPECT_EQ(opts.plotting.ncv_method, "dense");
 }
 
@@ -491,6 +503,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     opts.plotting.gene_composition_neighborhood = 33;
     opts.plotting.min_pixels_per_cell = 17;
     opts.plotting.max_plot_size = 444;
+    opts.plotting.max_z_slices = 42;
     opts.plotting.ncv_method = "sparse";
 
     TempDir dir("cov1_utils");
@@ -535,6 +548,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     EXPECT_EQ(back.segmentation.cluster_method, baysor::ClusterMethod::Leiden);
     EXPECT_EQ(back.segmentation.n_clusters, 12);
     EXPECT_EQ(back.segmentation.iters, 250);
+    EXPECT_EQ(back.plotting.max_z_slices, 42);
     EXPECT_EQ(back.plotting.ncv_method, "sparse");
 
     // The prior-type switch in save_params_toml covers every enum value.

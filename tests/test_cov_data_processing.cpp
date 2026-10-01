@@ -1071,6 +1071,57 @@ TEST(Cov3Data_Boundary, AutoBinnedZStackProducesTenLayers) {
     EXPECT_EQ(stack42[1].first.front(), '[');
 }
 
+TEST(Cov3Data_Boundary, AutoBinnedZStackHonoursCustomSliceLimit) {
+    // 20 distinct z values with a 4-point square per layer and a single cell,
+    // so every quantile bin is non-empty. More z values than either limit.
+    constexpr int n_z = 20;
+    constexpr int points_per_z = 4;
+    Eigen::MatrixXd pos(3, n_z * points_per_z);
+    for (int zi = 0; zi < n_z; ++zi) {
+        const double z = 0.5 * static_cast<double>(zi);
+        const int o = zi * points_per_z;
+        pos.col(o + 0) << 0.0, 0.0, z;
+        pos.col(o + 1) << 2.0, 0.0, z;
+        pos.col(o + 2) << 2.0, 2.0, z;
+        pos.col(o + 3) << 0.0, 2.0, z;
+    }
+    std::vector<int> labels(n_z * points_per_z, 1);
+    std::vector<std::string> cell_names = {"cell_1"};
+
+    auto sink = std::make_shared<baysor_test::CapturingSink>();
+    baysor_test::LoggerGuard logger(sink);
+
+    auto count_layers = [&](int max_z_slices) {
+        auto [joined, stack] = baysor::boundary_polygons_auto(
+            pos, labels, /*estimate_per_z=*/true, &cell_names, /*verbose=*/true,
+            max_z_slices);
+        EXPECT_EQ(joined.count("cell_1"), 1u);
+        EXPECT_EQ(stack[0].first, "2d");
+        int named_layers = 0;
+        std::vector<std::string> names;
+        for (size_t i = 1; i < stack.size(); ++i) {
+            names.push_back(stack[i].first);
+            EXPECT_EQ(stack[i].second.count("cell_1"), 1u);
+            ++named_layers;
+        }
+        std::vector<std::string> unique_names = names;
+        std::sort(unique_names.begin(), unique_names.end());
+        EXPECT_EQ(std::unique(unique_names.begin(), unique_names.end()) - unique_names.begin(),
+                  named_layers);
+        return named_layers;
+    };
+
+    // More z values (20) than either limit, and the two limits give different
+    // layer counts.
+    EXPECT_EQ(count_layers(5), 5);
+    EXPECT_EQ(count_layers(10), 10);
+
+    // The warning names the config option so users can find how to change it.
+    const std::string logged = sink->data();
+    EXPECT_NE(logged.find("Too many z values"), std::string::npos) << logged;
+    EXPECT_NE(logged.find("max_z_slices"), std::string::npos) << logged;
+}
+
 TEST(Cov3Data_Boundary, InternalBorderFilterStopsAfterMaxIterations) {
     // The max_iters guard is only visible through its warning; capture it.
     auto sink = std::make_shared<baysor_test::CapturingSink>();
