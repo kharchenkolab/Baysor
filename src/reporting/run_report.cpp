@@ -38,7 +38,7 @@ std::string prior_type_name(PriorInputType t) {
         case PriorInputType::Image: return "image";
         case PriorInputType::Boundary: return "boundary";
     }
-    return "unknown"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
+    return "unknown"; // GCOVR_EXCL_LINE: unreachable
 }
 
 std::vector<int> count_molecules_per_cell(const std::vector<int>& assignment) {
@@ -68,8 +68,8 @@ nlohmann::json vega_generic_histogram(
         return {
             {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
             {"title", title},
-            {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-            {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+            {"width", 500}, // GCOVR_EXCL_LINE: gcov artifact
+            {"height", 250}, // GCOVR_EXCL_LINE: gcov artifact
             {"data", {{"values", vals}}}
         };
     }
@@ -95,8 +95,8 @@ nlohmann::json vega_generic_histogram(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", title},
-        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 250}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", vals}}},
         {"mark", "bar"},
         {"encoding", {
@@ -134,8 +134,8 @@ nlohmann::json vega_convergence_trace(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Segmentation convergence"},
-        {"width", 520}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 280}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 520}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 280}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", vals}}},
         {"mark", {{"type", "line"}, {"point", false}}},
         {"encoding", {
@@ -161,8 +161,8 @@ nlohmann::json vega_clustering_convergence(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", title},
-        {"width", 420}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 250}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 420}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 250}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", vals}}},
         {"mark", {{"type", "line"}, {"point", false}}},
         {"encoding", {
@@ -307,29 +307,16 @@ std::string generate_run_diagnostic_html(
         auto umap_x = ncv_report->sample_umap_x;
         auto umap_y = ncv_report->sample_umap_y;
         normalize_to_unit_square(umap_x, umap_y);
-        std::vector<ScatterRaster> rasters;
-        rasters.push_back(rasterize_scatter(
-            umap_x,
-            umap_y,
-            subset_colors(ncv_report->colors, ncv_report->sample_ids),
-            nullptr,
-            1540,
-            2
-        ));
+        std::vector<ScatterRaster> rasters(2);
+        rasters[0] = rasterize_scatter(
+            umap_x, umap_y, subset_colors(ncv_report->colors, ncv_report->sample_ids), nullptr, 1540, 2);
         if (clustering_result && clustering_result->assignment.size() == data.n_molecules()) {
             auto sampled_clusters = subset_ints(clustering_result->assignment, ncv_report->sample_ids);
-            rasters.push_back(rasterize_scatter(
-                umap_x,
-                umap_y,
-                cluster_colors(sampled_clusters),
-                nullptr,
-                1540,
-                2
-            ));
+            rasters[1] = rasterize_scatter(umap_x, umap_y, cluster_colors(sampled_clusters), nullptr, 1540, 2);
         }
         auto pngs = encode_png_data_uris(rasters);
         ncv_umap_png = std::move(pngs[0]);
-        if (pngs.size() > 1) cluster_umap_png = std::move(pngs[1]);
+        cluster_umap_png = std::move(pngs[1]);
     }
 
     int n_noise = 0;
@@ -494,24 +481,19 @@ std::string generate_run_segmentation_html(
     const PolygonCollection* polygons,
     int max_plot_size
 ) {
-    // Rasterize the (up to) three molecule images one after another — each
-    // rasterization uses the whole pool — then encode them concurrently.
-    std::string assign_png, ncv_png, cluster_png;
-    {
-        const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
-        std::vector<ScatterRaster> rasters(3);
-        rasters[0] = rasterize_scatter(data.x, data.y, assignment_colors(assignment), polygons, width_px);
-        if (!ncv_color.empty()) {
-            rasters[1] = rasterize_scatter(data.x, data.y, ncv_color, polygons, width_px);
-        }
-        if (molecule_clusters && !molecule_clusters->empty()) {
-            rasters[2] = rasterize_scatter(data.x, data.y, cluster_colors(*molecule_clusters), polygons, width_px);
-        }
-        auto pngs = encode_png_data_uris(rasters);
-        assign_png = std::move(pngs[0]);
-        ncv_png = std::move(pngs[1]);
-        cluster_png = std::move(pngs[2]);
+    const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
+    std::vector<ScatterRaster> rasters(3);
+    rasters[0] = rasterize_scatter(data.x, data.y, assignment_colors(assignment), polygons, width_px);
+    if (!ncv_color.empty()) {
+        rasters[1] = rasterize_scatter(data.x, data.y, ncv_color, polygons, width_px);
     }
+    if (molecule_clusters && !molecule_clusters->empty()) {
+        rasters[2] = rasterize_scatter(data.x, data.y, cluster_colors(*molecule_clusters), polygons, width_px);
+    }
+    const auto pngs = encode_png_data_uris(rasters);
+    const std::string& assign_png = pngs[0];
+    const std::string& ncv_png = pngs[1];
+    const std::string& cluster_png = pngs[2];
 
     std::ostringstream html;
     html << R"(<!DOCTYPE html>

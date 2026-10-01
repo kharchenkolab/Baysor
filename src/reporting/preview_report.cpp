@@ -67,11 +67,9 @@ static void append_png_chunk(std::vector<uint8_t>& out, const char* type,
     put32(static_cast<uint32_t>(crc));
 }
 
-// Encode RGB pixels as a PNG. Every row uses the Sub filter and the image
-// data is deflated by zlib at level 1, streamed row by row into IDAT chunks of
-// at most 1 MiB. For the mostly-white scatter rasters this is ~7x cheaper than
-// stb_image_write's level-6 deflate with a 5-filter trial per row, and the
-// files are smaller. The decoded pixels are the same with any encoder.
+// Encode RGB pixels as a PNG: Sub filter on every row and zlib level 1, which
+// is cheap and compresses the mostly-white scatter rasters well. The deflate
+// stream is written in IDAT chunks of at most 1 MiB.
 static std::vector<uint8_t> encode_png(const std::vector<uint8_t>& pixels,
                                        int width, int height) {
     static const uint8_t signature[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
@@ -191,7 +189,7 @@ int scatter_width_for_max_size(
     const std::vector<double>& y,
     int max_size_px
 ) {
-    if (max_size_px < 1) max_size_px = kDefaultMaxPlotSize;
+    if (max_size_px < 1) max_size_px = PlottingOptions{}.max_plot_size;
     if (x.empty() || y.empty()) return max_size_px;
     const RasterViewport vp = make_viewport(x, y, max_size_px);
     if (vp.height_px <= max_size_px) return max_size_px;
@@ -216,7 +214,7 @@ static int auto_point_radius_px(const RasterViewport& vp, int n_points) {
     return std::max(1, std::min(4, static_cast<int>(std::round(radius))));
 }
 
-// Visit every pixel of a disc, with the exact shape of draw_disc().
+// Visit the in-bounds pixel offsets of a disc.
 template <class Fn>
 static void for_each_disc_pixel(
     int width_px,
@@ -235,31 +233,6 @@ static void for_each_disc_pixel(
             int xx = cx + dx;
             if (xx < 0 || xx >= width_px) continue;
             fn(yy * width_px + xx);
-        }
-    }
-}
-
-static void draw_disc(
-    std::vector<uint8_t>& pixels,
-    int width_px,
-    int height_px,
-    int cx,
-    int cy,
-    int radius_px,
-    uint8_t r, uint8_t g, uint8_t b
-) {
-    int r2 = radius_px * radius_px;
-    for (int dy = -radius_px; dy <= radius_px; ++dy) {
-        int yy = cy + dy;
-        if (yy < 0 || yy >= height_px) continue;
-        for (int dx = -radius_px; dx <= radius_px; ++dx) {
-            if (dx * dx + dy * dy > r2) continue;
-            int xx = cx + dx;
-            if (xx < 0 || xx >= width_px) continue;
-            int off = (yy * width_px + xx) * 3;
-            pixels[off] = r;
-            pixels[off + 1] = g;
-            pixels[off + 2] = b;
         }
     }
 }
@@ -396,27 +369,13 @@ ScatterRaster rasterize_scatter(
 }
 
 std::vector<std::string> encode_png_data_uris(const std::vector<ScatterRaster>& rasters) {
-    // One task per image: PNG encoding is serial per image and dominates the
-    // report, while the rasterisation before it already uses the whole pool.
-    // Each image is encoded independently, so the bytes do not depend on the
-    // thread count.
+    // PNG encoding is serial per image, so the images are encoded concurrently.
     std::vector<std::string> uris(rasters.size());
     parallel_for(0, static_cast<std::int64_t>(rasters.size()), 1, [&](std::int64_t i) {
         const ScatterRaster& r = rasters[static_cast<size_t>(i)];
         if (!r.empty()) uris[static_cast<size_t>(i)] = pixels_to_base64_png(r.pixels, r.width_px, r.height_px);
     });
     return uris;
-}
-
-std::string render_scatter_png(
-    const std::vector<double>& x,
-    const std::vector<double>& y,
-    const std::vector<std::string>& colors,
-    const PolygonCollection* polygons,
-    int width_px,
-    int point_radius_px
-) {
-    return encode_png_data_uris({rasterize_scatter(x, y, colors, polygons, width_px, point_radius_px)})[0];
 }
 
 // Blue-orange colormap matching Vega-Lite's "blueorange" scheme.
@@ -452,16 +411,6 @@ ScatterRaster rasterize_confidence(
         [&](int i, uint8_t& r, uint8_t& g, uint8_t& b) {
             blueorange_color(confidence[i], r, g, b);
         });
-}
-
-std::string render_confidence_png(
-    const std::vector<double>& x,
-    const std::vector<double>& y,
-    const std::vector<double>& confidence,
-    int width_px,
-    int point_radius_px
-) {
-    return encode_png_data_uris({rasterize_confidence(x, y, confidence, width_px, point_radius_px)})[0];
 }
 
 // ============================================================================
@@ -516,12 +465,12 @@ nlohmann::json vega_noise_histogram(
         });
         values.push_back({
             {"x", x_center},
-            {"density", w1 * normal_pdf(x_center, signal_mu, signal_sigma)}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+            {"density", w1 * normal_pdf(x_center, signal_mu, signal_sigma)}, // GCOVR_EXCL_LINE: gcov artifact
             {"type", "Intracellular"}
         });
         values.push_back({
             {"x", x_center},
-            {"density", w2 * normal_pdf(x_center, noise_mu, noise_sigma)}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+            {"density", w2 * normal_pdf(x_center, noise_mu, noise_sigma)}, // GCOVR_EXCL_LINE: gcov artifact
             {"type", "Background"}
         });
     }
@@ -547,8 +496,8 @@ nlohmann::json vega_noise_histogram(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Noise estimation"},
-        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 300}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 300}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", values}}},
         // Merge colour legends from all layers into one.
         {"resolve", {{"legend", {{"color", "shared"}}}}},
@@ -556,7 +505,7 @@ nlohmann::json vega_noise_histogram(
             // Histogram bars — legend shown here
             {
                 {"transform", {{{"filter", "datum.type == 'Observed'"}}}},
-                {"mark", {{"type", "bar"}, {"opacity", 0.5}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                {"mark", {{"type", "bar"}, {"opacity", 0.5}}}, // GCOVR_EXCL_LINE: gcov artifact
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}, {"title", x_title},
                            {"bin", {{"binned", true}, {"step", bin_width}}}}},
@@ -568,7 +517,7 @@ nlohmann::json vega_noise_histogram(
             // Signal PDF line
             {
                 {"transform", {{{"filter", "datum.type == 'Intracellular'"}}}},
-                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov artifact
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}}},
                     {"y", {{"field", "density"}, {"type", "quantitative"}}},
@@ -578,7 +527,7 @@ nlohmann::json vega_noise_histogram(
             // Noise PDF line
             {
                 {"transform", {{{"filter", "datum.type == 'Background'"}}}},
-                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                {"mark", {{"type", "line"}, {"strokeWidth", 3}}}, // GCOVR_EXCL_LINE: gcov artifact
                 {"encoding", {
                     {"x", {{"field", "x"}, {"type", "quantitative"}}},
                     {"y", {{"field", "density"}, {"type", "quantitative"}}},
@@ -635,13 +584,13 @@ nlohmann::json vega_gene_frequency(
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Gene frequency"},
-        {"width", 600}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 300}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 600}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 300}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", values}}},
         {"mark", "bar"},
         {"encoding", {
             {"x", {{"field", "gene"}, {"type", "nominal"}, {"sort", nullptr},
-                   {"axis", {{"labelAngle", -45}}}, {"title", "Gene"}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                   {"axis", {{"labelAngle", -45}}}, {"title", "Gene"}}}, // GCOVR_EXCL_LINE: gcov artifact
             {"y", {{"field", "count"}, {"type", "quantitative"}, {"title", "Num. molecules"}}},
             {"color", {
                 {"field", "type"}, {"type", "nominal"},
@@ -665,7 +614,7 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
             {"x", emb.x[i]},
             {"y", emb.y[i]},
             {"gene", emb.gene_names[i]},
-            {"size", std::max(emb.marker_sizes[i], 1.0)} // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+            {"size", std::max(emb.marker_sizes[i], 1.0)} // GCOVR_EXCL_LINE: gcov artifact
         });
     }
 
@@ -685,18 +634,18 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
     return {
         {"$schema", "https://vega.github.io/schema/vega-lite/v5.json"},
         {"title", "Gene structure"},
-        {"width", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
-        {"height", 500}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+        {"width", 500}, // GCOVR_EXCL_LINE: gcov artifact
+        {"height", 500}, // GCOVR_EXCL_LINE: gcov artifact
         {"data", {{"values", values}}},
         {"layer", {
             // Dots
             {
-                {"mark", {{"type", "point"}, {"filled", true}, {"opacity", 0.8}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                {"mark", {{"type", "point"}, {"filled", true}, {"opacity", 0.8}}}, // GCOVR_EXCL_LINE: gcov artifact
                 {"encoding", {
                     {"x", x_enc},
                     {"y", y_enc},
                     {"size", {{"field", "size"}, {"type", "quantitative"},
-                              {"scale", {{"range", {20, 400}}}}, {"legend", nullptr}}}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                              {"scale", {{"range", {20, 400}}}}, {"legend", nullptr}}}, // GCOVR_EXCL_LINE: gcov artifact
                     {"tooltip", {
                         {{"field", "gene"}, {"type", "nominal"}},
                         {{"field", "size"}, {"type", "quantitative"}, {"title", "log(count)"}}
@@ -705,7 +654,7 @@ nlohmann::json vega_gene_structure(const GeneStructureEmbedding& emb) {
             },
             // Gene name labels
             {
-                {"mark", {{"type", "text"}, {"dy", -9}, {"fontSize", 10}, // GCOVR_EXCL_LINE: gcov: only exception-unwind blocks are attributed to this line; the executed code is reported on the neighbouring lines
+                {"mark", {{"type", "text"}, {"dy", -9}, {"fontSize", 10}, // GCOVR_EXCL_LINE: gcov artifact
                           {"fontWeight", "normal"}}},
                 {"encoding", {
                     {"x", x_enc},
@@ -730,18 +679,14 @@ std::string generate_preview_html(
     const GeneStructureEmbedding* gene_structure,
     int max_plot_size
 ) {
-    // Render PNG images (can be slow — done before HTML assembly); the two
-    // images are encoded concurrently.
-    std::string scatter_png, conf_png;
-    {
-        const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
-        std::vector<ScatterRaster> rasters;
-        rasters.push_back(rasterize_scatter(data.x, data.y, gene_colors, nullptr, width_px));
-        rasters.push_back(rasterize_confidence(data.x, data.y, data.confidence, width_px));
-        auto pngs = encode_png_data_uris(rasters);
-        scatter_png = std::move(pngs[0]);
-        conf_png = std::move(pngs[1]);
-    }
+    // Render PNG images (can be slow — done before HTML assembly)
+    const int width_px = scatter_width_for_max_size(data.x, data.y, max_plot_size);
+    std::vector<ScatterRaster> rasters(2);
+    rasters[0] = rasterize_scatter(data.x, data.y, gene_colors, nullptr, width_px);
+    rasters[1] = rasterize_confidence(data.x, data.y, data.confidence, width_px);
+    const auto pngs = encode_png_data_uris(rasters);
+    const std::string& scatter_png = pngs[0];
+    const std::string& conf_png = pngs[1];
 
     // Generate Vega-Lite specs for smaller charts
     auto noise_spec = vega_noise_histogram(

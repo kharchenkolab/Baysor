@@ -200,8 +200,8 @@ TEST(PngEncode, ScatterPngDecodesToTheDrawnColours) {
         expected.insert({r, g, b});
     }
 
-    const std::string uri = baysor::render_scatter_png(x, y, colors, nullptr, /*width_px=*/333, /*point_radius_px=*/3);
-    const DecodedPng img = decode_png_data_uri(uri);
+    const DecodedPng img = decode_png_data_uri(baysor::encode_png_data_uris(
+        {baysor::rasterize_scatter(x, y, colors, nullptr, /*width_px=*/333, /*point_radius_px=*/3)})[0]);
     EXPECT_EQ(img.width, 333u);
     EXPECT_GT(img.height, 100u);
     ASSERT_EQ(img.rgb.size(), size_t(img.width) * img.height * 3);
@@ -228,15 +228,11 @@ TEST(PngEncode, LargeImageIsSplitIntoSeveralIdatChunks) {
         }
         colors.push_back(c);
     }
-    const DecodedPng img = decode_png_data_uri(
-        baysor::render_scatter_png(x, y, colors, nullptr, /*width_px=*/1500, /*point_radius_px=*/1));
+    const DecodedPng img = decode_png_data_uri(baysor::encode_png_data_uris(
+        {baysor::rasterize_scatter(x, y, colors, nullptr, /*width_px=*/1500, /*point_radius_px=*/1)})[0]);
     EXPECT_EQ(img.width, 1500u);
     EXPECT_GT(img.n_idat, 1);
     EXPECT_EQ(img.rgb.size(), size_t(img.width) * img.height * 3);
-}
-
-TEST(PlotSize, DefaultMatchesPlottingOptions) {
-    EXPECT_EQ(baysor::kDefaultMaxPlotSize, baysor::PlottingOptions{}.max_plot_size);
 }
 
 TEST(PlotSize, LongerSideIsMaxPlotSize) {
@@ -260,7 +256,7 @@ TEST(PlotSize, LongerSideIsMaxPlotSize) {
     auto very_tall = raster_dims({0, 1}, {0, 100}, 1000);
     EXPECT_EQ(very_tall, std::make_pair(250, 1000));
     // Invalid limits fall back to the default; empty data keeps the limit.
-    EXPECT_EQ(scatter_width_for_max_size({0, 1}, {0, 1}, 0), baysor::kDefaultMaxPlotSize);
+    EXPECT_EQ(scatter_width_for_max_size({0, 1}, {0, 1}, 0), baysor::PlottingOptions{}.max_plot_size);
     EXPECT_EQ(scatter_width_for_max_size({}, {}, 700), 700);
 }
 
