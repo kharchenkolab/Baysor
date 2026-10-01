@@ -3,7 +3,6 @@
 #include <third_party/nanoflann.hpp>
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <numeric>
 #include <vector>
 
@@ -99,13 +98,6 @@ using KDTree = nanoflann::KDTreeSingleIndexAdaptor<
     int  // index type
 >;
 
-KDTree make_kdtree(const Eigen::MatrixXd& tree_points, const EigenColMajorAdaptor& adaptor) {
-    return KDTree(
-        static_cast<int>(tree_points.rows()), adaptor,
-        nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10)
-    );
-}
-
 int knn_block_size(int k) {
     constexpr std::size_t budget_bytes = std::size_t(32) << 20;
     constexpr std::size_t min_block = 2048;  // keeps the 256-query parallel chunks fed
@@ -127,6 +119,7 @@ KnnResult knn_parallel(
     int k,
     bool sorted
 ) {
+    const int n_dims = static_cast<int>(tree_points.rows());
     const int n_tree = static_cast<int>(tree_points.cols());
     const int n_query = static_cast<int>(query_points.cols());
 
@@ -145,7 +138,7 @@ KnnResult knn_parallel(
 
     // Build KD-tree
     EigenColMajorAdaptor adaptor(tree_points);
-    KDTree tree = make_kdtree(tree_points, adaptor);
+    KDTree tree(n_dims, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10));
 
     parallel_for(0, n_query, 256, [&](int i) {
         int* row_indices = result.indices.data() + static_cast<std::size_t>(i) * k;
@@ -156,11 +149,11 @@ KnnResult knn_parallel(
         tree.findNeighbors(
             resultSet,
             query_points.col(i).data(),
-            nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
+            nanoflann::SearchParameters(/*eps=*/0.0f, /*sorted=*/sorted)
         );
 
-        // Keep sorted=true deterministic: nanoflann leaves equal-distance
-        // neighbors in traversal order.
+        // Keep sorted=true deterministic even when the backend does not define
+        // a stable tie order for equal-distance neighbors.
         if (sorted) {
             sort_tied_runs_by_index(row_indices, row_distances, k);
         }
@@ -187,7 +180,7 @@ std::vector<double> knn_kth_distances(
     kth = std::min(kth, k - 1);
 
     EigenColMajorAdaptor adaptor(points);
-    KDTree tree = make_kdtree(points, adaptor);
+    KDTree tree(static_cast<int>(points.rows()), adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10));
 
     const int block = std::min(knn_block_size(k), n);
     std::vector<int> scratch_indices(static_cast<std::size_t>(block) * k);
