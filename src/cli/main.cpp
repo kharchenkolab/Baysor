@@ -756,6 +756,10 @@ int main(int argc, char* argv[]) {
 
     // ---- run ----
     auto* run = app.add_subcommand("run", "Run cell segmentation");
+    // Sopa feeds this output directly to packaging.version.Version, so unlike
+    // the unchanged top-level flag this must be a bare version string.
+    run->set_version_flag("--version", BAYSOR_VERSION,
+                          "Print the Baysor version and exit");
 
     std::string run_coordinates, run_prior_seg;
     std::string run_output = "segmentation";
@@ -855,6 +859,8 @@ int main(int argc, char* argv[]) {
 
     // ---- preview ----
     auto* preview = app.add_subcommand("preview", "Plot a dataset preview");
+    preview->set_version_flag("--version", BAYSOR_VERSION,
+                              "Print the Baysor version and exit");
 
     std::string prev_coordinates;
     std::string prev_output = "preview.html";
@@ -900,6 +906,8 @@ int main(int argc, char* argv[]) {
 
     // ---- segfree ----
     auto* segfree = app.add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
+    segfree->set_version_flag("--version", BAYSOR_VERSION,
+                              "Print the Baysor version and exit");
 
     std::string sf_coordinates;
     std::string sf_output = "ncvs.loom";

@@ -14,6 +14,16 @@ repository contains the native C++ implementation (the `cpp` line), a single
 - **Release binaries:** [GitHub Releases](https://github.com/kharchenkolab/Baysor/releases)
   (Linux x86-64, macOS arm64, Windows x86-64, with `SHA256SUMS`)
 
+The C++ release binaries are the recommended path. If you still need the
+legacy Julia implementation, pin its last release because the repository's
+default branch is now C++:
+
+```julia
+using Pkg
+Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="v0.7.1"))
+Pkg.build("Baysor")
+```
+
 ## Quick start
 
 ```bash

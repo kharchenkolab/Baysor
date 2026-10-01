@@ -164,6 +164,12 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Fixed
 
+- `baysor run --version`, `preview --version` and `segfree --version` now
+  exit successfully and print a bare version string, as expected by Sopa's
+  direct `packaging.version.Version` parsing (the top-level output is unchanged).
+- Documented how to install the legacy Julia v0.7.1 package by pinning
+  `rev="v0.7.1"`; C++ release binaries are recommended because the default
+  repository branch now contains the C++ implementation.
 - Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
   inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
   them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`
