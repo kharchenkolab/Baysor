@@ -7,15 +7,6 @@
 namespace baysor {
 
 template<int N>
-MvNormal<N>::MvNormal()
-    : mu(Vec::Zero()), sigma(Mat::Identity()), sigma_inv(Mat::Identity())
-{
-    // Julia MvNormalF constructor calls norm_pdf_divider(Σ); reuse update_cache()
-    // so the default and explicit constructors can never disagree.
-    update_cache();
-}
-
-template<int N>
 MvNormal<N>::MvNormal(const Vec& mu, const Mat& sigma)
     : mu(mu), sigma(sigma)
 {

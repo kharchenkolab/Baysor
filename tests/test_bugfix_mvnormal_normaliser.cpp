@@ -1,16 +1,10 @@
 // BUG-4: inconsistent normalising constant in MvNormal.
 //
-// Julia reference: src/processing/distributions/MvNormal.jl
-//   - norm_pdf_divider(Σ) = 0.5 * log((2π)^3 * det(Σ))   (hardcoded power 3,
-//     even for 2D distributions)
-//   - the constructor MvNormalF(μ, Σ) uses norm_pdf_divider(Σ)
-//   - update_cache!(dist) recomputes norm_pdf_divider(dist.Σ)
-//
-// The C++ default constructor used to initialise pdf_divider with the
-// mathematically conventional (2π)^(N/2) form instead, so a default-constructed
-// MvNormal<2> disagreed with the explicit constructor / update_cache() by a
-// constant 0.5*log(2π) log-density offset. These tests pin the Julia-parity
-// behaviour: every construction path must use (2π)^3.
+// Julia (src/processing/distributions/MvNormal.jl) uses
+// norm_pdf_divider(Σ) = 0.5 * log((2π)^3 * det(Σ)) -- power 3 even for 2D --
+// in the constructor and in update_cache!. The C++ default constructor used
+// (2π)^(N/2) instead, a constant 0.5*log(2π) log-density offset in 2D. Every
+// construction path must use (2π)^3.
 
 #include <gtest/gtest.h>
 
@@ -34,100 +28,55 @@ double julia_log_pdf(const Eigen::Matrix<double, N, 1>& mu,
     return -0.5 * mahalanobis - divider;
 }
 
+template<int N>
+void expect_julia_log_pdf(const MvNormal<N>& mv, const Eigen::Matrix<double, N, 1>& x) {
+    const double expected = julia_log_pdf<N>(mv.mu, mv.sigma, x);
+    EXPECT_NEAR(mv.log_pdf(x.data()), expected, 1e-12);
+    EXPECT_NEAR(mv.pdf(x.data()), std::exp(expected), 1e-12);
+}
+
+template<int N>
+void expect_default_is_standard_normal(const Eigen::Matrix<double, N, 1>& x) {
+    const MvNormal<N> def;
+    EXPECT_TRUE(def.mu.isZero());
+    EXPECT_TRUE(def.sigma.isIdentity());
+    EXPECT_TRUE(def.sigma_inv.isIdentity());
+    // Julia: MvNormalF(μ) with default Σ = I -> divider = 0.5*log((2π)^3)
+    EXPECT_NEAR(def.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
+    expect_julia_log_pdf<N>(def, x);
+
+    // Same as the explicit constructor and as update_cache()
+    MvNormal<N> updated;
+    updated.update_cache();
+    const MvNormal<N> explicit_ctor(def.mu, def.sigma);
+    EXPECT_DOUBLE_EQ(def.log_pdf(x.data()), explicit_ctor.log_pdf(x.data()));
+    EXPECT_DOUBLE_EQ(def.log_pdf(x.data()), updated.log_pdf(x.data()));
+}
+
 } // namespace
 
-// ---------------------------------------------------------------------------
-// Regression: default-constructed vs explicit/updated must agree (fails for
-// N=2 without the fix, where the default constructor used (2π)^(N/2)).
-// ---------------------------------------------------------------------------
+// Fails for N=2 without the fix, where the default constructor used (2π)^(N/2).
 TEST(Bug4_MvNormalNormaliser, DefaultConstructedAgreesWithExplicitAndUpdated) {
-    // --- 2D ---
-    {
-        MvNormal<2> def;
-        const Eigen::Vector2d mu = Eigen::Vector2d::Zero();
-        MvNormal<2> explicit_ctor(mu, Eigen::Matrix2d::Identity());
-        MvNormal<2> updated;
-        updated.mu = mu;
-        updated.sigma = Eigen::Matrix2d::Identity();
-        updated.update_cache();
-
-        const double x[2] = {0.4, -0.7};
-        EXPECT_DOUBLE_EQ(def.log_pdf(x), explicit_ctor.log_pdf(x))
-            << "default vs explicit constructor (2D)";
-        EXPECT_DOUBLE_EQ(def.log_pdf(x), updated.log_pdf(x))
-            << "default vs update_cache (2D)";
-        // Julia: MvNormalF(μ) with default Σ = I -> divider = 0.5*log((2π)^3)
-        EXPECT_NEAR(def.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-        EXPECT_NEAR(def.log_pdf(x),
-                    -0.5 * (x[0] * x[0] + x[1] * x[1]) - 1.5 * std::log(2.0 * baysor::kPi),
-                    1e-12);
-    }
-
-    // --- 3D ---
-    {
-        MvNormal<3> def;
-        const Eigen::Vector3d mu = Eigen::Vector3d::Zero();
-        MvNormal<3> explicit_ctor(mu, Eigen::Matrix3d::Identity());
-        MvNormal<3> updated;
-        updated.mu = mu;
-        updated.sigma = Eigen::Matrix3d::Identity();
-        updated.update_cache();
-
-        const double x[3] = {0.4, -0.7, 1.1};
-        EXPECT_DOUBLE_EQ(def.log_pdf(x), explicit_ctor.log_pdf(x))
-            << "default vs explicit constructor (3D)";
-        EXPECT_DOUBLE_EQ(def.log_pdf(x), updated.log_pdf(x))
-            << "default vs update_cache (3D)";
-        EXPECT_NEAR(def.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-        EXPECT_NEAR(def.log_pdf(x),
-                    -0.5 * (x[0] * x[0] + x[1] * x[1] + x[2] * x[2])
-                        - 1.5 * std::log(2.0 * baysor::kPi),
-                    1e-12);
-    }
+    expect_default_is_standard_normal<2>(Eigen::Vector2d(0.4, -0.7));
+    expect_default_is_standard_normal<3>(Eigen::Vector3d(0.4, -0.7, 1.1));
 }
 
-// ---------------------------------------------------------------------------
-// Numeric agreement with Julia's formula, 2D.
-// Expected literals computed from Julia's MvNormalF log_pdf formula with
-//   μ = (1.0, -0.5), Σ = [[2.0, 0.5], [0.5, 1.5]], x = (1.5, 0.5).
-// ---------------------------------------------------------------------------
-TEST(Bug4_MvNormalNormaliser, JuliaFormulaAgreement2D) {
-    Eigen::Vector2d mu;
-    mu << 1.0, -0.5;
-    Eigen::Matrix2d sigma;
-    sigma << 2.0, 0.5,
-             0.5, 1.5;
-    MvNormal<2> mv(mu, sigma);
+// Expected literals computed from Julia's MvNormalF log_pdf formula.
+TEST(Bug4_MvNormalNormaliser, JuliaFormulaAgreement) {
+    Eigen::Matrix2d sigma2;
+    sigma2 << 2.0, 0.5,
+              0.5, 1.5;
+    const MvNormal<2> mv2(Eigen::Vector2d(1.0, -0.5), sigma2);
+    const Eigen::Vector2d x2(1.5, 0.5);
+    EXPECT_NEAR(mv2.log_pdf(x2.data()), -3.6035251463623488, 1e-12);
+    expect_julia_log_pdf<2>(mv2, x2);
 
-    Eigen::Vector2d x;
-    x << 1.5, 0.5;
-    double buf[2] = {x(0), x(1)};
-
-    EXPECT_NEAR(mv.log_pdf(buf), -3.6035251463623488, 1e-12);
-    EXPECT_NEAR(mv.log_pdf(buf), julia_log_pdf<2>(mu, sigma, x), 1e-12);
-    EXPECT_NEAR(mv.pdf(buf), std::exp(-3.6035251463623488), 1e-12);
-}
-
-// ---------------------------------------------------------------------------
-// Numeric agreement with Julia's formula, 3D.
-// Expected literals computed from Julia's MvNormalF log_pdf formula with
-//   μ = (0.5, -1.0, 2.0),
-//   Σ = [[2.0, 0.3, 0.1], [0.3, 1.2, 0.2], [0.1, 0.2, 0.9]], x = (0, 0, 1).
-// ---------------------------------------------------------------------------
-TEST(Bug4_MvNormalNormaliser, JuliaFormulaAgreement3D) {
-    Eigen::Vector3d mu;
-    mu << 0.5, -1.0, 2.0;
-    Eigen::Matrix3d sigma;
-    sigma << 2.0, 0.3, 0.1,
-             0.3, 1.2, 0.2,
-             0.1, 0.2, 0.9;
-    MvNormal<3> mv(mu, sigma);
-
-    Eigen::Vector3d x;
-    x << 0.0, 0.0, 1.0;
-    double buf[3] = {x(0), x(1), x(2)};
-
-    EXPECT_NEAR(mv.log_pdf(buf), -4.426300708163545, 1e-12);
-    EXPECT_NEAR(mv.log_pdf(buf), julia_log_pdf<3>(mu, sigma, x), 1e-12);
-    EXPECT_NEAR(mv.pdf(buf), std::exp(-4.426300708163545), 1e-12);
+    Eigen::Matrix3d sigma3;
+    sigma3 << 2.0, 0.3, 0.1,
+              0.3, 1.2, 0.2,
+              0.1, 0.2, 0.9;
+    const MvNormal<3> mv3(Eigen::Vector3d(0.5, -1.0, 2.0), sigma3);
+    const Eigen::Vector3d x3(0.0, 0.0, 1.0);
+    EXPECT_NEAR(mv3.log_pdf(x3.data()), -4.426300708163545, 1e-12);
+    expect_julia_log_pdf<3>(mv3, x3);
 }

@@ -24,10 +24,8 @@ struct ConfidenceEstimationDetails {
     std::vector<double> edge_lengths;
     NoiseFitResult fit_result;
     int nn_id = 0;
-    /// Unfiltered molecule-graph edges computed for the noise-model MRF,
-    /// returned so the caller can build the (filtered) segmentation graph from
-    /// the same triangulation instead of recomputing it (REPORT.md 6.4: the
-    /// CGAL Delaunay triangulation was built twice per run).
+    /// Unfiltered molecule-graph edges of the noise-model MRF, for reuse by
+    /// build_molecule_graph()
     AdjacencyResult adjacency;
 };
 

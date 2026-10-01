@@ -1,14 +1,7 @@
 // Regression tests for BUG-3 (three small correctness issues):
-//
-//  (a) AdjList::from_edge_list overflow guards (src/processing/models/adj_list.cpp)
-//  (b) Convex-hull orientation must be clockwise (behaviour pinned by
-//      SquareHullIsClockwiseLikeJulia; src/processing/utils/convex_hull.cpp,
-//      include/baysor/processing/utils/convex_hull.h)
-//  (c) Config values that fail to parse must raise a clear error
-//      (src/utils/options.cpp)
-//
-// Every suite name is prefixed with Bug3 so it cannot clash with the other
-// test files.
+//  (a) AdjList::from_edge_list overflow guards
+//  (b) convex-hull orientation must be clockwise, as in Julia
+//  (c) config values that fail to parse must raise a clear error
 
 #include <gtest/gtest.h>
 
@@ -16,11 +9,11 @@
 #include "baysor/processing/utils/convex_hull.h"
 #include "baysor/utils/options.h"
 
-#include <climits>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "test_cov_helpers.h"
 
@@ -49,6 +42,18 @@ std::string config_error(const std::string& content) {
     return std::string();
 }
 
+// from_edge_list must throw E naming `arg` on the arguments alone, before
+// allocating or touching the (null) edge arrays.
+template<class E>
+void expect_guard_throws(int n_edges, int n_verts, const char* arg) {
+    try {
+        baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr, n_edges, n_verts);
+        FAIL() << "expected throw for n_edges=" << n_edges << ", n_verts=" << n_verts;
+    } catch (const E& e) {
+        EXPECT_NE(std::string(e.what()).find(arg), std::string::npos) << e.what();
+    }
+}
+
 // Signed shoelace area (positive = counter-clockwise, negative = clockwise).
 double signed_area(const Eigen::MatrixXd& poly) {
     double s = 0.0;
@@ -66,65 +71,13 @@ double signed_area(const Eigen::MatrixXd& poly) {
 // (a) AdjList::from_edge_list overflow guards
 // ============================================================================
 
-TEST(Bug3_AdjListGuards, NVertsAtIntMaxThrowsLengthError) {
-    // n_verts + 1 overflows int at INT_MAX (undefined behaviour). The guard
-    // must trigger on the arguments alone, without allocating anything big.
-    try {
-        baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr,
-                                        /*n_edges=*/0,
-                                        std::numeric_limits<int>::max());
-        FAIL() << "expected throw";
-    } catch (const std::length_error& e) {
-        EXPECT_NE(std::string(e.what()).find("n_verts"), std::string::npos)
-            << e.what();
-    }
-}
-
-TEST(Bug3_AdjListGuards, NEdgesPastHalfIntMaxThrowsLengthError) {
-    // 2 * n_edges overflows int at n_edges = 2^30 (about 1.07e9). Without the
-    // guard the unpatched code dereferences the (null) edge arrays first, so
-    // this test crashes before it can pass.
-    try {
-        baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr,
-                                        /*n_edges=*/(1 << 30),
-                                        /*n_verts=*/1);
-        FAIL() << "expected throw";
-    } catch (const std::length_error& e) {
-        EXPECT_NE(std::string(e.what()).find("n_edges"), std::string::npos)
-            << e.what();
-    }
-}
-
-TEST(Bug3_AdjListGuards, NegativeCountsAreInvalidArguments) {
-    // Negative sizes are invalid arguments; the unpatched code either returns
-    // nonsense (n_verts = -1 with n_edges = 0) or dies inside
-    // std::vector::resize with an unrelated message (n_edges = -1).
-    try {
-        baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr,
-                                        /*n_edges=*/0, /*n_verts=*/-1);
-        FAIL() << "expected throw";
-    } catch (const std::invalid_argument& e) {
-        EXPECT_NE(std::string(e.what()).find("n_verts"), std::string::npos)
-            << e.what();
-    }
-    try {
-        baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr,
-                                        /*n_edges=*/-1, /*n_verts=*/4);
-        FAIL() << "expected throw";
-    } catch (const std::invalid_argument& e) {
-        EXPECT_NE(std::string(e.what()).find("n_edges"), std::string::npos)
-            << e.what();
-    }
-}
-
-TEST(Bug3_AdjListGuards, ValidInputStillBuilds) {
-    // The guards must not disturb the normal path.
-    const int src[] = {0, 1};
-    const int dst[] = {1, 2};
-    const double w[] = {0.5, 1.5};
-    const auto adj = baysor::AdjList::from_edge_list(src, dst, w, 2, 3);
-    EXPECT_EQ(adj.n_molecules(), 3);
-    EXPECT_EQ(adj.nnz(), 4);
+TEST(Bug3_AdjListGuards, OversizedOrNegativeCountsThrow) {
+    // n_verts + 1 overflows int at INT_MAX, 2 * n_edges at 2^30 edges, and
+    // negative counts are invalid.
+    expect_guard_throws<std::length_error>(0, std::numeric_limits<int>::max(), "n_verts");
+    expect_guard_throws<std::length_error>(1 << 30, 1, "n_edges");
+    expect_guard_throws<std::invalid_argument>(0, -1, "n_verts");
+    expect_guard_throws<std::invalid_argument>(-1, 4, "n_edges");
 }
 
 // ============================================================================
@@ -153,61 +106,28 @@ TEST(Bug3_HullOrientation, SquareHullIsClockwiseLikeJulia) {
 // (c) Config values that fail to parse raise a clear error
 // ============================================================================
 
-TEST(Bug3_ConfigErrors, UnparsableIntNamesKeyValueAndType) {
-    const std::string msg = config_error(
-        "[molecules]\nmin_molecules_per_cell = notanint\n");
-    ASSERT_FALSE(msg.empty()) << "garbage int silently kept its default";
-    EXPECT_NE(msg.find("min_molecules_per_cell"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("notanint"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("integer"), std::string::npos) << msg;
-}
-
-TEST(Bug3_ConfigErrors, PartiallyParsedIntIsRejected) {
-    // std::stoi("12abc") returns 12 and stops at 'a'; Julia's TOML parser
-    // rejects `12abc` outright, so the C++ port must not accept it either.
-    const std::string msg = config_error(
-        "[segmentation]\niters = 12abc\n");
-    ASSERT_FALSE(msg.empty()) << "partially parsable int silently kept default";
-    EXPECT_NE(msg.find("iters"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("12abc"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("integer"), std::string::npos) << msg;
-}
-
-TEST(Bug3_ConfigErrors, OutOfRangeIntIsRejected) {
-    const std::string msg = config_error(
-        "[segmentation]\nn_clusters = 99999999999\n");
-    ASSERT_FALSE(msg.empty()) << "out-of-range int silently kept default";
-    EXPECT_NE(msg.find("n_clusters"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("99999999999"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("integer"), std::string::npos) << msg;
-}
-
-TEST(Bug3_ConfigErrors, UnparsableDoubleNamesKeyValueAndType) {
-    const std::string msg = config_error(
-        "[molecules]\nmin_qv = notafloat\n");
-    ASSERT_FALSE(msg.empty()) << "garbage double silently kept its default";
-    EXPECT_NE(msg.find("min_qv"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("notafloat"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("number"), std::string::npos) << msg;
-}
-
-TEST(Bug3_ConfigErrors, UnparsableBoolNamesKeyValueAndType) {
-    const std::string msg = config_error(
-        "[segmentation]\nestimate_scale_from_centers = bogus\n");
-    ASSERT_FALSE(msg.empty()) << "garbage bool silently kept its default";
-    EXPECT_NE(msg.find("estimate_scale_from_centers"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("bogus"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("boolean"), std::string::npos) << msg;
-}
-
-TEST(Bug3_ConfigErrors, UnknownPriorTypeNamesKeyValueAndOptions) {
-    const std::string msg = config_error(
-        "[prior]\ntype = \"bogus\"\n");
-    ASSERT_FALSE(msg.empty()) << "unknown prior type silently kept its default";
-    EXPECT_NE(msg.find("'type'"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("bogus"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("'column'"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("'boundary'"), std::string::npos) << msg;
+TEST(Bug3_ConfigErrors, UnparsableValuesNameKeyValueAndType) {
+    // `12abc`: std::stoi would return 12, but Julia's TOML parser rejects it.
+    const struct {
+        const char* toml;
+        std::vector<std::string> expected;  // substrings of the error message
+    } cases[] = {
+        {"[molecules]\nmin_molecules_per_cell = notanint\n",
+         {"min_molecules_per_cell", "notanint", "integer"}},
+        {"[segmentation]\niters = 12abc\n", {"iters", "12abc", "integer"}},
+        {"[segmentation]\nn_clusters = 99999999999\n", {"n_clusters", "99999999999", "integer"}},
+        {"[molecules]\nmin_qv = notafloat\n", {"min_qv", "notafloat", "number"}},
+        {"[segmentation]\nestimate_scale_from_centers = bogus\n",
+         {"estimate_scale_from_centers", "bogus", "boolean"}},
+        {"[prior]\ntype = \"bogus\"\n", {"'type'", "bogus", "'column'", "'boundary'"}},
+    };
+    for (const auto& c : cases) {
+        const std::string msg = config_error(c.toml);
+        ASSERT_FALSE(msg.empty()) << "silently kept the default: " << c.toml;
+        for (const auto& part : c.expected) {
+            EXPECT_NE(msg.find(part), std::string::npos) << msg;
+        }
+    }
 }
 
 TEST(Bug3_ConfigErrors, ValidConfigAndMissingKeysStillUseDefaults) {

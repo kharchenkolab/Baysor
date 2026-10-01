@@ -64,8 +64,7 @@ static void expect_noise_probabilities(
         pdf2[i] = normal_pdf(edge_lengths[i], mu2, sigma2);
     });
 
-    // Component sizes. Deterministic reduction: sequential accumulation with
-    // 1 thread, fixed buckets merged in index order otherwise.
+    // Component sizes (deterministic, see parallel_reduce)
     double n1 = parallel_reduce<double>(0, n, /*bucket_size=*/1024, 0.0,
         [&](std::int64_t b, std::int64_t e, double& acc) {
             for (std::int64_t i = b; i < e; ++i) acc += assignment_probs(i, 0);
@@ -184,7 +183,7 @@ NoiseFitResult fit_noise_probabilities(
         new_sigma2 = std::max(new_sigma2, 1e-10);
 
         // Convergence: max relative parameter change
-        double param_diff = std::max({ // GCOVR_EXCL_LINE: dead GCC block; statement counted on lines 185-189
+        double param_diff = std::max({ // GCOVR_EXCL_LINE: dead GCC block; statement counted on the following lines
             std::abs(new_mu1 - mu1) / std::max(std::abs(mu1), 1e-20),
             std::abs(new_mu2 - mu2) / std::max(std::abs(mu2), 1e-20),
             std::abs(new_sigma1 - sigma1) / std::max(std::abs(sigma1), 1e-20),
@@ -279,14 +278,11 @@ ConfidenceEstimationDetails estimate_confidence_details(
 
     Eigen::MatrixXd pos = data.position_matrix();
 
-    // KNN distance to the (nn_id+1)-th neighbor (first is self): computed
-    // block-wise, only the kth distance per molecule is kept (the full n x k
-    // result peaked at 3 GiB on whole slides, REPORT.md 6.4).
+    // KNN distance to the (nn_id+1)-th neighbor (first is self)
     std::vector<double> mean_dists = knn_kth_distances(pos, nn_id + 1, nn_id);
 
-    // Build molecule graph (unfiltered, matching Julia). The edges are kept in
-    // the result so the segmentation graph can be built from the same
-    // triangulation instead of recomputing it.
+    // Build molecule graph (unfiltered, matching Julia); the edges are
+    // returned for reuse by the segmentation graph
     auto adj_edges = compute_molecule_adjacency(data);
     auto adj_list = build_molecule_graph_from_edges(adj_edges, n);
 

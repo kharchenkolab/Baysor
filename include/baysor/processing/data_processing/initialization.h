@@ -47,17 +47,12 @@ AdjList build_molecule_graph(
     AdjacencyType type = AdjacencyType::Auto,
     int composition_neighborhood = 0,
     int n_gene_pcs = 0,
-    /// Reuse a previously computed (unfiltered) adjacency instead of
-    /// recomputing it; `filter` is then applied here. Only reused when the
-    /// edges provably equal a recomputation (no duplicate coordinates, see
-    /// AdjacencyResult::normalize_rng_draws); with duplicates the adjacency
-    /// is recomputed exactly as without this argument.
+    /// Unfiltered edges from compute_molecule_adjacency() to reuse (then
+    /// filtered here); ignored when the data has duplicate coordinates.
     std::optional<AdjacencyResult> precomputed_edges = std::nullopt
 );
 
-/// Full initialization of BmmData from molecule data. The adjacency list is
-/// taken by value and moved into BmmData: pass an rvalue when the caller no
-/// longer needs it, so that only one copy of the molecule graph exists.
+/// Full initialization of BmmData from molecule data (adj_list is moved in)
 template<int N>
 BmmData<N> initialize_bmm_data(
     const MoleculeData& mol_data,

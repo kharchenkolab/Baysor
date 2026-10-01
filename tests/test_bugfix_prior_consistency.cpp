@@ -1,21 +1,10 @@
-// Regression test for kharchenkolab/Baysor#117:
-// `--prior-segmentation-confidence 1` must keep every prior cell together.
-//
-// The invariant is: all molecules carrying the same prior-segmentation label
-// end up in one final cell (cell ids may be renamed and cells may grow, but a
-// prior cell must never be split across several final cells or partly
-// dropped to noise). The reporter saw it violated on CosMx data, where
-// duplicated transcripts at identical coordinates are common; overlapping
-// prior cells are enough to break it even without duplicates.
-//
-// The fixture is two overlapping prior cells (a 10x4 grid at (0,0) and the
-// same grid shifted by 1.0 in x, `--scale 1.2`), optionally with exact
-// duplicate coordinates. Before the fix the E-step assigns a boundary
-// molecule to whichever adjacent component locally dominates, so both prior
-// cells end up spread over both final cells. The assertion below is the
-// invariant itself, so it stays valid for any future algorithm change.
-//
-// Suite name is prefixed with Bug117 to avoid clashes with the other files.
+// Regression test for kharchenkolab/Baysor#117: with
+// `--prior-segmentation-confidence 1` all molecules carrying the same prior
+// label must end up in one final cell (cells may be renamed or grow, but a
+// prior cell is never split across final cells or partly dropped to noise).
+// Fixture: two overlapping prior cells (a 10x4 grid at (0,0) and the same
+// grid shifted by 1.0 in x, `--scale 1.2`), optionally with exact duplicate
+// coordinates as in the CosMx data of the report.
 
 #include <gtest/gtest.h>
 
@@ -28,62 +17,41 @@
 #include <string>
 #include <vector>
 
+#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
+
 namespace {
 
 using baysor_test::TempDir;
 using baysor_test::cli::CliResult;
-using baysor_test::cli::read_text_file;
 using baysor_test::cli::run_cli;
-
-#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
 
 // Two overlapping prior cells; `dups` adds exact duplicates of two molecules
 // per cell (same coordinates and label, a different gene), matching the CosMx
-// duplicate-transcript pattern from the issue.
-std::string make_overlapping_prior_csv(const TempDir& tmp,
-                                       const std::string& name, bool dups) {
+// duplicate-transcript pattern from the issue. Writes the CSV to `path` and
+// returns the prior label per molecule in input order.
+std::vector<std::string> write_overlapping_prior_csv(const std::string& path, bool dups) {
     const char* genes[] = {"GeneA", "GeneB", "GeneC", "GeneD"};
-    std::ostringstream f;
-    f << "x,y,gene,cell_id\n";
+    std::ostringstream rows, dup_rows;
+    std::vector<std::string> labels, dup_labels;
     int k = 0;
-    std::vector<std::string> dup_rows;
     for (int cell = 1; cell <= 2; ++cell) {
+        const std::string label = "cell" + std::to_string(cell);
         const double cx = (cell == 1) ? 0.0 : 1.0;
         for (int i = 0; i < 10; ++i) {
-            for (int j = 0; j < 4; ++j) {
+            for (int j = 0; j < 4; ++j, ++k) {
                 const double x = cx - 0.9 + 0.2 * i;
                 const double y = -0.9 + 0.6 * j;
-                f << x << ',' << y << ',' << genes[k % 4] << ",cell" << cell << '\n';
+                rows << x << ',' << y << ',' << genes[k % 4] << ',' << label << '\n';
+                labels.push_back(label);
                 if (dups && (i == 3 || i == 7) && j == 1) {
-                    std::ostringstream d;
-                    d << x << ',' << y << ',' << genes[(k + 1) % 4] << ",cell"
-                      << cell << '\n';
-                    dup_rows.push_back(d.str());
+                    dup_rows << x << ',' << y << ',' << genes[(k + 1) % 4] << ',' << label << '\n';
+                    dup_labels.push_back(label);
                 }
-                ++k;
             }
         }
     }
-    for (const auto& row : dup_rows) f << row;
-
-    const std::string p = tmp.file(name);
-    std::ofstream out(p);
-    out << f.str();
-    return p;
-}
-
-// Prior label per molecule in input order (the FASTA-like fixture above).
-std::vector<std::string> prior_labels(bool dups) {
-    std::vector<std::string> labels;
-    for (int cell = 1; cell <= 2; ++cell) {
-        for (int i = 0; i < 10; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                labels.push_back("cell" + std::to_string(cell));
-            }
-        }
-    }
-    if (dups) labels.push_back("cell1"), labels.push_back("cell1");
-    if (dups) labels.push_back("cell2"), labels.push_back("cell2");
+    std::ofstream(path) << "x,y,gene,cell_id\n" << rows.str() << dup_rows.str();
+    labels.insert(labels.end(), dup_labels.begin(), dup_labels.end());
     return labels;
 }
 
@@ -102,9 +70,9 @@ std::vector<std::string> read_cell_column(const std::string& path) {
     return cells;
 }
 
-void expect_invariant_holds(const TempDir& tmp, const std::string& csv,
-                            bool dups) {
-    const std::vector<std::string> labels = prior_labels(dups);
+void expect_invariant_holds(const TempDir& tmp, bool dups) {
+    const std::string csv = tmp.file("mols.csv");
+    const std::vector<std::string> labels = write_overlapping_prior_csv(csv, dups);
 
     // The invariant must hold at any thread count, and the result must not
     // depend on it (chunk-keyed E-step RNG streams plus the deterministic
@@ -152,22 +120,14 @@ void expect_invariant_holds(const TempDir& tmp, const std::string& csv,
     EXPECT_EQ(cells_per_label.size(), static_cast<std::size_t>(2));
 }
 
-#endif  // !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
-
 }  // namespace
 
-#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
-
 TEST(Bug117PriorConsistency, ConfidenceOneKeepsOverlappingPriorCellsTogether) {
-    TempDir tmp("bug117_prior");
-    const std::string csv = make_overlapping_prior_csv(tmp, "mols.csv", /*dups=*/false);
-    expect_invariant_holds(tmp, csv, /*dups=*/false);
+    expect_invariant_holds(TempDir("bug117_prior"), /*dups=*/false);
 }
 
 TEST(Bug117PriorConsistency, ConfidenceOneKeepsDuplicatedMoleculesTogether) {
-    TempDir tmp("bug117_prior_dup");
-    const std::string csv = make_overlapping_prior_csv(tmp, "mols.csv", /*dups=*/true);
-    expect_invariant_holds(tmp, csv, /*dups=*/true);
+    expect_invariant_holds(TempDir("bug117_prior_dup"), /*dups=*/true);
 }
 
 #else
