@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-SRC_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CONFIGURE_ARGS=""
 [[ $# -gt 0 ]] && CONFIGURE_ARGS="$(printf ' %q' "$@")"
 
@@ -33,11 +33,8 @@ WITH_COVERAGE=OFF
 NATIVE=OFF
 CC_OVERRIDE="${CC:-}"
 CXX_OVERRIDE="${CXX:-}"
-# Did CC/CXX come from the environment (as opposed to --cc/--cxx)?
-CC_FROM_ENV=0
-CXX_FROM_ENV=0
-[[ -n "$CC_OVERRIDE" ]] && CC_FROM_ENV=1
-[[ -n "$CXX_OVERRIDE" ]] && CXX_FROM_ENV=1
+CC_FROM_ENV="${CC:+1}"     # non-empty while CC/CXX come from the environment,
+CXX_FROM_ENV="${CXX:+1}"   # not from --cc/--cxx
 DO_BUILD=0
 DO_INSTALL=0
 DO_TEST=0
@@ -66,6 +63,7 @@ warn() { printf '%swarning:%s %s\n' "$C_Y$C_B" "$C_0" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$C_R$C_B" "$C_0" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s' "$PWD/$1" ;; esac; }
+cache_var() { sed -n "s/^$1:[A-Z]*=//p" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; }
 
 usage() {
     cat <<EOF
@@ -149,8 +147,8 @@ while [[ $# -gt 0 ]]; do
         --native)            NATIVE=ON ;;
         --compile-commands)  COMPILE_COMMANDS=ON ;;
         --coverage)          WITH_COVERAGE=ON; WITH_TESTS=ON ;;
-        --cc=*)              CC_OVERRIDE="${arg#*=}"; CC_FROM_ENV=0 ;;
-        --cxx=*)             CXX_OVERRIDE="${arg#*=}"; CXX_FROM_ENV=0 ;;
+        --cc=*)              CC_OVERRIDE="${arg#*=}"; CC_FROM_ENV= ;;
+        --cxx=*)             CXX_OVERRIDE="${arg#*=}"; CXX_FROM_ENV= ;;
         --generator=*)       GENERATOR="${arg#*=}" ;;
         --clean)             DO_CLEAN=1 ;;
         --build)             DO_BUILD=1 ;;
@@ -347,20 +345,17 @@ esac
 
 # Resolve bare compiler names (e.g. CXX=g++) to full paths, so they compare
 # equal to what CMake records in CMakeCache.txt and do not force a cache reset.
-if [[ -n "$CC_OVERRIDE" && "$CC_OVERRIDE" != /* ]]; then
-    CC_OVERRIDE="$(command -v "$CC_OVERRIDE" 2>/dev/null || printf '%s' "$CC_OVERRIDE")"
-fi
-if [[ -n "$CXX_OVERRIDE" && "$CXX_OVERRIDE" != /* ]]; then
-    CXX_OVERRIDE="$(command -v "$CXX_OVERRIDE" 2>/dev/null || printf '%s' "$CXX_OVERRIDE")"
-fi
+full_path() { case "$1" in ''|/*) printf '%s' "$1" ;; *) command -v "$1" 2>/dev/null || printf '%s' "$1" ;; esac; }
+CC_OVERRIDE="$(full_path "$CC_OVERRIDE")"
+CXX_OVERRIDE="$(full_path "$CXX_OVERRIDE")"
 
 # In conda mode an exported CC/CXX would silently replace the env's toolchain
 # and can produce GLIBCXX mismatches against the prebuilt conda libraries.
 if [[ "$DEPS_MODE" == conda ]]; then
-    if [[ "$CC_FROM_ENV" == 1 && -n "$CC_OVERRIDE" && -n "$TC_CC" && "$CC_OVERRIDE" != "$TC_CC" ]]; then
+    if [[ -n "$CC_FROM_ENV" && -n "$TC_CC" && "$CC_OVERRIDE" != "$TC_CC" ]]; then
         warn "CC='$CC_OVERRIDE' comes from the environment and overrides the conda toolchain compiler '$TC_CC'"
     fi
-    if [[ "$CXX_FROM_ENV" == 1 && -n "$CXX_OVERRIDE" && -n "$TC_CXX" && "$CXX_OVERRIDE" != "$TC_CXX" ]]; then
+    if [[ -n "$CXX_FROM_ENV" && -n "$TC_CXX" && "$CXX_OVERRIDE" != "$TC_CXX" ]]; then
         warn "CXX='$CXX_OVERRIDE' comes from the environment and overrides the conda toolchain compiler '$TC_CXX'"
     fi
 fi
@@ -395,36 +390,26 @@ CXX_FLAGS="${CXXFLAGS:-}"
 CMAKE_ARGS+=("-DCMAKE_CXX_FLAGS=$CXX_FLAGS")
 CMAKE_ARGS+=("${EXTRA_CMAKE_ARGS[@]+"${EXTRA_CMAKE_ARGS[@]}"}")
 
-# --clean runs before configuring, but only on something that looks like a
-# build directory: never the source dir, $HOME, / or an ancestor of the source.
-if [[ "$DO_CLEAN" == 1 ]]; then
-    # Compare physical paths so symlinks and '..' cannot sneak past the checks.
-    clean_dir="$(CDPATH= cd -- "$BUILD_DIR" 2>/dev/null && pwd -P || printf '%s' "${BUILD_DIR%/}")"
-    [[ -n "$clean_dir" ]] || clean_dir=/
-    src_real="$(CDPATH= cd -- "$SRC_DIR" && pwd -P)"
-    home_real="$(CDPATH= cd -- "${HOME:-/}" 2>/dev/null && pwd -P || true)"
-    if [[ "$clean_dir" == / || "$clean_dir" == "$src_real" || ( -n "$home_real" && "$clean_dir" == "$home_real" ) ]]; then
-        die "--clean refuses to remove '$BUILD_DIR' (the source dir, \$HOME or /)"
-    fi
-    case "$src_real" in
-        "$clean_dir"/*) die "--clean refuses to remove '$BUILD_DIR': it contains the source dir $SRC_DIR" ;;
+# --clean runs before configuring and only removes a CMake build dir or an empty
+# dir, never the source dir, one of its ancestors (e.g. /) or $HOME. Physical
+# paths, so that symlinks and '..' cannot sneak past the checks.
+if [[ "$DO_CLEAN" == 1 && -e "$BUILD_DIR" ]]; then
+    real_dir() { CDPATH='' cd -- "$1" 2>/dev/null && pwd -P; }
+    clean_dir="$(real_dir "$BUILD_DIR")" || die "--clean: '$BUILD_DIR' is not a directory"
+    case "$(real_dir "$SRC_DIR")/" in
+        "${clean_dir%/}/"*) die "--clean refuses to remove '$BUILD_DIR': it is or contains the source dir $SRC_DIR" ;;
     esac
-    if [[ -e "$BUILD_DIR" ]]; then
-        if [[ ! -d "$BUILD_DIR" ]]; then
-            die "--clean: '$BUILD_DIR' is not a directory"
-        fi
-        if [[ ! -f "$BUILD_DIR/CMakeCache.txt" && -n "$(ls -A "$BUILD_DIR" 2>/dev/null)" ]]; then
-            die "--clean: '$BUILD_DIR' has no CMakeCache.txt and is not empty; refusing to delete it"
-        fi
-        info "Removing $BUILD_DIR"
-        rm -rf "$BUILD_DIR"
-    fi
+    [[ "$clean_dir" != "$(real_dir "${HOME:-/}")" ]] || die "--clean refuses to remove '$BUILD_DIR' (\$HOME)"
+    [[ -f "$BUILD_DIR/CMakeCache.txt" || -z "$(ls -A "$BUILD_DIR")" ]] \
+        || die "--clean: '$BUILD_DIR' has no CMakeCache.txt and is not empty; refusing to delete it"
+    info "Removing $BUILD_DIR"
+    rm -rf "$BUILD_DIR"
 fi
 
 # A cached generator/compiler/deps mode cannot be changed in place; start fresh.
 if [[ "$DO_CLEAN" == 0 && -f "$BUILD_DIR/CMakeCache.txt" ]]; then
-    cached_gen="$(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt")"
-    cached_cxx="$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$BUILD_DIR/CMakeCache.txt")"
+    cached_gen="$(cache_var CMAKE_GENERATOR)"
+    cached_cxx="$(cache_var CMAKE_CXX_COMPILER)"
     cached_deps=""
     [[ -f "$BUILD_DIR/.baysor-deps" ]] && cached_deps="$(cat "$BUILD_DIR/.baysor-deps")"
     if [[ "$cached_gen" != "$GENERATOR" || "$cached_deps" != "$DEPS_MODE" ||
@@ -441,16 +426,13 @@ info "Configuring in $BUILD_DIR"
 printf '    cmake -S %q -B %q' "$SRC_DIR" "$BUILD_DIR"; printf ' %q' "${CMAKE_ARGS[@]}"; echo
 cmake -S "$SRC_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
 
-mkdir -p "$BUILD_DIR"
 # Stamp the deps mode this cache was configured for (used to detect changes).
 printf '%s\n' "$DEPS_MODE" > "$BUILD_DIR/.baysor-deps"
 {
     echo "# Generated by configure.sh on $(date -u '+%Y-%m-%d %H:%M UTC'). Source this file"
     echo "# to reproduce the configure-time environment."
     echo "# Invocation: ./configure.sh${CONFIGURE_ARGS}"
-    if [[ ${#ENV_EXPORTS[@]} -gt 0 ]]; then
-        printf '%s\n' "${ENV_EXPORTS[@]}"
-    fi
+    [[ ${#ENV_EXPORTS[@]} -eq 0 ]] || printf '%s\n' "${ENV_EXPORTS[@]}"
     printf 'export BAYSOR_BUILD_DIR=%q\n' "$BUILD_DIR"
     printf 'export BAYSOR_PREFIX=%q\n' "$PREFIX"
 } > "$BUILD_DIR/baysor-env.sh"
@@ -481,7 +463,7 @@ fi
 # ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
-summary_cxx="$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | head -n1 || true)"
+summary_cxx="$(cache_var CMAKE_CXX_COMPILER)"
 cat <<EOF
 
 ${C_B}Baysor configured${C_0}
