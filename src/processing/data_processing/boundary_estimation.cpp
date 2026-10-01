@@ -380,12 +380,12 @@ PolygonCollection build_polygons_for_cells(
 
     auto knn = knn_parallel(pos2d, pos2d, 2, true);
     double mean_nn_dist = 1.0;
-    if (!knn.distances.empty()) {
+    if (knn.n > 0) {
         double sum = 0.0;
         int count = 0;
-        for (const auto& d : knn.distances) {
-            if (d.size() >= 2) {
-                sum += d[1];
+        for (int i = 0; i < knn.n; ++i) {
+            if (knn.k >= 2) {
+                sum += knn.dist_row(i)[1];
                 ++count;
             }
         }

@@ -260,16 +260,80 @@ TEST(Cov3Data_Utils, KnnParallelReturnsEmptyOnEmptyInputs) {
     auto r1 = baysor::knn_parallel(empty_tree, queries, 3, true);
     EXPECT_TRUE(r1.indices.empty());
     EXPECT_TRUE(r1.distances.empty());
+    EXPECT_EQ(r1.n, 0);
+    EXPECT_EQ(r1.k, 0);
 
     Eigen::MatrixXd tree(2, 3);
     tree.setZero();
     Eigen::MatrixXd empty_query(2, 0);
     auto r2 = baysor::knn_parallel(tree, empty_query, 2, true);
     EXPECT_TRUE(r2.indices.empty());
+    EXPECT_EQ(r2.n, 0);
 
     // k <= 0 is rejected as well.
     auto r3 = baysor::knn_parallel(tree, queries, 0, true);
     EXPECT_TRUE(r3.indices.empty());
+    EXPECT_EQ(r3.n, 0);
+}
+
+TEST(Cov3Data_Utils, KnnParallelFlatRowsMatchNestedLayout) {
+    // The flat result must behave like the former [n][k] vector-of-vectors:
+    // contiguous, non-overlapping rows of exactly k entries each.
+    Eigen::MatrixXd pts(2, 20);
+    for (int i = 0; i < 20; ++i) {
+        pts.col(i) << static_cast<double>(i % 5), static_cast<double>(i / 5);
+    }
+    auto result = baysor::knn_parallel(pts, pts, 4, true);
+    ASSERT_EQ(result.n, 20);
+    ASSERT_EQ(result.k, 4);
+    ASSERT_EQ(result.indices.size(), 80u);
+    ASSERT_EQ(result.distances.size(), 80u);
+    for (int i = 0; i < 20; ++i) {
+        EXPECT_EQ(result.idx_row(i), result.indices.data() + static_cast<size_t>(i) * 4);
+        EXPECT_EQ(result.dist_row(i), result.distances.data() + static_cast<size_t>(i) * 4);
+    }
+    // k is clamped to the number of tree points.
+    auto clamped = baysor::knn_parallel(pts, pts, 50, true);
+    EXPECT_EQ(clamped.k, 20);
+    EXPECT_EQ(clamped.indices.size(), 400u);
+}
+
+TEST(Cov3Data_Utils, KnnKthDistancesMatchesFullKnnResult) {
+    // Deterministic pseudo-random points with duplicated columns (distance
+    // ties): the streamed kth-distance result must be bitwise equal to the
+    // row of the full knn_parallel result for every k/kth combination.
+    Eigen::MatrixXd pts(2, 300);
+    std::uint64_t s = 987654321;
+    auto next = [&s]() {
+        s = s * 6364136223846793005ULL + 1442655040888963407ULL;
+        return static_cast<double>((s >> 16) & 0xFFFFFF) / 16777216.0;
+    };
+    for (int i = 0; i < 300; ++i) {
+        double v = next() * 50.0;
+        pts.col(i) << v, next() * 50.0;
+    }
+    for (int dup = 0; dup < 30; ++dup) {
+        pts.col(dup * 10) = pts.col(dup * 10 + 1);  // exact duplicate pair
+    }
+
+    for (int k : {1, 2, 7, 40, 300, 400}) {
+        auto full = baysor::knn_parallel(pts, pts, k, /*sorted=*/true);
+        const int k_eff = std::min(k, 300);
+        for (int kth : {0, 1, k_eff / 2, k_eff - 1, k_eff, 2 * k_eff}) {
+            auto streamed = baysor::knn_kth_distances(pts, k, kth);
+            ASSERT_EQ(static_cast<int>(streamed.size()), 300) << "k=" << k;
+            const int kth_eff = std::min(std::max(kth, 0), k_eff - 1);
+            for (int i = 0; i < 300; ++i) {
+                ASSERT_EQ(streamed[i], full.dist_row(i)[kth_eff])
+                    << "k=" << k << " kth=" << kth << " i=" << i;
+            }
+        }
+    }
+
+    // Degenerate inputs mirror knn_parallel's empty result.
+    Eigen::MatrixXd no_points(2, 0);
+    EXPECT_TRUE(baysor::knn_kth_distances(no_points, 3, 1).empty());
+    EXPECT_TRUE(baysor::knn_kth_distances(pts, 0, 0).empty());
 }
 
 // ============================================================================
@@ -1134,4 +1198,132 @@ TEST(Cov3Data_Neighborhood, AutoDistanceFloorMatchesExplicitFloor) {
         /*normalize_by_dist=*/true, /*normalize=*/true, 1000.0,
         /*log_transform=*/false);
     EXPECT_GT((auto_floor - huge_floor).norm(), 0.0f);
+}
+
+// ============================================================================
+// Molecule-graph reuse: build the triangulation once and reuse it for the
+// segmentation graph (REPORT.md 6.4 built it twice per run).
+// ============================================================================
+
+namespace {
+
+// Regular grid, no duplicate coordinates: direct and reused builds must agree
+// bit-for-bit (with duplicates the two normalized point sets differ by
+// design — see the RNG-parity test below).
+baysor::MoleculeData make_reuse_grid() {
+    baysor::MoleculeData data;
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            data.x.push_back(static_cast<double>(i));
+            data.y.push_back(static_cast<double>(j));
+            data.gene.push_back(1 + ((i + j) % 2));
+        }
+    }
+    data.gene_names = {"A", "B"};
+    return data;
+}
+
+// Same grid plus exact coordinate duplicates, so normalize_points consumes a
+// non-empty jitter batch of the global RNG.
+baysor::MoleculeData make_reuse_duplicates() {
+    baysor::MoleculeData data = make_reuse_grid();
+    for (int d = 0; d < 4; ++d) {
+        data.x.push_back(data.x[d]);
+        data.y.push_back(data.y[d]);
+        data.gene.push_back(1);
+    }
+    return data;
+}
+
+void expect_same_csr(const baysor::AdjList& a, const baysor::AdjList& b) {
+    EXPECT_EQ(a.indptr, b.indptr);
+    EXPECT_EQ(a.indices, b.indices);
+    ASSERT_EQ(a.weights.size(), b.weights.size());
+    for (size_t i = 0; i < a.weights.size(); ++i) {
+        ASSERT_EQ(a.weights[i], b.weights[i]) << "weight " << i;
+    }
+}
+
+} // namespace
+
+TEST(Cov3Data_GraphReuse, PrecomputedEdgesMatchDirectBuild) {
+    const auto data = make_reuse_grid();
+
+    const auto direct = baysor::build_molecule_graph(data, /*filter=*/true);
+    auto edges = baysor::compute_molecule_adjacency(data);
+    // No duplicate coordinates: the reuse trigger holds.
+    ASSERT_EQ(edges.normalize_rng_draws, 0);
+    const auto reused = baysor::build_molecule_graph(
+        data, /*filter=*/true, /*use_local_gene_similarities=*/false,
+        baysor::AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(edges));
+
+    ASSERT_GT(direct.nnz(), 0);
+    expect_same_csr(reused, direct);
+
+    // The unfiltered variant (the confidence step's MRF view) matches a
+    // direct unfiltered build as well.
+    const auto direct_unfiltered = baysor::build_molecule_graph(data, /*filter=*/false);
+    auto edges2 = baysor::compute_molecule_adjacency(data);
+    const auto reused_unfiltered = baysor::build_molecule_graph(
+        data, /*filter=*/false, /*use_local_gene_similarities=*/false,
+        baysor::AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(edges2));
+    ASSERT_GT(direct_unfiltered.nnz(), 0);
+    expect_same_csr(reused_unfiltered, direct_unfiltered);
+}
+
+TEST(Cov3Data_GraphReuse, PrecomputedEdgesPreserveGlobalRngStream) {
+    // With duplicate coordinates the two normalize_points() runs consume
+    // different jitter batches, so build_molecule_graph falls back to
+    // recomputing: the segmentation graph and the global RNG stream must be
+    // exactly what the historical double build produced (confidence build,
+    // then segmentation build).
+    baysor_test::GlobalRngGuard rng_guard;
+    const auto data = make_reuse_duplicates();
+    const int n = data.n_molecules();
+
+    // Direct flow: two recomputes (confidence build, then segmentation build).
+    baysor::reset_global_xoshiro_rng();
+    (void)baysor::build_molecule_graph(data, /*filter=*/false);
+    const auto direct_segmentation = baysor::build_molecule_graph(data, /*filter=*/true);
+    const double after_direct = baysor::global_xoshiro_rng().rand_float64();
+
+    // Reuse flow: one compute, then the segmentation build from its edges —
+    // which detects the duplicates and recomputes instead of reusing.
+    baysor::reset_global_xoshiro_rng();
+    auto edges = baysor::compute_molecule_adjacency(data);
+    ASSERT_GT(edges.normalize_rng_draws, 0);  // the duplicates really jittered
+    (void)baysor::build_molecule_graph_from_edges(edges, n);
+    const auto reused_segmentation = baysor::build_molecule_graph(
+        data, /*filter=*/true, /*use_local_gene_similarities=*/false,
+        baysor::AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(edges));
+    const double after_reuse = baysor::global_xoshiro_rng().rand_float64();
+
+    ASSERT_EQ(after_direct, after_reuse);
+    // The fallback graph is the historical one, bit for bit.
+    ASSERT_GT(direct_segmentation.nnz(), 0);
+    expect_same_csr(reused_segmentation, direct_segmentation);
+}
+
+TEST(Cov3Data_GraphReuse, ConfidenceDetailsAdjacencyBuildsSameGraph) {
+    // The confidence step returns the edges it computed; the segmentation
+    // graph built from them equals the graph built directly.
+    const auto data = make_reuse_grid();
+
+    auto details = baysor::estimate_confidence_details(data, /*nn_id=*/3);
+    const auto fresh_edges = baysor::compute_molecule_adjacency(data);
+    ASSERT_EQ(details.adjacency.edge_src, fresh_edges.edge_src);
+    ASSERT_EQ(details.adjacency.edge_dst, fresh_edges.edge_dst);
+    ASSERT_EQ(details.adjacency.edge_dists, fresh_edges.edge_dists);
+    EXPECT_EQ(details.adjacency.normalize_rng_draws, fresh_edges.normalize_rng_draws);
+
+    const auto direct = baysor::build_molecule_graph(data, /*filter=*/true);
+    const auto reused = baysor::build_molecule_graph(
+        data, /*filter=*/true, /*use_local_gene_similarities=*/false,
+        baysor::AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(details.adjacency));
+    ASSERT_GT(direct.nnz(), 0);
+    expect_same_csr(reused, direct);
 }

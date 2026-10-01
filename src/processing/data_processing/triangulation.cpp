@@ -18,9 +18,10 @@ namespace baysor {
 // normalize_points
 // ============================================================================
 
-Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points) {
+Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points, int* rng_draws) {
     const int dims = static_cast<int>(points.rows());
     const int n = static_cast<int>(points.cols());
+    if (rng_draws != nullptr) *rng_draws = 0;
     if (n == 0) return points;
 
     Eigen::MatrixXd out = points;
@@ -42,13 +43,16 @@ Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points) {
     if (n > 1) {
         auto knn = knn_parallel(out, out, 2, true);
         auto& rng = global_xoshiro_rng();
+        int draws = 0;
         for (int i = 0; i < n; ++i) {
-            if (knn.distances[i].size() >= 2 && knn.distances[i][1] < 1e-6) {
+            if (knn.k >= 2 && knn.dist_row(i)[1] < 1e-6) {
                 for (int d = 0; d < dims; ++d) {
                     out(d, i) += (rng.rand_float64() - 0.5) * 2e-5;
+                    ++draws;
                 }
             }
         }
+        if (rng_draws != nullptr) *rng_draws = draws;
     }
 
     return out;
@@ -103,6 +107,7 @@ void filter_long_edges(AdjacencyResult& result, double n_mads) {
             filtered.edge_dists.push_back(result.edge_dists[i]);
         }
     }
+    filtered.normalize_rng_draws = result.normalize_rng_draws;
     result = std::move(filtered);
 }
 
@@ -130,7 +135,8 @@ AdjacencyResult adjacency_list(
         type = AdjacencyType::Knn; // 3D only supports KNN
     }
 
-    Eigen::MatrixXd norm_pts = normalize_points(points);
+    int normalize_draws = 0;
+    Eigen::MatrixXd norm_pts = normalize_points(points, &normalize_draws);
 
     std::vector<std::pair<int, int>> tri_edges;
     std::vector<std::pair<int, int>> knn_edges;
@@ -175,8 +181,9 @@ AdjacencyResult adjacency_list(
         auto knn = knn_parallel(norm_pts, norm_pts, k_adj + 1, true);
         for (int i = 0; i < n; ++i) {
             // Skip self (index 0 is the point itself when sorted)
-            for (int j = 1; j < static_cast<int>(knn.indices[i].size()); ++j) {
-                int nb = knn.indices[i][j];
+            const int* row = knn.idx_row(i);
+            for (int j = 1; j < knn.k; ++j) {
+                int nb = row[j];
                 int lo = std::min(i, nb);
                 int hi = std::max(i, nb);
                 knn_edges.push_back({lo, hi});
@@ -219,6 +226,7 @@ AdjacencyResult adjacency_list(
     seen.reserve(ordered_edges.size() * 2 + 1);
 
     AdjacencyResult result;
+    result.normalize_rng_draws = normalize_draws;
     result.edge_src.reserve(ordered_edges.size());
     result.edge_dst.reserve(ordered_edges.size());
     result.edge_dists.reserve(ordered_edges.size());

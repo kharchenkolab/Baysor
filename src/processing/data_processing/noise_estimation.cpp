@@ -279,17 +279,16 @@ ConfidenceEstimationDetails estimate_confidence_details(
 
     Eigen::MatrixXd pos = data.position_matrix();
 
-    // KNN: find nn_id+1 neighbors (first is self), extract distance to the (nn_id+1)-th
-    auto knn = knn_parallel(pos, pos, nn_id + 1, true);
+    // KNN distance to the (nn_id+1)-th neighbor (first is self): computed
+    // block-wise, only the kth distance per molecule is kept (the full n x k
+    // result peaked at 3 GiB on whole slides, REPORT.md 6.4).
+    std::vector<double> mean_dists = knn_kth_distances(pos, nn_id + 1, nn_id);
 
-    std::vector<double> mean_dists(n);
-    for (int i = 0; i < n; ++i) {
-        int k = static_cast<int>(knn.distances[i].size());
-        mean_dists[i] = (k > nn_id) ? knn.distances[i][nn_id] : knn.distances[i].back();
-    }
-
-    // Build molecule graph (unfiltered, matching Julia)
-    auto adj_list = build_molecule_graph(data, /*filter=*/false);
+    // Build molecule graph (unfiltered, matching Julia). The edges are kept in
+    // the result so the segmentation graph can be built from the same
+    // triangulation instead of recomputing it.
+    auto adj_edges = compute_molecule_adjacency(data);
+    auto adj_list = build_molecule_graph_from_edges(adj_edges, n);
 
     // Compute min_confidence from prior segmentation if available
     std::vector<double> min_conf;
@@ -314,6 +313,7 @@ ConfidenceEstimationDetails estimate_confidence_details(
     details.edge_lengths = std::move(mean_dists);
     details.fit_result = std::move(result);
     details.nn_id = nn_id;
+    details.adjacency = std::move(adj_edges);
     return details;
 }
 

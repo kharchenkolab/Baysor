@@ -62,6 +62,24 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Changed
 
+- The molecule graph's CGAL Delaunay triangulation is built once per `run`
+  instead of twice (REPORT.md 6.4, ISSUES.md 8b): the confidence estimate
+  computes the unfiltered edges once (`compute_molecule_adjacency`, returned
+  as `ConfidenceEstimationDetails::adjacency`) and the segmentation graph is
+  built from them with `build_molecule_graph(..., precomputed_edges)`, which
+  applies the long-edge filter (n_mads=2.0) and produces a bit-identical
+  graph to the former rebuild. Slides with exact duplicate coordinates —
+  where the two historical `normalize_points()` runs drew different jitter
+  batches — fall back to recomputing (`AdjacencyResult::normalize_rng_draws`
+  records the batch size), so 1-thread output is bitwise identical in all
+  cases. The confidence kNN keeps its results in
+  flat `n x k` arrays with an in-place tied-run index sort instead of
+  per-molecule vectors and a full `stable_sort` (review-bmm.md C7-1/C7-2),
+  and the confidence estimate (and `preview`) read the kth-neighbour distance
+  from a block-wise streaming query (`knn_kth_distances`) instead of holding
+  the whole-slide `n x k` result (3.0 GiB and 223 M allocations at 10.6M
+  molecules).
+
 - The benchmark suite moved out of this repository into
   [baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks)
   (former `benchmarks/`, history preserved); `docs/development.md` links to

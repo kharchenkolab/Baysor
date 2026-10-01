@@ -95,19 +95,13 @@ static std::vector<int> select_ids_uniformly(
 // build_molecule_graph
 // ============================================================================
 
-AdjList build_molecule_graph(
-    const MoleculeData& data,
-    bool filter,
-    bool use_local_gene_similarities,
-    AdjacencyType type,
-    int composition_neighborhood,
-    int n_gene_pcs
-) {
+AdjacencyResult compute_molecule_adjacency(const MoleculeData& data) {
     Eigen::MatrixXd pos = data.position_matrix();
-    int n = static_cast<int>(pos.cols());
+    return adjacency_list(pos, /*filter=*/false, /*n_mads=*/2.0, /*k_adj=*/5,
+                          AdjacencyType::Auto);
+}
 
-    auto adj_result = adjacency_list(pos, filter, /*n_mads=*/2.0, /*k_adj=*/5, type);
-
+AdjList build_molecule_graph_from_edges(const AdjacencyResult& adj_result, int n) {
     int n_edges = static_cast<int>(adj_result.edge_src.size());
     if (n_edges == 0) {
         AdjList adj; // GCOVR_EXCL_LINE: dead GCC block; construction counted on the following line
@@ -129,6 +123,40 @@ AdjList build_molecule_graph(
         n_edges,
         n
     );
+}
+
+AdjList build_molecule_graph(
+    const MoleculeData& data,
+    bool filter,
+    bool use_local_gene_similarities,
+    AdjacencyType type,
+    int composition_neighborhood,
+    int n_gene_pcs,
+    std::optional<AdjacencyResult> precomputed_edges
+) {
+    if (precomputed_edges.has_value() && precomputed_edges->normalize_rng_draws == 0) {
+        // Reuse the precomputed edges: with no duplicate coordinates,
+        // normalize_points() consumes no RNG and is a pure function of the
+        // positions, so a recomputation would produce these exact edges (and
+        // consume no draws either) — the reused graph is bit-identical to a
+        // rebuild and the global RNG stream is untouched.
+        //
+        // With duplicate coordinates (normalize_rng_draws > 0) the two
+        // normalize_points() runs draw different jitter batches, so the
+        // recomputed triangulation may differ; fall through and recompute
+        // exactly as if no edges had been passed — that consumes the second
+        // jitter batch here just like the historical double build did.
+        if (filter) {
+            filter_long_edges(*precomputed_edges, /*n_mads=*/2.0);
+        }
+        return build_molecule_graph_from_edges(*precomputed_edges, data.n_molecules());
+    }
+
+    Eigen::MatrixXd pos = data.position_matrix();
+    int n = static_cast<int>(pos.cols());
+
+    auto adj_result = adjacency_list(pos, filter, /*n_mads=*/2.0, /*k_adj=*/5, type);
+    return build_molecule_graph_from_edges(adj_result, n);
 }
 
 // ============================================================================
@@ -170,7 +198,7 @@ InitialParams<N> cell_centers_uniformly(
     auto knn = knn_parallel(center_mat, pos_data, 1, /*sorted=*/false);
     std::vector<int> cluster_labels(n_mols);
     for (int i = 0; i < n_mols; ++i) {
-        cluster_labels[i] = knn.indices[i][0] + 1;  // 1-based
+        cluster_labels[i] = knn.idx_row(i)[0] + 1;  // 1-based
     }
 
     // Build covariances
