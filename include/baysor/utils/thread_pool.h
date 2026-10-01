@@ -201,7 +201,11 @@ public:
     template <class Fn>
     void single(Fn&& fn) {
         if (is_master() && !cancelled()) {
-            run_guarded([&fn]() { fn(); });
+            try {
+                fn();
+            } catch (...) {
+                record_error();
+            }
         }
         barrier();
     }
@@ -215,9 +219,9 @@ public:
     ParallelRegion& operator=(const ParallelRegion&) = delete;
 
 private:
-    void run_guarded(const std::function<void()>& fn);
+    void record_error();
 
-    detail::RegionShared* shared_;  // nullptr: serial region
+    detail::RegionShared* shared_;
     int worker_;
     int n_workers_;
     std::int64_t chunk_base_ = 0;   // this participant's view of the shared chunk counter

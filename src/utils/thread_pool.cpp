@@ -356,44 +356,31 @@ void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chun
 // ---------------------------------------------------------------------------
 
 bool ParallelRegion::cancelled() const {
-    return shared_ != nullptr && shared_->error.failed.load(std::memory_order_acquire);
+    return shared_->error.failed.load(std::memory_order_acquire);
 }
 
-void ParallelRegion::run_guarded(const std::function<void()>& fn) {
-    if (shared_ == nullptr) {
-        fn();  // serial region: exceptions propagate directly
-        return;
-    }
-    try {
-        fn();
-    } catch (...) {
-        shared_->error.record();
-    }
+void ParallelRegion::record_error() {
+    shared_->error.record();
 }
 
 void ParallelRegion::for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
                                 Scheduling sched,
                                 const std::function<void(std::int64_t, std::int64_t, int)>& fn) {
-    chunk = chunk_length(end - begin, chunk, sched, n_workers_);
-
-    if (shared_ == nullptr) {
-        // Serial region: the run_parallel_chunks serial path.
-        for (std::int64_t b = begin; b < end; b += chunk) {
-            fn(b, std::min(end, b + chunk), worker_);
-        }
-        return;
-    }
-
     if (end > begin) {
+        chunk = chunk_length(end - begin, chunk, sched, n_workers_);
         const std::int64_t n_chunks = (end - begin + chunk - 1) / chunk;
-        for (;;) {
-            const std::int64_t idx =
-                shared_->next_chunk.fetch_add(1, std::memory_order_relaxed) - chunk_base_;
-            if (idx >= n_chunks) break;
+        // Every participant claims chunks until it overshoots, which it does
+        // exactly once, so the shared counter advances by n_chunks + n_workers
+        // per loop on every participant's view.
+        for (std::int64_t c;
+             (c = shared_->next_chunk.fetch_add(1, std::memory_order_relaxed) - chunk_base_) < n_chunks;) {
             if (cancelled()) continue;  // keep claiming so the counter stays consistent
-            const std::int64_t b = begin + idx * chunk;
-            const std::int64_t e = std::min(end, b + chunk);
-            run_guarded([&]() { fn(b, e, worker_); });
+            const std::int64_t b = begin + c * chunk;
+            try {
+                fn(b, std::min(end, b + chunk), worker_);
+            } catch (...) {
+                record_error();
+            }
         }
         chunk_base_ += n_chunks + n_workers_;
     }
@@ -401,7 +388,6 @@ void ParallelRegion::for_chunks(std::int64_t begin, std::int64_t end, std::int64
 }
 
 void ParallelRegion::barrier() {
-    if (shared_ == nullptr) return;
     detail::RegionShared& sh = *shared_;
 
     const std::uint32_t gen = sh.generation.load(std::memory_order_acquire);
@@ -443,28 +429,28 @@ void ParallelRegion::barrier() {
 }
 
 void parallel_region(const std::function<void(ParallelRegion&)>& body) {
-    if (runs_serially()) {
-        ParallelRegion region(nullptr, 0, 1);
-        body(region);
-        return;
-    }
-
-    std::lock_guard<std::mutex> lk(g_run_mutex);
-    ThreadPool& p = pool();
     detail::RegionShared shared;
-    shared.n_workers = p.n_workers();
-    // No barrier spinning with more workers than physical cores: spinning
-    // waiters take CPU time from the preempted participants they wait for.
-    static const int physical_cores = default_thread_count();
-    shared.spin_us = spin_budget(shared.n_workers > physical_cores ? 0 : kSpinUs);
-    p.run(shared.n_workers - 1, [&](int worker) {
+    const auto participate = [&](int worker) {
         ParallelRegion region(&shared, worker, shared.n_workers);
         try {
             body(region);
         } catch (...) {
             shared.error.record();
         }
-    });
+    };
+
+    if (runs_serially()) {
+        participate(0);
+    } else {
+        std::lock_guard<std::mutex> lk(g_run_mutex);
+        ThreadPool& p = pool();
+        shared.n_workers = p.n_workers();
+        // No barrier spinning with more workers than physical cores: spinning
+        // waiters take CPU time from the preempted participants they wait for.
+        static const int physical_cores = default_thread_count();
+        shared.spin_us = spin_budget(shared.n_workers > physical_cores ? 0 : kSpinUs);
+        p.run(shared.n_workers - 1, participate);
+    }
     shared.error.rethrow();
 }
 
