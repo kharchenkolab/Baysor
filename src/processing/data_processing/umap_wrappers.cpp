@@ -27,9 +27,11 @@ namespace {
 // umappp::initialize(neighbors, ndim_out, embedding, opt) followed by
 // Status::run(), with the layout optimised by Baysor's serial optimiser
 // (umap_optimize.h) instead of umappp's. The set-up steps are umappp's own, in
-// umappp's order, so the result is the same as umappp's serial path (which
-// is what Baysor used). `embedding` holds the initial coordinates
-// (InitializeMethod::NONE); opt.initialize and opt.num_threads are not used.
+// umappp's order. The optimiser differs from umappp's serial one only in
+// computing pow(d2, b) with fast_pow (relative error < 1e-13), which is much
+// cheaper than glibc's pow and changes the NCV colours by mean dE ~3.
+// `embedding` holds the initial coordinates (InitializeMethod::NONE);
+// opt.initialize and opt.num_threads are not used.
 void umap_optimize(
     knncolle::NeighborList<int, double> neighbors,
     int ndim_out,
@@ -49,7 +51,7 @@ void umap_optimize(
     auto epochs = umappp::internal::similarities_to_epochs<int, double>(
         neighbors, opt.num_epochs, opt.negative_sample_rate);
     std::mt19937_64 engine(opt.seed);
-    umap_detail::optimize_layout_dispatch(
+    umap_detail::optimize_layout_dispatch</*FastPow_=*/true>(
         static_cast<std::size_t>(ndim_out), embedding, epochs,
         opt.a, opt.b, opt.repulsion_strength, opt.learning_rate,
         engine, epochs.total_epochs);
