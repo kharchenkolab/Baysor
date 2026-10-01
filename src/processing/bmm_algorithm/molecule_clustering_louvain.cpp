@@ -445,21 +445,18 @@ AdjList build_knn_similarity_graph(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    // Collect edges into per-chunk buffers and merge them in chunk order, so
-    // the edge list (and thus the neighbor order inside the adjacency list) is
-    // the canonical (src, neighbor) order — independent of scheduling and of
-    // the thread count, and identical to the serial order.
-    constexpr std::int64_t chunk = 256;  // former schedule(dynamic, 256)
-    const std::int64_t n_chunks = (n + chunk - 1) / chunk;
-    std::vector<std::vector<int>> src_by_chunk(n_chunks), dst_by_chunk(n_chunks);
-    std::vector<std::vector<double>> wt_by_chunk(n_chunks);
+    // Edges collected per chunk and merged in chunk order: the canonical
+    // (src, neighbor) order at any thread count.
+    constexpr std::int64_t chunk = 256;
+    struct Edges {
+        std::vector<int> src, dst;
+        std::vector<double> wt;
+    };
+    std::vector<Edges> edges_by_chunk((n + chunk - 1) / chunk);
 
     run_parallel_chunks(0, n, chunk, Scheduling::Dynamic,
         [&](std::int64_t b, std::int64_t e, int) {
-        auto& src = src_by_chunk[b / chunk];
-        auto& dst = dst_by_chunk[b / chunk];
-        auto& wt  = wt_by_chunk[b / chunk];
-
+        auto& [src, dst, wt] = edges_by_chunk[b / chunk];
         std::vector<int> nn_indices(query_k);
         std::vector<double> nn_distances(query_k);
 
@@ -488,20 +485,13 @@ AdjList build_knn_similarity_graph(
         }
     });
 
-    size_t total_edges = 0;
-    for (const auto& v : src_by_chunk) total_edges += v.size();
-    std::vector<int> src;
-    std::vector<int> dst;
-    std::vector<double> wt;
-    src.reserve(total_edges);
-    dst.reserve(total_edges);
-    wt.reserve(total_edges);
-
-    for (std::int64_t c = 0; c < n_chunks; ++c) {
-        src.insert(src.end(), src_by_chunk[c].begin(), src_by_chunk[c].end());
-        dst.insert(dst.end(), dst_by_chunk[c].begin(), dst_by_chunk[c].end());
-        wt.insert(wt.end(), wt_by_chunk[c].begin(), wt_by_chunk[c].end());
+    Edges all;
+    for (const auto& c : edges_by_chunk) {
+        all.src.insert(all.src.end(), c.src.begin(), c.src.end());
+        all.dst.insert(all.dst.end(), c.dst.begin(), c.dst.end());
+        all.wt.insert(all.wt.end(), c.wt.begin(), c.wt.end());
     }
+    const auto& [src, dst, wt] = all;
 
     if (src.empty()) return out;
     return AdjList::from_edge_list(src.data(), dst.data(), wt.data(),
@@ -528,31 +518,17 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    struct TransferScratch {
-        std::vector<int> nn_indices;
-        std::vector<double> nn_distances;
-        std::vector<double> query;
-        std::vector<double> label_w;
+    run_parallel_chunks(0, n, 512, Scheduling::Dynamic,
+        [&](std::int64_t b, std::int64_t e, int) {
+        std::vector<int> nn_indices(query_k);
+        std::vector<double> nn_distances(query_k);
+        std::vector<double> query(static_cast<size_t>(mol_vecs.rows()), 0.0);
+        std::vector<double> label_w(static_cast<size_t>(max_label + 1), 0.0);
         std::vector<int> touched;
-    };
-    std::vector<TransferScratch> scratch_buf(thread_pool_size());
-    for (auto& s : scratch_buf) {
-        s.nn_indices.resize(query_k);
-        s.nn_distances.resize(query_k);
-        s.query.assign(static_cast<size_t>(mol_vecs.rows()), 0.0);
-        s.label_w.assign(static_cast<size_t>(max_label + 1), 0.0);
-        s.touched.reserve(query_k);
-    }
+        touched.reserve(query_k);
 
-    parallel_for(0, n, 512, [&](int i, int ti) {
-        auto& scratch = scratch_buf[ti];
-        auto& nn_indices = scratch.nn_indices;
-        auto& nn_distances = scratch.nn_distances;
-        auto& query = scratch.query;
-        auto& label_w = scratch.label_w;
-        auto& touched = scratch.touched;
-
-        double norm_sq = 0.0;
+        for (int i = static_cast<int>(b); i < static_cast<int>(e); ++i) {
+            double norm_sq = 0.0;
             for (int d = 0; d < mol_vecs.rows(); ++d) {
                 const double v = static_cast<double>(mol_vecs(d, i));
                 query[static_cast<size_t>(d)] = v;
@@ -587,6 +563,7 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
             }
             out[i] = best_label;
             for (int label : touched) label_w[label] = 0.0;
+        }
     });
 
     return out;
@@ -600,16 +577,9 @@ static PartitionAttempt run_graph_partition_once(
 ) {
     PartitionAttempt out;
     out.resolution = resolution;
-    switch (method) {
-        case ClusterMethod::Louvain:
-            out.membership = run_louvain_zero_based(graph, resolution, max_passes, &out.move_fracs);
-            break;
-        case ClusterMethod::Leiden:
-            out.membership = run_leiden_zero_based(graph, resolution, max_passes, &out.move_fracs);
-            break;
-        default: // GCOVR_EXCL_LINE: unreachable — graph_partition_to_target rejects methods other than Louvain/Leiden before calling this helper
-            break; // GCOVR_EXCL_LINE: unreachable — defensive default for the exhaustive ClusterMethod switch
-    }
+    out.membership = method == ClusterMethod::Leiden
+        ? run_leiden_zero_based(graph, resolution, max_passes, &out.move_fracs)
+        : run_louvain_zero_based(graph, resolution, max_passes, &out.move_fracs);
     out.membership = reindex_membership_zero_based(out.membership, &out.n_clusters);
     return out;
 }
@@ -830,13 +800,10 @@ static ClusteringResult cluster_molecules_graph_backend(
     for (int id : cluster_anchor_ids) {
         cluster_anchor_confidence.push_back(confidence.empty() ? 1.0 : confidence[id]);
     }
+    const char* label = method == ClusterMethod::Leiden ? "Leiden" : "Louvain";
     if (verbose) {
-        spdlog::info( // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following lines; this line only runs when an exception unwinds through the statement
-            "{} clustering: using {} basis anchors (spatial_k={}, graph_k={}).",
-            method == ClusterMethod::Leiden ? "Leiden" : "Louvain",
-            cluster_anchor_ids.size(),
-            effective_spatial_k, graph_k
-        );
+        spdlog::info("{} clustering: using {} basis anchors (spatial_k={}, graph_k={}).", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact
+                     label, cluster_anchor_ids.size(), effective_spatial_k, graph_k);
     }
     const auto& anchor_vecs = ncv_model->basis.basis_vecs;
     AdjList weighted_graph = build_knn_similarity_graph(anchor_vecs, cluster_anchor_confidence, graph_k);
@@ -852,7 +819,6 @@ static ClusteringResult cluster_molecules_graph_backend(
     );
 
     if (verbose) {
-        const char* label = method == ClusterMethod::Leiden ? "Leiden" : "Louvain";
         if (graph_stats.n_components > 1 || graph_stats.n_isolated > 0) {
             spdlog::warn(
                 "{} anchor graph has {} connected components ({} isolated anchors; largest component={}).",
