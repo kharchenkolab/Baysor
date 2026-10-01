@@ -8,6 +8,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <cmath>
 #include <numeric>
@@ -54,7 +55,9 @@ void maximize(BmmData<N>& data, bool freeze_composition, bool freeze_position) {
         data.cluster_per_cell.assign(nc, 0);
     }
 
-    parallel_for(0, nc, 32, [&](int ci) {
+    // Small chunks of a few cells: per-cell work varies widely with the cell
+    // size, and preemption on shared hosts is the dominant source of imbalance.
+    parallel_for(0, nc, 2, [&](int ci) {
         const auto& mol_ids = ids_by_comp[ci];
         int np = static_cast<int>(mol_ids.size());
 
@@ -168,10 +171,10 @@ static std::uint64_t estep_stream_seed(std::uint64_t rng_salt, std::int64_t chun
     return mix(mix(rng_salt + 1) ^ mix(static_cast<std::uint64_t>(chunk_idx) + 0x100000001B3ULL));
 }
 
-// Fixed chunk size of the E-step loop (formerly `schedule(dynamic, 1024)`).
-// Chunk boundaries must not depend on the thread count: the multi-threaded
-// RNG stream is keyed by chunk index.
-static constexpr std::int64_t kEstepChunkSize = 1024;
+// Fixed chunk size of the E-step loop. Chunk boundaries must not depend on
+// the thread count: the multi-threaded RNG stream is keyed by chunk index.
+// 256 balances per-chunk RNG setup against load balance on shared hosts.
+static constexpr std::int64_t kEstepChunkSize = 256;
 
 template<int N>
 EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint64_t rng_salt) {
@@ -206,9 +209,9 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
 
     run_parallel_chunks(0, n, kEstepChunkSize, Scheduling::Dynamic,
         [&](std::int64_t chunk_begin, std::int64_t chunk_end, int ti) {
-        Xoshiro256pp chunk_rng;
+        std::optional<Xoshiro256pp> chunk_rng;
         if (!single_threaded) {
-            chunk_rng.seed(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
+            chunk_rng.emplace(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
         }
         auto& comp_weights = component_weights_buf[ti];
         auto& adj_classes  = adj_classes_buf[ti];
@@ -340,7 +343,7 @@ EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic, std::uint
                 new_assignment[mol_id] =
                     fsample(adj_classes.data(), denses.data(), n_total, global_xoshiro_rng());
             } else {
-                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, chunk_rng);
+                new_assignment[mol_id] = fsample(adj_classes.data(), denses.data(), n_total, *chunk_rng);
             }
         }
         }
@@ -419,7 +422,7 @@ void split_cells_by_connected_components(BmmData<N>& data) {
     };
     std::vector<SplitScratch> scratch_buf(thread_pool_size());
 
-    parallel_for(0, nc, 64, [&](int cell_id_0, int ti) {
+    parallel_for(0, nc, 1, [&](int cell_id_0, int ti) {
         auto& scratch = scratch_buf[ti];
         auto& mol_pos = scratch.mol_pos;
         auto& label = scratch.label;

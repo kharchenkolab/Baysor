@@ -56,7 +56,7 @@ static int resolve_thread_count(int requested) {
             }
         }
     }
-    return static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+    return default_thread_count();
 }
 
 // ============================================================================
@@ -845,7 +845,7 @@ int main(int argc, char* argv[]) {
         "Label for unassigned cells in prior segmentation (default: 0)");
     run->add_option("-t,--threads", opts.threads,
         "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of CPU cores)");
+        "then the number of physical CPU cores)");
 
     // ---- preview ----
     auto* preview = app.add_subcommand("preview", "Plot a dataset preview");
@@ -890,7 +890,7 @@ int main(int argc, char* argv[]) {
         "Ignore z-column in the data");
     preview->add_option("-t,--threads", opts.threads,
         "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of CPU cores)");
+        "then the number of physical CPU cores)");
 
     // ---- segfree ----
     auto* segfree = app.add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
@@ -938,7 +938,7 @@ int main(int argc, char* argv[]) {
         "Ignore z-column in the data");
     segfree->add_option("-t,--threads", opts.threads,
         "Number of worker threads (default: BAYSOR_NUM_THREADS, then OMP_NUM_THREADS, "
-        "then the number of CPU cores)");
+        "then the number of physical CPU cores)");
 
     // ---- Parse ----
     CLI11_PARSE(app, argc, argv);

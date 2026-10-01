@@ -2,10 +2,16 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <sstream>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -29,6 +35,35 @@ namespace {
 thread_local int t_worker_index = 0;
 thread_local int t_region_depth = 0;
 
+inline void cpu_relax() {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield" ::: "memory");
+#else
+    std::this_thread::yield();
+#endif
+}
+
+// Spin-then-block budget for job hand-off and region completion (microseconds).
+// A short bounded spin captures the latency win of busy waiting at light load
+// without its catastrophic behaviour on a loaded host (where OpenMP-style
+// spinning measured slower than a single thread). 0 disables spinning.
+int spin_budget_us() {
+    static const int budget = [] {
+        if (const char* env = std::getenv("BAYSOR_POOL_SPIN_US")) {
+            try {
+                int v = std::stoi(env);
+                if (v >= 0) return v;
+            } catch (...) {
+                // fall through to the default
+            }
+        }
+        return 20;
+    }();
+    return budget;
+}
+
 // ---------------------------------------------------------------------------
 // Job: one parallel region
 // ---------------------------------------------------------------------------
@@ -50,8 +85,6 @@ struct Job {
     std::mutex error_mutex;
 
     std::atomic<bool> done{false};
-    std::mutex done_mutex;
-    std::condition_variable done_cv;
 
     void record_error() {
         std::lock_guard<std::mutex> lk(error_mutex);
@@ -74,32 +107,49 @@ public:
         int bg = n_workers_ - 1;
         workers_.reserve(static_cast<size_t>(bg));
         for (int i = 0; i < bg; ++i) {
-            workers_.emplace_back([this, i] { worker_loop(i); });
+            workers_.push_back(std::make_unique<Worker>());
+        }
+        for (int i = 0; i < bg; ++i) {
+            workers_[static_cast<size_t>(i)]->thread =
+                std::thread([this, i] { worker_loop(*workers_[static_cast<size_t>(i)], i); });
         }
     }
 
     ~ThreadPool() {
-        {
-            std::lock_guard<std::mutex> lk(mutex_);
-            stop_ = true;
-            ++seq_;
-        }
-        cv_.notify_all();
         for (auto& w : workers_) {
-            if (w.joinable()) w.join();
+            {
+                std::lock_guard<std::mutex> lk(w->mutex);
+                w->stop.store(true, std::memory_order_release);
+                ++w->gen;
+            }
+            w->cv.notify_one();
+        }
+        for (auto& w : workers_) {
+            if (w->thread.joinable()) w->thread.join();
         }
     }
 
     int n_workers() const { return n_workers_; }
 
     void run(Job& job) {
-        job.active.store(n_workers_, std::memory_order_relaxed);
-        {
-            std::lock_guard<std::mutex> lk(mutex_);
-            job_ = &job;
-            ++seq_;
+        // Wake only as many workers as there is work for (the submitting
+        // thread participates as the last worker), and only the workers we
+        // wake take part in the job: no thundering herd, and tiny regions run
+        // on the calling thread alone.
+        int bg = n_workers_ - 1;
+        int wake = static_cast<int>(std::min<std::int64_t>(bg, job.n_chunks));
+        job.active.store(wake + 1, std::memory_order_relaxed);
+
+        for (int k = 0; k < wake; ++k) {
+            Worker& w = *workers_[static_cast<size_t>((wake_cursor_ + k) % workers_.size())];
+            std::lock_guard<std::mutex> lk(w.mutex);
+            w.job = &job;
+            ++w.gen;
+            w.cv.notify_one();
         }
-        cv_.notify_all();
+        if (!workers_.empty()) {
+            wake_cursor_ = (wake_cursor_ + wake) % static_cast<int>(workers_.size());
+        }
 
         // The submitting thread participates as the last worker. Remember its
         // previous worker index so nested serial runs inside this region use
@@ -110,36 +160,68 @@ public:
         process_job(job, my_id);
         t_worker_index = old_id;
 
-        finish_participation(job);
+        finish_participation(*this, job);
         wait_for_done(job);
         if (job.error) {
             std::rethrow_exception(job.error);
         }
     }
 
-    static void finish_participation(Job& job) {
+private:
+    struct Worker {
+        std::thread thread;
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::atomic<std::uint64_t> gen{0};  // bumped when a job (or stop) is assigned
+        Job* job = nullptr;
+        std::atomic<bool> stop{false};
+    };
+
+    static void finish_participation(ThreadPool& pool, Job& job) {
         if (job.active.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            // The completion signal lives on the pool, not on the job: the
+            // submitter may destroy its stack-local Job as soon as `done` is
+            // set, so the last participant must not touch the job afterwards
+            // (not even its mutex/condition_variable).
             job.done.store(true, std::memory_order_release);
-            std::lock_guard<std::mutex> lk(job.done_mutex);
-            job.done_cv.notify_one();
+            std::lock_guard<std::mutex> lk(pool.done_mutex_);
+            pool.done_cv_.notify_one();
         }
     }
 
-private:
-    void worker_loop(int id) {
+    void worker_loop(Worker& w, int id) {
         t_worker_index = id;
+        // Start from 0, never from the current generation: the pool may be
+        // destroyed (or a job assigned) before this thread first runs, and
+        // initializing `seen` from the already-bumped generation would lose
+        // the stop/job signal.
         std::uint64_t seen = 0;
         for (;;) {
-            Job* job = nullptr;
-            {
-                std::unique_lock<std::mutex> lk(mutex_);
-                cv_.wait(lk, [&] { return stop_ || seq_ != seen; });
-                if (stop_) return;
-                seen = seq_;
-                job = job_;
+            std::uint64_t g = w.gen.load(std::memory_order_acquire);
+            if (g != seen) {
+                seen = g;
+                if (w.stop.load(std::memory_order_acquire)) return;
+                Job* job = w.job;
+                process_job(*job, id);
+                finish_participation(*this, *job);
+                continue;
             }
-            process_job(*job, id);
-            finish_participation(*job);
+
+            // Spin-then-block on the hand-off: a short bounded spin absorbs
+            // the wake-up latency of back-to-back regions, then block for
+            // real so an idle pool burns no CPU.
+            if (spin_budget_us() > 0) {
+                const auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::microseconds(spin_budget_us());
+                while (w.gen.load(std::memory_order_acquire) == seen) {
+                    if (std::chrono::steady_clock::now() >= deadline) break;
+                    cpu_relax();
+                }
+                if (w.gen.load(std::memory_order_acquire) != seen) continue;
+            }
+
+            std::unique_lock<std::mutex> lk(w.mutex);
+            w.cv.wait(lk, [&] { return w.gen.load(std::memory_order_acquire) != seen; });
         }
     }
 
@@ -170,23 +252,26 @@ private:
     }
 
     void wait_for_done(Job& job) {
-        // Short bounded spin first (helps small regions), then block on the CV
-        // so an idle pool burns no CPU.
-        for (int s = 0; s < 4096; ++s) {
-            if (job.done.load(std::memory_order_acquire)) return;
-            std::atomic_signal_fence(std::memory_order_seq_cst);
+        // Spin-then-block on the region barrier: short regions complete within
+        // the spin budget and skip the futex round-trip entirely.
+        if (spin_budget_us() > 0) {
+            const auto deadline = std::chrono::steady_clock::now() +
+                std::chrono::microseconds(spin_budget_us());
+            while (!job.done.load(std::memory_order_acquire)) {
+                if (std::chrono::steady_clock::now() >= deadline) break;
+                cpu_relax();
+            }
         }
-        std::unique_lock<std::mutex> lk(job.done_mutex);
-        job.done_cv.wait(lk, [&] { return job.done.load(std::memory_order_acquire); });
+        if (job.done.load(std::memory_order_acquire)) return;
+        std::unique_lock<std::mutex> lk(done_mutex_);
+        done_cv_.wait(lk, [&] { return job.done.load(std::memory_order_acquire); });
     }
 
     int n_workers_;
-    std::vector<std::thread> workers_;
-    std::mutex mutex_;
-    std::condition_variable cv_;
-    Job* job_ = nullptr;
-    std::uint64_t seq_ = 0;
-    bool stop_ = false;
+    std::vector<std::unique_ptr<Worker>> workers_;
+    int wake_cursor_ = 0;
+    std::mutex done_mutex_;
+    std::condition_variable done_cv_;
 };
 
 std::unique_ptr<ThreadPool>& pool_storage() {
@@ -207,7 +292,7 @@ int& configured_threads() {
 int effective_threads() {
     int n = configured_threads();
     if (n <= 0) {
-        n = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+        n = default_thread_count();
     }
     return std::max(1, n);
 }
@@ -263,6 +348,34 @@ void configure_eigen_gemm(int n_threads) {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+int default_thread_count() {
+#ifdef __linux__
+    // Prefer physical cores over logical CPUs (hardware_concurrency counts
+    // SMT siblings; on this workload Hyper-Threading adds little and doubles
+    // wake-up costs). Count unique (package, core) pairs in sysfs.
+    try {
+        std::set<std::string> cores;
+        for (int cpu = 0; cpu < 4096; ++cpu) {
+            std::ifstream pkg("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
+                              "/topology/physical_package_id");
+            if (!pkg.is_open()) break;
+            std::string package_id, core_id;
+            std::getline(pkg, package_id);
+            std::ifstream core("/sys/devices/system/cpu/cpu" + std::to_string(cpu) +
+                               "/topology/core_id");
+            if (!std::getline(core, core_id)) break;
+            cores.insert(package_id + ":" + core_id);
+        }
+        if (!cores.empty()) {
+            return static_cast<int>(cores.size());
+        }
+    } catch (...) {
+        // fall through to hardware_concurrency
+    }
+#endif
+    return static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
+}
 
 int thread_pool_size() {
     return effective_threads();

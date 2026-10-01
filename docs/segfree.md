@@ -44,7 +44,7 @@ baysor segfree -c configs/xenium.toml -k 100 -o ncvs.loom data/transcripts.parqu
 | `-k, --k-neighbors` | auto | Number of neighbors per NCV. Auto = `max(n_genes / 10, min_molecules_per_cell, 3)` |
 | `-o, --output` | `ncvs.loom` | Output Loom file |
 | `--force-2d` | off | Ignore the z column in the data |
-| `-t, --threads` | auto | Number of worker threads; auto = `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS`, then CPU cores |
+| `-t, --threads` | auto | Number of worker threads; auto = `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS`, then physical CPU cores |
 
 ## Output
 

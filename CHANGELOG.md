@@ -52,7 +52,12 @@ All notable changes to the C++ line of Baysor are documented here.
   `--threads 1` results are bitwise identical to the previous OpenMP build.
   Where the Eigen version supports it (>= 3.4.90), Eigen's own GEMM thread
   pool replaces OpenMP for dense matrix products; older Eigen versions run
-  dense products single-threaded.
+  dense products single-threaded. The pool wakes workers individually (no
+  thundering herd), uses a short bounded spin-then-block on job hand-off and
+  region completion (tunable via `BAYSOR_POOL_SPIN_US`, 0 disables), and the
+  default thread count is the number of physical CPU cores. The umappp/kNN
+  neighborhood-graph construction for NCV color embedding now also runs on
+  the pool.
 
 - `README.md` now points to the documentation site and release binaries.
 - The documentation pages were rewritten against the C++ implementation

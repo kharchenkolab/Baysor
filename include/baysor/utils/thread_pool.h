@@ -44,6 +44,11 @@ enum class Scheduling {
 /// pool was configured with, even on nested/serial paths.
 int thread_pool_size();
 
+/// Default thread count when nothing is configured explicitly: the number of
+/// physical CPU cores when detectable (SMT siblings add little here and double
+/// wake-up costs), otherwise std::thread::hardware_concurrency().
+int default_thread_count();
+
 /// (Re)configure the global pool to `n_threads` workers. Values <= 1 configure
 /// the serial fallback (no worker threads). Must be called before parallel
 /// work; in practice once at start-up from `--threads`.

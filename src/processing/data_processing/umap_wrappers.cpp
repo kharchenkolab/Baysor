@@ -44,20 +44,23 @@ Eigen::MatrixXd umap_embed(
     knncolle::SimpleMatrix<int, int, double> mat(ndim_in, nobs, data.data());
     auto index = knncolle::VptreeBuilder<knncolle::EuclideanDistance>().build_unique(mat);
 
-    // Build neighbor list using Searcher API (knncolle v2.3+).
+    // Build neighbor list using Searcher API (knncolle v2.3+). The per-query
+    // search is embarrassingly parallel: results are disjoint per index, so
+    // the loop runs on the Baysor pool with one searcher per chunk.
     knncolle::NeighborList<int, double> neighbors(nobs);
-    {
+    run_parallel_chunks(0, nobs, 256, Scheduling::Dynamic,
+        [&](std::int64_t b, std::int64_t e, int) {
         auto searcher = index->initialize();
         std::vector<int>    out_idx;
         std::vector<double> out_dist;
-        for (int i = 0; i < nobs; ++i) {
+        for (int i = static_cast<int>(b); i < static_cast<int>(e); ++i) {
             searcher->search(i, n_neighbors, &out_idx, &out_dist);
             neighbors[i].reserve(out_idx.size());
             for (size_t j = 0; j < out_idx.size(); ++j) {
                 neighbors[i].push_back({out_idx[j], out_dist[j]});
             }
         }
-    }
+    });
 
     // Random initialization of the embedding (RANDOM init to avoid irlba).
     std::vector<double> emb_buf(ndim_out * nobs);
@@ -73,11 +76,11 @@ Eigen::MatrixXd umap_embed(
     opt.spread     = spread;
     opt.min_dist   = min_dist;
     opt.num_threads = thread_pool_size();
-    // The parallel layout optimizer spawns its own busy-wait threads and its
-    // result depends on their scheduling; keep the serial optimizer (as
-    // before, where num_threads defaulted to 1) so embeddings stay bitwise
-    // reproducible. The KNN search and similarity smoothing above run on the
-    // Baysor pool through UMAPPP_CUSTOM_PARALLEL.
+    // Keep umappp's parallel layout optimizer off: its output is deterministic
+    // and matches the serial optimizer at any thread count, but it spawns its
+    // own busy-wait worker threads, which measured 1.8x slower at 4 threads
+    // and 4.3x slower at 8 on a busy host. The KNN search and similarity
+    // smoothing run on the Baysor pool through UMAPPP_CUSTOM_PARALLEL.
     opt.parallel_optimization = false;
     opt.initialize = umappp::InitializeMethod::NONE; // use our pre-filled buffer
 

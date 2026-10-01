@@ -154,7 +154,7 @@ baysor run --threads 8 ...
 Without `--threads`, the count is taken from the `BAYSOR_NUM_THREADS`
 environment variable, then from `OMP_NUM_THREADS` (kept for backward
 compatibility with existing scripts), and finally defaults to the number of
-CPU cores:
+physical CPU cores:
 
 ```bash
 BAYSOR_NUM_THREADS=20 baysor run ...
