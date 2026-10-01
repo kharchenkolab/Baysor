@@ -64,8 +64,7 @@ static void expect_noise_probabilities(
         pdf2[i] = normal_pdf(edge_lengths[i], mu2, sigma2);
     });
 
-    // Component sizes. Deterministic reduction: sequential accumulation with
-    // 1 thread, fixed buckets merged in index order otherwise.
+    // Component sizes (deterministic, see parallel_reduce)
     double n1 = parallel_reduce<double>(0, n, /*bucket_size=*/1024, 0.0,
         [&](std::int64_t b, std::int64_t e, double& acc) {
             for (std::int64_t i = b; i < e; ++i) acc += assignment_probs(i, 0);
