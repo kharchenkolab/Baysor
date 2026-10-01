@@ -467,7 +467,8 @@ int cmd_run(
         if (output_style == OutputStyle::Parquet || polygon_format != "none" || plot) {
             auto pos = data.position_matrix();
             auto polys = boundary_polygons_auto(
-                pos, bm_data.assignment, /*estimate_per_z=*/(N == 3), &cell_names, /*verbose=*/true);
+                pos, bm_data.assignment, /*estimate_per_z=*/(N == 3), &cell_names, /*verbose=*/true,
+                opts.plotting.max_z_slices);
             poly_joined = std::move(polys.first);
             poly_stack = std::move(polys.second);
             have_polygons = true;

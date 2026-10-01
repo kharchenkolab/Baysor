@@ -74,6 +74,10 @@ struct PlottingOptions {
     int gene_composition_neighborhood = 0;
     int min_pixels_per_cell = 15;
     int max_plot_size = 3000;
+    /// Maximum number of z-layers used for 3D polygon estimation. When a
+    /// volumetric dataset has more distinct z values, the z-stack is binned
+    /// into this many layers. Must be >= 1.
+    int max_z_slices = 10;
     std::string ncv_method = "ri";
 };
 

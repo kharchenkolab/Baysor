@@ -132,6 +132,9 @@ void fill_and_check_plotting_options(PlottingOptions& opts, int min_molecules_pe
     if (opts.ncv_method != "ri" && opts.ncv_method != "dense" && opts.ncv_method != "sparse") {
         throw std::runtime_error("ncv_method must be one of 'ri', 'dense', or 'sparse'");
     }
+    if (opts.max_z_slices < 1) {
+        throw std::runtime_error("max_z_slices must be at least 1");
+    }
 }
 
 // ============================================================================
@@ -397,6 +400,7 @@ RunOptions load_config(const std::string& path) {
         opts.plotting.min_pixels_per_cell = toml_get_int(sec, "min_pixels_per_cell",
                                                           opts.plotting.min_pixels_per_cell);
         opts.plotting.max_plot_size = toml_get_int(sec, "max_plot_size", opts.plotting.max_plot_size);
+        opts.plotting.max_z_slices = toml_get_int(sec, "max_z_slices", opts.plotting.max_z_slices);
         opts.plotting.ncv_method = toml_get(sec, "ncv_method", opts.plotting.ncv_method);
     }
 
@@ -469,6 +473,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     f << "gene_composition_neigborhood = " << opts.plotting.gene_composition_neighborhood << "\n";
     f << "min_pixels_per_cell = " << opts.plotting.min_pixels_per_cell << "\n";
     f << "max_plot_size = " << opts.plotting.max_plot_size << "\n";
+    f << "max_z_slices = " << opts.plotting.max_z_slices << "\n";
     f << "ncv_method = \"" << opts.plotting.ncv_method << "\"\n";
 }
 

@@ -36,4 +36,5 @@ estimate_scale_from_prior = true # Estimate scale from prior segmentation when p
 gene_composition_neigborhood = 0 # Spatial neighborhood size used to compute NCVs. Larger values emphasize broader patterns. Default: max(n_genes / 10, min-molecules-per-cell, 3)
 min_pixels_per_cell = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
 max_plot_size = 3000 # Maximum size of the molecule plot in pixels. Default: 3000
+max_z_slices = 10 # Number of z-layers used to estimate 3D polygons. When there are more distinct z values, the z-stack is binned into this many layers. Default: 10
 ncv_method = "ri" # Method for gene vector estimation for NCV dimensionality reduction. Possible values: `ri` (Random Indexing), `dense` (PCA), `sparse` (Sparse PCA). Default: ri

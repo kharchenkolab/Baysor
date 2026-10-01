@@ -580,7 +580,8 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
     const std::vector<int>& assignment,
     bool estimate_per_z,
     const std::vector<std::string>* cell_names,
-    bool verbose
+    bool verbose,
+    int max_z_slices
 ) {
     if (verbose) {
         spdlog::info("Estimating boundary polygons...");
@@ -594,7 +595,6 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
         return {poly_joined, poly_stack};
     }
 
-    constexpr int max_z_slices = 10;
     std::vector<double> z_vals(pos_data.cols());
     for (int i = 0; i < pos_data.cols(); ++i) z_vals[i] = pos_data(2, i);
 
@@ -607,7 +607,8 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     if (static_cast<int>(unique_z.size()) > max_z_slices) {
         if (verbose) {
-            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on line 609
+            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation. " // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on the guard line above
+                         "Increase the [plotting] max_z_slices option to use more layers.",
                          unique_z.size(), max_z_slices);
         }
         const double clip = std::min(1.0 / max_z_slices / 4.0, 0.025);
