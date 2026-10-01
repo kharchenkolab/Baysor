@@ -395,9 +395,9 @@ struct NumericArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return std::stod(scalar->ToString());
             }
-            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
+            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable
         }
-        return std::numeric_limits<double>::quiet_NaN(); // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
+        return std::numeric_limits<double>::quiet_NaN(); // GCOVR_EXCL_LINE: unreachable
     }
 
     int64_t int64_value(int64_t i) const {
@@ -417,9 +417,9 @@ struct NumericArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return static_cast<int64_t>(std::stoll(scalar->ToString()));
             }
-            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
+            case Kind::Invalid: break; // GCOVR_EXCL_LINE: unreachable
         }
-        return -1; // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
+        return -1; // GCOVR_EXCL_LINE: unreachable
     }
 };
 
@@ -439,10 +439,7 @@ struct StringArrayView {
     const arrow::StringArray* string_arr = nullptr;
     const arrow::LargeStringArray* large_string_arr = nullptr;
     NumericArrayView dict_indices;
-    // Dictionary value arrays are read through BinaryArray/LargeBinaryArray
-    // (the common base of the string variants) so that binary-typed
-    // dictionary values are decoded as text via GetView instead of being
-    // hex-dumped by Scalar::ToString().
+    // Binary base classes, so binary dictionary values decode as text too.
     const arrow::BinaryArray* dict_string_arr = nullptr;
     const arrow::LargeBinaryArray* dict_large_string_arr = nullptr;
     std::shared_ptr<arrow::Array> fallback;
@@ -480,17 +477,15 @@ struct StringArrayView {
                 auto dict = dict_arr->dictionary();
                 if (dict->type_id() == arrow::Type::STRING ||
                         dict->type_id() == arrow::Type::BINARY) {
-                    // Binary dictionary values share the string layout; GetView
-                    // decodes the raw bytes back to text ("bin1", ...).
                     dict_string_arr = static_cast<const arrow::BinaryArray*>(dict.get());
                     kind = Kind::DictionaryString;
-                } else if (dict->type_id() == arrow::Type::LARGE_STRING || // GCOVR_EXCL_LINE: unreachable with the linked Arrow: the parquet reader only yields string- or binary-valued dictionaries (large_* value types are converted on read), so this condition is never evaluated
-                        dict->type_id() == arrow::Type::LARGE_BINARY) { // GCOVR_EXCL_LINE: unreachable with the linked Arrow: the parquet reader only yields string- or binary-valued dictionaries (large_* value types are converted on read), so this condition is never evaluated
-                    dict_large_string_arr = static_cast<const arrow::LargeBinaryArray*>(dict.get()); // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
-                    kind = Kind::DictionaryLargeString; // GCOVR_EXCL_LINE: unreachable, the parquet reader always materialises byte-array dictionary values as plain string
+                } else if (dict->type_id() == arrow::Type::LARGE_STRING || // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+                        dict->type_id() == arrow::Type::LARGE_BINARY) { // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+                    dict_large_string_arr = static_cast<const arrow::LargeBinaryArray*>(dict.get()); // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+                    kind = Kind::DictionaryLargeString; // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
                 } else {
-                    fallback = arr; // GCOVR_EXCL_LINE: unreachable with the linked Arrow: every dictionary value type surviving a parquet round-trip is string or binary, both handled above
-                    kind = Kind::Fallback; // GCOVR_EXCL_LINE: unreachable with the linked Arrow: every dictionary value type surviving a parquet round-trip is string or binary, both handled above
+                    fallback = arr; // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+                    kind = Kind::Fallback; // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
                 }
                 break;
             }
@@ -512,8 +507,8 @@ struct StringArrayView {
 
     int64_t dictionary_length() const {
         if (kind == Kind::DictionaryString && dict_string_arr) return dict_string_arr->length();
-        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) return dict_large_string_arr->length(); // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
-        return 0; // GCOVR_EXCL_LINE: unreachable, callers only invoke this while is_dictionary() is true
+        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) return dict_large_string_arr->length(); // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+        return 0; // GCOVR_EXCL_LINE: unreachable
     }
 
     int64_t dictionary_index(int64_t i) const {
@@ -526,10 +521,10 @@ struct StringArrayView {
         if (kind == Kind::DictionaryString && dict_string_arr) {
             return std::string(dict_string_arr->GetView(dict_idx));
         }
-        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) { // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
-            return std::string(dict_large_string_arr->GetView(dict_idx)); // GCOVR_EXCL_LINE: unreachable, reader never produces large-string dictionaries
+        if (kind == Kind::DictionaryLargeString && dict_large_string_arr) { // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
+            return std::string(dict_large_string_arr->GetView(dict_idx)); // GCOVR_EXCL_LINE: parquet yields only string/binary dictionaries
         }
-        return ""; // GCOVR_EXCL_LINE: unreachable, dictionary_value() is only called for dictionary kinds whose value array is always set
+        return ""; // GCOVR_EXCL_LINE: unreachable
     }
 
     std::string value(int64_t i) const {
@@ -546,10 +541,10 @@ struct StringArrayView {
                 auto scalar = arrow_unwrap(fallback->GetScalar(i));
                 return scalar->ToString();
             }
-            case Kind::Invalid: // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
-                break; // GCOVR_EXCL_LINE: unreachable, is_valid() rejects Kind::Invalid before the switch
+            case Kind::Invalid: // GCOVR_EXCL_LINE: unreachable
+                break; // GCOVR_EXCL_LINE: unreachable
         }
-        return ""; // GCOVR_EXCL_LINE: unreachable, only reachable via the excluded Invalid case above
+        return ""; // GCOVR_EXCL_LINE: unreachable
     }
 };
 
@@ -910,7 +905,7 @@ void filter_genes_by_pattern(MoleculeData& data, const std::vector<std::string>&
 
     // Find gene names matching any pattern
     std::unordered_set<int> excluded_genes; // 1-based
-    std::vector<std::string> excluded_names; // GCOVR_EXCL_LINE: unwind-only cleanup block, entered only on allocation failure inside this function
+    std::vector<std::string> excluded_names; // GCOVR_EXCL_LINE: gcov artifact
     for (int g = 0; g < n_genes; ++g) {
         const auto& name = data.gene_names[g];
         for (const auto& re : regexes) {

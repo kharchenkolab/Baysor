@@ -1,9 +1,6 @@
-// Coverage tests for src/reporting/{preview_report,run_report,color_utils,gene_structure}.cpp (COV-4).
-//
-// Verifies the generated HTML reports contain their key sections and plot
-// specs, exercises the scatter/confidence PNG renderers and the Vega-Lite
-// spec builders, and covers the NCV colour-embedding variants plus the
-// gene-structure analysis.
+// Tests for src/reporting/{preview_report,run_report,color_utils,gene_structure}.cpp:
+// HTML report sections, rasterizers, Vega-Lite specs, NCV colour embeddings
+// and the gene-structure analysis.
 
 #include <gtest/gtest.h>
 
@@ -35,8 +32,8 @@
 
 namespace {
 
-// Deliberately wide, flat coordinates: the report renderers default to a
-// 6000 px width, so a large x-range keeps the raster tiny and the tests fast.
+// Deliberately wide, flat coordinates: a large x-range keeps the report
+// rasters small and the tests fast.
 baysor::MoleculeData wide_data() {
     baysor::MoleculeData d;
     d.x = {0.0, 300.0, 600.0, 900.0};
@@ -71,6 +68,25 @@ baysor::AdjList chain_adj_list(int n_molecules) {
                                            static_cast<int>(src.size()), n_molecules);
 }
 
+// 3 spatially separated groups of 24 molecules, one gene per group.
+struct GeneGroups {
+    Eigen::MatrixXd pos;
+    std::vector<int> genes;
+    std::vector<double> confidence;
+};
+
+GeneGroups three_gene_groups() {
+    constexpr int per_group = 24;
+    GeneGroups d{Eigen::MatrixXd(2, 3 * per_group), {}, std::vector<double>(3 * per_group, 0.99)};
+    for (int g = 0; g < 3; ++g) {
+        for (int i = 0; i < per_group; ++i) {
+            d.pos.col(g * per_group + i) << 30.0 * g + 0.5 * i, 5.0 * (i % 6);
+            d.genes.push_back(1 + g);
+        }
+    }
+    return d;
+}
+
 Eigen::MatrixXf random_vecs(int rows, int cols, unsigned seed) {
     Eigen::MatrixXf m(rows, cols);
     std::mt19937 rng(seed);
@@ -80,64 +96,13 @@ Eigen::MatrixXf random_vecs(int rows, int cols, unsigned seed) {
     return m;
 }
 
-// Minimal base64 decoder for the "data:image/png;base64,..." URIs returned
-// by the PNG renderers.
-std::string base64_decode(const std::string& in) {
-    static const char* kAlphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string out;
-    out.reserve(in.size() * 3 / 4);
-    int val = 0;
-    int valb = -8;
-    for (unsigned char c : in) {
-        if (c == '=') break;  // padding: end of payload
-        const char* p = std::strchr(kAlphabet, static_cast<char>(c));
-        if (p == nullptr || c == '\0') break;
-        val = (val << 6) + static_cast<int>(p - kAlphabet);
-        valb += 6;
-        if (valb >= 0) {
-            out.push_back(static_cast<char>((val >> valb) & 0xFF));
-            valb -= 8;
-        }
-    }
-    return out;
-}
-
-// Verify the PNG signature of a base64 data URI and return the dimensions
-// from the IHDR chunk (big-endian); {0, 0} plus a failure on any problem.
-std::pair<uint32_t, uint32_t> png_ihdr(const std::string& data_uri) {
-    const std::string prefix = "data:image/png;base64,";
-    if (data_uri.rfind(prefix, 0) != 0) {
-        ADD_FAILURE() << "missing PNG data-URI prefix: " << data_uri.substr(0, 64);
-        return {0, 0};
-    }
-    const std::string bytes = base64_decode(data_uri.substr(prefix.size()));
-    static const uint8_t kSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    if (bytes.size() < 24 || std::memcmp(bytes.data(), kSig, sizeof(kSig)) != 0) {
-        ADD_FAILURE() << "decoded payload is not a PNG (bad signature or truncated, "
-                      << bytes.size() << " bytes)";
-        return {0, 0};
-    }
-    if (bytes.compare(12, 4, "IHDR") != 0) {
-        ADD_FAILURE() << "first PNG chunk is not IHDR";
-        return {0, 0};
-    }
-    auto be32 = [&](size_t off) {
-        return (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off])) << 24) |
-               (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 1])) << 16) |
-               (static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 2])) << 8) |
-               static_cast<uint32_t>(static_cast<uint8_t>(bytes[off + 3]));
-    };
-    return {be32(16), be32(20)};
-}
-
 } // namespace
 
 // ============================================================================
-// render_scatter_png / render_confidence_png
+// rasterize_scatter / rasterize_confidence
 // ============================================================================
 
-TEST(Cov4PreviewRender, ScatterPngWithPolygonsAndInvalidHexDigits) {
+TEST(Cov4PreviewRender, ScatterWithPolygonsAndInvalidHexDigits) {
     std::vector<double> x = {0.0, 1.0, 2.0, 3.0};
     std::vector<double> y = {0.0, 1.0, 0.0, 1.0};
     // 'G', 'z' are not hex digits -> parsed as 0 (exercises the fallback digit).
@@ -158,38 +123,30 @@ TEST(Cov4PreviewRender, ScatterPngWithPolygonsAndInvalidHexDigits) {
     degenerate.setZero();
     polygons["c3"] = degenerate;
 
-    auto png = baysor::render_scatter_png(x, y, colors, &polygons,
-                                          /*width_px=*/64);
-    ASSERT_GE(png.size(), 22u);
-    EXPECT_EQ(png.substr(0, 22), "data:image/png;base64,");
-    // Decode and check the PNG signature plus the IHDR dimensions:
     // 64 px wide, height = 64 * (yrange=1) / (xrange=3) = 21 px.
-    const auto dims = png_ihdr(png);
-    EXPECT_EQ(dims.first, 64u);
-    EXPECT_EQ(dims.second, 21u);
+    const auto raster = baysor::rasterize_scatter(x, y, colors, &polygons, /*width_px=*/64);
+    EXPECT_EQ(raster.width_px, 64);
+    EXPECT_EQ(raster.height_px, 21);
+    EXPECT_EQ(raster.pixels.size(), 64u * 21u * 3u);
 
     // Empty input renders nothing at all.
-    EXPECT_EQ(baysor::render_scatter_png({}, {}, {}), "");
+    EXPECT_TRUE(baysor::rasterize_scatter({}, {}, {}).empty());
+    EXPECT_EQ(baysor::encode_png_data_uris({baysor::ScatterRaster{}}), std::vector<std::string>{""});
 }
 
-TEST(Cov4PreviewRender, ConfidencePngCoversBothBranchesAndClamping) {
+TEST(Cov4PreviewRender, ConfidenceCoversBothBranchesAndClamping) {
     std::vector<double> x = {0.0, 1.0, 2.0, 3.0, 4.0};
     std::vector<double> y = {0.0, 1.0, 0.0, 1.0, 0.5};
     // 0.0/0.4 -> orange branch, -0.5 -> clamped low, 0.6 -> blue branch,
     // 1.5 -> clamped high.
     std::vector<double> confidence = {0.0, 0.4, -0.5, 0.6, 1.5};
 
-    auto png = baysor::render_confidence_png(x, y, confidence,
-                                             /*width_px=*/64);
-    ASSERT_GE(png.size(), 22u);
-    EXPECT_EQ(png.substr(0, 22), "data:image/png;base64,");
-    // Decode and check the PNG signature plus the IHDR dimensions:
     // 64 px wide, height = 64 * (yrange=1) / (xrange=4) = 16 px.
-    const auto dims = png_ihdr(png);
-    EXPECT_EQ(dims.first, 64u);
-    EXPECT_EQ(dims.second, 16u);
+    const auto raster = baysor::rasterize_confidence(x, y, confidence, /*width_px=*/64);
+    EXPECT_EQ(raster.width_px, 64);
+    EXPECT_EQ(raster.height_px, 16);
 
-    EXPECT_EQ(baysor::render_confidence_png({}, {}, {}), "");
+    EXPECT_TRUE(baysor::rasterize_confidence({}, {}, {}).empty());
 }
 
 // ============================================================================
@@ -348,195 +305,124 @@ TEST(Cov4PreviewHtml, EmptyMoleculeSetReportsZeroNoise) {
 
 namespace {
 
-std::string diagnostic_html(const baysor::MoleculeData& data,
-                            const std::vector<double>& edges,
-                            const baysor::NoiseFitResult& noise,
-                            const std::vector<int>& assignment,
-                            const std::vector<std::unordered_map<int, int>>& trace,
-                            const std::vector<double>& assign_conf,
-                            const baysor::ClusteringResult* clustering,
-                            const baysor::NcvReportEmbedding* ncv,
-                            const Eigen::MatrixXd& cell_stats,
-                            const std::vector<std::string>& cols,
-                            const baysor::PriorInputOptions& prior,
-                            const std::string& scale_std) {
-    return baysor::generate_run_diagnostic_html(
-        data, edges, noise, /*confidence_nn_id=*/10, assignment, trace, assign_conf,
-        clustering, ncv, cell_stats, cols, prior, /*scale=*/4.5, scale_std);
-}
+// generate_run_diagnostic_html inputs; tests override what they exercise.
+struct DiagnosticInputs {
+    baysor::MoleculeData data = wide_data();
+    std::vector<double> edges = {0.1, 1.0};
+    std::vector<int> assignment = {1, 1, 0, 2};
+    std::vector<std::unordered_map<int, int>> trace = {{{1, 2}, {2, 2}}};
+    std::vector<double> assign_conf = {1.0, 1.0, 0.0, 1.0};
+    Eigen::MatrixXd stats = (Eigen::MatrixXd(2, 3) << 1.0, 2.0, 3.0, 4.0, 5.0, 6.0).finished();
+    std::vector<std::string> cols = {"area", "density", "elongation"};
+    baysor::PriorInputOptions prior;
+    const baysor::ClusteringResult* clustering = nullptr;
+    const baysor::NcvReportEmbedding* ncv = nullptr;
+    std::string scale_std = "1.2";
+
+    std::string html() const {
+        return baysor::generate_run_diagnostic_html(
+            data, edges, noise_fit(), /*confidence_nn_id=*/10, assignment, trace, assign_conf,
+            clustering, ncv, stats, cols, prior, /*scale=*/4.5, scale_std);
+    }
+};
 
 } // namespace
 
 TEST(Cov4RunHtml, DiagnosticHtmlEscapesSpecialCharacters) {
-    auto data = wide_data();
-    auto noise = noise_fit();
-    std::vector<double> edges = {0.1, 0.12, 1.0, 1.2};
-    std::vector<int> assignment = {1, 1, 0, 2};
-    std::vector<std::unordered_map<int, int>> trace = {
-        {{1, 2}, {2, 1}},
-        {{1, 2}, {2, 2}},
-    };
-    std::vector<double> assign_conf = {1.0, 1.0, 0.0, 1.0};
-    Eigen::MatrixXd stats(2, 3);
-    stats << 1.0, 2.0, 3.0,
-             4.0, 5.0, 6.0;
-    std::vector<std::string> cols = {"area", "density", "elongation"};
-
-    baysor::PriorInputOptions prior;
-    prior.type = baysor::PriorInputType::Column;
-    prior.column_name = R"(c1&c2<c3>"c4")";
-
-    auto html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                nullptr, nullptr, stats, cols, prior,
-                                R"(s&t<d>"q")");
+    DiagnosticInputs in;
+    in.prior.type = baysor::PriorInputType::Column;
+    in.prior.column_name = R"(c1&c2<c3>"c4")";
+    in.scale_std = R"(s&t<d>"q")";
+    const auto html = in.html();
 
     EXPECT_NE(html.find("Prior type: column"), std::string::npos);
-    EXPECT_NE(html.find("Prior column: c1&amp;c2&lt;c3&gt;&quot;c4&quot;"),
-              std::string::npos);
+    EXPECT_NE(html.find("Prior column: c1&amp;c2&lt;c3&gt;&quot;c4&quot;"), std::string::npos);
     EXPECT_EQ(html.find("c1&c2<c3>"), std::string::npos);
     EXPECT_NE(html.find("scale_std=s&amp;t&lt;d&gt;&quot;q&quot;"), std::string::npos);
     EXPECT_EQ(html.find("s&t<d>"), std::string::npos);
 }
 
 TEST(Cov4RunHtml, DiagnosticHtmlPriorTypesNoneImageBoundary) {
-    auto data = wide_data();
-    auto noise = noise_fit();
-    std::vector<double> edges = {0.1, 1.0};
-    std::vector<int> assignment = {1, 1, 0, 2};
-    std::vector<std::unordered_map<int, int>> trace = {{{1, 2}, {2, 2}}};
-    std::vector<double> assign_conf = {1.0, 1.0, 0.0, 1.0};
-    Eigen::MatrixXd stats(2, 3);
-    stats << 1.0, 2.0, 3.0,
-             4.0, 5.0, 6.0;
-    std::vector<std::string> cols = {"area", "density", "elongation"};
-
-    // PriorInputType::None: no prior lines at all, empty prior_segmentation.
-    baysor::PriorInputOptions none_prior;
-    auto none_html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                     nullptr, nullptr, stats, cols, none_prior, "1.2");
+    DiagnosticInputs in;
+    // PriorInputType::None: no prior lines at all.
+    const auto none_html = in.html();
     EXPECT_NE(none_html.find("Prior type: none"), std::string::npos);
     EXPECT_EQ(none_html.find("Prior source:"), std::string::npos);
     EXPECT_EQ(none_html.find("Prior column:"), std::string::npos);
     EXPECT_EQ(none_html.find("Molecules with prior label"), std::string::npos);
 
-    // Image prior prints (escaped) source path.
-    baysor::PriorInputOptions image_prior;
-    image_prior.type = baysor::PriorInputType::Image;
-    image_prior.path = R"(/masks/m&1.tif)";
-    auto image_html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                      nullptr, nullptr, stats, cols, image_prior, "1.2");
+    // Image prior prints the (escaped) source path.
+    in.prior.type = baysor::PriorInputType::Image;
+    in.prior.path = "/masks/m&1.tif";
+    const auto image_html = in.html();
     EXPECT_NE(image_html.find("Prior type: image"), std::string::npos);
     EXPECT_NE(image_html.find("Prior source: /masks/m&amp;1.tif"), std::string::npos);
 
-    // Boundary prior.
-    baysor::PriorInputOptions boundary_prior;
-    boundary_prior.type = baysor::PriorInputType::Boundary;
-    boundary_prior.path = "boundaries.csv";
-    auto boundary_html = diagnostic_html(data, edges, noise, assignment, trace,
-                                         assign_conf, nullptr, nullptr, stats, cols,
-                                         boundary_prior, "1.2");
+    in.prior.type = baysor::PriorInputType::Boundary;
+    in.prior.path = "boundaries.csv";
+    const auto boundary_html = in.html();
     EXPECT_NE(boundary_html.find("Prior type: boundary"), std::string::npos);
     EXPECT_NE(boundary_html.find("Prior source: boundaries.csv"), std::string::npos);
 }
 
 TEST(Cov4RunHtml, DiagnosticHtmlConvergenceTraceAndClustering) {
-    auto data = wide_data();
-    auto noise = noise_fit();
-    std::vector<double> edges = {0.1, 1.0};
-    std::vector<int> assignment = {1, 1, 0, 2};
-    std::vector<double> assign_conf = {1.0, 1.0, 0.0, 1.0};
-    Eigen::MatrixXd stats(2, 3);
-    stats << 1.0, 2.0, 3.0,
-             4.0, 5.0, 6.0;
-    std::vector<std::string> cols = {"area", "density", "elongation"};
-    baysor::PriorInputOptions prior;
-
+    DiagnosticInputs in;
     // Empty trace -> vega_convergence_trace returns null json.
-    auto empty_trace_html = diagnostic_html(
-        data, edges, noise, assignment, /*trace=*/{}, assign_conf,
-        nullptr, nullptr, stats, cols, prior, "1.2");
+    in.trace.clear();
+    const auto empty_trace_html = in.html();
     EXPECT_NE(empty_trace_html.find("vegaEmbed('#vg_seg_conv', null"), std::string::npos);
     EXPECT_EQ(empty_trace_html.find("vg_clust_conv"), std::string::npos);
 
     // Non-empty trace + clustering with matching convergence vectors.
-    std::vector<std::unordered_map<int, int>> trace = {
-        {{1, 2}, {2, 1}},
-        {{1, 2}, {2, 2}},
-    };
+    in.trace = {{{1, 2}, {2, 1}}, {{1, 2}, {2, 2}}};
     baysor::ClusteringResult clustering;
     clustering.assignment = {1, 1, 2, 2};
     clustering.diffs = {0.5, 0.1};
     clustering.change_fracs = {0.4, 0.05};
-    auto html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                &clustering, nullptr, stats, cols, prior, "1.2");
-    EXPECT_NE(html.find("Segmentation convergence"), std::string::npos);
-    EXPECT_NE(html.find("vegaEmbed('#vg_clust_conv'"), std::string::npos);
-    EXPECT_NE(html.find("Molecule clustering convergence"), std::string::npos);
-    EXPECT_NE(html.find("Max prob. difference"), std::string::npos);
-    EXPECT_NE(html.find("Molecules changed"), std::string::npos);
+    in.clustering = &clustering;
+    const auto html = in.html();
+    for (const auto* text : {"Segmentation convergence", "vegaEmbed('#vg_clust_conv'",
+                             "Molecule clustering convergence", "Max prob. difference", "Molecules changed"}) {
+        EXPECT_NE(html.find(text), std::string::npos) << text;
+    }
 
     // Mismatched convergence vectors -> clustering plot skipped.
     baysor::ClusteringResult mismatched;
     mismatched.diffs = {0.5};
-    mismatched.change_fracs = {};
-    auto mismatch_html = diagnostic_html(data, edges, noise, assignment, trace,
-                                         assign_conf, &mismatched, nullptr, stats, cols,
-                                         prior, "1.2");
-    EXPECT_EQ(mismatch_html.find("vg_clust_conv"), std::string::npos);
+    in.clustering = &mismatched;
+    EXPECT_EQ(in.html().find("vg_clust_conv"), std::string::npos);
 }
 
 TEST(Cov4RunHtml, DiagnosticHtmlHistogramEdgeCases) {
-    auto data = wide_data();
-    data.confidence = {0.9, 0.9, 0.9, 0.9};  // all-equal -> single-bin histograms
-    auto noise = noise_fit();
-    std::vector<double> edges = {0.1, 1.0};
-    std::vector<int> assignment = {1, 2, 3, 4};  // every cell has 1 molecule
-    std::vector<std::unordered_map<int, int>> trace = {{{1, 2}, {2, 4}}};
-    std::vector<double> assign_conf = {0.9, 0.9, 0.9, 0.9};
-
-    // Only "area" exists (with a NaN entry); density/elongation are missing
-    // -> column_index returns -1 and extract_col bails out.
-    Eigen::MatrixXd stats(2, 1);
-    stats << std::numeric_limits<double>::quiet_NaN(),
-             1.0;
-    std::vector<std::string> cols = {"area"};
-    baysor::PriorInputOptions prior;
-
-    auto html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                nullptr, nullptr, stats, cols, prior, "1.2");
+    DiagnosticInputs in;
+    in.data.confidence = {0.9, 0.9, 0.9, 0.9};  // all-equal -> single-bin histograms
+    in.assignment = {1, 2, 3, 4};               // every cell has 1 molecule
+    in.trace = {{{1, 2}, {2, 4}}};
+    in.assign_conf = {0.9, 0.9, 0.9, 0.9};
+    // Only "area" exists (with a NaN entry): density/elongation are missing.
+    in.stats = (Eigen::MatrixXd(2, 1) << std::numeric_limits<double>::quiet_NaN(), 1.0).finished();
+    in.cols = {"area"};
+    const auto html = in.html();
 
     // Single-bin histograms: cell sizes all 1.0 and confidence all 0.9.
     EXPECT_NE(html.find(R"({"count":4,"x":0.5,"x2":1.5})"), std::string::npos);
     EXPECT_NE(html.find(R"({"count":4,"x":0.4,"x2":1.4})"), std::string::npos);
     // NaN is dropped from the area column -> single observation.
     EXPECT_NE(html.find(R"({"count":1,"x":0.5,"x2":1.5})"), std::string::npos);
-    EXPECT_NE(html.find("Cell area"), std::string::npos);
-    EXPECT_NE(html.find("Cell density"), std::string::npos);
-    EXPECT_NE(html.find("Cell elongation"), std::string::npos);
-    EXPECT_NE(html.find("Assignment confidence"), std::string::npos);
+    for (const auto* text : {"Cell area", "Cell density", "Cell elongation", "Assignment confidence"}) {
+        EXPECT_NE(html.find(text), std::string::npos) << text;
+    }
 }
 
 TEST(Cov4RunHtml, DiagnosticHtmlSkipsManifoldWhenSampleSizesDisagree) {
-    auto data = wide_data();
-    auto noise = noise_fit();
-    std::vector<double> edges = {0.1, 1.0};
-    std::vector<int> assignment = {1, 1, 0, 2};
-    std::vector<std::unordered_map<int, int>> trace = {{{1, 2}, {2, 2}}};
-    std::vector<double> assign_conf = {1.0, 1.0, 0.0, 1.0};
-    Eigen::MatrixXd stats(2, 3);
-    stats << 1.0, 2.0, 3.0,
-             4.0, 5.0, 6.0;
-    std::vector<std::string> cols = {"area", "density", "elongation"};
-    baysor::PriorInputOptions prior;
-
     baysor::NcvReportEmbedding ncv;
     ncv.colors = {"#ff0000", "#00ff00", "#0000ff", "#ff00ff"};
     ncv.sample_ids = {0, 2, 3};
     ncv.sample_umap_x = {0.0};  // deliberately inconsistent with sample_ids
     ncv.sample_umap_y = {0.0, 1.0, 0.5};
-
-    auto html = diagnostic_html(data, edges, noise, assignment, trace, assign_conf,
-                                nullptr, &ncv, stats, cols, prior, "1.2");
+    DiagnosticInputs in;
+    in.ncv = &ncv;
+    const auto html = in.html();
     EXPECT_EQ(html.find("NCV / clustering manifold"), std::string::npos);
     // The confidence section is always present.
     EXPECT_NE(html.find("id=\"vg_noise\""), std::string::npos);
@@ -658,32 +544,15 @@ TEST(Cov4ColorUtils, ColorEmbeddingFallsBackWithTooFewComponents) {
 }
 
 TEST(Cov4ColorUtils, ReportEmbeddingStreamsWithFreshBasisFit) {
-    constexpr int groups = 3;
-    constexpr int per_group = 24;
-    constexpr int n = groups * per_group;
-
-    Eigen::MatrixXd pos(2, n);
-    std::vector<int> genes(n, 1);
-    std::vector<double> confidence(n, 0.99);
-    for (int g = 0; g < groups; ++g) {
-        for (int i = 0; i < per_group; ++i) {
-            const int idx = g * per_group + i;
-            pos(0, idx) = 30.0 * g + 0.5 * i;
-            pos(1, idx) = 5.0 * (i % 6);
-            genes[idx] = 1 + g;
-        }
-    }
+    const auto [pos, genes, confidence] = three_gene_groups();
+    const size_t n = genes.size();
 
     auto res = baysor::gene_composition_report_embedding_streaming(
         pos, genes, /*n_genes=*/3, confidence,
-        /*k_neighbors=*/8,
-        /*basis_sample_size=*/48,
-        /*sample_size=*/24,
-        /*seed=*/7,
-        /*n_pca_dims=*/3,
+        /*k_neighbors=*/8, /*basis_sample_size=*/48, /*sample_size=*/24, /*seed=*/7, /*n_pca_dims=*/3,
         /*graph_k=*/15);
 
-    ASSERT_EQ(res.colors.size(), static_cast<size_t>(n));
+    ASSERT_EQ(res.colors.size(), n);
     std::set<std::string> unique(res.colors.begin(), res.colors.end());
     EXPECT_GT(unique.size(), 1u);
     ASSERT_EQ(res.sample_ids.size(), res.sample_umap_x.size());
@@ -712,13 +581,8 @@ TEST(Cov4ColorUtils, ReportEmbeddingStreamsFallsBackWhenAnchorsBelowThreshold) {
 
     auto res = baysor::gene_composition_report_embedding_streaming(
         pos, genes, /*n_genes=*/2, confidence,
-        /*k_neighbors=*/6,
-        /*basis_sample_size=*/100,
-        /*sample_size=*/20,
-        /*seed=*/1,
-        /*n_pca_dims=*/3,
-        /*graph_k=*/10,
-        &model);
+        /*k_neighbors=*/6, /*basis_sample_size=*/100, /*sample_size=*/20, /*seed=*/1, /*n_pca_dims=*/3,
+        /*graph_k=*/10, &model);
 
     ASSERT_EQ(res.colors.size(), static_cast<size_t>(n));
     for (const auto& c : res.colors) EXPECT_EQ(c, "#808080");
@@ -728,28 +592,12 @@ TEST(Cov4ColorUtils, ReportEmbeddingStreamsFallsBackWhenAnchorsBelowThreshold) {
 }
 
 TEST(Cov4ColorUtils, ReportEmbeddingStreamsRefitsWhenPrecomputedKDiffers) {
-    constexpr int groups = 3;
-    constexpr int per_group = 24;
-    constexpr int n = groups * per_group;
-
-    Eigen::MatrixXd pos(2, n);
-    std::vector<int> genes(n, 1);
-    std::vector<double> confidence(n, 0.99);
-    for (int g = 0; g < groups; ++g) {
-        for (int i = 0; i < per_group; ++i) {
-            const int idx = g * per_group + i;
-            pos(0, idx) = 30.0 * g + 0.5 * i;
-            pos(1, idx) = 5.0 * (i % 6);
-            genes[idx] = 1 + g;
-        }
-    }
+    const auto [pos, genes, confidence] = three_gene_groups();
+    const size_t n = genes.size();
 
     auto model = baysor::fit_ncv_projected_model(
         pos, genes, /*n_genes=*/3, confidence,
-        /*k_neighbors=*/8,
-        /*basis_sample_size=*/48,
-        /*n_components=*/20,
-        /*include_full_projection=*/true);
+        /*k_neighbors=*/8, /*basis_sample_size=*/48, /*n_components=*/20, /*include_full_projection=*/true);
     ASSERT_GT(model.basis.basis_ids.size(), 1u);
     ASSERT_EQ(model.basis.spatial_k, 8);
 
@@ -757,15 +605,10 @@ TEST(Cov4ColorUtils, ReportEmbeddingStreamsRefitsWhenPrecomputedKDiffers) {
     // fresh basis is fitted.
     auto res = baysor::gene_composition_report_embedding_streaming(
         pos, genes, /*n_genes=*/3, confidence,
-        /*k_neighbors=*/10,
-        /*basis_sample_size=*/48,
-        /*sample_size=*/24,
-        /*seed=*/7,
-        /*n_pca_dims=*/3,
-        /*graph_k=*/15,
-        &model);
+        /*k_neighbors=*/10, /*basis_sample_size=*/48, /*sample_size=*/24, /*seed=*/7, /*n_pca_dims=*/3,
+        /*graph_k=*/15, &model);
 
-    ASSERT_EQ(res.colors.size(), static_cast<size_t>(n));
+    ASSERT_EQ(res.colors.size(), n);
     std::set<std::string> unique(res.colors.begin(), res.colors.end());
     EXPECT_GT(unique.size(), 1u);
     EXPECT_GT(res.anchor_count, 0);
@@ -795,9 +638,7 @@ TEST(Cov4ColorUtils, FitNcvBasisModelDownsamplesSpatialGridSelection) {
     }
 
     auto model = baysor::fit_ncv_basis_model(pos, genes, /*n_genes=*/3, confidence,
-                                             /*k_neighbors=*/2,
-                                             /*basis_sample_size=*/4,
-                                             /*n_components=*/6);
+                                             /*k_neighbors=*/2, /*basis_sample_size=*/4, /*n_components=*/6);
 
     EXPECT_EQ(model.basis_ids.size(), 4u);  // exactly the requested budget
     EXPECT_EQ(model.spatial_k, 2);

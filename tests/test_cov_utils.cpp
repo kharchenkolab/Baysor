@@ -1,8 +1,5 @@
-// Coverage tests for src/utils/{general,options,xenium}.cpp and
-// include/baysor/utils/{general,julia_int_dict,xoshiro}.h (task COV-1).
-//
-// File-local helpers live in an anonymous namespace; every suite name is
-// prefixed with Cov1 so it cannot clash with other coverage test files.
+// Tests for src/utils/{general,options,xenium}.cpp and
+// include/baysor/utils/{general,julia_int_dict,xoshiro}.h.
 
 #include <gtest/gtest.h>
 
@@ -18,31 +15,13 @@
 #include "baysor/processing/distributions/mv_normal.h"
 #include "baysor/processing/distributions/categorical_smoothed.h"
 
-#include <atomic>
-#include <cstdio>
-#include <filesystem>
-#include <fstream>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "test_cov_helpers.h"
 
-namespace {
-
-// Portable RAII temp directory (see tests/test_cov_helpers.h): unique via a
-// counter plus a random suffix, no getpid()/POSIX.
-using TempDir = baysor_test::TempDir;
-
-std::string write_file(const TempDir& dir, const std::string& name,
-                       const std::string& content) {
-    const std::string p = dir.file(name);
-    std::ofstream f(p);
-    f << content;
-    return p;
-}
-
-} // namespace
+using baysor_test::TempDir;
 
 // ============================================================================
 // src/utils/general.cpp
@@ -169,60 +148,45 @@ TEST(Cov1Utils_General, EstimateDifferenceL0Branches) {
 // src/utils/options.cpp
 // ============================================================================
 
-TEST(Cov1Utils_Options, ParseClusterMethodAllValuesAndError) {
-    EXPECT_EQ(baysor::parse_cluster_method("none"), baysor::ClusterMethod::None);
-    EXPECT_EQ(baysor::parse_cluster_method(" MRf "), baysor::ClusterMethod::Mrf);
-    EXPECT_EQ(baysor::parse_cluster_method("ica-mrf"), baysor::ClusterMethod::Mrf);
-    EXPECT_EQ(baysor::parse_cluster_method("ICA"), baysor::ClusterMethod::Mrf);
-    EXPECT_EQ(baysor::parse_cluster_method("louvain"), baysor::ClusterMethod::Louvain);
-    EXPECT_EQ(baysor::parse_cluster_method("LOUVAIN"), baysor::ClusterMethod::Louvain);
-    EXPECT_EQ(baysor::parse_cluster_method("leiden"), baysor::ClusterMethod::Leiden);
+TEST(Cov1Utils_Options, ClusterMethodNamesAndDefaults) {
+    using baysor::ClusterMethod;
+    const std::pair<const char*, ClusterMethod> parsed[] = {
+        {"none", ClusterMethod::None},       {" MRf ", ClusterMethod::Mrf},
+        {"ica-mrf", ClusterMethod::Mrf},     {"ICA", ClusterMethod::Mrf},
+        {"louvain", ClusterMethod::Louvain}, {"LOUVAIN", ClusterMethod::Louvain},
+        {"leiden", ClusterMethod::Leiden},
+    };
+    for (const auto& [name, method] : parsed) EXPECT_EQ(baysor::parse_cluster_method(name), method) << name;
+    EXPECT_THROW_MSG(baysor::parse_cluster_method("kmeans"), std::runtime_error, "cluster_method must be one of");
 
-    EXPECT_THROW(baysor::parse_cluster_method("kmeans"), std::runtime_error);
-    try {
-        baysor::parse_cluster_method("kmeans");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("cluster_method must be one of"),
-                  std::string::npos);
+    const struct {
+        ClusterMethod method;
+        const char* name;
+        int n_clusters;
+    } methods[] = {
+        {ClusterMethod::None, "none", 0},
+        {ClusterMethod::Mrf, "mrf", 4},
+        {ClusterMethod::Louvain, "louvain", 10},
+        {ClusterMethod::Leiden, "leiden", 10},
+    };
+    for (const auto& m : methods) {
+        EXPECT_EQ(baysor::cluster_method_to_string(m.method), m.name);
+        EXPECT_EQ(baysor::default_cluster_count(m.method), m.n_clusters) << m.name;
     }
-}
-
-TEST(Cov1Utils_Options, ClusterMethodToStringAllValues) {
-    EXPECT_EQ(baysor::cluster_method_to_string(baysor::ClusterMethod::None), "none");
-    EXPECT_EQ(baysor::cluster_method_to_string(baysor::ClusterMethod::Mrf), "mrf");
-    EXPECT_EQ(baysor::cluster_method_to_string(baysor::ClusterMethod::Louvain), "louvain");
-    EXPECT_EQ(baysor::cluster_method_to_string(baysor::ClusterMethod::Leiden), "leiden");
-}
-
-TEST(Cov1Utils_Options, DefaultClusterCountAllMethods) {
-    EXPECT_EQ(baysor::default_cluster_count(baysor::ClusterMethod::None), 0);
-    EXPECT_EQ(baysor::default_cluster_count(baysor::ClusterMethod::Mrf), 4);
-    EXPECT_EQ(baysor::default_cluster_count(baysor::ClusterMethod::Louvain), 10);
-    EXPECT_EQ(baysor::default_cluster_count(baysor::ClusterMethod::Leiden), 10);
 }
 
 TEST(Cov1Utils_Options, DefaultParamValueErrors) {
     // min_molecules_per_cell <= 0 is a hard error.
-    try {
-        baysor::default_param_value("confidence_nn_id", 0);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("min_molecules_per_cell"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::default_param_value("confidence_nn_id", 0),
+                     std::runtime_error, "min_molecules_per_cell");
 
     // n_gene_pcs requires n_genes.
     EXPECT_THROW(baysor::default_param_value("n_gene_pcs", 10, -1, 0), std::runtime_error);
     // n_cells_init requires n_molecules.
     EXPECT_THROW(baysor::default_param_value("n_cells_init", 10, 0, -1), std::runtime_error);
     // Unknown parameter name.
-    try {
-        baysor::default_param_value("no_such_param", 10, 100, 10);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Unknown parameter: no_such_param"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::default_param_value("no_such_param", 10, 100, 10),
+                     std::runtime_error, "Unknown parameter: no_such_param");
 }
 
 TEST(Cov1Utils_Options, DefaultParamValueGeneDrivenBranches) {
@@ -244,25 +208,16 @@ TEST(Cov1Utils_Options, DefaultParamValueGeneDrivenBranches) {
 TEST(Cov1Utils_Options, FillAndCheckMoleculeInputRejectsNonPositive) {
     baysor::MoleculeInputOptions opts;
     opts.min_molecules_per_cell = 0;
-    try {
-        baysor::fill_and_check_molecule_input_options(opts);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("'min_molecules_per_cell' must be positive"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::fill_and_check_molecule_input_options(opts),
+                     std::runtime_error, "'min_molecules_per_cell' must be positive");
 }
 
 TEST(Cov1Utils_Options, FillAndCheckPriorInputValidation) {
     // Column type without a column name.
     baysor::PriorInputOptions col;
     col.type = baysor::PriorInputType::Column;
-    try {
-        baysor::fill_and_check_prior_input_options(col, 10);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("non-empty column_name"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::fill_and_check_prior_input_options(col, 10),
+                     std::runtime_error, "non-empty column_name");
 
     // Image type without a path.
     baysor::PriorInputOptions img;
@@ -272,12 +227,8 @@ TEST(Cov1Utils_Options, FillAndCheckPriorInputValidation) {
     // Boundary type without a path.
     baysor::PriorInputOptions bnd;
     bnd.type = baysor::PriorInputType::Boundary;
-    try {
-        baysor::fill_and_check_prior_input_options(bnd, 10);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("non-empty path"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::fill_and_check_prior_input_options(bnd, 10),
+                     std::runtime_error, "non-empty path");
 
     // Valid column fills the derived min_molecules_per_segment
     // (default_param_value("min_molecules_per_segment", 10) == max(10/4, 2) == 2).
@@ -308,12 +259,7 @@ TEST(Cov1Utils_Options, FillAndCheckPlottingOptions) {
     // Invalid ncv_method.
     baysor::PlottingOptions bad;
     bad.ncv_method = "nope";
-    try {
-        baysor::fill_and_check_plotting_options(bad, 10, 10);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("ncv_method"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::fill_and_check_plotting_options(bad, 10, 10), std::runtime_error, "ncv_method");
 
     // A non-positive min_molecules_per_cell makes the default lookup throw.
     baysor::PlottingOptions zero;
@@ -322,12 +268,8 @@ TEST(Cov1Utils_Options, FillAndCheckPlottingOptions) {
     // max_z_slices must be at least 1.
     baysor::PlottingOptions bad_z;
     bad_z.max_z_slices = 0;
-    try {
-        baysor::fill_and_check_plotting_options(bad_z, 10, 10);
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("max_z_slices"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::fill_and_check_plotting_options(bad_z, 10, 10),
+                     std::runtime_error, "max_z_slices");
 }
 
 // ----------------------------------------------------------------------------
@@ -335,13 +277,8 @@ TEST(Cov1Utils_Options, FillAndCheckPlottingOptions) {
 // ----------------------------------------------------------------------------
 
 TEST(Cov1Utils_Options, LoadConfigMissingFileThrows) {
-    try {
-        baysor::load_config("/nonexistent/dir/config.toml");
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Cannot open config file"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_config("/nonexistent/dir/config.toml"),
+                     std::runtime_error, "Cannot open config file");
     // Empty path returns defaults without touching the filesystem.
     auto defaults = baysor::load_config("");
     EXPECT_EQ(defaults.molecules.x_col, "x");
@@ -349,7 +286,7 @@ TEST(Cov1Utils_Options, LoadConfigMissingFileThrows) {
 
 TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
     TempDir dir("cov1_utils");
-    const auto path = write_file(dir, "cfg.toml",
+    const auto path = dir.write("cfg.toml",
         "# comment line\n"
         "\n"
         "line_without_equals\n"
@@ -420,28 +357,16 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
 
 TEST(Cov1Utils_Options, LoadConfigPriorTypes) {
     TempDir dir("cov1_utils");
-
-    const auto img_path = write_file(dir, "img.toml",
-        "[prior]\n"
-        "type = \"IMAGE\"\n"
-        "path = \"mask.tiff\"\n");
-    auto img = baysor::load_config(img_path);
+    const auto img = baysor::load_config(dir.write("img.toml", "[prior]\ntype = \"IMAGE\"\npath = \"mask.tiff\"\n"));
     EXPECT_EQ(img.prior.type, baysor::PriorInputType::Image);
     EXPECT_EQ(img.prior.path, "mask.tiff");
 
-    const auto bnd_path = write_file(dir, "bnd.toml",
-        "[prior]\n"
-        "type = \"boundary\"\n"
-        "path = \"b.csv\"\n"
-        "min_molecules_per_segment = 7\n");
-    auto bnd = baysor::load_config(bnd_path);
+    const auto bnd = baysor::load_config(dir.write(
+        "bnd.toml", "[prior]\ntype = \"boundary\"\npath = \"b.csv\"\nmin_molecules_per_segment = 7\n"));
     EXPECT_EQ(bnd.prior.type, baysor::PriorInputType::Boundary);
     EXPECT_EQ(bnd.prior.min_molecules_per_segment, 7);
 
-    const auto none_path = write_file(dir, "none.toml",
-        "[prior]\n"
-        "type = \"none\"\n");
-    auto none = baysor::load_config(none_path);
+    const auto none = baysor::load_config(dir.write("none.toml", "[prior]\ntype = \"none\"\n"));
     EXPECT_EQ(none.prior.type, baysor::PriorInputType::None);
 }
 
@@ -450,7 +375,7 @@ TEST(Cov1Utils_Options, LoadConfigBooleanParsing) {
     // "true"/"false" cover both accepting branches of the TOML bool parser;
     // unrecognised bool text now raises an error instead of silently keeping
     // the default (see Bug3_ConfigErrors in tests/test_bugfix_correctness.cpp).
-    const auto path = write_file(dir, "bools.toml",
+    const auto path = dir.write("bools.toml",
         "[molecules]\n"
         "force_2d = true\n"
         "[segmentation]\n"
@@ -510,11 +435,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     const auto out = dir.file("params.toml");
     baysor::save_params_toml(opts, "baysor run -d data.csv", out);
 
-    std::ifstream in(out);
-    ASSERT_TRUE(in.good());
-    std::stringstream ss;
-    ss << in.rdbuf();
-    const std::string content = ss.str();
+    const std::string content = baysor_test::read_text_file(out);
 
     EXPECT_NE(content.find("# CLI params: `baysor run -d data.csv`"), std::string::npos);
     EXPECT_NE(content.find("[molecules]"), std::string::npos);
@@ -566,21 +487,13 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
         o.prior.type = t.type;
         const auto p = dir.file("type_" + std::to_string(i++) + ".toml");
         baysor::save_params_toml(o, "cmd", p);
-        std::ifstream f(p);
-        std::stringstream s2;
-        s2 << f.rdbuf();
-        EXPECT_NE(s2.str().find(std::string("type = \"") + t.label + "\""),
+        EXPECT_NE(baysor_test::read_text_file(p).find(std::string("type = \"") + t.label + "\""),
                   std::string::npos) << t.label;
     }
 
     // Error path: unwritable destination.
-    try {
-        baysor::save_params_toml(opts, "cmd", dir.file("no_such_dir/params.toml"));
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("save_params_toml: cannot open"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::save_params_toml(opts, "cmd", dir.file("no_such_dir/params.toml")),
+                     std::runtime_error, "save_params_toml: cannot open");
 }
 
 // ============================================================================
@@ -591,33 +504,23 @@ TEST(Cov1Utils_Xenium, ManifestResolution) {
     TempDir dir("cov1_utils");
 
     // Missing manifest -> open error.
-    try {
-        baysor::load_xenium_manifest_context(dir.file("experiment.xenium"));
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Could not open Xenium manifest"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::load_xenium_manifest_context(dir.file("experiment.xenium")),
+                     std::runtime_error, "Could not open Xenium manifest");
 
     // Manifest exists but no transcripts file next to it.
-    write_file(dir, "experiment.xenium", "{}\n");
-    try {
-        baysor::load_xenium_manifest_context(dir.file("experiment.xenium"));
-        FAIL() << "expected throw";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Could not locate transcripts.parquet"),
-                  std::string::npos);
-    }
+    dir.write("experiment.xenium", "{}\n");
+    EXPECT_THROW_MSG(baysor::load_xenium_manifest_context(dir.file("experiment.xenium")),
+                     std::runtime_error, "Could not locate transcripts.parquet");
 
     // Only transcripts.csv.gz present -> fallback is used.
-    write_file(dir, "transcripts.csv.gz", "stub");
+    dir.write("transcripts.csv.gz", "stub");
     auto ctx = baysor::load_xenium_manifest_context(dir.file("experiment.xenium"));
     EXPECT_EQ(ctx.manifest_path, dir.file("experiment.xenium"));
     EXPECT_EQ(ctx.dataset_dir, dir.path.string());
     EXPECT_EQ(ctx.transcripts_path, dir.file("transcripts.csv.gz"));
 
     // transcripts.parquet wins when both exist.
-    write_file(dir, "transcripts.parquet", "stub");
+    dir.write("transcripts.parquet", "stub");
     auto ctx2 = baysor::load_xenium_manifest_context(dir.file("experiment.xenium"));
     EXPECT_EQ(ctx2.transcripts_path, dir.file("transcripts.parquet"));
 }
@@ -719,7 +622,6 @@ TEST(Cov1Utils_JuliaIntDict, EStep3DCoversBmmInstance) {
     data.mrf_strength = 0.1;
     data.real_edge_weight = 1.0;
 
-    const auto before = data.assignment;
     auto stats = baysor::expect_dirichlet_spatial<3>(data, /*stochastic=*/false);
 
     // Candidate components come only from direct graph neighbours. Molecules
@@ -729,15 +631,4 @@ TEST(Cov1Utils_JuliaIntDict, EStep3DCoversBmmInstance) {
     // stays with its own spatial group.
     EXPECT_EQ(data.assignment, (std::vector<int>{1, 1, 0, 0, 3, 3}));
     EXPECT_EQ(stats.n_changed, 2);
-    // n_changed must equal the number of assignments that actually changed,
-    // and every assignment must stay in the valid component-id range.
-    std::int64_t expected_changed = 0;
-    for (size_t i = 0; i < before.size(); ++i) {
-        if (before[i] != data.assignment[i]) ++expected_changed;
-    }
-    EXPECT_EQ(stats.n_changed, expected_changed);
-    for (int a : data.assignment) {
-        EXPECT_GE(a, 0);
-        EXPECT_LE(a, 3);
-    }
 }

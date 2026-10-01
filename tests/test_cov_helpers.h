@@ -1,19 +1,8 @@
-// Shared helpers for the coverage test files (COV-*) and the BUG-* regression
-// tests.
-//
-// The core of this header is portable: it uses no POSIX-only headers or
-// calls (no getpid(), unistd.h, ...), so the test sources that include it
-// stay buildable on Windows as well. Tests that are inherently POSIX
-// (subprocess runs, setrlimit, /dev/full) guard themselves with
-// #ifndef _WIN32; everything else relies on the helpers below. The CLI
-// subprocess runner at the bottom is POSIX-only (sh-style quoting,
-// WEXITSTATUS) and is compiled only for !defined(_WIN32) with BAYSOR_CLI_PATH
-// defined; on Windows or without the CLI path the tests that use it skip.
+// Shared test helpers. Everything except the CLI subprocess runner at the
+// bottom (POSIX only, needs BAYSOR_CLI_PATH) is portable.
 #pragma once
 
-#include <atomic>
-#include <chrono>
-#include <cstdint>
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -24,44 +13,74 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
 
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
 #include <sys/wait.h>
 #endif
+
+/// Expects `statement` to throw `exception` whose what() contains `substr`.
+#define EXPECT_THROW_MSG(statement, exception, substr)                            \
+    EXPECT_THROW(                                                                 \
+        try { statement; } catch (const exception& e_) {                          \
+            EXPECT_NE(std::string(e_.what()).find(substr), std::string::npos)     \
+                << "message: " << e_.what();                                      \
+            throw;                                                                \
+        },                                                                        \
+        exception)
 
 namespace baysor_test {
 
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
-// Temporary directories
+// Files
 // ---------------------------------------------------------------------------
 
 /// Create a fresh, uniquely named directory under the system temp directory.
-/// Portable unique name: process-wide counter + timestamp + random suffix
-/// (deliberately no getpid()).
 inline fs::path make_unique_dir(const std::string& tag) {
-    static std::atomic<int> counter{0};
     std::random_device rd;
-    const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
-    const fs::path base = fs::temp_directory_path();
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        fs::path dir = base / ("baysor_" + tag + "_" +
-                               std::to_string(counter.fetch_add(1)) + "_" +
-                               std::to_string(ticks) + "_" +
-                               std::to_string(rd()));
-        std::error_code ec;
-        if (fs::create_directories(dir, ec)) return dir;
-        if (ec && ec != std::errc::file_exists) continue;
-        if (!ec && fs::is_directory(dir)) return dir;  // raced, but usable
+    for (;;) {
+        const fs::path dir = fs::temp_directory_path() /
+            ("baysor_" + tag + "_" + std::to_string(rd()) + std::to_string(rd()));
+        if (fs::create_directories(dir)) return dir;
     }
-    throw std::runtime_error("test_cov_helpers: could not create a temp dir for tag '" +
-                             tag + "'");
+}
+
+/// Whole file as a string ("" when unreadable).
+inline std::string read_text_file(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+/// Values of column `name` of a simple (unquoted) CSV file.
+inline std::vector<std::string> csv_column(const fs::path& p, const std::string& name) {
+    auto split = [](const std::string& line) {
+        std::vector<std::string> fields;
+        std::stringstream ss(line);
+        for (std::string field; std::getline(ss, field, ',');) fields.push_back(field);
+        return fields;
+    };
+    std::ifstream f(p);
+    std::string line;
+    std::getline(f, line);
+    const auto header = split(line);
+    const size_t col = std::find(header.begin(), header.end(), name) - header.begin();
+    if (col == header.size()) throw std::runtime_error("no column '" + name + "' in " + p.string());
+    std::vector<std::string> values;
+    while (std::getline(f, line)) {
+        const auto fields = split(line);
+        values.push_back(col < fields.size() ? fields[col] : "");
+    }
+    return values;
 }
 
 /// Per-test unique directory, removed on destruction (RAII).
@@ -80,6 +99,24 @@ public:
 
     /// Path of a file inside the directory, as a string.
     std::string file(const std::string& name) const { return (path / name).string(); }
+
+    /// Write `content` to the file `name` inside the directory; returns its path.
+    std::string write(const std::string& name, const std::string& content) const {
+        std::ofstream(path / name) << content;
+        return file(name);
+    }
+};
+
+/// Sets the thread-pool size for the guard's lifetime.
+class PoolSizeGuard {
+public:
+    explicit PoolSizeGuard(int n) : old_(baysor::thread_pool_size()) { baysor::set_thread_pool_size(n); }
+    ~PoolSizeGuard() { baysor::set_thread_pool_size(old_); }
+    PoolSizeGuard(const PoolSizeGuard&) = delete;
+    PoolSizeGuard& operator=(const PoolSizeGuard&) = delete;
+
+private:
+    int old_;
 };
 
 // ---------------------------------------------------------------------------
@@ -141,14 +178,11 @@ struct LoggerGuard {
 // ---------------------------------------------------------------------------
 // CLI subprocess runner (POSIX + BAYSOR_CLI_PATH only)
 // ---------------------------------------------------------------------------
-//
-// Lives in a nested `cli` namespace on purpose: the COV-5 CLI tests keep
-// their own local `run_cli`/`write_text` for TempDir arguments, and ADL on
-// baysor_test::TempDir would make those calls ambiguous if these helpers
-// sat directly in baysor_test.
 
 #if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
 namespace cli {
+
+using baysor_test::read_text_file;
 
 /// Exit code plus captured stdout/stderr of a CLI subprocess run.
 struct CliResult {
@@ -157,26 +191,13 @@ struct CliResult {
     std::string err;     // stderr
 };
 
-/// Read a whole file as binary text (empty string when unreadable).
-inline std::string read_text_file(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-/// Write `content` to `tmp/name`; returns the file's full path.
 inline std::string write_text(const TempDir& tmp, const std::string& name,
                               const std::string& content) {
-    const fs::path p = tmp.path / name;
-    std::ofstream f(p);
-    f << content;
-    return p.string();
+    return tmp.write(name, content);
 }
 
-/// Run the instrumented `baysor` binary (BAYSOR_CLI_PATH) with `args` in a
-/// POSIX shell, capturing stdout/stderr into `tmp` and the exit code.
-/// Shells out with sh-style quoting and decodes exit codes via WEXITSTATUS.
+/// Run the `baysor` binary (BAYSOR_CLI_PATH) with `args` in a POSIX shell,
+/// capturing stdout/stderr into `tmp` and the exit code.
 inline CliResult run_cli(const TempDir& tmp, const std::string& args) {
     const fs::path out_p = tmp.path / "stdout.txt";
     const fs::path err_p = tmp.path / "stderr.txt";

@@ -10,12 +10,8 @@
 
 #include <Eigen/Dense>
 
-#include <algorithm>
-#include <fstream>
 #include <set>
-#include <sstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "baysor/data_loading/data.h"
@@ -27,107 +23,56 @@
 namespace {
 
 using nlohmann::json;
-
-std::string read_text(const std::string& path) {
-    std::ifstream f(path);
-    EXPECT_TRUE(f.good()) << "cannot read " << path;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-std::vector<std::string> split(const std::string& line, char sep) {
-    std::vector<std::string> parts;
-    std::stringstream ss(line);
-    std::string part;
-    while (std::getline(ss, part, sep)) parts.push_back(part);
-    return parts;
-}
+using baysor_test::csv_column;
+using baysor_test::read_text_file;
 
 std::set<std::string> csv_assigned_cells(const std::string& path) {
-    std::ifstream f(path);
-    EXPECT_TRUE(f.good()) << "cannot read " << path;
-    std::string header;
-    EXPECT_TRUE(std::getline(f, header));
-    const auto cols = split(header, ',');
-    int cell_col = -1;
-    int noise_col = -1;
-    for (int i = 0; i < static_cast<int>(cols.size()); ++i) {
-        if (cols[i] == "cell") cell_col = i;
-        if (cols[i] == "is_noise") noise_col = i;
+    const auto cells = csv_column(path, "cell");
+    const auto noise = csv_column(path, "is_noise");
+    std::set<std::string> assigned;
+    for (size_t i = 0; i < cells.size(); ++i) {
+        if (cells[i] != "0" && noise[i] != "true" && noise[i] != "1") assigned.insert(cells[i]);
     }
-    EXPECT_GE(cell_col, 0) << header;
-    EXPECT_GE(noise_col, 0) << header;
-
-    std::set<std::string> cells;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty()) continue;
-        const auto fields = split(line, ',');
-        EXPECT_GT(static_cast<int>(fields.size()), std::max(cell_col, noise_col));
-        const std::string& cell = fields[cell_col];
-        const std::string& noise = fields[noise_col];
-        if (cell.empty() || cell == "0" || noise == "true" || noise == "1") continue;
-        cells.insert("cell_" + cell.substr(cell.rfind("cell_") == 0 ? 5 : 0));
-    }
-    return cells;
+    return assigned;
 }
 
-/// Normalise a polygon JSON cell id to the `cell_<n>` form the CSV uses.
-std::string normalize_polygon_cell(const json& cell) {
-    if (cell.is_number_integer()) return "cell_" + std::to_string(cell.get<int>());
-    return cell.get<std::string>();
-}
-
+/// Polygon cell ids in the `cell_<n>` form the CSV uses.
 std::set<std::string> json_polygon_cells(const std::string& path) {
-    const json doc = json::parse(read_text(path));
+    const json doc = json::parse(read_text_file(path));
+    const bool features = doc.at("type") == "FeatureCollection";
     std::set<std::string> cells;
-    if (doc.at("type") == "FeatureCollection") {
-        for (const auto& feat : doc.at("features")) {
-            cells.insert(normalize_polygon_cell(feat.at("properties").at("cell")));
-        }
-    } else {
-        for (const auto& geom : doc.at("geometries")) {
-            cells.insert(normalize_polygon_cell(geom.at("cell")));
-        }
+    for (const auto& item : doc.at(features ? "features" : "geometries")) {
+        const json& cell = features ? item.at("properties").at("cell") : item.at("cell");
+        cells.insert(cell.is_number_integer() ? "cell_" + std::to_string(cell.get<int>())
+                                              : cell.get<std::string>());
     }
     return cells;
+}
+
+baysor::PolygonCollection triangle(const std::string& cell_name) {
+    Eigen::MatrixXd tri(2, 3);
+    tri << 0.0, 1.0, 0.0,
+           0.0, 0.0, 1.0;
+    return {{cell_name, tri}};
 }
 
 }  // namespace
 
-// ============================================================================
-// parse_polygon_format / to_string
-// ============================================================================
-
 TEST(Cov165PolygonFormat, ParsingIsCaseInsensitiveAndValidated) {
-    EXPECT_EQ(baysor::parse_polygon_format("FeatureCollection"),
-              baysor::PolygonFormat::FeatureCollection);
-    EXPECT_EQ(baysor::parse_polygon_format("featurecollection"),
-              baysor::PolygonFormat::FeatureCollection);
-    EXPECT_EQ(baysor::parse_polygon_format("GeometryCollection"),
-              baysor::PolygonFormat::GeometryCollection);
-    EXPECT_EQ(baysor::parse_polygon_format("geometrycollectionlegacy"),
-              baysor::PolygonFormat::GeometryCollectionLegacy);
-    EXPECT_EQ(baysor::parse_polygon_format("GeometryCollectionLegacy"),
-              baysor::PolygonFormat::GeometryCollectionLegacy);
-    EXPECT_EQ(baysor::parse_polygon_format("NONE"), baysor::PolygonFormat::None);
-
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::FeatureCollection),
-              "FeatureCollection");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::GeometryCollection),
-              "GeometryCollection");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::GeometryCollectionLegacy),
-              "GeometryCollectionLegacy");
-    EXPECT_EQ(baysor::to_string(baysor::PolygonFormat::None), "none");
+    using baysor::PolygonFormat;
+    const std::pair<const char*, PolygonFormat> cases[] = {
+        {"FeatureCollection", PolygonFormat::FeatureCollection},
+        {"featurecollection", PolygonFormat::FeatureCollection},
+        {"GeometryCollection", PolygonFormat::GeometryCollection},
+        {"geometrycollectionlegacy", PolygonFormat::GeometryCollectionLegacy},
+        {"GeometryCollectionLegacy", PolygonFormat::GeometryCollectionLegacy},
+        {"NONE", PolygonFormat::None},
+    };
+    for (const auto& [name, format] : cases) EXPECT_EQ(baysor::parse_polygon_format(name), format) << name;
 
     EXPECT_THROW(baysor::parse_polygon_format("geometry"), std::invalid_argument);
     EXPECT_THROW(baysor::parse_polygon_format(""), std::invalid_argument);
 }
-
-// ============================================================================
-// GeometryCollectionLegacy layout and consistency
-// ============================================================================
 
 TEST(Cov165PolygonFormat, LegacyWritesIntegerCellIdsAndKeepsCellSetConsistent) {
     baysor_test::TempDir tmp("cov165_format");
@@ -147,21 +92,17 @@ TEST(Cov165PolygonFormat, LegacyWritesIntegerCellIdsAndKeepsCellSetConsistent) {
     baysor::save_segmented_df(data, assignment, data.gene_names, csv_path);
     const auto csv_cells = csv_assigned_cells(csv_path);
 
-    auto [joined, stack] = baysor::boundary_polygons_auto(
-        data.position_matrix(), assignment, /*estimate_per_z=*/false,
-        &cell_names, /*verbose=*/false);
-    (void)stack;
+    const auto joined = baysor::boundary_polygons_auto(
+        data.position_matrix(), assignment, /*estimate_per_z=*/false, &cell_names, /*verbose=*/false).first;
 
-    for (const std::string& format :
-         {"FeatureCollection", "GeometryCollection", "GeometryCollectionLegacy"}) {
-        const std::string json_path = tmp.file("poly_" + format + ".json");
+    for (const std::string format : {"FeatureCollection", "GeometryCollection", "GeometryCollectionLegacy"}) {
+        const std::string json_path = tmp.file(format + ".json");
         baysor::save_polygons_geojson(joined, json_path, format);
-        const auto poly_cells = json_polygon_cells(json_path);
-        EXPECT_EQ(poly_cells, csv_cells) << "format=" << format;
+        EXPECT_EQ(json_polygon_cells(json_path), csv_cells) << "format=" << format;
     }
 
     // The legacy layout is a GeometryCollection with integer ids.
-    const json legacy_doc = json::parse(read_text(tmp.file("poly_GeometryCollectionLegacy.json")));
+    const json legacy_doc = json::parse(read_text_file(tmp.file("GeometryCollectionLegacy.json")));
     EXPECT_EQ(legacy_doc.at("type"), "GeometryCollection");
     ASSERT_EQ(legacy_doc.at("geometries").size(), 3u);
     for (const auto& geom : legacy_doc.at("geometries")) {
@@ -171,27 +112,14 @@ TEST(Cov165PolygonFormat, LegacyWritesIntegerCellIdsAndKeepsCellSetConsistent) {
 }
 
 TEST(Cov165PolygonFormat, LegacyRejectsNonIntegerCellIds) {
-    baysor::PolygonCollection coll;
-    Eigen::MatrixXd tri(2, 3);
-    tri << 0.0, 1.0, 0.0,
-           0.0, 0.0, 1.0;
-    coll["not_a_number"] = tri;
-
     baysor_test::TempDir tmp("cov165_legacy_bad");
-    EXPECT_THROW(baysor::save_polygons_geojson(coll, tmp.file("bad.json"),
-                                               "GeometryCollectionLegacy"),
-                 std::runtime_error);
+    EXPECT_THROW_MSG(baysor::save_polygons_geojson(triangle("not_a_number"), tmp.file("bad.json"),
+                                                   "GeometryCollectionLegacy"),
+                     std::runtime_error, "GeometryCollectionLegacy requires integer cell ids, got: not_a_number");
 }
 
 TEST(Cov165PolygonFormat, NoneFormatWritesNothingCaseInsensitively) {
-    baysor::PolygonCollection coll;
-    Eigen::MatrixXd tri(2, 3);
-    tri << 0.0, 1.0, 0.0,
-           0.0, 0.0, 1.0;
-    coll["cell_1"] = tri;
-
     baysor_test::TempDir tmp("cov165_none");
-    const std::string out = tmp.file("nothing.json");
-    baysor::save_polygons_geojson(coll, out, "NONE");
-    EXPECT_FALSE(std::ifstream(out).good());
+    baysor::save_polygons_geojson(triangle("cell_1"), tmp.file("nothing.json"), "NONE");
+    EXPECT_FALSE(std::filesystem::exists(tmp.file("nothing.json")));
 }

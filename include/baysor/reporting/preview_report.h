@@ -4,6 +4,7 @@
 #include "baysor/processing/data_processing/boundary_estimation.h"
 #include "baysor/processing/data_processing/noise_estimation.h"
 #include "baysor/reporting/color_utils.h"
+#include "baysor/utils/options.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <string>
@@ -11,12 +12,10 @@
 
 namespace baysor {
 
-/// Default of the `[plotting] max_plot_size` config key (PlottingOptions).
-constexpr int kDefaultMaxPlotSize = 3000;
-
 /// Width in pixels of a molecule scatter of (x, y) whose longer side is
 /// max_size_px (height follows the data aspect ratio as in rasterize_scatter,
-/// so tall data gets a narrower image). Values < 1 mean kDefaultMaxPlotSize.
+/// so tall data gets a narrower image). Values < 1 mean the default
+/// `[plotting] max_plot_size`.
 int scatter_width_for_max_size(
     const std::vector<double>& x,
     const std::vector<double>& y,
@@ -54,30 +53,9 @@ ScatterRaster rasterize_confidence(
     int point_radius_px = 0
 );
 
-/// Encode rasters as base64 PNG data URIs ("" for an empty raster). The images
-/// are encoded concurrently on the thread pool, one task per image; the output
-/// does not depend on the thread count.
+/// Encode rasters as base64 PNG data URIs ("" for an empty raster), one
+/// thread-pool task per image.
 std::vector<std::string> encode_png_data_uris(const std::vector<ScatterRaster>& rasters);
-
-/// Render all molecules as a PNG (base64-encoded), coloured by the given hex strings.
-/// width_px controls the output width; height is derived from the data aspect ratio.
-std::string render_scatter_png(
-    const std::vector<double>& x,
-    const std::vector<double>& y,
-    const std::vector<std::string>& colors,
-    const PolygonCollection* polygons = nullptr,
-    int width_px = 6000,
-    int point_radius_px = 0
-);
-
-/// Render confidence scatter as a PNG (base64-encoded), coloured by a blue-orange gradient.
-std::string render_confidence_png(
-    const std::vector<double>& x,
-    const std::vector<double>& y,
-    const std::vector<double>& confidence,
-    int width_px = 6000,
-    int point_radius_px = 0
-);
 
 /// Generate Vega-Lite spec: noise estimation histogram + fitted PDFs
 nlohmann::json vega_noise_histogram(
@@ -108,7 +86,7 @@ std::string generate_preview_html(
     const NoiseFitResult& noise_result,
     int confidence_nn_id,
     const GeneStructureEmbedding* gene_structure = nullptr,
-    int max_plot_size = kDefaultMaxPlotSize
+    int max_plot_size = PlottingOptions{}.max_plot_size
 );
 
 } // namespace baysor
