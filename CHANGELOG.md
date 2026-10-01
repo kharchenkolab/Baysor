@@ -83,6 +83,28 @@ All notable changes to the C++ line of Baysor are documented here.
   default thread count is the number of physical CPU cores. The umappp/kNN
   neighborhood-graph construction for NCV color embedding now also runs on
   the pool.
+- Molecule clustering scales to large gene panels:
+  - The NCV neighbourhood k-NN searches (k = genes / 10, used by
+    `--cluster-method louvain|leiden` and the NCV colours) keep the k best
+    candidates in a heap instead of an insertion-sorted array; same
+    neighbours in the same order. About half the instructions of a whole run
+    on an 8,400-gene CosMx crop.
+  - These searches run in blocks bounded to ~32 MiB instead of 32,768
+    queries, and the neighbourhood count matrix is assembled in place: peak
+    RSS of that crop 475 → 233 MiB. Output unchanged.
+  - The MRF clustering (`--cluster-method mrf`, the default) computes its
+    convergence check inside the parallel E-step and runs the M-step in
+    parallel over genes. Output unchanged at any thread count.
+  - ICA initialisation of the MRF clustering on panels above 3,000 genes
+    builds the gene co-occurrence matrix sparse and computes only the
+    `n_clusters` leading eigenvectors (truncated SVD, irlba) instead of a dense
+    eigen-decomposition whose cost grows with the cube of the gene count.
+    A 150k-molecule, 17,500-gene CosMx whole-transcriptome crop with the
+    default method now finishes in 86 s at 8 threads (1.1 GB peak RSS); it
+    was stopped after > 70 min at 9.8 GB before.
+    Panels up to 3,000 genes are unchanged. Above 3,000 genes the eigenvector
+    signs, and with them the FastICA start, can differ from before, so
+    clusters and segmentation may change within the usual run-to-run range.
 
 - `README.md` now points to the documentation site and release binaries.
 - The documentation pages were rewritten against the C++ implementation
