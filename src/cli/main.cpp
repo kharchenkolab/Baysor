@@ -34,7 +34,6 @@
 #include <map>
 #include <optional>
 #include <string>
-#include <thread>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -253,9 +252,8 @@ int cmd_run(
         constexpr int N = decltype(tag)::value;
 
         spdlog::info("Initializing BmmData ({}D)...", N);
+        // adj_list is not needed afterwards: move it instead of keeping two copies.
         auto bm_data = initialize_bmm_data<N>(
-            // The molecule graph is not needed after this point: move it into
-            // BmmData instead of holding two copies during segmentation.
             data, std::move(adj_list), n_cells, scale, scale_std, psc, min_mols, /*verbose=*/true);
 
         // Wire molecule clusters into BmmData
