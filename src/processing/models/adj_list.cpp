@@ -10,30 +10,17 @@ AdjList AdjList::from_edge_list(
     const int* edges_src, const int* edges_dst,
     const double* edge_weights, int n_edges, int n_verts
 ) {
-    // Guard in 64-bit arithmetic before anything else: `n_verts + 1` overflows
-    // int at INT_MAX and `2 * n_edges` overflows at 2^30 edges (UB), and
-    // negative counts are invalid arguments. Trigger on the arguments alone,
-    // without allocating or touching the edge arrays.
-    const int64_t n_verts_64 = n_verts;
-    const int64_t n_edges_64 = n_edges;
-    if (n_verts_64 < 0) {
-        throw std::invalid_argument(
-            "AdjList::from_edge_list: n_verts must be non-negative");
-    }
-    if (n_edges_64 < 0) {
-        throw std::invalid_argument(
-            "AdjList::from_edge_list: n_edges must be non-negative");
-    }
-    if (n_verts_64 + 1 > std::numeric_limits<int>::max()) {
-        throw std::length_error(
-            "AdjList::from_edge_list: n_verts is too large "
-            "(n_verts + 1 must fit in a 32-bit index)");
-    }
-    if (2 * n_edges_64 > std::numeric_limits<int>::max()) {
-        throw std::length_error(
-            "AdjList::from_edge_list: n_edges is too large "
-            "(2 * n_edges must fit in a 32-bit index)");
-    }
+    // indptr has n_verts + 1 entries and there are 2 * n_edges directed
+    // edges, all indexed with int
+    constexpr int kMax = std::numeric_limits<int>::max();
+    if (n_verts < 0)
+        throw std::invalid_argument("AdjList::from_edge_list: n_verts must be non-negative");
+    if (n_edges < 0)
+        throw std::invalid_argument("AdjList::from_edge_list: n_edges must be non-negative");
+    if (n_verts == kMax)
+        throw std::length_error("AdjList::from_edge_list: n_verts is too large for 32-bit indices");
+    if (n_edges > kMax / 2)
+        throw std::length_error("AdjList::from_edge_list: n_edges is too large for 32-bit indices");
 
     if (n_edges == 0 || n_verts == 0) {
         AdjList adj; // GCOVR_EXCL_LINE: exception-cleanup block for this declaration is only reachable if `indptr.assign` throws inside this frame (allocation failure); no portable test input can induce that
