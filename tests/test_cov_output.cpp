@@ -1,9 +1,6 @@
-// Coverage tests for src/reporting/output.cpp (COV-4).
-//
-// Exercises every writer in both output styles: segmented molecule table
-// (CSV + Parquet, 2D/3D, optional columns), cell statistics (CSV + Parquet),
-// count matrices (Loom/HDF5, TSV), GeoJSON/GeoParquet polygon outputs and
-// the 3D polygon stack, plus output-path derivation and error paths.
+// Tests for the writers of src/reporting/output.cpp: molecule table and cell
+// statistics (CSV + Parquet), count matrices (Loom, TSV), GeoJSON/GeoParquet
+// polygons, output paths and error paths.
 
 #include <gtest/gtest.h>
 
@@ -18,18 +15,15 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
-#include <algorithm>
 #include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iostream>
 #include <map>
 #include <random>
-#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #ifndef _WIN32
@@ -45,31 +39,14 @@ namespace {
 
 namespace fs = std::filesystem;
 
-/// Per-test unique directory under the system temp dir, removed on teardown.
+using baysor_test::read_text_file;
+
 class Cov4OutputFiles : public ::testing::Test {
 protected:
-    void SetUp() override {
-        // Portable unique dir (counter + random suffix, no getpid()).
-        dir_ = baysor_test::make_unique_dir("cov4_output");
-    }
+    std::string path(const std::string& name) const { return tmp_.file(name); }
 
-    void TearDown() override {
-        std::error_code ec;
-        fs::remove_all(dir_, ec);
-    }
-
-    std::string path(const std::string& name) const { return (dir_ / name).string(); }
-
-    fs::path dir_;
+    baysor_test::TempDir tmp_{"cov4_output"};
 };
-
-std::string read_text(const std::string& path) {
-    std::ifstream f(path);
-    EXPECT_TRUE(f.good()) << "cannot read " << path;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
 
 #ifndef _WIN32
 /// Temporarily cap the maximum file size of this process and ignore SIGXFSZ
@@ -119,49 +96,23 @@ std::shared_ptr<arrow::Table> read_parquet(const std::string& path) {
     return table;
 }
 
-std::vector<std::string> string_column(const arrow::Table& t, const std::string& name) {
-    int idx = t.schema()->GetFieldIndex(name);
-    EXPECT_GE(idx, 0) << "missing column " << name;
-    if (idx < 0) return {};
-    auto arr = std::static_pointer_cast<arrow::StringArray>(t.column(idx)->chunk(0));
-    std::vector<std::string> out;
-    out.reserve(static_cast<size_t>(arr->length()));
-    for (int64_t i = 0; i < arr->length(); ++i) out.push_back(arr->GetString(i));
+// Values of column `name` (first chunk).
+template <class ArrayT>
+auto column(const arrow::Table& t, const std::string& name) {
+    using Value = decltype(std::declval<ArrayT>().Value(0));
+    std::vector<std::conditional_t<std::is_same_v<Value, std::string_view>, std::string, Value>> out;
+    const auto col = t.GetColumnByName(name);
+    EXPECT_NE(col, nullptr) << "missing column " << name;
+    if (!col) return out;
+    const auto& arr = static_cast<const ArrayT&>(*col->chunk(0));
+    for (int64_t i = 0; i < arr.length(); ++i) out.emplace_back(arr.Value(i));
     return out;
 }
 
-std::vector<double> double_column(const arrow::Table& t, const std::string& name) {
-    int idx = t.schema()->GetFieldIndex(name);
-    EXPECT_GE(idx, 0) << "missing column " << name;
-    if (idx < 0) return {};
-    auto arr = std::static_pointer_cast<arrow::DoubleArray>(t.column(idx)->chunk(0));
-    std::vector<double> out;
-    out.reserve(static_cast<size_t>(arr->length()));
-    for (int64_t i = 0; i < arr->length(); ++i) out.push_back(arr->Value(i));
-    return out;
-}
-
-std::vector<int32_t> int32_column(const arrow::Table& t, const std::string& name) {
-    int idx = t.schema()->GetFieldIndex(name);
-    EXPECT_GE(idx, 0) << "missing column " << name;
-    if (idx < 0) return {};
-    auto arr = std::static_pointer_cast<arrow::Int32Array>(t.column(idx)->chunk(0));
-    std::vector<int32_t> out;
-    out.reserve(static_cast<size_t>(arr->length()));
-    for (int64_t i = 0; i < arr->length(); ++i) out.push_back(arr->Value(i));
-    return out;
-}
-
-std::vector<bool> bool_column(const arrow::Table& t, const std::string& name) {
-    int idx = t.schema()->GetFieldIndex(name);
-    EXPECT_GE(idx, 0) << "missing column " << name;
-    if (idx < 0) return {};
-    auto arr = std::static_pointer_cast<arrow::BooleanArray>(t.column(idx)->chunk(0));
-    std::vector<bool> out;
-    out.reserve(static_cast<size_t>(arr->length()));
-    for (int64_t i = 0; i < arr->length(); ++i) out.push_back(arr->Value(i));
-    return out;
-}
+auto string_column(const arrow::Table& t, const std::string& name) { return column<arrow::StringArray>(t, name); }
+auto double_column(const arrow::Table& t, const std::string& name) { return column<arrow::DoubleArray>(t, name); }
+auto int32_column(const arrow::Table& t, const std::string& name) { return column<arrow::Int32Array>(t, name); }
+auto bool_column(const arrow::Table& t, const std::string& name) { return column<arrow::BooleanArray>(t, name); }
 
 std::vector<std::string> field_names(const arrow::Table& t) {
     std::vector<std::string> names;
@@ -232,6 +183,27 @@ std::vector<double> h5_read_doubles(hid_t fid, const std::string& ds_path) {
     return out;
 }
 
+/// The loom /matrix dataset (genes x cells, row-major).
+struct LoomMatrix {
+    hsize_t rows = 0, cols = 0;
+    std::vector<float> values;
+};
+
+LoomMatrix h5_read_matrix(hid_t fid) {
+    LoomMatrix m;
+    H5Handle ds(H5Dopen2(fid, "/matrix", H5P_DEFAULT), H5Dclose);
+    EXPECT_GE(ds.id, 0);
+    if (ds.id < 0) return m;
+    H5Handle space(H5Dget_space(ds), H5Sclose);
+    hsize_t dims[2] = {0, 0};
+    EXPECT_EQ(H5Sget_simple_extent_dims(space, dims, nullptr), 2);
+    m.rows = dims[0];
+    m.cols = dims[1];
+    m.values.assign(static_cast<size_t>(m.rows * m.cols), -1.0f);
+    EXPECT_GE(H5Dread(ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, m.values.data()), 0);
+    return m;
+}
+
 baysor::PolygonCollection make_triangle_collection(const std::string& cell_name) {
     baysor::PolygonCollection coll;
     Eigen::MatrixXd tri(2, 3);
@@ -255,12 +227,7 @@ TEST(Cov4OutputStyle, ToStringAndParseRoundTrip) {
     EXPECT_EQ(baysor::to_string(baysor::parse_output_style("parquet")),
               baysor::to_string(baysor::OutputStyle::Parquet));
 
-    try {
-        baysor::parse_output_style("csv");
-        FAIL() << "expected std::invalid_argument";
-    } catch (const std::invalid_argument& e) {
-        EXPECT_NE(std::string(e.what()).find("Unknown output style: csv"), std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::parse_output_style("csv"), std::invalid_argument, "Unknown output style: csv");
 }
 
 TEST_F(Cov4OutputFiles, GetOutputPathsSupportsLoomCountMatrixAndBackslashBase) {
@@ -294,7 +261,7 @@ TEST_F(Cov4OutputFiles, SaveSegmentedDf2DWithoutOptionalColumns) {
     const std::string out = path("seg.csv");
     baysor::save_segmented_df(data, assignment, data.gene_names, out);
 
-    const std::string content = read_text(out);
+    const std::string content = read_text_file(out);
     EXPECT_EQ(content,
               "cell,gene,x,y,is_noise\n"
               "cell_1,A,1.5,4.5,0\n"
@@ -321,7 +288,7 @@ TEST_F(Cov4OutputFiles, SaveSegmentedDf3DWithAllOptionalColumns) {
     baysor::save_segmented_df(data, assignment, data.gene_names, out,
                               &ncv_color, &assign_conf, &cluster);
 
-    const std::string content = read_text(out);
+    const std::string content = read_text_file(out);
     EXPECT_EQ(content,
               "transcript_id,cell,gene,x,y,z,confidence,cluster,ncv_color,"
               "assignment_confidence,is_noise\n"
@@ -407,7 +374,7 @@ TEST_F(Cov4OutputFiles, SaveCellStatDfCsvWritesHeaderAndRows) {
 
     const std::string out = path("stats.csv");
     baysor::save_cell_stat_df(stats, cells, cols, out);
-    EXPECT_EQ(read_text(out),
+    EXPECT_EQ(read_text_file(out),
               "cell,area,density,elongation\n"
               "cell_1,1.5,2,3\n"
               "cell_2,4,5,6.5\n");
@@ -416,7 +383,7 @@ TEST_F(Cov4OutputFiles, SaveCellStatDfCsvWritesHeaderAndRows) {
     Eigen::MatrixXd empty_stats(0, 2);
     const std::string out_empty = path("stats_empty.csv");
     baysor::save_cell_stat_df(empty_stats, {}, {"area", "density"}, out_empty);
-    EXPECT_EQ(read_text(out_empty), "cell,area,density\n");
+    EXPECT_EQ(read_text_file(out_empty), "cell,area,density\n");
 }
 
 TEST_F(Cov4OutputFiles, SaveCellStatDfParquetWritesColumns) {
@@ -455,7 +422,7 @@ TEST_F(Cov4OutputFiles, SaveMatrixToTsvWritesDenseGeneRows) {
 
     const std::string out = path("counts.tsv");
     baysor::save_matrix_to_tsv(matrix, genes, cells, out);
-    EXPECT_EQ(read_text(out),
+    EXPECT_EQ(read_text_file(out),
               "gene\tc1\tc2\tc3\n"
               "G1\t2\t0\t0\n"
               "G2\t0\t0\t5\n");
@@ -467,29 +434,13 @@ TEST_F(Cov4OutputFiles, SaveMatrixToTsvRejectsMismatchedNames) {
     matrix.makeCompressed();
 
     const std::string out = path("counts_bad.tsv");
-    try {
-        baysor::save_matrix_to_tsv(matrix, {"G1", "G2"}, {"c1", "c2"}, out);
-        FAIL() << "expected std::runtime_error for gene_names";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("save_matrix_to_tsv: gene_names length mismatch"),
-                  std::string::npos);
-    }
-    try {
-        baysor::save_matrix_to_tsv(matrix, {"G1"}, {"c1", "c2", "c3"}, out);
-        FAIL() << "expected std::runtime_error for cell_names";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("save_matrix_to_tsv: cell_names length mismatch"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::save_matrix_to_tsv(matrix, {"G1", "G2"}, {"c1", "c2"}, out),
+                     std::runtime_error, "save_matrix_to_tsv: gene_names length mismatch");
+    EXPECT_THROW_MSG(baysor::save_matrix_to_tsv(matrix, {"G1"}, {"c1", "c2", "c3"}, out),
+                     std::runtime_error, "save_matrix_to_tsv: cell_names length mismatch");
     // Unwritable target (parent directory does not exist).
-    try {
-        baysor::save_matrix_to_tsv(matrix, {"G1"}, {"c1"},
-                                   path("no_such_dir") + "/counts.tsv");
-        FAIL() << "expected std::runtime_error for unopenable file";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("save_matrix_to_tsv: cannot open"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::save_matrix_to_tsv(matrix, {"G1"}, {"c1"}, path("no_such_dir/counts.tsv")),
+                     std::runtime_error, "save_matrix_to_tsv: cannot open");
 }
 
 // ============================================================================
@@ -501,7 +452,7 @@ TEST_F(Cov4OutputFiles, SavePolygonsGeoJsonGeometryCollection) {
     const std::string out = path("geom.json");
     baysor::save_polygons_geojson(coll, out, "GeometryCollection");
 
-    auto json = nlohmann::json::parse(read_text(out));
+    auto json = nlohmann::json::parse(read_text_file(out));
     EXPECT_EQ(json["type"], "GeometryCollection");
     ASSERT_TRUE(json.contains("geometries"));
     ASSERT_EQ(json["geometries"].size(), 1u);
@@ -530,7 +481,7 @@ TEST_F(Cov4OutputFiles, SavePolygonsGeoJsonSkipsTinyFeaturesAndRingsAreClosed) {
     const std::string out = path("features.json");
     baysor::save_polygons_geojson(coll, out, "FeatureCollection");
 
-    auto json = nlohmann::json::parse(read_text(out));
+    auto json = nlohmann::json::parse(read_text_file(out));
     EXPECT_EQ(json["type"], "FeatureCollection");
     ASSERT_EQ(json["features"].size(), 2u);  // tiny feature skipped
     int n_open = 0, n_closed = 0;
@@ -648,11 +599,11 @@ TEST_F(Cov4OutputFiles, SavePolygonStackGeoJsonWrites2dAnd3dOutputs) {
     baysor::PolygonStack stack = {{"2d", coll2d}, {"z0", coll_z}};
     baysor::save_polygon_stack_geojson(stack, paths);
 
-    auto j2d = nlohmann::json::parse(read_text(paths.polygons_2d));
+    auto j2d = nlohmann::json::parse(read_text_file(paths.polygons_2d));
     EXPECT_EQ(j2d["type"], "FeatureCollection");
     EXPECT_EQ(j2d["features"][0]["id"], "cell_2d");
 
-    auto j3d = nlohmann::json::parse(read_text(paths.polygons_3d));
+    auto j3d = nlohmann::json::parse(read_text_file(paths.polygons_3d));
     ASSERT_TRUE(j3d.contains("z0"));
     EXPECT_EQ(j3d["z0"]["type"], "FeatureCollection");
     EXPECT_EQ(j3d["z0"]["features"][0]["id"], "cell_z");
@@ -751,8 +702,8 @@ TEST_F(Cov4OutputFiles, SaveLoomWithColAttrsWritesStringAndDoubleDatasets) {
     const std::string out = path("counts.loom");
     baysor::save_matrix_to_loom(matrix, genes, cells, out, col_attrs);
 
-    hid_t fid = H5Fopen(out.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-    ASSERT_GE(fid, 0);
+    H5Handle fid(H5Fopen(out.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT), H5Fclose);
+    ASSERT_GE(fid.id, 0);
     EXPECT_EQ(h5_read_vlen_strings(fid, "/attrs/LOOM_SPEC_VERSION"),
               std::vector<std::string>{"3.0.0"});
     EXPECT_EQ(h5_read_vlen_strings(fid, "/row_attrs/Name"), genes);
@@ -765,24 +716,12 @@ TEST_F(Cov4OutputFiles, SaveLoomWithColAttrsWritesStringAndDoubleDatasets) {
               (std::vector<double>{1.0, 2.0}));
 
     // Loom matrix is stored genes x cells; the empty cell is an all-zero column.
-    hid_t matrix_ds = H5Dopen2(fid, "/matrix", H5P_DEFAULT);
-    ASSERT_GE(matrix_ds, 0);
-    hid_t space = H5Dget_space(matrix_ds);
-    hsize_t dims[2] = {0, 0};
-    ASSERT_EQ(H5Sget_simple_extent_dims(space, dims, nullptr), 2);
-    EXPECT_EQ(dims[0], 3u);
-    EXPECT_EQ(dims[1], 2u);
-    std::vector<float> values(6, -1.0f);
-    EXPECT_GE(H5Dread(matrix_ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                      values.data()),
-              0);
-    const std::vector<float> expected = {2.0f, 0.0f,
-                                         0.0f, 0.0f,
-                                         5.0f, 0.0f};
-    EXPECT_EQ(values, expected);
-    H5Sclose(space);
-    H5Dclose(matrix_ds);
-    H5Fclose(fid);
+    const auto m = h5_read_matrix(fid);
+    EXPECT_EQ(m.rows, 3u);
+    EXPECT_EQ(m.cols, 2u);
+    EXPECT_EQ(m.values, (std::vector<float>{2.0f, 0.0f,
+                                            0.0f, 0.0f,
+                                            5.0f, 0.0f}));
 }
 
 TEST_F(Cov4OutputFiles, SaveLoomColMajorOverloadWithColAttrs) {
@@ -797,29 +736,17 @@ TEST_F(Cov4OutputFiles, SaveLoomColMajorOverloadWithColAttrs) {
     const std::string out = path("counts_cm.loom");
     baysor::save_matrix_to_loom(matrix, {"G1", "G2", "G3"}, {"c1", "c2"}, out, col_attrs);
 
-    hid_t fid = H5Fopen(out.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-    ASSERT_GE(fid, 0);
+    H5Handle fid(H5Fopen(out.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT), H5Fclose);
+    ASSERT_GE(fid.id, 0);
     EXPECT_EQ(h5_read_vlen_strings(fid, "/col_attrs/ncv_color"),
               (std::vector<std::string>{"x", "y"}));
-    hid_t matrix_ds = H5Dopen2(fid, "/matrix", H5P_DEFAULT);
-    ASSERT_GE(matrix_ds, 0);
-    hid_t space = H5Dget_space(matrix_ds);
-    hsize_t dims[2] = {0, 0};
-    ASSERT_EQ(H5Sget_simple_extent_dims(space, dims, nullptr), 2);
-    EXPECT_EQ(dims[0], 3u);
-    EXPECT_EQ(dims[1], 2u);
-    std::vector<float> values(6, -1.0f);
-    EXPECT_GE(H5Dread(matrix_ds, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT,
-                      values.data()),
-              0);
     // Gene G2 in cell c2 only.
-    const std::vector<float> expected = {0.0f, 0.0f,
-                                         0.0f, 7.0f,
-                                         0.0f, 0.0f};
-    EXPECT_EQ(values, expected);
-    H5Sclose(space);
-    H5Dclose(matrix_ds);
-    H5Fclose(fid);
+    const auto m = h5_read_matrix(fid);
+    EXPECT_EQ(m.rows, 3u);
+    EXPECT_EQ(m.cols, 2u);
+    EXPECT_EQ(m.values, (std::vector<float>{0.0f, 0.0f,
+                                            0.0f, 7.0f,
+                                            0.0f, 0.0f}));
 }
 
 TEST_F(Cov4OutputFiles, SaveLoomRejectsMismatchedNames) {
@@ -828,20 +755,10 @@ TEST_F(Cov4OutputFiles, SaveLoomRejectsMismatchedNames) {
     matrix.makeCompressed();
 
     const std::string out = path("bad.loom");
-    try {
-        baysor::save_matrix_to_loom(matrix, {"G1", "G2"}, {"c1", "c2"}, out);
-        FAIL() << "expected std::runtime_error for gene_names";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("gene_names length mismatch"),
-                  std::string::npos);
-    }
-    try {
-        baysor::save_matrix_to_loom(matrix, {"G1", "G2", "G3"}, {"c1", "c2", "c3"}, out);
-        FAIL() << "expected std::runtime_error for cell_names";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("cell_names length mismatch"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::save_matrix_to_loom(matrix, {"G1", "G2"}, {"c1", "c2"}, out),
+                     std::runtime_error, "gene_names length mismatch");
+    EXPECT_THROW_MSG(baysor::save_matrix_to_loom(matrix, {"G1", "G2", "G3"}, {"c1", "c2", "c3"}, out),
+                     std::runtime_error, "cell_names length mismatch");
 }
 
 // ============================================================================
@@ -851,14 +768,8 @@ TEST_F(Cov4OutputFiles, SaveLoomRejectsMismatchedNames) {
 TEST_F(Cov4OutputFiles, ParquetOpenFailureThrowsRuntimeError) {
     Eigen::MatrixXd stats(1, 1);
     stats << 1.0;
-    try {
-        baysor::save_cell_stat_df_parquet(stats, {"c1"}, {"area"},
-                                          path("no_such_dir") + "/cells.parquet");
-        FAIL() << "expected std::runtime_error";
-    } catch (const std::runtime_error& e) {
-        EXPECT_NE(std::string(e.what()).find("Open parquet output"),
-                  std::string::npos);
-    }
+    EXPECT_THROW_MSG(baysor::save_cell_stat_df_parquet(stats, {"c1"}, {"area"}, path("no_such_dir/cells.parquet")),
+                     std::runtime_error, "Open parquet output");
 }
 
 #ifndef _WIN32
@@ -871,14 +782,8 @@ TEST_F(Cov4OutputFiles, ParquetOpenWriteFailureThrowsRuntimeError) {
     }
     Eigen::MatrixXd stats(1, 1);
     stats << 1.0;
-    try {
-        baysor::save_cell_stat_df_parquet(stats, {"c1"}, {"area"}, "/dev/full");
-        FAIL() << "expected std::runtime_error";
-    } catch (const std::runtime_error& e) {
-        const std::string msg = e.what();
-        EXPECT_NE(msg.find("Open parquet writer"), std::string::npos) << msg;
-        EXPECT_NE(msg.find("IOError"), std::string::npos) << msg;
-    }
+    EXPECT_THROW_MSG(baysor::save_cell_stat_df_parquet(stats, {"c1"}, {"area"}, "/dev/full"),
+                     std::runtime_error, "Open parquet writer: IOError");
 }
 #endif  // !_WIN32
 
