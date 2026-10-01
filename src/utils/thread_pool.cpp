@@ -15,6 +15,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef __linux__
+#include <climits>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
 #ifdef EIGEN_GEMM_THREADPOOL
 #include <Eigen/Core>
 #include <Eigen/ThreadPool>
@@ -49,20 +56,41 @@ inline void cpu_relax() {
 // A short bounded spin captures the latency win of busy waiting at light load
 // without its catastrophic behaviour on a loaded host (where OpenMP-style
 // spinning measured slower than a single thread). 0 disables spinning.
-int spin_budget_us() {
-    static const int budget = [] {
+// Explicit BAYSOR_POOL_SPIN_US value, or -1 when unset/invalid.
+int spin_budget_env() {
+    static const int value = [] {
         if (const char* env = std::getenv("BAYSOR_POOL_SPIN_US")) {
             try {
                 int v = std::stoi(env);
                 if (v >= 0) return v;
             } catch (...) {
-                // fall through to the default
+                // fall through: unset
             }
         }
-        return 20;
+        return -1;
     }();
-    return budget;
+    return value;
 }
+
+int spin_budget_us() {
+    const int env = spin_budget_env();
+    return env >= 0 ? env : 20;
+}
+
+#ifdef __linux__
+// Futex wait/wake on a 32-bit atomic (private to this process). Sleeping
+// barrier waiters are released with one FUTEX_WAKE instead of a
+// condition-variable broadcast that makes them contend for one mutex.
+void futex_wait(std::atomic<std::uint32_t>* word, std::uint32_t expected) {
+    syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(word), FUTEX_WAIT_PRIVATE,
+            expected, nullptr, nullptr, 0);
+}
+
+void futex_wake_all(std::atomic<std::uint32_t>* word) {
+    syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(word), FUTEX_WAKE_PRIVATE,
+            INT_MAX, nullptr, nullptr, 0);
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // Job: one parallel region
@@ -77,6 +105,9 @@ struct Job {
     std::int64_t n_chunks = 0;
     std::vector<std::int64_t> static_starts;  // Static scheduling: start index per chunk
     std::vector<std::int64_t> static_lens;    // Static scheduling: length per chunk
+    // Persistent region: every participant runs `(*region)(worker_index)`
+    // exactly once instead of claiming chunks.
+    const std::function<void(int)>* region = nullptr;
 
     std::atomic<std::int64_t> next{0};
     std::atomic<int> active{0};               // participants not finished with this job
@@ -137,7 +168,9 @@ public:
         // wake take part in the job: no thundering herd, and tiny regions run
         // on the calling thread alone.
         int bg = n_workers_ - 1;
-        int wake = static_cast<int>(std::min<std::int64_t>(bg, job.n_chunks));
+        int wake = (job.region != nullptr)
+            ? bg
+            : static_cast<int>(std::min<std::int64_t>(bg, job.n_chunks));
         job.active.store(wake + 1, std::memory_order_relaxed);
 
         for (int k = 0; k < wake; ++k) {
@@ -227,6 +260,16 @@ private:
 
     // Claim and execute chunks until the job is exhausted or has failed.
     static void process_job(Job& job, int worker_id) {
+        if (job.region != nullptr) {
+            ++t_region_depth;
+            try {
+                (*job.region)(worker_id);
+            } catch (...) {
+                job.record_error();
+            }
+            --t_region_depth;
+            return;
+        }
         for (;;) {
             if (job.failed.load(std::memory_order_acquire)) break;
             std::int64_t idx = job.next.fetch_add(1, std::memory_order_relaxed);
@@ -344,6 +387,52 @@ void configure_eigen_gemm(int n_threads) {
 #endif
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Persistent regions: shared state
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+struct RegionShared {
+    int n_workers = 1;
+    // Barrier spin budget (us). Without an explicit BAYSOR_POOL_SPIN_US it is
+    // 0 when the region has more workers than physical cores: spinning
+    // waiters then take CPU time from preempted participants that everyone
+    // is waiting for.
+    int spin_us = 0;
+
+    // Dynamic loops: one monotonically increasing chunk counter for the whole
+    // region. Every participant claims chunks of a loop until it overshoots,
+    // which it does exactly once per loop, so after a loop with C chunks the
+    // counter has advanced by C + n_workers on every participant's view.
+    alignas(64) std::atomic<std::int64_t> next_chunk{0};
+
+    // Centralized barrier: arrival count plus generation number; waiters
+    // spin briefly on the generation, then sleep (futex on Linux, else a
+    // condition variable).
+    alignas(64) std::atomic<int> arrived{0};
+    alignas(64) std::atomic<std::uint32_t> generation{0};
+    std::atomic<int> sleepers{0};
+#ifndef __linux__
+    std::mutex mutex;
+    std::condition_variable cv;
+#endif
+
+    std::atomic<bool> failed{false};
+    std::mutex error_mutex;
+    std::exception_ptr error;
+
+    void record_error() {
+        std::lock_guard<std::mutex> lk(error_mutex);
+        if (!error) {
+            error = std::current_exception();
+        }
+        failed.store(true, std::memory_order_release);
+    }
+};
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -480,6 +569,165 @@ void run_parallel_chunks(std::int64_t begin, std::int64_t end, std::int64_t chun
     }
 
     pool->run(job);
+}
+
+// ---------------------------------------------------------------------------
+// Persistent regions
+// ---------------------------------------------------------------------------
+
+bool ParallelRegion::cancelled() const {
+    return shared_ != nullptr && shared_->failed.load(std::memory_order_acquire);
+}
+
+void ParallelRegion::run_guarded(const std::function<void()>& fn) {
+    if (shared_ == nullptr) {
+        fn();  // serial region: exceptions propagate directly
+        return;
+    }
+    try {
+        fn();
+    } catch (...) {
+        shared_->record_error();
+    }
+}
+
+void ParallelRegion::for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
+                                Scheduling sched,
+                                const std::function<void(std::int64_t, std::int64_t, int)>& fn) {
+    if (chunk <= 0) chunk = 1;
+
+    if (shared_ == nullptr) {
+        // Serial region: the run_parallel_chunks serial path.
+        if (end <= begin) return;
+        if (sched == Scheduling::Static) {
+            fn(begin, end, worker_);
+        } else {
+            for (std::int64_t b = begin; b < end; b += chunk) {
+                fn(b, std::min(end, b + chunk), worker_);
+            }
+        }
+        return;
+    }
+
+    if (end > begin) {
+        const std::int64_t n = end - begin;
+        if (sched == Scheduling::Static) {
+            const std::int64_t blocks = std::min<std::int64_t>(n_workers_, n);
+            if (worker_ < blocks && !cancelled()) {
+                const std::int64_t base = n / blocks;
+                const std::int64_t rem = n % blocks;
+                const std::int64_t b = begin + worker_ * base + std::min<std::int64_t>(worker_, rem);
+                const std::int64_t e = b + base + (worker_ < rem ? 1 : 0);
+                run_guarded([&]() { fn(b, e, worker_); });
+            }
+        } else {
+            const std::int64_t n_chunks = (n + chunk - 1) / chunk;
+            for (;;) {
+                const std::int64_t idx =
+                    shared_->next_chunk.fetch_add(1, std::memory_order_relaxed) - chunk_base_;
+                if (idx >= n_chunks) break;
+                if (cancelled()) continue;  // keep claiming so the counter stays consistent
+                const std::int64_t b = begin + idx * chunk;
+                const std::int64_t e = std::min(end, b + chunk);
+                run_guarded([&]() { fn(b, e, worker_); });
+            }
+            chunk_base_ += n_chunks + n_workers_;
+        }
+    }
+    barrier();
+}
+
+void ParallelRegion::barrier() {
+    if (shared_ == nullptr) return;
+    detail::RegionShared& sh = *shared_;
+
+    const std::uint32_t gen = sh.generation.load(std::memory_order_acquire);
+    if (sh.arrived.fetch_add(1, std::memory_order_acq_rel) == n_workers_ - 1) {
+        // Last to arrive: reset the count (nobody can arrive at the next
+        // barrier before observing the new generation) and release everyone.
+        // seq_cst on generation/sleepers: a waiter that registers as a
+        // sleeper either sees the new generation or is seen here.
+        sh.arrived.store(0, std::memory_order_relaxed);
+#ifdef __linux__
+        sh.generation.store(gen + 1, std::memory_order_seq_cst);
+        if (sh.sleepers.load(std::memory_order_seq_cst) > 0) futex_wake_all(&sh.generation);
+#else
+        bool wake;
+        {
+            std::lock_guard<std::mutex> lk(sh.mutex);
+            sh.generation.store(gen + 1, std::memory_order_seq_cst);
+            wake = sh.sleepers.load(std::memory_order_relaxed) > 0;
+        }
+        if (wake) sh.cv.notify_all();
+#endif
+        return;
+    }
+
+    // Spin-then-block: barriers between balanced phases resolve within the
+    // spin budget; long serial sections (single blocks) put waiters to sleep.
+    if (sh.spin_us > 0) {
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::microseconds(sh.spin_us);
+        while (sh.generation.load(std::memory_order_acquire) == gen) {
+            if (std::chrono::steady_clock::now() >= deadline) break;
+            cpu_relax();
+        }
+    }
+    if (sh.generation.load(std::memory_order_acquire) != gen) return;
+#ifdef __linux__
+    sh.sleepers.fetch_add(1, std::memory_order_seq_cst);
+    while (sh.generation.load(std::memory_order_seq_cst) == gen) {
+        futex_wait(&sh.generation, gen);
+    }
+    sh.sleepers.fetch_sub(1, std::memory_order_relaxed);
+#else
+    std::unique_lock<std::mutex> lk(sh.mutex);
+    sh.sleepers.fetch_add(1, std::memory_order_relaxed);
+    sh.cv.wait(lk, [&] { return sh.generation.load(std::memory_order_acquire) != gen; });
+    sh.sleepers.fetch_sub(1, std::memory_order_relaxed);
+#endif
+}
+
+void parallel_region(const std::function<void(ParallelRegion&)>& body) {
+    if (t_region_depth > 0 || effective_threads() <= 1) {
+        ParallelRegion region(nullptr, 0, 1);
+        ++t_region_depth;
+        try {
+            body(region);
+        } catch (...) {
+            --t_region_depth;
+            throw;
+        }
+        --t_region_depth;
+        return;
+    }
+
+    std::lock_guard<std::mutex> region_lk(region_mutex());
+
+    ThreadPool* pool = pool_storage().get();
+    if (pool == nullptr) {
+        pool_storage() = std::make_unique<ThreadPool>(effective_threads());
+        pool = pool_storage().get();
+    }
+
+    detail::RegionShared shared;
+    shared.n_workers = pool->n_workers();
+    static const int physical_cores = default_thread_count();
+    shared.spin_us = spin_budget_env() >= 0 ? spin_budget_env()
+                   : (shared.n_workers > physical_cores ? 0 : spin_budget_us());
+    const std::function<void(int)> participant = [&](int worker) {
+        ParallelRegion region(&shared, worker, shared.n_workers);
+        body(region);
+    };
+
+    Job job;
+    job.region = &participant;
+    job.n_chunks = shared.n_workers;
+    pool->run(job);  // rethrows an exception escaping a participant's body
+
+    if (shared.error) {
+        std::rethrow_exception(shared.error);
+    }
 }
 
 } // namespace baysor

@@ -147,6 +147,98 @@ T parallel_reduce(std::int64_t begin, std::int64_t end, std::int64_t bucket_size
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Persistent parallel regions
+// ---------------------------------------------------------------------------
+// `parallel_region(body)` wakes the pool once and runs `body(region)` on every
+// worker (OpenMP `#pragma omp parallel`). Inside, the participants execute
+// work-shared loops, barriers and single blocks, so a sequence of parallel
+// phases with short serial glue costs one wake-up instead of one per loop.
+//
+// Rules (as in OpenMP):
+//  - Every participant must call the work-sharing constructs (`for_chunks`,
+//    `for_each`, `barrier`, `single`) in the same order with the same
+//    arguments; control flow that depends on shared data must read it only
+//    after a barrier that orders its last write.
+//  - Exceptions thrown inside `for_chunks` bodies and `single` blocks are
+//    recorded, the remaining constructs are skipped (`cancelled()` becomes
+//    true after the next barrier), and the first exception is rethrown on the
+//    calling thread when the region ends. The body itself must not throw
+//    outside these constructs.
+//  - With 1 thread, or when called inside another parallel region, the body
+//    runs once on the calling thread with `n_workers() == 1`; loops then run
+//    their chunks inline in index order, exactly like run_parallel_chunks.
+//  - Nested parallel_for / run_parallel_chunks calls inside the region run
+//    serially on the calling participant.
+
+namespace detail { struct RegionShared; }
+
+class ParallelRegion {
+public:
+    /// Index of this participant in [0, n_workers()). The calling thread is
+    /// n_workers() - 1 (it also runs `single` blocks).
+    int worker_index() const { return worker_; }
+    int n_workers() const { return n_workers_; }
+    bool is_master() const { return worker_ == n_workers_ - 1; }
+
+    /// Work-shared loop over [begin, end), followed by a barrier.
+    ///  - Dynamic: fixed chunks of `chunk` indices handed out through a shared
+    ///    counter; chunk boundaries never depend on the thread count.
+    ///  - Static: [begin, end) split into n_workers() contiguous blocks as
+    ///    evenly as possible; participant w processes block w (if non-empty),
+    ///    so per-worker partial results can be indexed by worker_index().
+    /// `fn(chunk_begin, chunk_end, worker_index)`.
+    void for_chunks(std::int64_t begin, std::int64_t end, std::int64_t chunk,
+                    Scheduling sched,
+                    const std::function<void(std::int64_t, std::int64_t, int)>& fn);
+
+    /// Per-index work-shared loop; `fn` takes (index) or (index, worker_index).
+    template <class Fn>
+    void for_each(std::int64_t begin, std::int64_t end, std::int64_t chunk, Fn&& fn,
+                  Scheduling sched = Scheduling::Dynamic) {
+        for_chunks(begin, end, chunk, sched,
+            [&fn](std::int64_t b, std::int64_t e, int worker) {
+                if constexpr (detail::takes_worker<Fn>::value) {
+                    for (std::int64_t i = b; i < e; ++i) fn(i, worker);
+                } else {
+                    for (std::int64_t i = b; i < e; ++i) fn(i);
+                }
+            });
+    }
+
+    /// All participants wait until every participant has arrived.
+    void barrier();
+
+    /// Run `fn()` on the master participant only, then barrier.
+    template <class Fn>
+    void single(Fn&& fn) {
+        if (is_master() && !cancelled()) {
+            run_guarded([&fn]() { fn(); });
+        }
+        barrier();
+    }
+
+    /// True once a construct has failed (stable between barriers).
+    bool cancelled() const;
+
+    ParallelRegion(detail::RegionShared* shared, int worker, int n_workers)
+        : shared_(shared), worker_(worker), n_workers_(n_workers) {}
+    ParallelRegion(const ParallelRegion&) = delete;
+    ParallelRegion& operator=(const ParallelRegion&) = delete;
+
+private:
+    void run_guarded(const std::function<void()>& fn);
+
+    detail::RegionShared* shared_;  // nullptr: serial region
+    int worker_;
+    int n_workers_;
+    std::int64_t chunk_base_ = 0;   // this participant's view of the shared chunk counter
+};
+
+/// Run `body` once on every pool worker (see above). Blocks until all
+/// participants have returned; rethrows the first recorded exception.
+void parallel_region(const std::function<void(ParallelRegion&)>& body);
+
 } // namespace baysor
 
 // ---------------------------------------------------------------------------

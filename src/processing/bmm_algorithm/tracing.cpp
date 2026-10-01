@@ -8,15 +8,16 @@
 
 namespace baysor {
 
+namespace {
+
 template<int N>
-void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
+void push_n_components_entry(BmmData<N>& data, int min_molecules_per_cell,
+                             const std::vector<int>& n_mols) {
     // Compute unique thresholds: {max(round(0.5*min),1), max(min,1), max(2*min,1), max(5*min,1)}
     std::set<int> thresh_set;
     for (double mult : {0.5, 1.0, 2.0, 5.0}) {
         thresh_set.insert(std::max(static_cast<int>(std::round(mult * min_molecules_per_cell)), 1));
     }
-
-    auto n_mols = data.num_molecules_per_cell();  // length = n_components
 
     std::unordered_map<int, int> entry;
     for (int t : thresh_set) {
@@ -30,24 +31,44 @@ void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
     data.n_components_trace.push_back(std::move(entry));
 }
 
+} // namespace
+
+template<int N>
+void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
+    push_n_components_entry(data, min_molecules_per_cell, data.num_molecules_per_cell());
+}
+
+template<int N>
+void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
+                        const IdsByComponent& ids_by_comp) {
+    std::vector<int> n_mols(data.n_components());
+    for (int c = 0; c < data.n_components(); ++c) n_mols[c] = ids_by_comp.size(c);
+    push_n_components_entry(data, min_molecules_per_cell, n_mols);
+}
+
+template<int N>
+void trace_assignment_history(ParallelRegion& region, BmmData<N>& data,
+                              int assignment_history_depth) {
+    if (assignment_history_depth <= 0) return;
+
+    // Global assignment: local 1-based IDs replaced with component GUIDs.
+    // The oldest entries are dropped first (trim to depth), so the evicted
+    // delta buffer is recycled.
+    const auto& assignment = data.assignment;
+    const auto& components = data.components;
+    data.assignment_history.push_back_generated(
+        region, data.n_molecules(), static_cast<size_t>(assignment_history_depth), [&](int i) {
+        const int a = assignment[i];
+        return (a > 0) ? components[a - 1].guid : 0;
+    });
+}
+
 template<int N>
 void trace_assignment_history(BmmData<N>& data, int assignment_history_depth) {
     if (assignment_history_depth <= 0) return;
-
-    // Build global assignment: replace local 1-based IDs with component GUIDs
-    int n = data.n_molecules();
-    std::vector<int> global(n);
-    for (int i = 0; i < n; ++i) {
-        int a = data.assignment[i];
-        global[i] = (a > 0) ? data.components[a - 1].guid : 0;
-    }
-
-    data.assignment_history.push_back(std::move(global));
-
-    // Trim to depth
-    while (static_cast<int>(data.assignment_history.size()) > assignment_history_depth) {
-        data.assignment_history.erase(data.assignment_history.begin());
-    }
+    parallel_region([&](ParallelRegion& region) {
+        trace_assignment_history(region, data, assignment_history_depth);
+    });
 }
 
 std::unordered_map<int, int> estimate_component_lifespan(
@@ -80,9 +101,59 @@ std::unordered_map<int, int> estimate_component_lifespan(
     return lifespans;
 }
 
+std::unordered_map<int, int> estimate_component_lifespan_history(
+    const AssignmentHistory& history
+) {
+    std::unordered_map<int, int> lifespans;
+    const int total = static_cast<int>(history.size());
+    if (total == 0) return lifespans;
+
+    // Walk the entries backward from the newest one, keeping the current row
+    // and the number of molecules per guid up to date with the deltas.
+    std::vector<int> cur = history.newest();
+    int max_guid = 0;
+    for (int g : cur) max_guid = std::max(max_guid, g);
+    for (int t = 0; t + 1 < total; ++t) {
+        for (const auto& c : history.changes_after(t)) max_guid = std::max(max_guid, c.value);
+    }
+    std::vector<int> count(static_cast<size_t>(max_guid) + 1, 0);
+    std::vector<int> tracking;
+    for (int guid : cur) {
+        if (guid < 0) continue;
+        if (count[guid]++ == 0 && guid > 0) {
+            // Same keys and insertion order as the row-based version
+            lifespans[guid] = 1;
+            tracking.push_back(guid);
+        }
+    }
+
+    // Extend the lifespan only while the consecutive streak is unbroken
+    for (int it = total - 2; it >= 0 && !tracking.empty(); --it) {
+        for (const auto& c : history.changes_after(it)) {
+            const int old_g = cur[c.mol];
+            if (old_g >= 0) --count[old_g];
+            if (c.value >= 0) ++count[c.value];
+            cur[c.mol] = c.value;
+        }
+        size_t kept = 0;
+        for (int guid : tracking) {
+            if (count[guid] > 0) {
+                lifespans[guid]++;
+                tracking[kept++] = guid;
+            }
+        }
+        tracking.resize(kept);
+    }
+    return lifespans;
+}
+
 template void trace_n_components<2>(BmmData<2>&, int);
 template void trace_n_components<3>(BmmData<3>&, int);
+template void trace_n_components<2>(BmmData<2>&, int, const IdsByComponent&);
+template void trace_n_components<3>(BmmData<3>&, int, const IdsByComponent&);
 template void trace_assignment_history<2>(BmmData<2>&, int);
 template void trace_assignment_history<3>(BmmData<3>&, int);
+template void trace_assignment_history<2>(ParallelRegion&, BmmData<2>&, int);
+template void trace_assignment_history<3>(ParallelRegion&, BmmData<3>&, int);
 
 } // namespace baysor

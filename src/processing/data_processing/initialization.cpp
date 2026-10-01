@@ -12,6 +12,7 @@
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace baysor {
@@ -273,7 +274,7 @@ InitialParams<N> cell_centers_uniformly(
 template<int N>
 BmmData<N> initialize_bmm_data(
     const MoleculeData& mol_data,
-    const AdjList& adj_list,
+    AdjList adj_list,
     int n_cells_init,
     double scale,
     const std::string& scale_std_str,
@@ -358,7 +359,7 @@ BmmData<N> initialize_bmm_data(
     bm_data.cluster_per_molecule = mol_data.cluster;
     bm_data.nuclei_prob_per_molecule = mol_data.nuclei_probs;
 
-    bm_data.adj_list   = adj_list;
+    bm_data.adj_list   = std::move(adj_list);
     bm_data.components = std::move(components);
     bm_data.assignment = init.assignment;
     bm_data.max_component_guid = actual_n_cells;
@@ -393,10 +394,10 @@ template InitialParams<2> cell_centers_uniformly<2>(
 template InitialParams<3> cell_centers_uniformly<3>(
     const Eigen::MatrixXd&, int, const std::vector<double>*, double);
 template BmmData<2> initialize_bmm_data<2>(
-    const MoleculeData&, const AdjList&, int, double,
+    const MoleculeData&, AdjList, int, double,
     const std::string&, double, int, bool);
 template BmmData<3> initialize_bmm_data<3>(
-    const MoleculeData&, const AdjList&, int, double,
+    const MoleculeData&, AdjList, int, double,
     const std::string&, double, int, bool);
 
 } // namespace baysor

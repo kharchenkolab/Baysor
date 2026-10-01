@@ -15,6 +15,10 @@ class JuliaIntDoubleDict {
 public:
     JuliaIntDoubleDict() { reset_storage(16); }
 
+    /// Back to the state of a freshly constructed dict (16 empty slots),
+    /// reusing the storage.
+    void reset() { reset_storage(16); }
+
     void clear() {
         std::fill(slots_.begin(), slots_.end(), 0);
         count_ = 0;
