@@ -13,6 +13,7 @@
 
 #include "knncolle/knncolle.hpp"
 #include "umappp/umappp.hpp"
+#include "baysor/processing/data_processing/umap_optimize.h"
 
 #include <algorithm>
 #include <numeric>
@@ -20,6 +21,41 @@
 #include <vector>
 
 namespace baysor {
+
+namespace {
+
+// umappp::initialize(neighbors, ndim_out, embedding, opt) followed by
+// Status::run(), with the layout optimised by Baysor's serial optimiser
+// (umap_optimize.h) instead of umappp's. The set-up steps are umappp's own, in
+// umappp's order, so the result is the same as umappp's serial path (which
+// is what Baysor used). `embedding` holds the initial coordinates
+// (InitializeMethod::NONE); opt.initialize and opt.num_threads are not used.
+void umap_optimize(
+    knncolle::NeighborList<int, double> neighbors,
+    int ndim_out,
+    double* embedding,
+    umappp::Options opt
+) {
+    umappp::internal::neighbor_similarities<int, double>(neighbors, opt.local_connectivity, opt.bandwidth);
+    umappp::internal::combine_neighbor_sets<int, double>(neighbors, opt.mix_ratio);
+
+    if (opt.a <= 0 || opt.b <= 0) {
+        auto found = umappp::internal::find_ab(opt.spread, opt.min_dist);
+        opt.a = found.first;
+        opt.b = found.second;
+    }
+    opt.num_epochs = umappp::internal::choose_num_epochs(opt.num_epochs, neighbors.size());
+
+    auto epochs = umappp::internal::similarities_to_epochs<int, double>(
+        neighbors, opt.num_epochs, opt.negative_sample_rate);
+    std::mt19937_64 engine(opt.seed);
+    umap_detail::optimize_layout_dispatch(
+        static_cast<std::size_t>(ndim_out), embedding, epochs,
+        opt.a, opt.b, opt.repulsion_strength, opt.learning_rate,
+        engine, epochs.total_epochs);
+}
+
+} // namespace
 
 // ============================================================================
 // umap_embed — from raw data matrix
@@ -75,17 +111,12 @@ Eigen::MatrixXd umap_embed(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.spread     = spread;
     opt.min_dist   = min_dist;
-    opt.num_threads = thread_pool_size();
-    // Keep umappp's parallel layout optimizer off: its output is deterministic
-    // and matches the serial optimizer at any thread count, but it spawns its
-    // own busy-wait worker threads, which measured 1.8x slower at 4 threads
-    // and 4.3x slower at 8 on a busy host. The KNN search and similarity
-    // smoothing run on the Baysor pool through UMAPPP_CUSTOM_PARALLEL.
-    opt.parallel_optimization = false;
-    opt.initialize = umappp::InitializeMethod::NONE; // use our pre-filled buffer
+    // The layout optimizer is serial (umap_optimize): umappp's parallel
+    // optimizer is deterministic and matches the serial one at any thread
+    // count, but it spawns its own busy-wait worker threads, which measured
+    // 1.8x slower at 4 threads and 4.3x slower at 8 on a busy host.
 
-    auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
-    status.run();
+    umap_optimize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
 
     // Copy result into Eigen matrix (ndim_out x nobs, column-major).
     return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, nobs);
@@ -143,12 +174,8 @@ Eigen::MatrixXd umap_embed_precomputed(
     opt.seed       = static_cast<uint64_t>(seed);
     opt.min_dist   = 0.1;
     opt.spread     = 1.0;
-    opt.num_threads = thread_pool_size();
-    opt.parallel_optimization = false;
-    opt.initialize = umappp::InitializeMethod::NONE;
 
-    auto status = umappp::initialize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
-    status.run();
+    umap_optimize(std::move(neighbors), ndim_out, emb_buf.data(), opt);
 
     return Eigen::Map<Eigen::MatrixXd>(emb_buf.data(), ndim_out, n);
 }
