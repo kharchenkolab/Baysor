@@ -113,7 +113,10 @@ All notable changes to the C++ line of Baysor are documented here.
   region completion (tunable via `BAYSOR_POOL_SPIN_US`, 0 disables), and the
   default thread count is the number of physical CPU cores. The umappp/kNN
   neighborhood-graph construction for NCV color embedding now also runs on
-  the pool.
+  the pool. Release packaging ships no OpenMP runtime either: the release
+  build no longer compiles a static `libomp` for macOS, no longer expects
+  `libgomp.a` on Linux, and the Windows archive contains only the MSVC
+  runtime DLLs (no `vcomp140.dll`).
 - Molecule clustering scales to large gene panels:
   - The NCV neighbourhood k-NN searches (k = genes / 10, used by
     `--cluster-method louvain|leiden` and the NCV colours) keep the k best

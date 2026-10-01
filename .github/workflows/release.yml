@@ -185,11 +185,11 @@ jobs:
             echo "::warning::the vcpkg overlay fix is missing from both the built ref and $wf_ref; the Windows build may fail (microsoft/vcpkg#53437)"
           fi
 
-      # vcpkg binary packages (and the macOS static libomp). The key covers
-      # everything that changes package ABIs; a hit turns the build into a
-      # Baysor-only compile. Restore and save are separate steps so that the
-      # packages built by a failed run (a cold build takes hours) are still
-      # saved and reused by the rerun.
+      # vcpkg binary packages. The key covers everything that changes
+      # package ABIs; a hit turns the build into a Baysor-only compile.
+      # Restore and save are separate steps so that the packages built by a
+      # failed run (a cold build takes hours) are still saved and reused by
+      # the rerun.
       - name: Compute cache key
         id: cache-key
         shell: bash
@@ -200,7 +200,6 @@ jobs:
         with:
           path: |
             .release-cache/vcpkg-bincache
-            .release-cache/libomp-*
           key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ${{ steps.cache-key.outputs.prefix }}-
@@ -232,7 +231,6 @@ jobs:
         with:
           path: |
             .release-cache/vcpkg-bincache
-            .release-cache/libomp-*
           key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # vcpkg keeps the configure/build logs of every port under buildtrees/

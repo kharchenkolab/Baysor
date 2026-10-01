@@ -254,9 +254,9 @@ Studio 2022 with the C++ workload and CMake).
 
 | Platform | Requirement | How it is achieved |
 | --- | --- | --- |
-| Linux x86_64 | glibc ≥ 2.28 (RHEL/Alma/Rocky 8, Debian 10, Ubuntu 18.10 and newer), any x86-64 CPU | built in manylinux_2_28; libstdc++, libgcc and libgomp linked statically; all other libraries static from vcpkg |
-| macOS arm64 | macOS ≥ 12 on Apple silicon | deployment target 12.0; static vcpkg libraries; static libomp built from LLVM sources |
-| Windows x64 | Windows 10 or newer, any x64 CPU | MSVC (SSE2 baseline); vcpkg, MSVC runtime and OpenMP DLLs shipped next to `baysor.exe` |
+| Linux x86_64 | glibc ≥ 2.28 (RHEL/Alma/Rocky 8, Debian 10, Ubuntu 18.10 and newer), any x86-64 CPU | built in manylinux_2_28; libstdc++ and libgcc linked statically; all other libraries static from vcpkg |
+| macOS arm64 | macOS ≥ 12 on Apple silicon | deployment target 12.0; static vcpkg libraries |
+| Windows x64 | Windows 10 or newer, any x64 CPU | MSVC (SSE2 baseline); vcpkg and MSVC runtime DLLs shipped next to `baysor.exe` |
 
 No part of the build uses `-march=native` or assumes SSE4/AVX. Everything is
 compiled for the architecture baseline (the triplets in
