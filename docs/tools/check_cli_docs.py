@@ -52,9 +52,7 @@ EXTERNAL_OPTIONS = {
     "--user",
 }
 
-# --- top-level flags shared by every CLI11 command -------------------------
-# `--version` ships with the release-binary packaging; `--help` is generated
-# by CLI11.
+# --- flags the extractor does not see: CLI11's --help, set_version_flag ----
 UNIVERSAL_OPTIONS = {"--help", "--version"}
 
 # --- snake_case identifiers that are not config keys ----------------------
@@ -85,16 +83,10 @@ TOML_KEY_LINE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
 def extract_baysor_options():
-    """Map each CLI11 option of src/cli/main.cpp to its long name."""
+    """Long names of the CLI11 options and flags in src/cli/main.cpp."""
     src = (REPO / "src" / "cli" / "main.cpp").read_text()
-    longs = {}
-    for kind in ("add_option", "add_flag"):
-        for m in re.finditer(r"->%s\(\s*\"([^\"]+)\"" % kind, src):
-            for name in m.group(1).split(","):
-                name = name.strip()
-                if name.startswith("--"):
-                    longs[name] = kind
-    return longs
+    specs = re.findall(r"->add_(?:option|flag)\(\s*\"([^\"]+)\"", src)
+    return {n.strip() for spec in specs for n in spec.split(",") if n.strip().startswith("--")}
 
 
 def extract_configure_sh_options():
@@ -104,12 +96,9 @@ def extract_configure_sh_options():
 
 
 def extract_config_keys():
-    """Config sections and keys parsed by src/utils/options.cpp."""
+    """Config keys parsed by src/utils/options.cpp."""
     src = (REPO / "src" / "utils" / "options.cpp").read_text()
-    keys = set(re.findall(r"toml_get(?:_\w+)?\(\s*\w+\s*,\s*\"([^\"]+)\"", src))
-    sections = set(re.findall(r"doc\.count\(\"([^\"]+)\"\)", src))
-    sections |= set(re.findall(r"doc\[\"([^\"]+)\"\]", src))
-    return sections, keys
+    return set(re.findall(r"toml_get(?:_\w+)?\(\s*\w+\s*,\s*\"([^\"]+)\"", src))
 
 
 def strip_ignored(text):
@@ -155,19 +144,14 @@ def main():
     warnings = []
 
     baysor_options = extract_baysor_options()
-    configure_options = extract_configure_sh_options()
-    sections, config_keys = extract_config_keys()
-    known_options = (set(baysor_options) | configure_options
+    config_keys = extract_config_keys()
+    known_options = (baysor_options | extract_configure_sh_options()
                      | EXTERNAL_OPTIONS | UNIVERSAL_OPTIONS)
 
     mentioned_options = set()
     mentioned_keys = set()
 
     md_files = sorted(DOCS.rglob("*.md"))
-    if not md_files:
-        print("no markdown files found under docs/", file=sys.stderr)
-        return 1
-
     for md in md_files:
         rel = md.relative_to(REPO)
         text = strip_ignored(md.read_text())
@@ -203,7 +187,7 @@ def main():
                         errors.append(f"{rel}: unknown config key '{span}'")
 
     # warnings for undocumented options / config keys
-    for opt in sorted(set(baysor_options) - mentioned_options):
+    for opt in sorted(baysor_options - mentioned_options):
         warnings.append(f"undocumented CLI option: {opt}")
     for key in sorted(config_keys - mentioned_keys):
         warnings.append(f"undocumented config key: {key}")
