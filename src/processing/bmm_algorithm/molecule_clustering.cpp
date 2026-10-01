@@ -4,6 +4,8 @@
 #include "baysor/utils/thread_pool.h"
 
 #include <Eigen/Dense>
+#include <irlba/compute.hpp>
+#include <irlba/wrappers.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -17,60 +19,125 @@
 namespace baysor {
 
 // ============================================================================
-// fast_ica — symmetric deflation FastICA (tanh nonlinearity)
-//
-// Input:  X  — data matrix (n_features × n_samples)
-//         n_components — number of independent components
-// Returns: unmixing matrix W (n_features × n_components)
-//          whose columns correspond to the components used by Julia's
-//          MultivariateStats.ICA fit via ica_fit.W.
-//
-// Mirrors Julia's MultivariateStats.ICA usage in cluster_molecules_on_mrf,
-// including its argument check `k <= min(m, n) || error(...)`: throws
-// std::invalid_argument instead of silently clamping, so the caller's
-// try/catch falls back exactly like Julia's wrapper does.
+// ICA whitening: top-k eigenpairs of the row covariance
+//   C = Xc * Xc' / (n - 1),  Xc = X - rowmean(X)
 // ============================================================================
-static Eigen::MatrixXd fast_ica(
-    const Eigen::MatrixXd& X,
-    int n_components,
-    int max_iter = 1000,
-    double tol   = 1e-5,
-    unsigned int seed = 42
-) {
-    int n_features = static_cast<int>(X.rows());
-    int n_samples  = static_cast<int>(X.cols());
-    // Julia's fit(ICA, X, k) rejects k > min(m, n) with an error that
-    // cluster_molecules_on_mrf's wrapper catches to fall back to hash/random
-    // init. Clamping here instead would return fewer columns than the caller
-    // expects and make it index W out of bounds.
-    if (n_components > std::min(n_features, n_samples))
-        throw std::invalid_argument("k must not exceed min(m, n).");
 
-    // 1. Center rows to match Julia's preprocess_mean/centralize path.
+namespace detail {
+
+// Dense path, matching Julia's MultivariateStats.ICA: full covariance and a
+// complete symmetric eigen-decomposition, of which the top k pairs are kept.
+// O(n_features^2 * n_samples + n_features^3) time, five dense
+// n_features x n_features matrices.
+IcaWhitening ica_whitening_dense(const Eigen::MatrixXd& X, int k) {
+    const int n_features = static_cast<int>(X.rows());
+    const int n_samples  = static_cast<int>(X.cols());
     Eigen::VectorXd mean_vec = X.rowwise().mean();
     Eigen::MatrixXd Xc = X.colwise() - mean_vec;
-
-    // 2. Whiten with the top-k covariance eigenvectors, matching:
-    //    C = Z * Z' / (n - 1); W0 = P * Diagonal(1 ./ sqrt.(v)); Z = W0' * Z
     Eigen::MatrixXd cov =
         (Xc * Xc.transpose()) / static_cast<double>(std::max(1, n_samples - 1));
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(cov);
-    Eigen::VectorXd lambdas(n_components);
-    Eigen::MatrixXd P(n_features, n_components);
-    for (int i = 0; i < n_components; ++i) {
+    IcaWhitening out;
+    out.eigenvalues.resize(k);
+    out.eigenvectors.resize(n_features, k);
+    for (int i = 0; i < k; ++i) {
         int src_idx = n_features - 1 - i;
-        lambdas(i) = eig.eigenvalues()(src_idx);
-        P.col(i) = eig.eigenvectors().col(src_idx);
+        out.eigenvalues(i) = eig.eigenvalues()(src_idx);
+        out.eigenvectors.col(i) = eig.eigenvectors().col(src_idx);
+    }
+    return out;
+}
+
+} // namespace detail
+
+namespace {
+
+// irlba matrix interface (irlba/MockMatrix.hpp) for A = X' without forming the
+// transpose. irlba centres the columns of A, i.e. the rows of X, so the right
+// singular vectors of the centred A are the eigenvectors of C.
+class DenseTransposeOperator {
+public:
+    explicit DenseTransposeOperator(const Eigen::MatrixXd& x) : x_(x) {}
+
+    Eigen::Index rows() const { return x_.cols(); }
+    Eigen::Index cols() const { return x_.rows(); }
+
+    struct Workspace {};
+    struct AdjointWorkspace {};
+    Workspace workspace() const { return {}; }
+    AdjointWorkspace adjoint_workspace() const { return {}; }
+
+    // out = X' * rhs
+    template <class Right>
+    void multiply(const Right& rhs, Workspace&, Eigen::VectorXd& out) const {
+        out.noalias() = x_.transpose() * rhs;
     }
 
-    // Clamp tiny eigenvalues to avoid division by ~0
-    for (int i = 0; i < n_components; ++i)
-        if (lambdas(i) < 1e-10) lambdas(i) = 1e-10;
+    // out = X * rhs
+    template <class Right>
+    void adjoint_multiply(const Right& rhs, AdjointWorkspace&, Eigen::VectorXd& out) const {
+        out.noalias() = x_ * rhs;
+    }
 
-    Eigen::MatrixXd W0 =
-        P * lambdas.cwiseSqrt().cwiseInverse().asDiagonal(); // m × k
-    Eigen::MatrixXd Z = W0.transpose() * Xc;                // k × n
+    template <class EigenMatrix>
+    EigenMatrix realize() const { return x_.transpose(); }
 
+private:
+    const Eigen::MatrixXd& x_;
+};
+
+// Top-k eigenpairs of C from a truncated SVD (irlba) of the implicitly
+// centred A = X' (rows = samples): eigenvalues d^2 / (n - 1), eigenvectors
+// the right singular vectors. Each vector's sign is fixed so that its
+// largest-magnitude entry is positive (the first one on ties), which makes
+// the FastICA start independent of the solver's sign choice.
+template <class Operator>
+detail::IcaWhitening truncated_whitening(const Operator& op, const Eigen::VectorXd& row_means, int k) {
+    const int n_samples = static_cast<int>(op.rows());
+    irlba::Centered<Operator, Eigen::VectorXd> centered(op, row_means);
+    irlba::Options opt;
+    opt.convergence_tolerance = 1e-10;
+    opt.max_iterations = 10000;
+    opt.seed = 42;
+    Eigen::MatrixXd U, V;
+    Eigen::VectorXd D;
+    const auto stats = irlba::compute(centered, k, U, V, D, opt);
+    if (!stats.first)
+        throw std::runtime_error("truncated eigen-decomposition for the ICA whitening did not converge");
+    spdlog::debug("ICA whitening: truncated eigen-decomposition converged after {} restarts.", stats.second);
+
+    const double denom = static_cast<double>(std::max(1, n_samples - 1));
+    detail::IcaWhitening out;
+    out.eigenvalues.resize(k);
+    out.eigenvectors.resize(op.cols(), k);
+    for (int i = 0; i < k; ++i) {
+        out.eigenvalues(i) = D(i) * D(i) / denom;
+        out.eigenvectors.col(i) = V.col(i);
+        Eigen::Index imax = 0;
+        out.eigenvectors.col(i).cwiseAbs().maxCoeff(&imax);
+        if (out.eigenvectors(imax, i) < 0) out.eigenvectors.col(i) *= -1.0;
+    }
+    return out;
+}
+
+// W0 = P * diag(1 / sqrt(lambda)) with tiny eigenvalues clamped to avoid
+// division by ~0.
+Eigen::MatrixXd whitening_matrix(detail::IcaWhitening wh) {
+    for (Eigen::Index i = 0; i < wh.eigenvalues.size(); ++i)
+        if (wh.eigenvalues(i) < 1e-10) wh.eigenvalues(i) = 1e-10;
+    return wh.eigenvectors * wh.eigenvalues.cwiseSqrt().cwiseInverse().asDiagonal(); // m × k
+}
+
+// Symmetric FastICA (tanh nonlinearity) on whitened data Z (k × n_samples).
+// Returns the rotation W (k × k).
+Eigen::MatrixXd fast_ica_rotation(
+    const Eigen::MatrixXd& Z,
+    int n_components,
+    int max_iter,
+    double tol,
+    unsigned int seed
+) {
+    const int n_samples = static_cast<int>(Z.cols());
     std::mt19937 rng(seed);
     std::normal_distribution<double> ndist(0.0, 1.0);
     Eigen::MatrixXd W(n_components, n_components);
@@ -132,9 +199,77 @@ static Eigen::MatrixXd fast_ica(
         }
         if (chg < tol) break;
     }
+    return W;
+}
 
-    // 4. Map the whitened solution back to the original feature space.
-    return W0 * W;
+// Julia's fit(ICA, X, k) rejects k > min(m, n) with an error that
+// cluster_molecules_on_mrf's wrapper catches to fall back to hash/random
+// init. Clamping instead would return fewer columns than the caller expects
+// and make it index W out of bounds.
+void check_ica_components(Eigen::Index n_features, Eigen::Index n_samples, int n_components) {
+    if (n_components > std::min(n_features, n_samples))
+        throw std::invalid_argument("k must not exceed min(m, n).");
+}
+
+} // namespace
+
+namespace detail {
+
+IcaWhitening ica_whitening_truncated(const Eigen::MatrixXd& X, int k) {
+    check_ica_components(X.rows(), X.cols(), k);
+    return truncated_whitening(DenseTransposeOperator(X), X.rowwise().mean(), k);
+}
+
+} // namespace detail
+
+// ============================================================================
+// fast_ica — symmetric deflation FastICA (tanh nonlinearity)
+//
+// Input:  X  — data matrix (n_features × n_samples)
+//         n_components — number of independent components
+// Returns: unmixing matrix W (n_features × n_components)
+//          whose columns correspond to the components used by Julia's
+//          MultivariateStats.ICA fit via ica_fit.W.
+//
+// Mirrors Julia's MultivariateStats.ICA usage in cluster_molecules_on_mrf,
+// including its argument check `k <= min(m, n) || error(...)`: throws
+// std::invalid_argument instead of silently clamping, so the caller's
+// try/catch falls back exactly like Julia's wrapper does.
+//
+// `truncated` selects the whitening: the dense eigen-decomposition (Julia's
+// algorithm) or the top-k eigenpairs from a truncated SVD. Both compute the
+// same subspace; they differ in floating-point rounding and in the
+// (arbitrary) eigenvector signs, which change the FastICA start point.
+// ============================================================================
+static Eigen::MatrixXd fast_ica(
+    const Eigen::MatrixXd& X,
+    int n_components,
+    bool truncated,
+    int max_iter = 1000,
+    double tol   = 1e-5,
+    unsigned int seed = 42
+) {
+    check_ica_components(X.rows(), X.cols(), n_components);
+
+    if (!truncated) {
+        // 1. Center rows to match Julia's preprocess_mean/centralize path.
+        // 2. Whiten with the top-k covariance eigenvectors, matching:
+        //    C = Z * Z' / (n - 1); W0 = P * Diagonal(1 ./ sqrt.(v)); Z = W0' * Z
+        Eigen::MatrixXd W0 = whitening_matrix(detail::ica_whitening_dense(X, n_components));
+        Eigen::VectorXd mean_vec = X.rowwise().mean();
+        Eigen::MatrixXd Xc = X.colwise() - mean_vec;
+        Eigen::MatrixXd Z = W0.transpose() * Xc;                // k × n
+        // 3. FastICA rotation; 4. map back to the original feature space.
+        return W0 * fast_ica_rotation(Z, n_components, max_iter, tol, seed);
+    }
+
+    // Truncated whitening; Z = W0' * (X - mean 1') without forming Xc.
+    Eigen::VectorXd mean_vec = X.rowwise().mean();
+    Eigen::MatrixXd W0 = whitening_matrix(
+        truncated_whitening(DenseTransposeOperator(X), mean_vec, n_components));
+    Eigen::MatrixXd Z = W0.transpose() * X;
+    Z.colwise() -= W0.transpose() * mean_vec;
+    return W0 * fast_ica_rotation(Z, n_components, max_iter, tol, seed);
 }
 
 // ============================================================================
@@ -455,7 +590,8 @@ ClusteringResult cluster_molecules_ica(
     double tol,
     double mrf_weight,
     int max_iters,
-    bool verbose
+    bool verbose,
+    int dense_whitening_max_genes
 ) {
     if (n_clusters <= 1) return {};
 
@@ -467,10 +603,16 @@ ClusteringResult cluster_molecules_ica(
     Eigen::MatrixXd cor_mat = pairwise_gene_spatial_cor(genes, confidence, adj_list);
     // cor_mat is indexed 0-based (genes 0..n_genes-1 from 1-based input)
 
-    // 2. FastICA on the correlation matrix → unmixing matrix (n_genes × n_clusters)
+    // 2. FastICA on the correlation matrix → unmixing matrix (n_genes × n_clusters).
+    //    Large panels whiten with the truncated eigen-decomposition: the dense
+    //    one is cubic in the number of genes (hours at ~10,000 genes).
+    const bool truncated = n_genes > dense_whitening_max_genes;
+    if (verbose && truncated)
+        spdlog::info("ICA whitening: truncated eigen-decomposition ({} genes > {}).",
+                     n_genes, dense_whitening_max_genes);
     std::unique_ptr<Eigen::MatrixXd> exprs_init_ptr;
     try {
-        Eigen::MatrixXd W = fast_ica(cor_mat, n_clusters);
+        Eigen::MatrixXd W = fast_ica(cor_mat, n_clusters, truncated);
         // Convert mixing matrix to expression profiles:
         //   ct_exprs_init[k][g] = abs(W[g][k]) / sum_g'(abs(W[g'][k]))
         // Matches Julia: (abs.(ica_fit.W) ./ sum(abs.(ica_fit.W), dims=1))'
