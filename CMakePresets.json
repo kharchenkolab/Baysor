@@ -109,7 +109,7 @@
     {
       "name": "release-windows-x86_64",
       "displayName": "Release binary: Windows x64",
-      "description": "MSVC build (default /arch, i.e. SSE2); dependency DLLs and the MSVC/OpenMP runtime are installed next to baysor.exe.",
+      "description": "MSVC build (default /arch, i.e. SSE2); dependency DLLs and the MSVC runtime are installed next to baysor.exe.",
       "inherits": "release-base",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",

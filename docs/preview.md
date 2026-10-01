@@ -50,6 +50,7 @@ coordinate bounds below) first if in doubt.
 | `--z-min`, `--z-max` | ±∞ | Keep only molecules within this z range |
 | `-o, --output` | `preview.html` | Output HTML file |
 | `--force-2d` | off | Ignore the z column in the data |
+| `-t, --threads` | auto | Number of worker threads; auto = `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS`, then physical CPU cores |
 
 ## Notes
 

@@ -1,6 +1,7 @@
 #include "baysor/processing/bmm_algorithm/molecule_clustering.h"
 #include "baysor/reporting/color_utils.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <Eigen/Dense>
 #include <spdlog/spdlog.h>
@@ -11,10 +12,6 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 namespace baysor {
 
@@ -274,8 +271,7 @@ ClusteringResult cluster_molecules_on_mrf(
         prev_probs = probs;
 
         // ---- E-step (parallel over molecules) ----
-        #pragma omp parallel for schedule(dynamic, 512)
-        for (int i = 0; i < n_mols; ++i) {
+        parallel_for(0, n_mols, 512, [&](int i) {
             int  g0    = genes[i] - 1;  // 0-based gene (< 0 if missing)
             int  start = adj_list.indptr[i];
             int  end   = adj_list.indptr[i + 1];
@@ -305,7 +301,7 @@ ClusteringResult cluster_molecules_on_mrf(
             } else {
                 for (int k = 0; k < n_clusters; ++k) probs(k, i) = 1.0 / n_clusters;
             }
-        }
+        });
 
         // ---- M-step with pseudocount ----
         exprs.setZero();

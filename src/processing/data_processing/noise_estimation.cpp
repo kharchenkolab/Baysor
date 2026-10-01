@@ -3,12 +3,13 @@
 #include "baysor/processing/utils/utils.h"
 #include "baysor/data_loading/data.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <numeric>
-#include <omp.h>
 
 namespace baysor {
 
@@ -58,16 +59,18 @@ static void expect_noise_probabilities(
 
     // Precompute component densities in parallel.
     std::vector<double> pdf1(n), pdf2(n);
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
+    parallel_for_static(0, n, [&](int i) {
         pdf1[i] = normal_pdf(edge_lengths[i], mu1, sigma1);
         pdf2[i] = normal_pdf(edge_lengths[i], mu2, sigma2);
-    }
+    });
 
-    // Component sizes.
-    double n1 = 0.0;
-    #pragma omp parallel for reduction(+:n1) schedule(static)
-    for (int i = 0; i < n; ++i) n1 += assignment_probs(i, 0);
+    // Component sizes. Deterministic reduction: sequential accumulation with
+    // 1 thread, fixed buckets merged in index order otherwise.
+    double n1 = parallel_reduce<double>(0, n, /*bucket_size=*/1024, 0.0,
+        [&](std::int64_t b, std::int64_t e, double& acc) {
+            for (std::int64_t i = b; i < e; ++i) acc += assignment_probs(i, 0);
+        },
+        std::plus<double>());
     double n2 = n - n1;
 
     int m = static_cast<int>(updating_ids.size());

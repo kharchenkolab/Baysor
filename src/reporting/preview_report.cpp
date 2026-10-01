@@ -1,17 +1,19 @@
 #include "baysor/reporting/preview_report.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <third_party/stb_image_write.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <iomanip>
 #include <numeric>
 #include <random>
 #include <sstream>
 #include <vector>
-#include <omp.h>
 
 namespace baysor {
 
@@ -125,6 +127,29 @@ static int auto_point_radius_px(const RasterViewport& vp, int n_points) {
     return std::max(1, std::min(4, static_cast<int>(std::round(radius))));
 }
 
+// Visit every pixel of a disc, with the exact shape of draw_disc().
+template <class Fn>
+static void for_each_disc_pixel(
+    int width_px,
+    int height_px,
+    int cx,
+    int cy,
+    int radius_px,
+    Fn&& fn
+) {
+    int r2 = radius_px * radius_px;
+    for (int dy = -radius_px; dy <= radius_px; ++dy) {
+        int yy = cy + dy;
+        if (yy < 0 || yy >= height_px) continue;
+        for (int dx = -radius_px; dx <= radius_px; ++dx) {
+            if (dx * dx + dy * dy > r2) continue;
+            int xx = cx + dx;
+            if (xx < 0 || xx >= width_px) continue;
+            fn(yy * width_px + xx);
+        }
+    }
+}
+
 static void draw_disc(
     std::vector<uint8_t>& pixels,
     int width_px,
@@ -222,17 +247,38 @@ static std::string render_scatter_impl(
     // White background.
     std::vector<uint8_t> pixels(vp.width_px * vp.height_px * 3, 255);
 
-    // Writing different pixels from multiple threads is safe.  Two molecules
-    // landing on the exact same pixel produce a benign write race (one color
-    // wins non-deterministically), which is visually indistinguishable from the
-    // serial "last molecule drawn wins" behaviour.
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
+    // Deterministic parallel rendering in two passes. The first pass claims
+    // each pixel for the highest molecule index touching it — exactly the
+    // serial "last molecule drawn wins" order — through atomic max-CAS. The
+    // second pass paints the pixels each molecule owns; those writes are
+    // disjoint, so the result does not depend on scheduling or thread count.
+    std::vector<std::atomic<std::int32_t>> owner(
+        static_cast<size_t>(vp.width_px) * vp.height_px);
+    for (auto& o : owner) o.store(-1, std::memory_order_relaxed);
+
+    parallel_for_static(0, n, [&](int i) {
+        auto [px, py] = map_to_pixel(x[i], y[i], vp);
+        for_each_disc_pixel(vp.width_px, vp.height_px, px, py, point_radius, [&](int off) {
+            auto& cell = owner[off];
+            std::int32_t cur = cell.load(std::memory_order_relaxed);
+            while (i > cur &&
+                   !cell.compare_exchange_weak(cur, i, std::memory_order_relaxed)) {
+            }
+        });
+    });
+
+    parallel_for_static(0, n, [&](int i) {
         auto [px, py] = map_to_pixel(x[i], y[i], vp);
         uint8_t r, g, b;
         color_fn(i, r, g, b);
-        draw_disc(pixels, vp.width_px, vp.height_px, px, py, point_radius, r, g, b);
-    }
+        for_each_disc_pixel(vp.width_px, vp.height_px, px, py, point_radius, [&](int off) {
+            if (owner[off].load(std::memory_order_relaxed) != i) return;
+            int off3 = off * 3;
+            pixels[off3] = r;
+            pixels[off3 + 1] = g;
+            pixels[off3 + 2] = b;
+        });
+    });
 
     if (polygons && !polygons->empty()) {
         overlay_polygons(pixels, vp, *polygons);

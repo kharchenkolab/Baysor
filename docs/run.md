@@ -144,15 +144,27 @@ clustering model.
 
 ## Threading
 
-Baysor uses OpenMP for parallel sections. Set the thread count with the
-standard OpenMP environment variable:
+Baysor parallelizes through its own persistent thread pool. Set the thread
+count with `--threads` (or `-t`), available on `run`, `preview` and `segfree`:
 
 ```bash
-OMP_NUM_THREADS=20 baysor run ...
+baysor run --threads 8 ...
 ```
 
-Some phases are intentionally serial or only partially parallel, so CPU use
-may not stay at the requested thread count for the full run.
+Without `--threads`, the count is taken from the `BAYSOR_NUM_THREADS`
+environment variable, then from `OMP_NUM_THREADS` (kept for backward
+compatibility with existing scripts), and finally defaults to the number of
+physical CPU cores:
+
+```bash
+BAYSOR_NUM_THREADS=20 baysor run ...
+```
+
+The effective thread count is logged at start-up. Some phases are
+intentionally serial or only partially parallel, so CPU use may not stay at
+the requested thread count for the full run. Multi-threaded runs are
+deterministic: repeated runs with the same data, parameters and thread count
+give identical output, and results do not depend on thread scheduling.
 
 ## Config files
 
