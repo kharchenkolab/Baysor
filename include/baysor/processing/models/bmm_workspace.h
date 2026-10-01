@@ -44,14 +44,19 @@ struct BmmWorkspace {
     // grouping of the current assignment, which stays valid until the next
     // E-step changes the assignment.
     IdsByComponent ids_by_comp;
-    std::vector<int> group_hist;      // per-worker histograms of the counting sort
+    std::vector<int> group_hist;      // per-block histograms of the counting sort
+
+    // O(n) loops run over n_blocks fixed molecule blocks of block_len
+    // (set by prepare_workspace in bmm_algorithm.cpp).
+    int n_blocks = 1;
+    std::int64_t block_len = 1;
 
     // Applying the E-step result
-    std::vector<std::int64_t> worker_count;
+    std::vector<std::int64_t> block_count;
     struct alignas(kCacheLine) WorkerList {
         std::vector<int> ids;
     };
-    std::vector<WorkerList> changed;         // per worker, with prior segments
+    std::vector<WorkerList> changed;         // per block, with prior segments
     std::vector<int> seg_op_offsets;         // per-component segment-map operations
     std::vector<int> seg_ops;
     std::int64_t n_changed = 0;
@@ -61,7 +66,7 @@ struct BmmWorkspace {
 
     // drop_unused_components
     std::vector<int> id_map;
-    int n_kept = 0;
+    bool dropping = false;
 
     // Connected-component split: position of each molecule inside its
     // cell's id list (molecule-indexed, written per cell), and per-worker

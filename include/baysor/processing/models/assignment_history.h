@@ -68,6 +68,15 @@ public:
     template <class F>
     void push_back_generated(ParallelRegion& region, int n, std::size_t max_size, F&& value_of);
 
+    /// The three steps of push_back_generated, for callers that place them
+    /// in their own region: begin_push (serial; drops oldest entries so that
+    /// at most `max_size` remain after the push), push_rows (work-shared;
+    /// every participant must call it), end_push (serial).
+    void begin_push(int n, std::size_t max_size);
+    template <class F>
+    void push_rows(ParallelRegion& region, int n, F&& value_of);
+    void end_push();
+
     /// Drop the oldest entry.
     void pop_front();
 
@@ -102,6 +111,7 @@ private:
     std::vector<Change> spare_;                // recycled buffer of a dropped delta
     std::vector<std::vector<Change>> block_changes_;  // scratch of push_back_generated
     bool first_push_ = false;                          // scratch of push_back_generated
+    static constexpr std::int64_t kPushBlock = 16384;
 
     std::vector<Change> take_spare();
     [[noreturn]] static void throw_row_length_mismatch();
@@ -109,44 +119,45 @@ private:
 
 template <class F>
 void AssignmentHistory::push_back_generated(int n, F&& value_of) {
-    if (has_newest_ && n != n_molecules()) {
-        throw_row_length_mismatch();
-    }
-    parallel_region([&](ParallelRegion& region) {
-        push_back_generated(region, n, static_cast<std::size_t>(-1), value_of);
-    });
+    begin_push(n, static_cast<std::size_t>(-1));
+    parallel_region([&](ParallelRegion& region) { push_rows(region, n, value_of); });
+    end_push();
 }
 
 template <class F>
 void AssignmentHistory::push_back_generated(ParallelRegion& region, int n, std::size_t max_size,
                                             F&& value_of) {
-    constexpr std::int64_t kBlock = 16384;
-    const std::int64_t n_blocks = (static_cast<std::int64_t>(n) + kBlock - 1) / kBlock;
-    region.single([&]() {
-        if (has_newest_ && n != n_molecules()) {
-            throw_row_length_mismatch();
-        }
-        while (!empty() && size() >= max_size) pop_front();
-        first_push_ = !has_newest_;
-        if (first_push_) {
-            newest_.resize(n);
-        } else if (static_cast<std::int64_t>(block_changes_.size()) < n_blocks) {
-            block_changes_.resize(static_cast<std::size_t>(n_blocks));
-        }
-    });
+    region.single([&]() { begin_push(n, max_size); });
     if (region.cancelled()) return;
+    push_rows(region, n, value_of);
+    region.single([&]() { end_push(); });
+}
 
+inline void AssignmentHistory::begin_push(int n, std::size_t max_size) {
+    if (has_newest_ && n != n_molecules()) {
+        throw_row_length_mismatch();
+    }
+    while (!empty() && size() >= max_size) pop_front();
+    first_push_ = !has_newest_;
     if (first_push_) {
-        region.for_each(0, n, kBlock, [&](std::int64_t i) {
+        newest_.resize(n);
+    } else {
+        const std::size_t n_blocks = (static_cast<std::size_t>(n) + kPushBlock - 1) / kPushBlock;
+        if (block_changes_.size() < n_blocks) block_changes_.resize(n_blocks);
+    }
+}
+
+template <class F>
+void AssignmentHistory::push_rows(ParallelRegion& region, int n, F&& value_of) {
+    if (first_push_) {
+        region.for_each(0, n, kPushBlock, [&](std::int64_t i) {
             newest_[static_cast<std::size_t>(i)] = value_of(static_cast<int>(i));
         });
-        region.single([&]() { has_newest_ = true; });
         return;
     }
-
-    region.for_chunks(0, n, kBlock, Scheduling::Dynamic,
+    region.for_chunks(0, n, kPushBlock, Scheduling::Dynamic,
         [&](std::int64_t b, std::int64_t e, int) {
-        auto& out = block_changes_[static_cast<std::size_t>(b / kBlock)];
+        auto& out = block_changes_[static_cast<std::size_t>(b / kPushBlock)];
         out.clear();
         for (std::int64_t i = b; i < e; ++i) {
             const int v = value_of(static_cast<int>(i));
@@ -157,19 +168,24 @@ void AssignmentHistory::push_back_generated(ParallelRegion& region, int n, std::
             }
         }
     });
+}
 
-    region.single([&]() {
-        std::size_t total = 0;
-        for (std::int64_t k = 0; k < n_blocks; ++k) total += block_changes_[static_cast<std::size_t>(k)].size();
-        std::vector<Change> delta = take_spare();
-        delta.clear();
-        delta.reserve(total);
-        for (std::int64_t k = 0; k < n_blocks; ++k) {
-            const auto& bc = block_changes_[static_cast<std::size_t>(k)];
-            delta.insert(delta.end(), bc.begin(), bc.end());
-        }
-        deltas_.push_back(std::move(delta));
-    });
+inline void AssignmentHistory::end_push() {
+    if (first_push_) {
+        has_newest_ = true;
+        return;
+    }
+    const std::size_t n_blocks = (newest_.size() + kPushBlock - 1) / kPushBlock;
+    std::size_t total = 0;
+    for (std::size_t k = 0; k < n_blocks; ++k) total += block_changes_[k].size();
+    std::vector<Change> delta = take_spare();
+    delta.clear();
+    delta.reserve(total);
+    for (std::size_t k = 0; k < n_blocks; ++k) {
+        const auto& bc = block_changes_[k];
+        delta.insert(delta.end(), bc.begin(), bc.end());
+    }
+    deltas_.push_back(std::move(delta));
 }
 
 inline AssignmentHistory::AssignmentHistory(std::initializer_list<std::vector<int>> rows) {
