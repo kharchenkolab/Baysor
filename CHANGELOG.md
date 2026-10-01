@@ -83,6 +83,25 @@ All notable changes to the C++ line of Baysor are documented here.
   default thread count is the number of physical CPU cores. The umappp/kNN
   neighborhood-graph construction for NCV color embedding now also runs on
   the pool.
+- Faster BMM segmentation loop with less memory. The E-step accumulates
+  neighbour weights per distinct cell before the Julia-order dictionary
+  (only molecules with two or more adjacent cells use it), hoists
+  loop-invariant `exp`/`pow` factors and evaluates one `exp` per candidate
+  instead of two. Grouping molecules by cell, the connected-component split,
+  dropping empty cells, the cluster mode of the M-step, the prior-segment
+  bookkeeping and applying the E-step result no longer allocate per call
+  and run in parallel. Each iteration runs as one persistent parallel region
+  of the thread pool (`parallel_region`, with work-shared loops, barriers and
+  single blocks) instead of waking the pool for every loop; per-worker
+  scratch no longer shares cache lines between workers; barrier waiters
+  sleep on a futex on Linux and do not spin when there are more threads than
+  physical cores (`BAYSOR_POOL_SPIN_US` still overrides). The assignment
+  history keeps the newest entry plus per-iteration changes instead of
+  `depth` full copies (about 63 instead of 200 bytes per molecule at the
+  default depth), the history vote runs in parallel, and the molecule graph
+  is moved into the BMM data instead of being copied. Results are unchanged
+  except for possible last-bit differences of the E-step densities from the
+  fused `exp`.
 
 - `README.md` now points to the documentation site and release binaries.
 - The documentation pages were rewritten against the C++ implementation
