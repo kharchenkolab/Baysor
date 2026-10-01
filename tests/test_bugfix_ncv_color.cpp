@@ -1,43 +1,15 @@
-// BUG-5: `baysor run` aborted on tiny datasets inside the NCV colour
-// embedding. `fit_ncv_interpolation_model` (and its non-streaming twin
-// `compute_ncv_embedding`) clamped the PCA truncation with
-//   n_pca = min(n_pca_dims, n_components)
-// but the thin SVD basis of an (n_components x n_anchors) matrix only has
-// min(rows, cols) columns. Whenever a run produced fewer anchors/samples than
-// min(n_pca_dims, n_components) -- always true for tiny datasets, e.g. 9
-// anchors vs n_pca_dims=10 -- `leftCols(n_pca)` read past the end of
-// matrixU(): an Eigen assertion (SIGABRT, exit 134) in Debug and a silent
-// out-of-bounds read in Release.
-//
-// Julia (Baysor v0.7.1, src/processing/data_processing/neighborhood_composition.jl,
-// gene_composition_color_embedding) has no intermediate PCA truncation at all:
-// it fits UmapFit on `pca[:, sample_ids]` directly and interpolates with
-// `knn_parallel(tree, x, nn_interpolate)` (umap_wrappers.jl). The C++ PCA step
-// is a speed optimisation, so it now clamps to the number of columns that
-// actually exist -- min(n_pca_dims, n_components, n_anchors) -- which is the
-// closest match to Julia's "use everything the sample provides".
-//
-// The same audit found `compute_ncv_embedding` passing graph_k straight into
-// knn_parallel: graph_k <= 0 made knn_parallel return no results and the
-// interpolation loop read past the empty index lists. It now clamps k to >= 1,
-// mirroring `fit_ncv_interpolation_model`'s `interp_k = max(1, graph_k)`.
-//
-// The CLI tests spawn the instrumented `baysor` binary (BAYSOR_CLI_PATH,
-// injected by the BAYSOR_WITH_TESTS CMake block) as a subprocess and assert a
-// clean exit code 0 instead of a crash (SIGABRT 134 in Debug, silent garbage
-// colours in Release).
-//
-// Note: the original out-of-bounds reads are caught only through Eigen
-// assertions, which are compiled in for Debug builds; in Release these
-// regression tests would pass even without the fix (the read would just
-// return garbage instead of aborting).
+// BUG-5: `baysor run` and `segfree` aborted on tiny datasets in the NCV colour
+// embedding: the PCA truncation n_pca = min(n_pca_dims, n_components) could
+// exceed the columns of the thin SVD basis (fewer anchors than n_pca_dims),
+// and graph_k <= 0 left the interpolation k-NN empty. The truncation is now
+// also clamped by the number of anchors and the k-NN k to >= 1. The original
+// out-of-bounds reads abort only with Eigen assertions (Debug builds).
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <filesystem>
 #include <random>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -84,9 +56,7 @@ Eigen::MatrixXd tiny_positions(int n) {
 
 }  // namespace
 
-// The exact reproducer shape: 20 components, only 9 anchor molecules, default
-// n_pca_dims=10. Before the fix n_pca = min(10, 20) = 10 > 9 thin-U columns
-// => Eigen assertion (Debug) / out-of-bounds read (Release).
+// The reproducer shape: 20 components, 9 anchors, default n_pca_dims=10.
 TEST(Bug5_NcvColor, EmbeddingWithFewerAnchorsThanPcaDimsExitsCleanly) {
     const Eigen::MatrixXf mol_vecs = random_mol_vecs(20, 9);
     const std::vector<double> confidence(9, 0.99);
@@ -113,10 +83,8 @@ TEST(Bug5_NcvColor, ReportEmbeddingWithFewerAnchorsThanPcaDimsExitsCleanly) {
     for (double v : res.sample_umap_y) EXPECT_TRUE(std::isfinite(v));
 }
 
-// The streaming entry point used by `baysor run` / `baysor preview`: the basis
-// fit selects all 9 molecules as anchors, so fit_ncv_interpolation_model used
-// to call leftCols(10) on a 9-column thin U (the reported crash site at
-// color_utils.cpp:649).
+// The streaming entry point used by `baysor run` / `baysor preview`: all 9
+// molecules become anchors.
 TEST(Bug5_NcvColor, StreamingWithFewerAnchorsThanPcaDimsExitsCleanly) {
     constexpr int n = 9;
     const Eigen::MatrixXd pos = tiny_positions(n);
@@ -138,8 +106,7 @@ TEST(Bug5_NcvColor, StreamingWithFewerAnchorsThanPcaDimsExitsCleanly) {
 }
 
 // Extreme case: the basis is capped at 2 anchors -> UMAP runs with
-// n_neighbors=1 and the PCA basis is clamped to 2 columns. Before the fix
-// this asserted leftCols(10) on 2 columns.
+// n_neighbors=1 and the PCA basis is clamped to 2 columns.
 TEST(Bug5_NcvColor, StreamingWithTwoAnchorsExitsCleanly) {
     constexpr int n = 4;
     const Eigen::MatrixXd pos = tiny_positions(n);
@@ -160,10 +127,7 @@ TEST(Bug5_NcvColor, StreamingWithTwoAnchorsExitsCleanly) {
     expect_valid_hex_colors(colors, n);
 }
 
-// graph_k=0 used to produce k_interp=0; knn_parallel returns no results for
-// k<=0 and the interpolation loop dereferenced the empty index lists (SIGSEGV).
-// fit_ncv_interpolation_model already clamps its own k to >= 1; the direct
-// interpolation path in compute_ncv_embedding now does the same.
+// graph_k=0 must not leave the interpolation k-NN of compute_ncv_embedding empty.
 TEST(Bug5_NcvColor, ZeroGraphKDoesNotReadPastEmptyKnnResults) {
     const Eigen::MatrixXf mol_vecs = random_mol_vecs(10, 30);
     const std::vector<double> confidence(30, 0.99);
@@ -179,21 +143,7 @@ TEST(Bug5_NcvColor, ZeroGraphKDoesNotReadPastEmptyKnnResults) {
 // CLI end-to-end regressions (POSIX subprocess runs)
 // ============================================================================
 
-#ifndef BAYSOR_CLI_PATH
-
-TEST(Bug5_Cli, BaysorCliPathAvailable) {
-    GTEST_SKIP() << "BAYSOR_CLI_PATH is not defined; CLI end-to-end tests are disabled";
-}
-
-#elif defined(_WIN32)
-
-// The subprocess runner below shells out with sh-style quoting and decodes
-// exit codes via WEXITSTATUS, so the end-to-end CLI tests are POSIX-only.
-TEST(Bug5_Cli, SubprocessTestsArePosixOnly) {
-    GTEST_SKIP() << "CLI subprocess tests require a POSIX shell and sys/wait.h";
-}
-
-#else  // BAYSOR_CLI_PATH && !defined(_WIN32)
+#if !defined(_WIN32) && defined(BAYSOR_CLI_PATH)
 
 namespace {
 
@@ -203,8 +153,7 @@ using TempDir = baysor_test::TempDir;
 using baysor_test::cli::run_cli;
 using baysor_test::cli::write_text;
 
-// The BUG-5 reproducer table: 10 molecules / 5 genes, exactly the rows that
-// produced 9 NCV anchors (< n_pca_dims=10) and the Eigen assertion.
+// The BUG-5 reproducer table: 10 molecules / 5 genes giving 9 NCV anchors.
 std::string tiny_csv_content() {
     return
         "x,y,gene\n"
@@ -222,10 +171,8 @@ std::string tiny_csv_content() {
 
 }  // namespace
 
-// The original reproducer: `baysor run tiny.csv -m 2 -s 2.5 -o out` exited 134
-// (Eigen Block assertion in the NCV colour embedding). --iters 10 reaches the
-// colour stage in well under a second while exercising the identical code
-// path, so every cluster method stays cheap enough for the suite.
+// The original reproducer `baysor run tiny.csv -m 2 -s 2.5 -o out`; --iters 10
+// keeps every cluster method cheap.
 TEST(Bug5_Cli, TinyDatasetRunExitsCleanlyForAllClusterMethods) {
     TempDir tmp("bug5_run");
     const std::string csv = write_text(tmp, "tiny.csv", tiny_csv_content());
@@ -244,8 +191,7 @@ TEST(Bug5_Cli, TinyDatasetRunExitsCleanlyForAllClusterMethods) {
 }
 
 // `baysor segfree` drives the non-streaming entry point
-// (gene_composition_color_embedding) and used to hit the same assertion at
-// compute_ncv_embedding's leftCols (color_utils.cpp:444).
+// (gene_composition_color_embedding).
 TEST(Bug5_Cli, TinyDatasetSegfreeExitsCleanly) {
     TempDir tmp("bug5_segfree");
     const std::string csv = write_text(tmp, "tiny.csv", tiny_csv_content());
@@ -259,4 +205,10 @@ TEST(Bug5_Cli, TinyDatasetSegfreeExitsCleanly) {
     EXPECT_TRUE(fs::exists(out)) << "segfree produced no output loom";
 }
 
-#endif  // BAYSOR_CLI_PATH && !defined(_WIN32)
+#else
+
+TEST(Bug5_Cli, SubprocessTestsNeedPosixAndCliPath) {
+    GTEST_SKIP() << "CLI subprocess tests require POSIX and BAYSOR_CLI_PATH";
+}
+
+#endif
