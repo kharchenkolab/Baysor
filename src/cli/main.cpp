@@ -158,22 +158,26 @@ int cmd_run(
     NoiseFitResult noise_fit;
     int confidence_nn_id = opts.molecules.confidence_nn_id;
     spdlog::info("Estimating confidence...");
+    auto conf_details = estimate_confidence_details(data, opts.molecules.confidence_nn_id, psc);
+    data.confidence.resize(data.n_molecules());
+    for (int i = 0; i < data.n_molecules(); ++i) {
+        data.confidence[i] = conf_details.fit_result.assignment_probs(i, 0);
+    }
     if (plot) {
-        auto conf_details = estimate_confidence_details(data, opts.molecules.confidence_nn_id, psc);
         confidence_nn_id = conf_details.nn_id;
         noise_edge_lengths = std::move(conf_details.edge_lengths);
         noise_fit = std::move(conf_details.fit_result);
-        data.confidence.resize(data.n_molecules());
-        for (int i = 0; i < data.n_molecules(); ++i) {
-            data.confidence[i] = noise_fit.assignment_probs(i, 0);
-        }
-    } else {
-        append_confidence(data, opts.molecules.confidence_nn_id, psc);
     }
 
-    // Build molecule adjacency graph (MRF)
+    // Build molecule adjacency graph (MRF) from the edges the confidence step
+    // already computed: the Delaunay triangulation is built once per run and
+    // reused here (filtering to the long-edge-trimmed segmentation graph),
+    // instead of being rebuilt a second time (REPORT.md 6.4).
     spdlog::info("Building molecule graph...");
-    auto adj_list = build_molecule_graph(data);
+    auto adj_list = build_molecule_graph(
+        data, /*filter=*/true, /*use_local_gene_similarities=*/false,
+        AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(conf_details.adjacency));
 
     // Create output directory
     {

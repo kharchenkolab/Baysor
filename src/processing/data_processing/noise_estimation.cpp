@@ -284,8 +284,11 @@ ConfidenceEstimationDetails estimate_confidence_details(
     // result peaked at 3 GiB on whole slides, REPORT.md 6.4).
     std::vector<double> mean_dists = knn_kth_distances(pos, nn_id + 1, nn_id);
 
-    // Build molecule graph (unfiltered, matching Julia)
-    auto adj_list = build_molecule_graph(data, /*filter=*/false);
+    // Build molecule graph (unfiltered, matching Julia). The edges are kept in
+    // the result so the segmentation graph can be built from the same
+    // triangulation instead of recomputing it.
+    auto adj_edges = compute_molecule_adjacency(data);
+    auto adj_list = build_molecule_graph_from_edges(adj_edges, n);
 
     // Compute min_confidence from prior segmentation if available
     std::vector<double> min_conf;
@@ -310,6 +313,7 @@ ConfidenceEstimationDetails estimate_confidence_details(
     details.edge_lengths = std::move(mean_dists);
     details.fit_result = std::move(result);
     details.nn_id = nn_id;
+    details.adjacency = std::move(adj_edges);
     return details;
 }
 
