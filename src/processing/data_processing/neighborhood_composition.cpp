@@ -710,8 +710,7 @@ void stream_projected_neighborhood_vectors(
                 block_vecs.col(local_i) = col;
             });
 
-            callback(block_start, std::vector<int>(ids.begin() + block_start, ids.begin() + block_start + block_n),
-                     block_vecs);
+            callback(block_start, std::vector<int>(ids.begin() + block_start, ids.begin() + block_start + block_n), block_vecs);
         });
 }
 
