@@ -8,14 +8,8 @@
 # generated here with awk), then checks the number of segmented cells.
 #
 # Needs only bash and POSIX tools (awk, mktemp), so it works in bare distro
-# containers and in Git Bash on Windows runners.
-#
-# Environment:
-#   BAYSOR_SMOKE_WRAPPER  command prefix, e.g. "qemu-x86_64 -cpu qemu64"
-#   BAYSOR_SMOKE_DATA     molecules.parquet of the sim_circles_gaps_g100
-#                         dataset from github.com/VPetukhov/baysor-benchmarks:
-#                         run on it instead of the synthetic grid
-#   BAYSOR_SMOKE_KEEP=1   keep the temporary work directory
+# containers and in Git Bash on Windows runners. BAYSOR_SMOKE_WRAPPER is an
+# optional command prefix, e.g. "qemu-x86_64 -cpu qemu64".
 set -euo pipefail
 
 die() { printf 'smoke_test: FAIL: %s\n' "$*" >&2; exit 1; }
@@ -31,9 +25,7 @@ read -r -a WRAPPER <<< "${BAYSOR_SMOKE_WRAPPER:-}"
 baysor() { "${WRAPPER[@]+"${WRAPPER[@]}"}" "$BIN" "$@"; }
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/baysor-smoke.XXXXXX")"
-if [[ "${BAYSOR_SMOKE_KEEP:-0}" != 1 ]]; then
-    trap 'rm -rf "$WORK"' EXIT
-fi
+trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
 # --- --version / --help -------------------------------------------------------
@@ -51,39 +43,30 @@ done
 say "--help: OK"
 
 # --- baysor run ---------------------------------------------------------------
-if [[ -n "${BAYSOR_SMOKE_DATA:-}" ]]; then
-    [[ -f "$BAYSOR_SMOKE_DATA" ]] || die "BAYSOR_SMOKE_DATA not found: $BAYSOR_SMOKE_DATA"
-    # Same arguments as baysor-benchmarks harness/run.py builds from the dataset's
-    # meta.json (sim_circles_gaps_g100: 621 true cells).
-    run_args=("$BAYSOR_SMOKE_DATA" :prior -x x -y y -g gene -s 6.1 --scale-std 25%
-              --prior-segmentation-confidence 0.5 -m 20)
-    min_cells=500; max_cells=750
-else
-    # 12 x 12 grid of round cells (radius 6, spacing 16) with ~120 molecules
-    # each; 4 cell types with 5 marker genes each over a 20-gene panel, plus
-    # 1% uniform background.
-    awk -v seed=42 'BEGIN {
-        srand(seed); OFS = ","; pi = 3.141592653589793
-        n_grid = 12; spacing = 16; radius = 6; n_genes = 20
-        print "x", "y", "gene"
-        for (i = 0; i < n_grid; i++) for (j = 0; j < n_grid; j++) {
-            cx = (i + 0.5) * spacing; cy = (j + 0.5) * spacing
-            type = (i * n_grid + j) % 4
-            n = 90 + int(rand() * 60)
-            for (k = 0; k < n; k++) {
-                r = radius * sqrt(rand()); a = 2 * pi * rand()
-                if (rand() < 0.6) g = type * 5 + int(rand() * 5)
-                else g = int(rand() * n_genes)
-                printf "%.3f,%.3f,g%d\n", cx + r * cos(a), cy + r * sin(a), g
-            }
+# 12 x 12 grid of round cells (radius 6, spacing 16) with ~120 molecules each;
+# 4 cell types with 5 marker genes each over a 20-gene panel, plus 1% uniform
+# background.
+awk -v seed=42 'BEGIN {
+    srand(seed); OFS = ","; pi = 3.141592653589793
+    n_grid = 12; spacing = 16; radius = 6; n_genes = 20
+    print "x", "y", "gene"
+    for (i = 0; i < n_grid; i++) for (j = 0; j < n_grid; j++) {
+        cx = (i + 0.5) * spacing; cy = (j + 0.5) * spacing
+        type = (i * n_grid + j) % 4
+        n = 90 + int(rand() * 60)
+        for (k = 0; k < n; k++) {
+            r = radius * sqrt(rand()); a = 2 * pi * rand()
+            if (rand() < 0.6) g = type * 5 + int(rand() * 5)
+            else g = int(rand() * n_genes)
+            printf "%.3f,%.3f,g%d\n", cx + r * cos(a), cy + r * sin(a), g
         }
-        extent = n_grid * spacing
-        for (k = 0; k < 170; k++)
-            printf "%.3f,%.3f,g%d\n", rand() * extent, rand() * extent, int(rand() * n_genes)
-    }' > molecules.csv
-    run_args=(molecules.csv -x x -y y -g gene -s 6 -m 20)
-    min_cells=100; max_cells=190
-fi
+    }
+    extent = n_grid * spacing
+    for (k = 0; k < 170; k++)
+        printf "%.3f,%.3f,g%d\n", rand() * extent, rand() * extent, int(rand() * n_genes)
+}' > molecules.csv
+run_args=(molecules.csv -x x -y y -g gene -s 6 -m 20)
+min_cells=100; max_cells=190
 
 say "running: baysor run ${run_args[*]} -o seg"
 start=$(date +%s)

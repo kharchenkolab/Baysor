@@ -107,16 +107,11 @@ jobs:
       - name: Check docs against the CLI and config parser
         run: python docs/tools/check_cli_docs.py
 
-      # `latest` must only ever point to the newest *stable* release: a
-      # workflow_dispatch redeploy of an older tag, a backport patch release,
-      # or a GitHub pre-release must not move it. The version is always
-      # deployed; the `latest` alias and the default redirect are only
-      # attached when the version is not a pre-release and is >= every version
-      # already listed by `mike list --json` (compared as versions; the
-      # version fields are used, so the `0.7.1 (Julia)` title suffix is
-      # irrelevant). Keep this rule in sync with `should_move_latest` in
-      # docs/tools/migrate_gh_pages.py (inlined here because older release
-      # tags do not contain that file).
+      # The version is always deployed; `latest` and the default redirect
+      # only move to it when it is not a pre-release and is >= every version
+      # in `mike list --json`, so redeploys of older tags and backports keep
+      # `latest` where it is. Same rule as packaging/is_latest_release.py
+      # (Docker `latest`), inlined because older release tags lack that file.
       - name: Decide whether to move the `latest` alias
         id: latest
         env:

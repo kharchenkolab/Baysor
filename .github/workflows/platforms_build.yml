@@ -5,10 +5,6 @@ on:
   pull_request:
 
 env:
-  # Bumped when a newer vcpkg is needed; packaging/vcpkg-overlay-ports/gmp
-  # backports the msys2 autoconf pin fix (microsoft/vcpkg#53437) that no
-  # release contains yet.
-  VCPKG_GIT_REF: 2026.03.18
   VCPKG_DISABLE_METRICS: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
 
@@ -61,6 +57,11 @@ jobs:
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: brew install ninja eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
+
+      - name: Read the vcpkg release (as the release builds do)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "VCPKG_GIT_REF=$(cat packaging/vcpkg-ref)" >> "$GITHUB_ENV"
 
       - name: Checkout vcpkg
         if: runner.os == 'Windows'
@@ -136,9 +137,7 @@ jobs:
         shell: pwsh
         run: cmake --build build/ci --config Release --target baysor --parallel
 
-      # vcpkg keeps the configure/build logs of every port under buildtrees/
-      # (removed only after the port builds successfully); upload them when the
-      # build fails so the failure is diagnosable without a rerun.
+      # vcpkg removes a port's logs only after it builds successfully.
       - name: Upload vcpkg failure logs
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@v4

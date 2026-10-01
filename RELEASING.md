@@ -112,14 +112,6 @@ contain `packaging/` (every release after `cpp-0.8.3`). Existing assets are
 replaced (`--clobber`). To rerun only failed jobs of a run, use **Re-run failed
 jobs** on the run page.
 
-For tags that predate the vcpkg overlay fix (`vcpkg-configuration.json` +
-`packaging/vcpkg-overlay-ports/`, i.e. anything without `packaging/` at all,
-including the fork's `v0.8.3` test tag) the build jobs copy those two files
-from the ref the workflow definition comes from when the built ref lacks
-them: without them the Windows build dies on the MSYS2 autoconf2.71 package
-that MSYS2 dropped from its mirrors (microsoft/vcpkg#53437). The copy is a
-no-op for every ref that carries the files.
-
 ## Dry-run builds
 
 To exercise the full release build before tagging — for example to verify a
@@ -198,11 +190,11 @@ mounted into the container. Pushing happens only after all of that passes.
 smoke-tested but not pushed, and no release is consulted (no `latest`
 decision). A `platforms` subset without `linux-x86_64` skips the job.
 
-**Which ref provides the image files.** The job checks out `github.ref` —
-for `release` events the tag (so tags must contain `packaging/`, including
-`packaging/docker/` and `packaging/is_latest_release.py`), for
-`workflow_dispatch` the branch the workflow definition came from, which may
-be newer than the tag being rebuilt.
+**Which ref provides the image files.** The job checks out the commit the
+workflow runs on — for `release` events the tag (so tags must contain
+`packaging/`, including `packaging/docker/` and
+`packaging/is_latest_release.py`), for `workflow_dispatch` the branch the
+workflow definition came from, which may be newer than the tag being rebuilt.
 
 To build the same image locally:
 
@@ -232,10 +224,7 @@ packaging/linux/test-in-docker.sh dist/baysor-X.Y.Z-linux-x86_64.tar.gz
   Parallelism is `BAYSOR_JOBS` (default 8). Extra arguments are passed to
   `build_release.py` (e.g. `--out DIR`).
 - `test-in-docker.sh` runs the smoke test natively, in bare `almalinux:8` and
-  `debian:10` containers, and under qemu with the `qemu64` CPU model. Set
-  `BAYSOR_SMOKE_DATA=/path/to/molecules.parquet` to use the
-  `sim_circles_gaps_g100` benchmark dataset instead of the synthetic grid, and
-  `BAYSOR_TEST_STAGES` (e.g. `"native qemu"`) to select stages.
+  `debian:10` containers, and under qemu with the `qemu64` CPU model.
 
 `build_release.py` also runs `packaging/linux/check_binary.py`, which fails if
 the binary needs a shared library other than glibc's, a `GLIBC_` symbol
@@ -266,7 +255,7 @@ OpenSSL, libjpeg-turbo and GMP (built with `--enable-fat`) are selected at run
 time from the CPU's capabilities. CUDA is off in release builds.
 
 To change a platform's floor, keep these in sync: the Dockerfile base image
-and `--glibc-floor` of `check_binary.py` (Linux); `MACOS_DEPLOYMENT_TARGET` in
+and `GLIBC_FLOOR` in `check_binary.py` (Linux); `MACOS_DEPLOYMENT_TARGET` in
 `build_release.py`, `VCPKG_OSX_DEPLOYMENT_TARGET` in
 `packaging/vcpkg-triplets/arm64-osx-release.cmake` and
 `CMAKE_OSX_DEPLOYMENT_TARGET` in the `release-macos-arm64` preset (macOS).
