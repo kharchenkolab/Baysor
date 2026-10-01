@@ -71,9 +71,6 @@ struct BmmData {
     /// Assign molecule to component, updating segment bookkeeping
     void assign(int mol_id, int component_id);
 
-    /// Count molecules per cell
-    std::vector<int> num_molecules_per_cell() const;
-
     /// Update n_molecules_per_segment and main_segment_per_cell
     void update_n_mols_per_segment();
 

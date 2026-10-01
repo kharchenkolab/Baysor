@@ -316,11 +316,11 @@ TEST(Cov2Bmm, EstimateAssignmentByHistoryMajorityVote) {
     data.components[0].guid = 10;
     data.components[1].guid = 20;
 
-    data.assignment_history = {
+    data.assignment_history = baysor::AssignmentHistory({
         {10, 10,  0, 99, 99},
         {10, 20,  0, 99, 99},
         {10, 10,  0, 20, 99},
-    };
+    });
 
     auto [reassign, match_frac] = baysor::estimate_assignment_by_history(data);
 
@@ -446,7 +446,7 @@ TEST(Cov2Bmm, ThreeDimensionalLoopWithSegmentsAndRefineStaysStable) {
         EXPECT_DOUBLE_EQ(c, 1.0);
     }
     // History stores global GUIDs only (plus 0 for noise).
-    for (const auto& row : data.assignment_history) {
+    for (const auto& row : data.assignment_history.rows()) {
         ASSERT_EQ(row.size(), 12u);
         for (int guid : row) {
             EXPECT_TRUE(guid == 0 || guid == 1 || guid == 2);
@@ -486,11 +486,11 @@ TEST(Cov2Trace, EstimateComponentLifespanHandlesUnbrokenAndBrokenStreaks) {
 
     // Unbroken streaks: guid 1 present in all three snapshots, guid 3 only in
     // the last two (it disappears going backward).
-    const std::vector<std::vector<int>> unbroken = {
-        {1, 1, 2},
-        {1, 1, 3},
+    const baysor::AssignmentHistory unbroken({
+        {1, 1, 2, 0},
         {1, 1, 3, 0},
-    };
+        {1, 1, 3, 0},
+    });
     auto life = baysor::estimate_component_lifespan(unbroken);
     ASSERT_EQ(life.size(), 2u);
     EXPECT_EQ(life.at(1), 3);
@@ -498,11 +498,11 @@ TEST(Cov2Trace, EstimateComponentLifespanHandlesUnbrokenAndBrokenStreaks) {
 
     // Broken streaks: guid 2 vanishes in the oldest snapshot while guid 1 is
     // absent from the middle one, so neither survives the full history.
-    const std::vector<std::vector<int>> broken = {
-        {1, 0},
-        {2, 0},
+    const baysor::AssignmentHistory broken({
+        {1, 0, 0, 0},
+        {2, 0, 0, 0},
         {1, 1, 2, 0},
-    };
+    });
     auto life_broken = baysor::estimate_component_lifespan(broken);
     ASSERT_EQ(life_broken.size(), 2u);
     EXPECT_EQ(life_broken.at(1), 1);

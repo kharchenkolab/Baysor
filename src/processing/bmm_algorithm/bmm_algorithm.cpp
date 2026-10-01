@@ -907,7 +907,7 @@ estimate_assignment_by_history(const BmmData<N>& data) {
         std::vector<std::byte> arena(4096);
 
         for (int i = b; i < e; ++i) {
-            row[n_hist - 1] = history.newest()[i];
+            row[n_hist - 1] = history.back()[i];
             for (int t = n_hist - 2; t >= 0; --t) {
                 const auto& d = history.changes_after(t);
                 size_t& c = cursor[t];
@@ -994,9 +994,9 @@ void bmm(BmmData<N>& data,
     std::vector<double> change_fracs;
     change_fracs.reserve(n_iters);
 
-    // Initial trace + maximize to warm-start parameters
-    trace_n_components(data, disp_thresh);
+    // Initial maximize to warm-start parameters + trace
     maximize(data, freeze_composition, freeze_position);
+    trace_n_components(data, disp_thresh, groups);
 
     BmmWorkspace& ws = data.workspace;
     const bool has_segments = !data.segment_per_molecule.empty();

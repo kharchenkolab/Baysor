@@ -1,5 +1,4 @@
 #include "baysor/processing/models/bmm_data.h"
-#include "baysor/utils/general.h"
 
 namespace baysor {
 
@@ -27,11 +26,6 @@ void BmmData<N>::assign(int mol_id, int component_id) {
     }
 
     assignment[mol_id] = component_id;
-}
-
-template<int N>
-std::vector<int> BmmData<N>::num_molecules_per_cell() const {
-    return count_array(assignment, n_components(), /*drop_zero=*/true);
 }
 
 template<int N>
