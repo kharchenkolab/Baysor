@@ -1,10 +1,8 @@
 #include "baysor/processing/data_processing/umap_wrappers.h"
 #include "baysor/utils/thread_pool.h"
 
-// Route the FetchContent dependencies' parallel loops through the Baysor
-// thread pool instead of OpenMP or per-call std::thread spawns. These macros
-// must be defined before any subpar/umappp header is included; the hook
-// functions themselves are declared in baysor/utils/thread_pool.h above.
+// Run the dependencies' parallel loops on the Baysor thread pool. The macros
+// must precede the subpar/umappp includes.
 #define SUBPAR_CUSTOM_PARALLELIZE_RANGE baysor::subpar_parallelize_range
 #define SUBPAR_CUSTOM_PARALLELIZE_RANGE_NOTHROW baysor::subpar_parallelize_range
 #define SUBPAR_CUSTOM_PARALLELIZE_SIMPLE baysor::subpar_parallelize_simple
@@ -44,9 +42,7 @@ Eigen::MatrixXd umap_embed(
     knncolle::SimpleMatrix<int, int, double> mat(ndim_in, nobs, data.data());
     auto index = knncolle::VptreeBuilder<knncolle::EuclideanDistance>().build_unique(mat);
 
-    // Build neighbor list using Searcher API (knncolle v2.3+). The per-query
-    // search is embarrassingly parallel: results are disjoint per index, so
-    // the loop runs on the Baysor pool with one searcher per chunk.
+    // Build neighbor list using Searcher API (knncolle v2.3+), one searcher per chunk.
     knncolle::NeighborList<int, double> neighbors(nobs);
     run_parallel_chunks(0, nobs, 256, Scheduling::Dynamic,
         [&](std::int64_t b, std::int64_t e, int) {
@@ -76,11 +72,8 @@ Eigen::MatrixXd umap_embed(
     opt.spread     = spread;
     opt.min_dist   = min_dist;
     opt.num_threads = thread_pool_size();
-    // Keep umappp's parallel layout optimizer off: its output is deterministic
-    // and matches the serial optimizer at any thread count, but it spawns its
-    // own busy-wait worker threads, which measured 1.8x slower at 4 threads
-    // and 4.3x slower at 8 on a busy host. The KNN search and similarity
-    // smoothing run on the Baysor pool through UMAPPP_CUSTOM_PARALLEL.
+    // umappp's parallel layout optimizer spawns its own busy-waiting threads,
+    // which are slower on a loaded host; the rest runs on the Baysor pool.
     opt.parallel_optimization = false;
     opt.initialize = umappp::InitializeMethod::NONE; // use our pre-filled buffer
 

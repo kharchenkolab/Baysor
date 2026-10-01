@@ -109,9 +109,8 @@ baysor::MoleculeData make_consistency_data() {
     return data;
 }
 
-std::vector<int> consistency_assignment() {
-    return {1, 1, 1, 1, 2, 2, 2, 3, 3};
-}
+const std::vector<int> kAssignment = {1, 1, 1, 1, 2, 2, 2, 3, 3};
+const std::vector<std::string> kCellNames = {"cell_1", "cell_2", "cell_3"};
 
 }  // namespace
 
@@ -122,18 +121,13 @@ std::vector<int> consistency_assignment() {
 TEST(Cov165Consistency, CsvAndPolygonsCellSetsMatchAllFormats) {
     baysor_test::TempDir tmp("cov165_2d");
     const auto data = make_consistency_data();
-    const auto assignment = consistency_assignment();
-    const std::vector<std::string> cell_names = {"cell_1", "cell_2", "cell_3"};
-
     const std::string csv_path = tmp.file("segmentation.csv");
-    baysor::save_segmented_df(data, assignment, data.gene_names, csv_path);
+    baysor::save_segmented_df(data, kAssignment, data.gene_names, csv_path);
     const auto csv_cells = csv_assigned_cells(csv_path);
-    ASSERT_EQ(csv_cells, (std::set<std::string>{"cell_1", "cell_2", "cell_3"}));
+    ASSERT_EQ(csv_cells, std::set<std::string>(kCellNames.begin(), kCellNames.end()));
 
-    auto [joined, stack] = baysor::boundary_polygons_auto(
-        data.position_matrix(), assignment, /*estimate_per_z=*/false,
-        &cell_names, /*verbose=*/false);
-    (void)stack;
+    const auto joined = baysor::boundary_polygons_auto(
+        data.position_matrix(), kAssignment, /*estimate_per_z=*/false, &kCellNames, /*verbose=*/false).first;
 
     const std::vector<std::pair<std::string, std::string>> formats = {
         {"FeatureCollection", "FeatureCollection"},
@@ -161,20 +155,14 @@ TEST(Cov165Consistency, CsvAndPolygonsCellSetsMatchIn3D) {
     baysor::MoleculeData data = make_consistency_data();
     // Give every molecule a per-cell z so the run is 3D; the collinear cell
     // stays collinear in the pooled 2D projection.
-    data.z.assign(data.x.size(), 0.0);
-    for (size_t i = 0; i < data.z.size(); ++i) {
-        data.z[i] = (i % 2 == 0) ? 0.0 : 5.0;
-    }
-    const auto assignment = consistency_assignment();
-    const std::vector<std::string> cell_names = {"cell_1", "cell_2", "cell_3"};
+    for (size_t i = 0; i < data.x.size(); ++i) data.z.push_back(i % 2 == 0 ? 0.0 : 5.0);
 
     const std::string csv_path = tmp.file("segmentation.csv");
-    baysor::save_segmented_df(data, assignment, data.gene_names, csv_path);
+    baysor::save_segmented_df(data, kAssignment, data.gene_names, csv_path);
     const auto csv_cells = csv_assigned_cells(csv_path);
 
     auto [joined, stack] = baysor::boundary_polygons_auto(
-        data.position_matrix(), assignment, /*estimate_per_z=*/true,
-        &cell_names, /*verbose=*/false);
+        data.position_matrix(), kAssignment, /*estimate_per_z=*/true, &kCellNames, /*verbose=*/false);
 
     baysor::OutputPaths paths;
     paths.polygons_2d = tmp.file("polygons_2d.json");

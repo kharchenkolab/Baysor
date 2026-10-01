@@ -175,11 +175,7 @@ std::vector<Triangle> extract_triangle_verts(CgalDelaunay& dt) {
     std::vector<Triangle> triangles;
     triangles.reserve(static_cast<size_t>(dt.number_of_faces()));
     for (auto fit = dt.finite_faces_begin(); fit != dt.finite_faces_end(); ++fit) {
-        triangles.push_back({ // GCOVR_EXCL_LINE: dead GCC block; push_back call counted on lines 179-181
-            fit->vertex(0)->info(),
-            fit->vertex(1)->info(),
-            fit->vertex(2)->info()
-        });
+        triangles.push_back({fit->vertex(0)->info(), fit->vertex(1)->info(), fit->vertex(2)->info()});
     }
     return triangles;
 }
@@ -211,6 +207,10 @@ std::vector<Edge> extract_border_edges(const std::vector<Triangle>& triangles) {
     }
     return border_edges;
 }
+
+} // namespace
+
+namespace internal {
 
 std::vector<Edge> find_border_without_admixture(
     const std::vector<Triangle>& triangles,
@@ -302,10 +302,7 @@ std::vector<Edge> find_border_without_admixture(
     border_edges.reserve(edge_counts.size());
     for (const auto& [key, n] : edge_counts) {
         if (n != 1) continue;
-        border_edges.push_back({
-            static_cast<int>(key >> 32), // GCOVR_EXCL_LINE: dead GCC block; expression counted on line 307
-            static_cast<int>(key & 0xffffffffu)
-        });
+        border_edges.push_back({static_cast<int>(key >> 32), static_cast<int>(key & 0xffffffffu)});
     }
     return border_edges;
 }
@@ -359,6 +356,10 @@ std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int
     return {};
 }
 
+} // namespace internal
+
+namespace {
+
 PolygonCollection build_polygons_for_cells(
     const Eigen::MatrixXd& pos_data,
     const std::vector<int>& cell_labels,
@@ -378,145 +379,105 @@ PolygonCollection build_polygons_for_cells(
     auto ids_per_bbox = extract_ids_per_bbox(pos2d.row(0).transpose(), pos2d.row(1).transpose(), bboxes);
     auto mids_per_cell = split_ids(cell_labels, max_label, /*drop_zero=*/true);
 
-    auto knn = knn_parallel(pos2d, pos2d, 2, true);
-    double mean_nn_dist = 1.0;
-    if (knn.n > 0) {
-        double sum = 0.0;
-        int count = 0;
-        for (int i = 0; i < knn.n; ++i) {
-            if (knn.k >= 2) {
-                sum += knn.dist_row(i)[1];
-                ++count;
-            }
-        }
-        if (count > 0) mean_nn_dist = sum / count;
-    }
+    const std::vector<double> nn_dists = knn_kth_distances(pos2d, 2, 1);
+    const double mean_nn_dist = std::accumulate(nn_dists.begin(), nn_dists.end(), 0.0) / n;
     const double offset = mean_nn_dist * offset_rel;
 
-    std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
-
-    // Fallback polygon for a cell whose free-form boundary estimation failed
-    // or produced fewer than 3 vertices: the axis-aligned bounding box of the
-    // cell's molecules, padded by the local nearest-neighbour offset. Every
-    // cell with at least one assigned molecule must have a polygon, otherwise
-    // the segmentation CSV and the polygons JSON disagree and Xenium Ranger
-    // rejects the import (kharchenkolab/Baysor#165).
-    auto fallback_polygon = [&](int cid) {
+    // Free-form polygon of one cell; empty if the estimation fails.
+    auto cell_polygon = [&](int cid) -> Eigen::MatrixXd {
         const auto& cell_ids = mids_per_cell[cid - 1];
-        double min_x = std::numeric_limits<double>::infinity();
-        double max_x = -std::numeric_limits<double>::infinity();
-        double min_y = std::numeric_limits<double>::infinity();
-        double max_y = -std::numeric_limits<double>::infinity();
-        for (int mol : cell_ids) {
-            const double x = pos2d(0, mol);
-            const double y = pos2d(1, mol);
-            min_x = std::min(min_x, x);
-            max_x = std::max(max_x, x);
-            min_y = std::min(min_y, y);
-            max_y = std::max(max_y, y);
-        }
-        const double pad = std::max(offset, 1e-6);
-        Eigen::MatrixXd poly(2, 4);
-        poly.col(0) = Eigen::Vector2d(min_x - pad, min_y - pad);
-        poly.col(1) = Eigen::Vector2d(max_x + pad, min_y - pad);
-        poly.col(2) = Eigen::Vector2d(max_x + pad, max_y + pad);
-        poly.col(3) = Eigen::Vector2d(min_x - pad, max_y + pad);
-        return poly;
-    };
-    auto emit_fallback = [&](int cid) {
-        polygons_by_cell[cid - 1] = fallback_polygon(cid);
-    };
-
-    // Nested calls inside a parallel region run serially (this replaces the
-    // former `omp_in_parallel` guard).
-    parallel_for(1, max_label + 1, 32, [&](int cid) {
-        const auto& cell_ids = mids_per_cell[cid - 1];
-        if (cell_ids.empty()) return;
-
-        Eigen::MatrixXd poly;
         if (cell_ids.size() == 1) {
             const Eigen::Vector2d p = pos2d.col(cell_ids[0]);
-            poly.resize(2, 4);
+            Eigen::MatrixXd poly(2, 4);
             poly.col(0) = p + Eigen::Vector2d(offset, 0.0);
             poly.col(1) = p + Eigen::Vector2d(-offset, 0.0);
             poly.col(2) = p + Eigen::Vector2d(0.0, offset);
             poly.col(3) = p + Eigen::Vector2d(0.0, -offset);
-        } else if (cell_ids.size() == 2) {
+            return poly;
+        }
+        if (cell_ids.size() == 2) {
             const Eigen::Vector2d p1 = pos2d.col(cell_ids[0]);
             const Eigen::Vector2d p2 = pos2d.col(cell_ids[1]);
             const Eigen::Vector2d center = (p1 + p2) / 2.0;
-            poly.resize(2, 4);
+            Eigen::MatrixXd poly(2, 4);
             poly.col(0) = p1;
             poly.col(1) = p2;
             poly.col(2) = center + Eigen::Vector2d(offset, 0.0);
             poly.col(3) = center + Eigen::Vector2d(-offset, 0.0);
-        } else {
-            const auto& mids = ids_per_bbox[cid - 1];
-            if (mids.empty()) { emit_fallback(cid); return; }
+            return poly;
+        }
 
-            const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
-            const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
+        const auto& mids = ids_per_bbox[cid - 1];
+        if (mids.empty()) return {};
 
-            std::vector<int> bbox_labels(mids.size());
-            int n_cell_pts = 0;
-            for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
-                bbox_labels[i] = cell_labels[mids[i]];
-                n_cell_pts += (bbox_labels[i] == cid);
-            }
-            if (n_cell_pts < 3) { emit_fallback(cid); return; }
+        const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
+        const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
 
-            std::vector<CgalPointWithInfo> cell_points;
-            cell_points.reserve(n_cell_pts);
-            std::vector<int> non_cell_ids;
-            non_cell_ids.reserve(mids.size() - n_cell_pts);
+        std::vector<int> bbox_labels(mids.size());
+        int n_cell_pts = 0;
+        for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
+            bbox_labels[i] = cell_labels[mids[i]];
+            n_cell_pts += (bbox_labels[i] == cid);
+        }
+        if (n_cell_pts < 3) return {};
 
-            for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
-                if (bbox_labels[i] == cid) {
-                    cell_points.push_back({CgalPoint(bbox_norm(0, i), bbox_norm(1, i)), i});
-                } else {
-                    non_cell_ids.push_back(i);
-                }
-            }
+        std::vector<CgalPointWithInfo> cell_points;
+        cell_points.reserve(n_cell_pts);
+        std::vector<int> non_cell_ids;
+        non_cell_ids.reserve(mids.size() - n_cell_pts);
 
-            CgalDelaunay dt;
-            dt.insert(cell_points.begin(), cell_points.end());
-            auto triangles = extract_triangle_verts(dt);
-            if (triangles.empty()) { emit_fallback(cid); return; }
-
-            Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
-            for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
-                non_cell_pos.col(i) = bbox_pos.col(non_cell_ids[i]);
-            }
-
-            auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos,
-                                                              internal::kBorderFilterMaxIters);
-            auto poly_ids = border_edges_to_poly(border_edges, internal::kMaxBorderLength);
-            if (poly_ids.empty()) { emit_fallback(cid); return; }
-
-            poly.resize(2, static_cast<int>(poly_ids.size()));
-            for (int i = 0; i < static_cast<int>(poly_ids.size()); ++i) {
-                poly.col(i) = bbox_pos.col(poly_ids[i]);
+        for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
+            if (bbox_labels[i] == cid) {
+                cell_points.push_back({CgalPoint(bbox_norm(0, i), bbox_norm(1, i)), i});
+            } else {
+                non_cell_ids.push_back(i);
             }
         }
 
-        if (poly.cols() < 3) { emit_fallback(cid); return; }
-        polygons_by_cell[cid - 1] = std::move(poly);
+        CgalDelaunay dt;
+        dt.insert(cell_points.begin(), cell_points.end());
+        auto triangles = extract_triangle_verts(dt);
+        if (triangles.empty()) return {};
+
+        Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
+        for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
+            non_cell_pos.col(i) = bbox_pos.col(non_cell_ids[i]);
+        }
+
+        auto border_edges = internal::find_border_without_admixture(triangles, bbox_pos, non_cell_pos);
+        return subset_columns(bbox_pos, internal::border_edges_to_poly(border_edges));
+    };
+
+    // Bounding box of the cell's molecules, padded by the offset: every cell
+    // with a molecule needs a polygon, or the segmentation CSV and the
+    // polygons disagree and Xenium Ranger rejects the import.
+    auto bbox_polygon = [&](int cid) {
+        const Eigen::MatrixXd pts = subset_columns(pos2d, mids_per_cell[cid - 1]);
+        const double pad = std::max(offset, 1e-6);
+        const Eigen::Vector2d lo = pts.rowwise().minCoeff().array() - pad;
+        const Eigen::Vector2d hi = pts.rowwise().maxCoeff().array() + pad;
+        Eigen::MatrixXd poly(2, 4);
+        poly << lo.x(), hi.x(), hi.x(), lo.x(),
+                lo.y(), lo.y(), hi.y(), hi.y();
+        return poly;
+    };
+
+    std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
+    parallel_for(1, max_label + 1, 32, [&](int cid) {
+        if (mids_per_cell[cid - 1].empty()) return;
+        Eigen::MatrixXd poly = cell_polygon(cid);
+        polygons_by_cell[cid - 1] = poly.cols() >= 3 ? std::move(poly) : bbox_polygon(cid);
     });
 
     PolygonCollection polygons;
     polygons.reserve(max_label);
     for (int cid = 1; cid <= max_label; ++cid) {
         if (polygons_by_cell[cid - 1].cols() == 0) continue;
-        // When the caller supplies names, an out-of-range label still has to
-        // map to the same name the molecule CSV uses (`cell_<n>`), never to
-        // the bare-integer default, so the two files always agree.
-        std::string cell_name;
+        // Labels beyond `cell_names` get the molecule CSV's name, `cell_<n>`.
+        std::string cell_name = default_cell_name(cid);
         if (cell_names) {
-            cell_name = (cid - 1 < static_cast<int>(cell_names->size()))
-                ? (*cell_names)[cid - 1]
-                : ("cell_" + std::to_string(cid));
-        } else {
-            cell_name = default_cell_name(cid);
+            cell_name = cid <= static_cast<int>(cell_names->size()) ? (*cell_names)[cid - 1]
+                                                                    : "cell_" + cell_name;
         }
         polygons[cell_name] = std::move(polygons_by_cell[cid - 1]);
     }
@@ -599,7 +560,7 @@ std::vector<Eigen::MatrixXd> boundary_polygons_from_grid(
         dt.insert(pts.begin(), pts.end());
         auto triangles = extract_triangle_verts(dt);
         auto border_edges = extract_border_edges(triangles);
-        auto poly_ids = border_edges_to_poly(border_edges, internal::kMaxBorderLength);
+        auto poly_ids = internal::border_edges_to_poly(border_edges);
         if (poly_ids.empty()) {
             polys.emplace_back();
             continue;
@@ -647,7 +608,7 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     if (static_cast<int>(unique_z.size()) > max_z_slices) {
         if (verbose) {
-            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation. " // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on the guard line above
+            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation. " // GCOVR_EXCL_LINE: gcov dead block
                          "Increase the [plotting] max_z_slices option to use more layers.",
                          unique_z.size(), max_z_slices);
         }
@@ -699,28 +660,5 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     return {poly_joined, poly_stack};
 }
-
-// Test seam: thin wrappers over the anonymous-namespace helpers above. They
-// exist so unit tests can exercise the max_iters / max_border_len warning
-// guards, which production callers never override. Behavior is unchanged.
-namespace internal {
-
-std::vector<std::pair<int, int>> find_border_without_admixture(
-    const std::vector<std::array<int, 3>>& triangles,
-    const Eigen::MatrixXd& pos_data,
-    const Eigen::MatrixXd& non_cell_pos,
-    int max_iters
-) {
-    return baysor::find_border_without_admixture(triangles, pos_data, non_cell_pos, max_iters);
-}
-
-std::vector<int> border_edges_to_poly(
-    const std::vector<std::pair<int, int>>& border_edges,
-    int max_border_len
-) {
-    return baysor::border_edges_to_poly(border_edges, max_border_len);
-}
-
-} // namespace internal
 
 } // namespace baysor

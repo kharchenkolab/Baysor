@@ -132,10 +132,8 @@ ClusteringResult cluster_molecules_on_mrf(
             for (int k = 0; k < n_clusters; ++k) probs(k, i) = 1.0 / n_clusters;
     }
 
-    // Molecules grouped by gene in increasing molecule order (CSR). The M-step
-    // accumulates every gene's expression column in this order, which is the
-    // order of a sequential pass over the molecules, so it runs in parallel
-    // over genes with bitwise-identical sums.
+    // Molecules grouped by gene in increasing molecule order (CSR), so that the
+    // M-step runs in parallel over genes with the sums of a sequential pass.
     std::vector<int> gene_mol_offsets(static_cast<size_t>(n_genes) + 1, 0);
     for (int g1b : genes) {
         if (g1b >= 1) ++gene_mol_offsets[static_cast<size_t>(g1b)];
@@ -170,10 +168,9 @@ ClusteringResult cluster_molecules_on_mrf(
     max_diffs.reserve(max_iters);
     change_fracs.reserve(max_iters);
 
-    // The convergence statistics are computed inside the parallel E-step, per
-    // chunk of molecules. Chunk boundaries are fixed and the reductions (a
-    // maximum and a count) are exact, so the result does not depend on the
-    // thread count and equals the former serial pass.
+    // Convergence statistics per E-step chunk: the boundaries are fixed and
+    // the reductions (a maximum and a count) exact, so they do not depend on
+    // the thread count.
     constexpr std::int64_t mol_chunk = 512;
     const std::int64_t n_chunks = (n_mols + mol_chunk - 1) / mol_chunk;
     std::vector<double> chunk_max_diff(static_cast<size_t>(n_chunks));
@@ -185,9 +182,7 @@ ClusteringResult cluster_molecules_on_mrf(
     int n_iters_done = 0;
     for (int iter = 0; iter < max_iters; ++iter) {
         n_iters_done = iter + 1;
-        // prev_probs takes the last iteration's probabilities; the E-step
-        // overwrites every entry of probs.
-        probs.swap(prev_probs);
+        probs.swap(prev_probs);  // the E-step overwrites every entry of probs
 
         // ---- E-step and convergence statistics (parallel over molecules) ----
         run_parallel_chunks(0, n_mols, mol_chunk, Scheduling::Dynamic,
@@ -261,8 +256,7 @@ ClusteringResult cluster_molecules_on_mrf(
         change_fracs.push_back(static_cast<double>(n_changed) / n_mols);
 
         if (verbose && (iter % 100 == 0 || iter < 5)) {
-            spdlog::info("  Clustering iter {:4d}: max_diff={:.4f}, change_frac={:.4f}", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following line; this line only runs when an exception unwinds through the statement
-                         iter + 1, max_diff, change_fracs.back());
+            spdlog::info("  Clustering iter {:4d}: max_diff={:.4f}, change_frac={:.4f}", iter + 1, max_diff, change_fracs.back());
         }
 
         // Stop if last n_iters_without_update all below tol
@@ -275,9 +269,7 @@ ClusteringResult cluster_molecules_on_mrf(
                 if (max_diffs[t] > worst) worst = max_diffs[t];
             }
             if (worst < tol) {
-                if (verbose)
-                    spdlog::info("Clustering converged after {} iterations. Max diff: {:.4f}", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact: the call is counted on the following line; this line only runs when an exception unwinds through the statement
-                                 iter + 1, max_diff);
+                if (verbose) spdlog::info("Clustering converged after {} iterations. Max diff: {:.4f}", iter + 1, max_diff);
                 break;
             }
         }

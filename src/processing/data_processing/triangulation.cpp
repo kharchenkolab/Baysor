@@ -10,7 +10,6 @@
 #include <cmath>
 #include <numeric>
 #include <random>
-#include <unordered_set>
 
 namespace baysor {
 
@@ -43,16 +42,14 @@ Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points, int* rng_draws) 
     if (n > 1) {
         auto knn = knn_parallel(out, out, 2, true);
         auto& rng = global_xoshiro_rng();
-        int draws = 0;
         for (int i = 0; i < n; ++i) {
             if (knn.k >= 2 && knn.dist_row(i)[1] < 1e-6) {
                 for (int d = 0; d < dims; ++d) {
                     out(d, i) += (rng.rand_float64() - 0.5) * 2e-5;
-                    ++draws;
                 }
+                if (rng_draws != nullptr) *rng_draws += dims;
             }
         }
-        if (rng_draws != nullptr) *rng_draws = draws;
     }
 
     return out;
@@ -191,59 +188,23 @@ AdjacencyResult adjacency_list(
         }
     }
 
-    std::vector<std::pair<int, int>> ordered_edges;
-    if (type == AdjacencyType::Triangulation) {
-        ordered_edges = std::move(tri_edges);
-    } else if (type == AdjacencyType::Knn) {
-        ordered_edges = std::move(knn_edges);
-    } else {
-        ordered_edges.reserve(knn_edges.size() + tri_edges.size());
-        ordered_edges.insert(ordered_edges.end(), knn_edges.begin(), knn_edges.end());
-        ordered_edges.insert(ordered_edges.end(), tri_edges.begin(), tri_edges.end());
-    }
-
-    // TODO(parity): Julia keeps first-occurrence ordering of the incoming
-    // edge stream. Before dedup we canonically sort the edges so the result
-    // is a pure function of the edge *set* (see sort rationale below), which
-    // for a sorted stream is still well-defined "first occurrence" ordering.
-    //
-    // Rationale for the sort: CGAL's finite_edges iterator emits an edge from
-    // whichever of its two adjacent faces has the LOWER HEAP ADDRESS
-    // (Triangulation_ds_iterators_2.h: associated_edge() compares raw
-    // Face_handle pointers). The emission order therefore depends on where
-    // the triangulation's blocks happen to land in the heap, which shifts
-    // with the length of the `-o` output path (early std::string chunk sizes)
-    // and with allocator history (e.g. concurrent parquet decoding threads).
-    // That order flows into the CSR adjacency lists and hence into the
-    // floating-point summation order of the MRF E-step, where last-bit weight
-    // differences flip stochastic assignments and make 1-thread runs
-    // depend on the output path length. Sorting removes the layout
-    // dependence entirely.
-    std::sort(ordered_edges.begin(), ordered_edges.end());
-
-    // Julia keeps the first occurrence of each undirected edge.
-    std::unordered_set<std::uint64_t> seen;
-    seen.reserve(ordered_edges.size() * 2 + 1);
+    // Sorted so that the graph is a function of the edge set: CGAL emits edges
+    // in an order that depends on the heap addresses of its faces, and the
+    // edge order sets the summation order of the MRF E-step.
+    std::vector<std::pair<int, int>> edges = std::move(knn_edges);
+    edges.insert(edges.end(), tri_edges.begin(), tri_edges.end());
+    std::sort(edges.begin(), edges.end());
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
 
     AdjacencyResult result;
     result.normalize_rng_draws = normalize_draws;
-    result.edge_src.reserve(ordered_edges.size());
-    result.edge_dst.reserve(ordered_edges.size());
-    result.edge_dists.reserve(ordered_edges.size());
-
-    for (const auto& edge : ordered_edges) {
-        const int lo = edge.first;
-        const int hi = edge.second;
-        const std::uint64_t key =
-            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(lo)) << 32)
-            | static_cast<std::uint32_t>(hi);
-        if (!seen.insert(key).second) {
-            continue;
-        }
-        double dist = (norm_pts.col(lo) - norm_pts.col(hi)).norm();
+    result.edge_src.reserve(edges.size());
+    result.edge_dst.reserve(edges.size());
+    result.edge_dists.reserve(edges.size());
+    for (const auto& [lo, hi] : edges) {
         result.edge_src.push_back(lo);
         result.edge_dst.push_back(hi);
-        result.edge_dists.push_back(dist);
+        result.edge_dists.push_back((norm_pts.col(lo) - norm_pts.col(hi)).norm());
     }
 
     if (filter) {
