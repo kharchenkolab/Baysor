@@ -82,7 +82,7 @@
     {
       "name": "release-linux-x86_64",
       "displayName": "Release binary: Linux x86_64",
-      "description": "Generic x86-64 (SSE2) build with static dependencies, libstdc++, libgcc and libgomp. Run inside packaging/linux/Dockerfile (manylinux_2_28, glibc 2.28).",
+      "description": "Generic x86-64 (SSE2) build with static dependencies, libstdc++ and libgcc. Run inside packaging/linux/Dockerfile (manylinux_2_28, glibc 2.28).",
       "inherits": "release-base",
       "generator": "Ninja",
       "cacheVariables": {
@@ -96,7 +96,7 @@
     {
       "name": "release-macos-arm64",
       "displayName": "Release binary: macOS arm64",
-      "description": "Apple silicon build with static dependencies and a static libomp.",
+      "description": "Apple silicon build with static dependencies.",
       "inherits": "release-base",
       "generator": "Ninja",
       "cacheVariables": {

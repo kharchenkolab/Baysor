@@ -305,7 +305,7 @@ setup_conda() {
     ENV_EXPORTS+=("$(printf 'export PATH=%q:"$PATH"' "$env_dir/bin")")
     ENV_EXPORTS+=("$(printf 'export PKG_CONFIG_PATH=%q' "$PKG_CONFIG_PATH")")
 
-    # Use the env's compilers so that libstdc++/libgomp match the prebuilt libs.
+    # Use the env's compilers so that libstdc++ matches the prebuilt libs.
     # Linux conda-forge names them *-conda-*-gcc/g++, macOS *-apple-darwin*-clang(++).
     TC_CC="$(ls "$env_dir"/bin/*-conda-*-gcc "$env_dir"/bin/*-apple-darwin*-clang 2>/dev/null | head -n1 || true)"
     TC_CXX="$(ls "$env_dir"/bin/*-conda-*-g++ "$env_dir"/bin/*-apple-darwin*-clang++ 2>/dev/null | head -n1 || true)"
