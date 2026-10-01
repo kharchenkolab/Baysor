@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -262,45 +263,74 @@ ClusteringResult cluster_molecules_on_mrf(
     max_diffs.reserve(max_iters);
     change_fracs.reserve(max_iters);
 
+    // The convergence statistics are computed inside the parallel E-step, per
+    // chunk of molecules. Chunk boundaries are fixed and the reductions (a
+    // maximum and a count) are exact, so the result does not depend on the
+    // thread count and equals the former serial pass.
+    constexpr std::int64_t mol_chunk = 512;
+    const std::int64_t n_chunks = (n_mols + mol_chunk - 1) / mol_chunk;
+    std::vector<double> chunk_max_diff(static_cast<size_t>(n_chunks));
+    std::vector<int> chunk_n_changed(static_cast<size_t>(n_chunks));
+
     // ------------------------------------------------------------------
     // Step 2: EM loop
     // ------------------------------------------------------------------
     int n_iters_done = 0;
     for (int iter = 0; iter < max_iters; ++iter) {
         n_iters_done = iter + 1;
-        prev_probs = probs;
+        // prev_probs takes the last iteration's probabilities; the E-step
+        // overwrites every entry of probs.
+        probs.swap(prev_probs);
 
-        // ---- E-step (parallel over molecules) ----
-        parallel_for(0, n_mols, 512, [&](int i) {
-            int  g0    = genes[i] - 1;  // 0-based gene (< 0 if missing)
-            int  start = adj_list.indptr[i];
-            int  end   = adj_list.indptr[i + 1];
-            const int32_t* nb_ids = adj_list.indices.data() + start;
-            const double*  nb_wt  = adj_w_conf.data()        + start;
-            int  n_nb  = end - start;
+        // ---- E-step and convergence statistics (parallel over molecules) ----
+        run_parallel_chunks(0, n_mols, mol_chunk, Scheduling::Dynamic,
+                            [&](std::int64_t chunk_begin, std::int64_t chunk_end, int) {
+            double chunk_max = 0.0;
+            int chunk_changed = 0;
+            for (int i = static_cast<int>(chunk_begin); i < static_cast<int>(chunk_end); ++i) {
+                int  g0    = genes[i] - 1;  // 0-based gene (< 0 if missing)
+                int  start = adj_list.indptr[i];
+                int  end   = adj_list.indptr[i + 1];
+                const int32_t* nb_ids = adj_list.indices.data() + start;
+                const double*  nb_wt  = adj_w_conf.data()        + start;
+                int  n_nb  = end - start;
 
-            double col_sum = 0.0;
-            for (int k = 0; k < n_clusters; ++k) {
-                // MRF term: weighted sum of neighbor probabilities for cluster k
-                double c_d = 0.0;
-                for (int j = 0; j < n_nb; ++j) {
-                    double a_p = prev_probs(k, nb_ids[j]);
-                    if (a_p > 1e-5) c_d += nb_wt[j] * a_p;
+                double col_sum = 0.0;
+                for (int k = 0; k < n_clusters; ++k) {
+                    // MRF term: weighted sum of neighbor probabilities for cluster k
+                    double c_d = 0.0;
+                    for (int j = 0; j < n_nb; ++j) {
+                        double a_p = prev_probs(k, nb_ids[j]);
+                        if (a_p > 1e-5) c_d += nb_wt[j] * a_p;
+                    }
+                    double mrf_prior = std::exp(mrf_weight * c_d);
+
+                    // Expression likelihood (skip if gene unknown)
+                    double expr_ll = (g0 >= 0) ? exprs(k, g0) : 1.0;
+                    probs(k, i) = expr_ll * mrf_prior;
+                    col_sum    += probs(k, i);
                 }
-                double mrf_prior = std::exp(mrf_weight * c_d);
 
-                // Expression likelihood (skip if gene unknown)
-                double expr_ll = (g0 >= 0) ? exprs(k, g0) : 1.0;
-                probs(k, i) = expr_ll * mrf_prior;
-                col_sum    += probs(k, i);
-            }
+                // Normalize column
+                if (col_sum > 1e-100) {
+                    for (int k = 0; k < n_clusters; ++k) probs(k, i) /= col_sum;
+                } else {
+                    for (int k = 0; k < n_clusters; ++k) probs(k, i) = 1.0 / n_clusters;
+                }
 
-            // Normalize column
-            if (col_sum > 1e-100) {
-                for (int k = 0; k < n_clusters; ++k) probs(k, i) /= col_sum;
-            } else {
-                for (int k = 0; k < n_clusters; ++k) probs(k, i) = 1.0 / n_clusters;
+                // Largest confidence-weighted probability change of this molecule
+                double conf = confidence[i];
+                double mol_max = 0.0;
+                for (int k = 0; k < n_clusters; ++k) {
+                    double d = std::abs(probs(k, i) - prev_probs(k, i)) * conf;
+                    if (d > mol_max) mol_max = d;
+                }
+                if (mol_max > chunk_max) chunk_max = mol_max;
+                if (mol_max > 1e-7) ++chunk_changed;
             }
+            const size_t chunk = static_cast<size_t>(chunk_begin / mol_chunk);
+            chunk_max_diff[chunk] = chunk_max;
+            chunk_n_changed[chunk] = chunk_changed;
         });
 
         // ---- M-step with pseudocount ----
@@ -324,15 +354,9 @@ ClusteringResult cluster_molecules_on_mrf(
         // ---- Convergence check ----
         double max_diff = 0.0;
         int n_changed = 0;
-        for (int i = 0; i < n_mols; ++i) {
-            double conf = confidence[i];
-            double mol_max = 0.0;
-            for (int k = 0; k < n_clusters; ++k) {
-                double d = std::abs(probs(k, i) - prev_probs(k, i)) * conf;
-                if (d > mol_max) mol_max = d;
-                if (d > max_diff) max_diff = d;
-            }
-            if (mol_max > 1e-7) ++n_changed;
+        for (std::int64_t c = 0; c < n_chunks; ++c) {
+            if (chunk_max_diff[c] > max_diff) max_diff = chunk_max_diff[c];
+            n_changed += chunk_n_changed[c];
         }
         max_diffs.push_back(max_diff);
         change_fracs.push_back(static_cast<double>(n_changed) / n_mols);
