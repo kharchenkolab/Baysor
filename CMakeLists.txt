@@ -175,6 +175,12 @@ baysor_find_package(nlohmann_json
     TARGET nlohmann_json::nlohmann_json
     INSTALL_HINT "Ubuntu: sudo apt-get install nlohmann-json3-dev\nmacOS: brew install nlohmann-json\nvcpkg: vcpkg install nlohmann-json"
 )
+# zlib: PNG encoding of the HTML report images (already a dependency of
+# HDF5, TIFF and Arrow/Parquet).
+baysor_find_package(ZLIB
+    TARGET ZLIB::ZLIB
+    INSTALL_HINT "Ubuntu: sudo apt-get install zlib1g-dev\nmacOS: part of the SDK (or brew install zlib)\nvcpkg: vcpkg install zlib"
+)
 baysor_find_package(TIFF
     TARGET TIFF::TIFF
     INSTALL_HINT "Ubuntu: sudo apt-get install libtiff-dev\nmacOS: brew install libtiff\nvcpkg: vcpkg install tiff"
@@ -312,6 +318,7 @@ target_link_libraries(baysor_lib PUBLIC
     ${BAYSOR_HDF5_LIBRARIES}
     nlohmann_json::nlohmann_json
     TIFF::TIFF
+    ZLIB::ZLIB
     baysor_umap_wrappers
 )
 

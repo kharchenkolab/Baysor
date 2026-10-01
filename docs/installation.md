@@ -140,7 +140,7 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   build-essential cmake ninja-build pkg-config git \
   libeigen3-dev libspdlog-dev libcgal-dev \
-  libarrow-dev libparquet-dev libhdf5-dev nlohmann-json3-dev libtiff-dev
+  libarrow-dev libparquet-dev libhdf5-dev nlohmann-json3-dev libtiff-dev zlib1g-dev
 
 ./configure.sh --deps=system --install
 ```
@@ -187,6 +187,7 @@ Homebrew, and vcpkg can provide compatible versions.
 | HDF5 | Not pinned; 1.10.x is known to work |
 | nlohmann_json | Not pinned; 3.7.3 is known to work |
 | libtiff | Not pinned; 4.1.0 is known to work |
+| zlib | Not pinned; 1.3.2 is known to work (PNG images of the HTML reports; usually already present as a dependency of HDF5 and libtiff) |
 
 Several header-only UMAP dependencies are fetched automatically by CMake with
 pinned source tags: `aarand` `v1.0.2`, `CppKmeans` `v3.1.1`, `subpar` `v0.3.1`,

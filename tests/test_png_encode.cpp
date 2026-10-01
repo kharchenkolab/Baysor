@@ -1,0 +1,175 @@
+// PNG images of the HTML reports: decode the base64 data URIs produced by the
+// renderers with an independent minimal PNG reader (zlib inflate + all five
+// filter types) and check the pixels.
+
+#include "baysor/reporting/preview_report.h"
+
+#include <gtest/gtest.h>
+#include <zlib.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <vector>
+
+namespace {
+
+struct DecodedPng {
+    uint32_t width = 0, height = 0;
+    std::vector<uint8_t> rgb;  // row-major, 3 bytes per pixel
+    int n_idat = 0;
+};
+
+std::vector<uint8_t> base64_decode(const std::string& s) {
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::vector<uint8_t> out;
+    uint32_t acc = 0;
+    int bits = 0;
+    for (char c : s) {
+        const int v = val(c);
+        if (v < 0) break;  // '=' padding
+        acc = (acc << 6) | static_cast<uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<uint8_t>(acc >> bits));
+        }
+    }
+    return out;
+}
+
+uint32_t be32(const uint8_t* p) {
+    return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+}
+
+uint8_t paeth(int a, int b, int c) {
+    const int p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+    return static_cast<uint8_t>((pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c));
+}
+
+// Minimal reader for 8-bit RGB, non-interlaced PNGs.
+DecodedPng decode_png_data_uri(const std::string& uri) {
+    const std::string prefix = "data:image/png;base64,";
+    if (uri.compare(0, prefix.size(), prefix) != 0) throw std::runtime_error("not a PNG data URI");
+    const std::vector<uint8_t> png = base64_decode(uri.substr(prefix.size()));
+    static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    if (png.size() < 8 || !std::equal(sig, sig + 8, png.begin())) throw std::runtime_error("bad signature");
+
+    DecodedPng out;
+    std::vector<uint8_t> zdata;
+    bool seen_iend = false;
+    size_t pos = 8;
+    while (pos + 12 <= png.size()) {
+        const uint32_t len = be32(&png[pos]);
+        const std::string type(reinterpret_cast<const char*>(&png[pos + 4]), 4);
+        if (pos + 12 + len > png.size()) throw std::runtime_error("truncated chunk");
+        const uint8_t* data = &png[pos + 8];
+        const uint32_t crc = static_cast<uint32_t>(crc32(crc32(0L, Z_NULL, 0), &png[pos + 4], 4 + len));
+        if (crc != be32(&png[pos + 8 + len])) throw std::runtime_error("bad CRC in " + type);
+        if (type == "IHDR") {
+            out.width = be32(data);
+            out.height = be32(data + 4);
+            if (data[8] != 8 || data[9] != 2 || data[12] != 0) throw std::runtime_error("unsupported format");
+        } else if (type == "IDAT") {
+            zdata.insert(zdata.end(), data, data + len);
+            ++out.n_idat;
+        } else if (type == "IEND") {
+            seen_iend = true;
+        }
+        pos += 12 + len;
+    }
+    if (!seen_iend || pos != png.size()) throw std::runtime_error("missing IEND or trailing bytes");
+
+    const size_t stride = size_t(out.width) * 3;
+    std::vector<uint8_t> raw((stride + 1) * out.height);
+    uLongf raw_len = static_cast<uLongf>(raw.size());
+    if (uncompress(raw.data(), &raw_len, zdata.data(), static_cast<uLong>(zdata.size())) != Z_OK ||
+        raw_len != raw.size()) {
+        throw std::runtime_error("inflate failed");
+    }
+
+    out.rgb.assign(stride * out.height, 0);
+    for (size_t y = 0; y < out.height; ++y) {
+        const uint8_t f = raw[y * (stride + 1)];
+        const uint8_t* src = &raw[y * (stride + 1) + 1];
+        uint8_t* dst = &out.rgb[y * stride];
+        const uint8_t* up = y > 0 ? &out.rgb[(y - 1) * stride] : nullptr;
+        for (size_t i = 0; i < stride; ++i) {
+            const int a = i >= 3 ? dst[i - 3] : 0, b = up ? up[i] : 0, c = (up && i >= 3) ? up[i - 3] : 0;
+            int pred = 0;
+            switch (f) {
+                case 0: pred = 0; break;
+                case 1: pred = a; break;
+                case 2: pred = b; break;
+                case 3: pred = (a + b) / 2; break;
+                case 4: pred = paeth(a, b, c); break;
+                default: throw std::runtime_error("bad filter type");
+            }
+            dst[i] = static_cast<uint8_t>(src[i] + pred);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST(PngEncode, ScatterPngDecodesToTheDrawnColours) {
+    // Points on a grid with distinct colours; the raster is mostly white.
+    std::vector<double> x, y;
+    std::vector<std::string> colors;
+    std::set<std::tuple<int, int, int>> expected = {{255, 255, 255}};
+    const char* hex = "0123456789abcdef";
+    for (int i = 0; i < 40; ++i) {
+        x.push_back(i % 8);
+        y.push_back(i / 8);
+        const int r = (i * 37) % 256, g = (i * 91) % 256, b = (i * 53) % 200;
+        colors.push_back(std::string("#") + hex[r >> 4] + hex[r & 15] + hex[g >> 4] + hex[g & 15] +
+                         hex[b >> 4] + hex[b & 15]);
+        expected.insert({r, g, b});
+    }
+
+    const std::string uri = baysor::render_scatter_png(x, y, colors, nullptr, /*width_px=*/333, /*point_radius_px=*/3);
+    const DecodedPng img = decode_png_data_uri(uri);
+    EXPECT_EQ(img.width, 333u);
+    EXPECT_GT(img.height, 100u);
+    ASSERT_EQ(img.rgb.size(), size_t(img.width) * img.height * 3);
+
+    std::set<std::tuple<int, int, int>> seen;
+    for (size_t p = 0; p < img.rgb.size(); p += 3) seen.insert({img.rgb[p], img.rgb[p + 1], img.rgb[p + 2]});
+    EXPECT_EQ(seen, expected);
+}
+
+TEST(PngEncode, LargeImageIsSplitIntoSeveralIdatChunks) {
+    // Noise-like colours compress poorly, so the deflate stream exceeds the
+    // 1 MiB IDAT chunk size and the chunking path is exercised.
+    std::vector<double> x, y;
+    std::vector<std::string> colors;
+    const char* hex = "0123456789abcdef";
+    uint32_t state = 12345;
+    for (int i = 0; i < 1500 * 1500 / 4; ++i) {
+        x.push_back(i % 750);
+        y.push_back(i / 750);
+        std::string c = "#";
+        for (int k = 0; k < 6; ++k) {
+            state = state * 1664525u + 1013904223u;
+            c += hex[state >> 28];
+        }
+        colors.push_back(c);
+    }
+    const DecodedPng img = decode_png_data_uri(
+        baysor::render_scatter_png(x, y, colors, nullptr, /*width_px=*/1500, /*point_radius_px=*/1));
+    EXPECT_EQ(img.width, 1500u);
+    EXPECT_GT(img.n_idat, 1);
+    EXPECT_EQ(img.rgb.size(), size_t(img.width) * img.height * 3);
+}

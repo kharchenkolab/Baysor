@@ -50,7 +50,7 @@ CONDA_PACKAGES=(
     c-compiler cxx-compiler
     eigen spdlog cgal-cpp
     libarrow libarrow-compute libparquet
-    hdf5 nlohmann_json libtiff
+    hdf5 nlohmann_json libtiff zlib
 )
 
 # ----------------------------------------------------------------------------
