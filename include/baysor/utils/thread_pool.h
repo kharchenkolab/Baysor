@@ -14,8 +14,8 @@
 //    is what makes the chunk-keyed RNG scheme in the E-step deterministic.
 //  - `run_parallel_chunks` additionally reports the executing worker index so
 //    bodies can use per-worker scratch buffers.
-//  - A thread-local "inside a parallel region" flag makes nested parallel calls
-//    run serially on the current thread (replacing `omp_in_parallel`).
+//  - Parallel calls nested inside a parallel loop or region run serially on
+//    the current thread.
 //  - Exceptions thrown in worker tasks are rethrown on the calling thread.
 //  - With 1 thread no worker threads exist at all: everything runs inline on
 //    the calling thread in index order, preserving the exact serial code path
@@ -54,17 +54,10 @@ int default_thread_count();
 /// work; in practice once at start-up from `--threads`.
 void set_thread_pool_size(int n_threads);
 
-/// True while executing inside a parallel region (on a pool worker or in a
-/// serial nested run). Nested parallel calls run serially.
-bool inside_parallel_region();
-
-/// Index in [0, thread_pool_size()) of the current worker thread, for indexing
-/// per-worker scratch buffers. Returns 0 on non-pool threads (the calling
-/// thread, which only ever runs when the pool is serial, i.e. with 1 thread).
-int current_worker_index();
-
 /// Core primitive: run `fn(chunk_begin, chunk_end, worker_index)` on disjoint
-/// half-open index ranges covering [begin, end).
+/// half-open index ranges covering [begin, end). `worker_index` is in
+/// [0, thread_pool_size()) and indexes per-worker scratch buffers; nested
+/// calls keep the worker of the enclosing chunk.
 ///  - Dynamic: ranges are chunks of `chunk` indices handed out via an atomic
 ///    counter; chunk boundaries are fixed given (begin, end, chunk).
 ///  - Static: `chunk` is ignored and [begin, end) is split into one
