@@ -526,3 +526,25 @@ TEST(ThreadPoolRegion, ManyRegionsWithLongSerialSectionsDoNotDeadlock) {
     }
     EXPECT_EQ(sum, 200L * (63 * 64 / 2));
 }
+
+TEST(ThreadPoolRegion, OversubscribedRegionsSleepAtBarriersAndStayCorrect) {
+    // More workers than physical cores: barrier waiters do not spin and
+    // always go to sleep (futex on Linux), the path most sensitive to lost
+    // wake-ups.
+    const int n_threads = 2 * baysor::default_thread_count() + 1;
+    PoolSizeGuard guard(n_threads);
+    std::vector<long> per_worker(n_threads, 0);
+    long expected = 0;
+    for (int rep = 0; rep < 100; ++rep) {
+        baysor::parallel_region([&](baysor::ParallelRegion& r) {
+            for (int phase = 0; phase < 10; ++phase) {
+                r.for_each(0, 97, 3, [&](int i, int w) { per_worker[w] += i; });
+                r.barrier();
+            }
+        });
+        expected += 10L * (96 * 97 / 2);
+    }
+    long total = 0;
+    for (long v : per_worker) total += v;
+    EXPECT_EQ(total, expected);
+}

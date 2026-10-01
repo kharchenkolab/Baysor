@@ -15,6 +15,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef __linux__
+#include <climits>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
 #ifdef EIGEN_GEMM_THREADPOOL
 #include <Eigen/Core>
 #include <Eigen/ThreadPool>
@@ -49,20 +56,41 @@ inline void cpu_relax() {
 // A short bounded spin captures the latency win of busy waiting at light load
 // without its catastrophic behaviour on a loaded host (where OpenMP-style
 // spinning measured slower than a single thread). 0 disables spinning.
-int spin_budget_us() {
-    static const int budget = [] {
+// Explicit BAYSOR_POOL_SPIN_US value, or -1 when unset/invalid.
+int spin_budget_env() {
+    static const int value = [] {
         if (const char* env = std::getenv("BAYSOR_POOL_SPIN_US")) {
             try {
                 int v = std::stoi(env);
                 if (v >= 0) return v;
             } catch (...) {
-                // fall through to the default
+                // fall through: unset
             }
         }
-        return 20;
+        return -1;
     }();
-    return budget;
+    return value;
 }
+
+int spin_budget_us() {
+    const int env = spin_budget_env();
+    return env >= 0 ? env : 20;
+}
+
+#ifdef __linux__
+// Futex wait/wake on a 32-bit atomic (private to this process). Sleeping
+// barrier waiters are released with one FUTEX_WAKE instead of a
+// condition-variable broadcast that makes them contend for one mutex.
+void futex_wait(std::atomic<std::uint32_t>* word, std::uint32_t expected) {
+    syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(word), FUTEX_WAIT_PRIVATE,
+            expected, nullptr, nullptr, 0);
+}
+
+void futex_wake_all(std::atomic<std::uint32_t>* word) {
+    syscall(SYS_futex, reinterpret_cast<std::uint32_t*>(word), FUTEX_WAKE_PRIVATE,
+            INT_MAX, nullptr, nullptr, 0);
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // Job: one parallel region
@@ -368,20 +396,28 @@ namespace detail {
 
 struct RegionShared {
     int n_workers = 1;
+    // Barrier spin budget (us). Without an explicit BAYSOR_POOL_SPIN_US it is
+    // 0 when the region has more workers than physical cores: spinning
+    // waiters then take CPU time from preempted participants that everyone
+    // is waiting for.
+    int spin_us = 0;
 
     // Dynamic loops: one monotonically increasing chunk counter for the whole
     // region. Every participant claims chunks of a loop until it overshoots,
     // which it does exactly once per loop, so after a loop with C chunks the
     // counter has advanced by C + n_workers on every participant's view.
-    std::atomic<std::int64_t> next_chunk{0};
+    alignas(64) std::atomic<std::int64_t> next_chunk{0};
 
     // Centralized barrier: arrival count plus generation number; waiters
-    // spin briefly on the generation, then block on the condition variable.
-    std::atomic<int> arrived{0};
-    std::atomic<std::uint64_t> generation{0};
+    // spin briefly on the generation, then sleep (futex on Linux, else a
+    // condition variable).
+    alignas(64) std::atomic<int> arrived{0};
+    alignas(64) std::atomic<std::uint32_t> generation{0};
+    std::atomic<int> sleepers{0};
+#ifndef __linux__
     std::mutex mutex;
     std::condition_variable cv;
-    int sleepers = 0;  // guarded by mutex
+#endif
 
     std::atomic<bool> failed{false};
     std::mutex error_mutex;
@@ -605,36 +641,51 @@ void ParallelRegion::barrier() {
     if (shared_ == nullptr) return;
     detail::RegionShared& sh = *shared_;
 
-    const std::uint64_t gen = sh.generation.load(std::memory_order_acquire);
+    const std::uint32_t gen = sh.generation.load(std::memory_order_acquire);
     if (sh.arrived.fetch_add(1, std::memory_order_acq_rel) == n_workers_ - 1) {
         // Last to arrive: reset the count (nobody can arrive at the next
         // barrier before observing the new generation) and release everyone.
+        // seq_cst on generation/sleepers: a waiter that registers as a
+        // sleeper either sees the new generation or is seen here.
         sh.arrived.store(0, std::memory_order_relaxed);
+#ifdef __linux__
+        sh.generation.store(gen + 1, std::memory_order_seq_cst);
+        if (sh.sleepers.load(std::memory_order_seq_cst) > 0) futex_wake_all(&sh.generation);
+#else
         bool wake;
         {
             std::lock_guard<std::mutex> lk(sh.mutex);
-            sh.generation.store(gen + 1, std::memory_order_release);
-            wake = sh.sleepers > 0;
+            sh.generation.store(gen + 1, std::memory_order_seq_cst);
+            wake = sh.sleepers.load(std::memory_order_relaxed) > 0;
         }
         if (wake) sh.cv.notify_all();
+#endif
         return;
     }
 
     // Spin-then-block: barriers between balanced phases resolve within the
     // spin budget; long serial sections (single blocks) put waiters to sleep.
-    if (spin_budget_us() > 0) {
+    if (sh.spin_us > 0) {
         const auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::microseconds(spin_budget_us());
+            std::chrono::microseconds(sh.spin_us);
         while (sh.generation.load(std::memory_order_acquire) == gen) {
             if (std::chrono::steady_clock::now() >= deadline) break;
             cpu_relax();
         }
     }
     if (sh.generation.load(std::memory_order_acquire) != gen) return;
+#ifdef __linux__
+    sh.sleepers.fetch_add(1, std::memory_order_seq_cst);
+    while (sh.generation.load(std::memory_order_seq_cst) == gen) {
+        futex_wait(&sh.generation, gen);
+    }
+    sh.sleepers.fetch_sub(1, std::memory_order_relaxed);
+#else
     std::unique_lock<std::mutex> lk(sh.mutex);
-    ++sh.sleepers;
+    sh.sleepers.fetch_add(1, std::memory_order_relaxed);
     sh.cv.wait(lk, [&] { return sh.generation.load(std::memory_order_acquire) != gen; });
-    --sh.sleepers;
+    sh.sleepers.fetch_sub(1, std::memory_order_relaxed);
+#endif
 }
 
 void parallel_region(const std::function<void(ParallelRegion&)>& body) {
@@ -661,6 +712,9 @@ void parallel_region(const std::function<void(ParallelRegion&)>& body) {
 
     detail::RegionShared shared;
     shared.n_workers = pool->n_workers();
+    static const int physical_cores = default_thread_count();
+    shared.spin_us = spin_budget_env() >= 0 ? spin_budget_env()
+                   : (shared.n_workers > physical_cores ? 0 : spin_budget_us());
     const std::function<void(int)> participant = [&](int worker) {
         ParallelRegion region(&shared, worker, shared.n_workers);
         body(region);
