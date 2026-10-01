@@ -61,6 +61,11 @@ For Xenium-origin inputs this automatically produces Ranger-friendly
 `segmentation.csv` and `segmentation_polygons_2d.json` (see
 [Output files](output_files.md#legacy-bundle)).
 
+The two files always contain the same cells: every cell with at least one
+assigned transcript gets a polygon, and every polygon belongs to a cell with
+at least one assigned transcript. Cells whose free-form boundary estimation
+fails get a fallback rectangle so they are not lost during the import.
+
 ## Very large / 5K panel runs
 
 For very large Xenium runs, particularly high-gene-panel datasets such as 5K

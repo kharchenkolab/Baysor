@@ -159,6 +159,18 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Fixed
 
+- Segmented molecule table and polygons are now always mutually consistent
+  (kharchenkolab/Baysor#165): every cell with at least one assigned molecule
+  gets exactly one polygon in `segmentation_polygons_2d.json` (and in the
+  GeoParquet boundaries). Cells whose free-form boundary estimation fails or
+  produces fewer than three vertices (for example collinear cells, whose
+  Delaunay triangulation has no faces) previously disappeared from
+  `FeatureCollection` output and made Xenium Ranger report
+  `MissingCellPolygon`. They now get a fallback rectangle around the cell's
+  molecules. Polygon keys are also guaranteed to use the same `cell_<n>`
+  names as `segmentation.csv`, including when a component id exceeds the
+  current component count.
+
 - Release and CI builds on Windows: the `autoconf2.71` MSYS2 package pinned
   inside vcpkg's gmp port was dropped from the MSYS2 mirrors (404 on all of
   them), breaking every Windows build; `packaging/vcpkg-overlay-ports/gmp`

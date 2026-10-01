@@ -341,8 +341,19 @@ int cmd_run(
         spdlog::info("Saving cell stats...");
         Eigen::MatrixXd cell_stats_mat;
         std::vector<std::string> cell_stat_col_names;
-        std::vector<std::string> cell_names(n_cells_final);
-        for (int i = 0; i < n_cells_final; ++i) {
+        // Names are indexed by component id. After the final component drop
+        // `bm_data.assignment` should use exactly 1..n_cells_final, but size
+        // the vector to the largest label as well so the polygon writer can
+        // never fall back to a different name than the molecule CSV
+        // (kharchenkolab/Baysor#165). The cell-stats writer only reads the
+        // first n_cells_final entries.
+        int max_assigned_label = 0;
+        for (int a : bm_data.assignment) {
+            if (a > max_assigned_label) max_assigned_label = a;
+        }
+        const int n_cell_names = std::max(n_cells_final, max_assigned_label);
+        std::vector<std::string> cell_names(n_cell_names);
+        for (int i = 0; i < n_cell_names; ++i) {
             cell_names[i] = "cell_" + std::to_string(i + 1);
         }
         {
