@@ -8,6 +8,12 @@ namespace baysor {
 template<int N>
 void trace_n_components(BmmData<N>& data, int min_molecules_per_cell);
 
+/// Same as trace_n_components, with the per-cell molecule counts taken from
+/// `ids_by_comp`, the grouping of the current assignment.
+template<int N>
+void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
+                        const IdsByComponent& ids_by_comp);
+
 /// Record current assignment (global GUIDs) into history ring buffer
 template<int N>
 void trace_assignment_history(BmmData<N>& data, int assignment_history_depth);

@@ -628,16 +628,17 @@ void bmm(BmmData<N>& data,
     // but we use the display threshold as the "1.0" level.
     // Simplified: report at >=1, >=drop_thresh, >=disp_thresh (omit duplicates).
     // This gives comparable output to Julia's tracer thresholds.
+    // Called right after an M-step: the per-cell counts come from its grouping.
+    const IdsByComponent& groups = data.workspace.ids_by_comp;
     auto build_diag_str = [&]() -> std::string {
-        auto n_mols_vec = data.num_molecules_per_cell();
         int n1 = 0, nd = 0, ndisp = 0;
-        for (int m : n_mols_vec) {
+        for (int c = 0; c < data.n_components(); ++c) {
+            const int m = groups.size(c);
             if (m >= 1)           ++n1;
             if (m >= min_molecules_drop)  ++nd;
             if (m >= disp_thresh) ++ndisp;
         }
-        int n_noise = 0;
-        for (int a : data.assignment) if (a == 0) ++n_noise;
+        const int n_noise = data.n_molecules() - static_cast<int>(groups.ids.size());
         double noise_pct = 100.0 * n_noise / std::max(data.n_molecules(), 1);
 
         // Format: "noise=X%, total=N, >=drop=N, >=disp=N"
@@ -665,7 +666,9 @@ void bmm(BmmData<N>& data,
             comp.prior_probability = static_cast<double>(comp.n_samples);
         }
 
-        data.update_n_mols_per_segment();
+        // The grouping of the last M-step is still the grouping of the
+        // current assignment.
+        data.update_n_mols_per_segment(groups);
 
         // E-step — track assignment changes for convergence.
         // rng_salt = iteration index: multi-threaded draws come from per-chunk
@@ -695,7 +698,7 @@ void bmm(BmmData<N>& data,
         maximize(data, freeze_composition, freeze_position);
 
         // Tracing
-        trace_n_components(data, disp_thresh);
+        trace_n_components(data, disp_thresh, groups);
         // With tol == 0 all n_iters iterations run, so only the last
         // assignment_history_depth entries can survive the trimming.
         if (tol > 0.0 || iter > n_iters - assignment_history_depth) {

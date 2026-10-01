@@ -75,6 +75,15 @@ struct BmmData {
 
     /// Update n_molecules_per_segment and main_segment_per_cell
     void update_n_mols_per_segment();
+
+    /// Same result as update_n_mols_per_segment(), computed per component in
+    /// parallel from `ids_by_comp`, which must be the grouping of the current
+    /// assignment (e.g. workspace.ids_by_comp right after an M-step).
+    void update_n_mols_per_segment(const IdsByComponent& ids_by_comp);
+
+private:
+    void update_main_segment(int ci);
+public:
 };
 
 extern template struct BmmData<2>;

@@ -8,15 +8,16 @@
 
 namespace baysor {
 
+namespace {
+
 template<int N>
-void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
+void push_n_components_entry(BmmData<N>& data, int min_molecules_per_cell,
+                             const std::vector<int>& n_mols) {
     // Compute unique thresholds: {max(round(0.5*min),1), max(min,1), max(2*min,1), max(5*min,1)}
     std::set<int> thresh_set;
     for (double mult : {0.5, 1.0, 2.0, 5.0}) {
         thresh_set.insert(std::max(static_cast<int>(std::round(mult * min_molecules_per_cell)), 1));
     }
-
-    auto n_mols = data.num_molecules_per_cell();  // length = n_components
 
     std::unordered_map<int, int> entry;
     for (int t : thresh_set) {
@@ -28,6 +29,21 @@ void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
     }
 
     data.n_components_trace.push_back(std::move(entry));
+}
+
+} // namespace
+
+template<int N>
+void trace_n_components(BmmData<N>& data, int min_molecules_per_cell) {
+    push_n_components_entry(data, min_molecules_per_cell, data.num_molecules_per_cell());
+}
+
+template<int N>
+void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
+                        const IdsByComponent& ids_by_comp) {
+    std::vector<int> n_mols(data.n_components());
+    for (int c = 0; c < data.n_components(); ++c) n_mols[c] = ids_by_comp.size(c);
+    push_n_components_entry(data, min_molecules_per_cell, n_mols);
 }
 
 template<int N>
@@ -89,6 +105,8 @@ std::unordered_map<int, int> estimate_component_lifespan(
 
 template void trace_n_components<2>(BmmData<2>&, int);
 template void trace_n_components<3>(BmmData<3>&, int);
+template void trace_n_components<2>(BmmData<2>&, int, const IdsByComponent&);
+template void trace_n_components<3>(BmmData<3>&, int, const IdsByComponent&);
 template void trace_assignment_history<2>(BmmData<2>&, int);
 template void trace_assignment_history<3>(BmmData<3>&, int);
 
