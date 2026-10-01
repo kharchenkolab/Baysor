@@ -266,30 +266,24 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
     std::vector<int>& new_assignment = ws.new_assignment;
 
     // Per-worker buffers, kept across iterations
-    auto& component_weights_buf = ws.component_weights;
-    auto& adj_classes_buf = ws.adj_classes;
-    auto& adj_weights_buf = ws.adj_weights;
-    auto& denses_buf = ws.denses;
+    auto& scratch_buf = ws.estep;
     region.single([&]() {
         // Every molecule is written below, so no initialization is needed.
         new_assignment.resize(n);
         const int n_workers = region.n_workers();
-        if (static_cast<int>(adj_classes_buf.size()) != n_workers) {
+        if (static_cast<int>(scratch_buf.size()) != n_workers) {
             constexpr size_t reserve_hint = 64;
-            adj_classes_buf.assign(n_workers, {});
-            adj_weights_buf.assign(n_workers, {});
-            denses_buf.assign(n_workers, {});
-            for (int t = 0; t < n_workers; ++t) {
-                adj_classes_buf[t].reserve(reserve_hint);
-                adj_weights_buf[t].reserve(reserve_hint);
-                denses_buf[t].reserve(reserve_hint);
+            scratch_buf.assign(n_workers, {});
+            for (auto& sc : scratch_buf) {
+                sc.adj_classes.reserve(reserve_hint);
+                sc.adj_weights.reserve(reserve_hint);
+                sc.denses.reserve(reserve_hint);
             }
         }
         // Fresh 16-slot dictionaries per call: the table size persists after a
         // grow() and determines the slot order, so it must not leak from one
         // E-step call into the next.
-        component_weights_buf.resize(n_workers);
-        for (auto& d : component_weights_buf) d.reset();
+        for (auto& sc : scratch_buf) sc.component_weights.reset();
     });
 
     // Loop-invariant factors of adjust_densities_by_prior_segmentation
@@ -310,10 +304,10 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
         if (!single_threaded) {
             chunk_rng.emplace(estep_stream_seed(rng_salt, chunk_begin / kEstepChunkSize));
         }
-        auto& comp_weights = component_weights_buf[ti];
-        auto& adj_classes  = adj_classes_buf[ti];
-        auto& adj_weights  = adj_weights_buf[ti];
-        auto& denses       = denses_buf[ti];
+        auto& comp_weights = scratch_buf[ti].component_weights;
+        auto& adj_classes  = scratch_buf[ti].adj_classes;
+        auto& adj_weights  = scratch_buf[ti].adj_weights;
+        auto& denses       = scratch_buf[ti].denses;
 
         for (int mol_id = static_cast<int>(chunk_begin); mol_id < static_cast<int>(chunk_end); ++mol_id) {
 
@@ -498,13 +492,13 @@ static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
                 ws.changed.assign(n_workers, {});
             }
             // Workers without a block (n < n_workers) keep empty lists
-            for (auto& list : ws.changed) list.clear();
+            for (auto& list : ws.changed) list.ids.clear();
             ws.group_hist.assign(static_cast<size_t>(n_workers) * nc, 0);
             ws.seg_op_offsets.resize(nc + 1);
         });
         region.for_chunks(0, n, 0, Scheduling::Static,
             [&](std::int64_t b, std::int64_t e, int w) {
-            auto& out = ws.changed[w];
+            auto& out = ws.changed[w].ids;
             int* h = ws.group_hist.data() + static_cast<size_t>(w) * nc;
             for (std::int64_t i = b; i < e; ++i) {
                 const int old_c = data.assignment[i];
@@ -530,14 +524,14 @@ static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
             ws.seg_op_offsets[nc] = pos;
             ws.seg_ops.resize(pos);
             std::int64_t cnt = 0;
-            for (const auto& list : ws.changed) cnt += static_cast<std::int64_t>(list.size());
+            for (const auto& list : ws.changed) cnt += static_cast<std::int64_t>(list.ids.size());
             ws.n_changed = cnt;
         });
         // Operation code: mol + 1 for ++ (molecule enters), -(mol + 1) for --.
         region.for_chunks(0, n, 0, Scheduling::Static,
             [&](std::int64_t, std::int64_t, int w) {
             int* h = ws.group_hist.data() + static_cast<size_t>(w) * nc;
-            for (int mol : ws.changed[w]) {
+            for (int mol : ws.changed[w].ids) {
                 const int old_c = data.assignment[mol];
                 const int new_c = ws.new_assignment[mol];
                 if (data.segment_per_molecule[mol] > 0) {

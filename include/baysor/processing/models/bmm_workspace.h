@@ -21,16 +21,24 @@ struct IdsByComponent {
     int size(int c) const { return offsets[c + 1] - offsets[c]; }
 };
 
+/// Per-worker scratch sits on its own cache lines: the vectors' headers are
+/// written on every push_back, and adjacent headers of different workers
+/// would otherwise share a line (false sharing).
+constexpr std::size_t kCacheLine = 64;
+
 /// Scratch state of the BMM loop, kept across iterations so that the E-step,
 /// the M-step and the connected-component split do not allocate per call.
 /// Holds no algorithm state: every buffer is (re)initialized before use.
 struct BmmWorkspace {
     // E-step: Jacobi target and per-worker candidate buffers.
     std::vector<int> new_assignment;
-    std::vector<JuliaIntDoubleDict>  component_weights;
-    std::vector<std::vector<int>>    adj_classes;
-    std::vector<std::vector<double>> adj_weights;
-    std::vector<std::vector<double>> denses;
+    struct alignas(kCacheLine) EstepScratch {
+        JuliaIntDoubleDict component_weights;
+        std::vector<int>    adj_classes;
+        std::vector<double> adj_weights;
+        std::vector<double> denses;
+    };
+    std::vector<EstepScratch> estep;
 
     // Grouping of molecules by component. After maximize() it is the M-step
     // grouping of the current assignment, which stays valid until the next
@@ -40,7 +48,10 @@ struct BmmWorkspace {
 
     // Applying the E-step result
     std::vector<std::int64_t> worker_count;
-    std::vector<std::vector<int>> changed;   // per worker, with prior segments
+    struct alignas(kCacheLine) WorkerList {
+        std::vector<int> ids;
+    };
+    std::vector<WorkerList> changed;         // per worker, with prior segments
     std::vector<int> seg_op_offsets;         // per-component segment-map operations
     std::vector<int> seg_ops;
     std::int64_t n_changed = 0;
@@ -56,7 +67,7 @@ struct BmmWorkspace {
     // cell's id list (molecule-indexed, written per cell), and per-worker
     // BFS scratch plus the molecules to reset to noise.
     std::vector<int> mol_pos;
-    struct SplitScratch {
+    struct alignas(kCacheLine) SplitScratch {
         std::vector<int> label;
         std::vector<int> queue;
         std::vector<int> cc_size;
