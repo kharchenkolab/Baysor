@@ -232,10 +232,7 @@ packaging/linux/test-in-docker.sh dist/baysor-X.Y.Z-linux-x86_64.tar.gz
   Parallelism is `BAYSOR_JOBS` (default 8). Extra arguments are passed to
   `build_release.py` (e.g. `--out DIR`).
 - `test-in-docker.sh` runs the smoke test natively, in bare `almalinux:8` and
-  `debian:10` containers, and under qemu with the `qemu64` CPU model. Set
-  `BAYSOR_SMOKE_DATA=/path/to/molecules.parquet` to use the
-  `sim_circles_gaps_g100` benchmark dataset instead of the synthetic grid, and
-  `BAYSOR_TEST_STAGES` (e.g. `"native qemu"`) to select stages.
+  `debian:10` containers, and under qemu with the `qemu64` CPU model.
 
 `build_release.py` also runs `packaging/linux/check_binary.py`, which fails if
 the binary needs a shared library other than glibc's, a `GLIBC_` symbol
@@ -266,7 +263,7 @@ OpenSSL, libjpeg-turbo and GMP (built with `--enable-fat`) are selected at run
 time from the CPU's capabilities. CUDA is off in release builds.
 
 To change a platform's floor, keep these in sync: the Dockerfile base image
-and `--glibc-floor` of `check_binary.py` (Linux); `MACOS_DEPLOYMENT_TARGET` in
+and `GLIBC_FLOOR` in `check_binary.py` (Linux); `MACOS_DEPLOYMENT_TARGET` in
 `build_release.py`, `VCPKG_OSX_DEPLOYMENT_TARGET` in
 `packaging/vcpkg-triplets/arm64-osx-release.cmake` and
 `CMAKE_OSX_DEPLOYMENT_TARGET` in the `release-macos-arm64` preset (macOS).

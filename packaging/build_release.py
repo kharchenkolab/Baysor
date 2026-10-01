@@ -9,8 +9,7 @@ come from vcpkg with the triplets in packaging/vcpkg-triplets), build and
 install baysor, and pack
 
     dist/baysor-<version>-<platform>.tar.gz   (.zip on Windows)
-      baysor-<version>-<platform>/bin/baysor[.exe]
-      baysor-<version>-<platform>/lib/        (only if libraries are bundled)
+      baysor-<version>-<platform>/bin/baysor[.exe]  (+ DLLs on Windows)
       baysor-<version>-<platform>/LICENSE
       baysor-<version>-<platform>/README.md
 
@@ -37,11 +36,7 @@ from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent.parent
 
-PLATFORMS = {
-    "linux-x86_64": {"preset": "release-linux-x86_64", "archive": "tar.gz", "exe": "baysor"},
-    "macos-arm64": {"preset": "release-macos-arm64", "archive": "tar.gz", "exe": "baysor"},
-    "windows-x86_64": {"preset": "release-windows-x86_64", "archive": "zip", "exe": "baysor.exe"},
-}
+PLATFORMS = ("linux-x86_64", "macos-arm64", "windows-x86_64")
 
 # Must match CMAKE_OSX_DEPLOYMENT_TARGET in the release-macos-arm64 preset and
 # VCPKG_OSX_DEPLOYMENT_TARGET in packaging/vcpkg-triplets/arm64-osx-release.cmake.
@@ -65,14 +60,6 @@ def project_version():
     if not m:
         sys.exit("error: cannot find project(baysor VERSION ...) in CMakeLists.txt")
     return m.group(1)
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -116,8 +103,7 @@ def ensure_vcpkg(cache_dir):
 def make_archive(stage_root, name, kind, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     archive = out_dir / f"{name}.{kind}"
-    if archive.exists():
-        archive.unlink()
+    archive.unlink(missing_ok=True)
     top = stage_root / name
     if kind == "tar.gz":
         def normalize(info):
@@ -137,17 +123,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="\n".join(__doc__.splitlines()[2:]))
-    ap.add_argument("--platform", required=True, choices=sorted(PLATFORMS))
+    ap.add_argument("--platform", required=True, choices=PLATFORMS)
     ap.add_argument("--out", type=Path, default=SRC_DIR / "dist",
                     help="directory for the archive (default: dist/)")
-    ap.add_argument("--cache-dir", type=Path,
-                    default=Path(os.environ.get("BAYSOR_RELEASE_CACHE", SRC_DIR / ".release-cache")),
+    ap.add_argument("--cache-dir", type=Path, default=SRC_DIR / ".release-cache",
                     help="vcpkg checkout, downloads and binary cache (default: .release-cache/)")
-    ap.add_argument("--jobs", type=int, default=int(os.environ.get("BAYSOR_JOBS", "8")),
-                    help="build parallelism (default: $BAYSOR_JOBS or 8)")
+    ap.add_argument("--jobs", type=int, default=8, help="build parallelism (default: 8)")
     args = ap.parse_args()
 
-    spec = PLATFORMS[args.platform]
+    windows = args.platform.startswith("windows")
     version = project_version()
     name = f"baysor-{version}-{args.platform}"
     cache_dir = args.cache_dir.resolve()
@@ -167,7 +151,7 @@ def main():
         "CMAKE_BUILD_PARALLEL_LEVEL": str(args.jobs),
     })
 
-    preset = spec["preset"]
+    preset = f"release-{args.platform}"
     build_dir = SRC_DIR / "build" / preset
     log(f"Configuring ({preset})")
     run(["cmake", "--preset", preset], cwd=SRC_DIR)
@@ -179,11 +163,11 @@ def main():
     shutil.rmtree(stage_root, ignore_errors=True)
     stage = stage_root / name
     log(f"Staging {stage}")
-    strip = [] if args.platform.startswith("windows") else ["--strip"]
+    strip = [] if windows else ["--strip"]
     run(["cmake", "--install", build_dir, "--config", "Release", "--prefix", stage, *strip])
     for f in ("LICENSE", "README.md"):
         shutil.copy2(SRC_DIR / f, stage / f)
-    exe = stage / "bin" / spec["exe"]
+    exe = stage / "bin" / ("baysor.exe" if windows else "baysor")
     if not exe.is_file():
         sys.exit(f"error: {exe} was not installed")
 
@@ -193,7 +177,7 @@ def main():
     elif args.platform == "macos-arm64":
         log("Checking portability")
         run(["bash", SRC_DIR / "packaging" / "macos" / "check_binary.sh", exe, MACOS_DEPLOYMENT_TARGET])
-    elif args.platform == "windows-x86_64":
+    else:
         # Runners have the VC++ runtime in System32, so a smoke test alone
         # would not notice if it were missing from the archive.
         dlls = sorted(p.name.lower() for p in exe.parent.glob("*.dll"))
@@ -202,9 +186,9 @@ def main():
         if missing:
             sys.exit("error: MSVC runtime DLLs missing from bin/: " + ", ".join(missing))
 
-    archive = make_archive(stage_root, name, spec["archive"], out_dir)
+    archive = make_archive(stage_root, name, "zip" if windows else "tar.gz", out_dir)
     log(f"Wrote {archive}")
-    print(f"{sha256(archive)}  {archive.name}")
+    print(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}")
     return 0
 
 
