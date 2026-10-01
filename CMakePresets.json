@@ -31,7 +31,7 @@
     {
       "name": "profiling",
       "displayName": "Profiling Build",
-      "description": "Release code generation (-O3 -DNDEBUG) plus -g debug info for Valgrind/gperftools/heaptrack symbolization (profiling/README.md in github.com/VPetukhov/baysor-benchmarks). -g does not change the generated code.",
+      "description": "Release build plus -g debug info for profilers (Valgrind, gperftools, heaptrack); -g does not change the generated code.",
       "inherits": "user",
       "binaryDir": "${sourceDir}/build/profiling",
       "cacheVariables": {
@@ -68,7 +68,6 @@
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/${presetName}/install",
         "BAYSOR_WITH_TESTS": "OFF",
         "BAYSOR_WITH_CUDA": "OFF",
         "BAYSOR_INSTALL_RUNTIME": "ON",
