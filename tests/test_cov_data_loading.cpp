@@ -274,54 +274,27 @@ TEST(Cov1Data_Readers, StringColumnTypes) {
 // data.cpp — read_tabular_file
 // ============================================================================
 
-TEST(Cov1Data_ReadTabular, KeepsVaryingZ) {
+TEST(Cov1Data_ReadTabular, ZColumnHandling) {
     TempDir dir("cov1_data");
-    const auto path = dir.write("z3d.csv",
-        "x,y,z,gene\n"
-        "1,2,10,A\n"
-        "3,4,20,B\n"
-        "5,6,30,A\n");
-    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
-    EXPECT_TRUE(raw.has_z);
-    ASSERT_EQ(raw.z.size(), 3u);
-    EXPECT_DOUBLE_EQ(raw.z[2], 30.0);
-    EXPECT_EQ(raw.gene_str, (std::vector<std::string>{"A", "B", "A"}));
-    ASSERT_EQ(raw.x.size(), 3u);
-    EXPECT_DOUBLE_EQ(raw.x[1], 3.0);
-}
-
-TEST(Cov1Data_ReadTabular, DropsConstantZ) {
-    TempDir dir("cov1_data");
-    const auto path = dir.write("zconst.csv",
-        "x,y,z,gene\n"
-        "1,2,7,A\n"
-        "3,4,7,B\n");
-    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
-    EXPECT_FALSE(raw.has_z);
-    EXPECT_TRUE(raw.z.empty());
-}
-
-TEST(Cov1Data_ReadTabular, Force2DSkipsZColumn) {
-    TempDir dir("cov1_data");
-    const auto path = dir.write("zforce.csv",
-        "x,y,z,gene\n"
-        "1,2,10,A\n"
-        "3,4,20,B\n");
-    baysor::MoleculeInputOptions opts;
-    opts.force_2d = true;
-    auto raw = baysor::read_tabular_file(path, opts);
-    EXPECT_FALSE(raw.has_z);
-    EXPECT_TRUE(raw.z.empty());
-}
-
-TEST(Cov1Data_ReadTabular, NoZColumn) {
-    TempDir dir("cov1_data");
-    const auto path = dir.write("plain.csv",
-        "x,y,gene\n"
-        "1,2,A\n");
-    auto raw = baysor::read_tabular_file(path, baysor::MoleculeInputOptions{});
-    EXPECT_FALSE(raw.has_z);
-    ASSERT_EQ(raw.gene_str.size(), 1u);
+    const struct {
+        const char* csv;
+        bool force_2d;
+        std::vector<double> z;  // empty: 2D
+    } cases[] = {
+        {"x,y,z,gene\n1,2,10,A\n3,4,20,B\n5,6,30,A\n", false, {10, 20, 30}},  // varying z is kept
+        {"x,y,z,gene\n1,2,7,A\n3,4,7,B\n5,6,7,A\n", false, {}},              // constant z is dropped
+        {"x,y,z,gene\n1,2,10,A\n3,4,20,B\n5,6,30,A\n", true, {}},            // --force-2d
+        {"x,y,gene\n1,2,A\n3,4,B\n5,6,A\n", false, {}},                      // no z column
+    };
+    for (const auto& c : cases) {
+        baysor::MoleculeInputOptions opts;
+        opts.force_2d = c.force_2d;
+        const auto raw = baysor::read_tabular_file(dir.write("mols.csv", c.csv), opts);
+        EXPECT_EQ(raw.has_z, !c.z.empty()) << c.csv;
+        EXPECT_EQ(raw.z, c.z) << c.csv;
+        EXPECT_EQ(raw.x, (std::vector<double>{1, 3, 5})) << c.csv;
+        EXPECT_EQ(raw.gene_str, (std::vector<std::string>{"A", "B", "A"})) << c.csv;
+    }
 }
 
 // ============================================================================
@@ -535,77 +508,29 @@ TEST(Cov1Data_LoadParquet, DictionaryEncodedGene) {
     EXPECT_EQ(data.prior_segmentation[2], 2);
 }
 
-TEST(Cov1Data_LoadParquet, LargeStringGene) {
+TEST(Cov1Data_LoadParquet, GeneColumnEncodings) {
     TempDir dir("cov1_data");
-    auto x = arr_f64({1, 2});
-    auto y = arr_f64({1, 2});
-    auto gene = arr_lstr({"GeneX", "GeneY"});
-    auto path = write_parquet(dir, "lstr.parquet",
-                              {{"x", x}, {"y", y}, {"gene", gene}},
-                              /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
-    ASSERT_EQ(data.n_molecules(), 2);
-    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"GeneX", "GeneY"}));
-}
-
-TEST(Cov1Data_LoadParquet, DictionaryLargeStringGene) {
-    TempDir dir("cov1_data");
-    auto x = arr_f64({1, 2, 3});
-    auto y = arr_f64({1, 1, 1});
-    auto gene = arr_dict(arr_lstr({"LG1", "LG2"}), {0, 1, 0});
-
-    auto path = write_parquet(dir, "dict_large.parquet",
-                              {{"x", x}, {"y", y}, {"gene", gene}},
-                              /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
-    ASSERT_EQ(data.n_molecules(), 3);
-    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"LG1", "LG2"}));
-    EXPECT_EQ(data.gene, (std::vector<int>{1, 2, 1}));
-}
-
-TEST(Cov1Data_LoadParquet, BinaryDictionaryGene) {
-    TempDir dir("cov1_data");
-    auto x = arr_f64({1, 2});
-    auto y = arr_f64({1, 2});
-    auto gene = arr_dict(arr_bin({"bin1", "bin2"}), {0, 1});
-    auto path = write_parquet(dir, "dict_bin.parquet",
-                              {{"x", x}, {"y", y}, {"gene", gene}},
-                              /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
-    ASSERT_EQ(data.n_molecules(), 2);
-    ASSERT_EQ(data.n_genes(), 2);
-    // Binary dictionary values are decoded as text (GetView), so the gene
-    // names are exactly the original strings, sorted.
-    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"bin1", "bin2"}));
-    EXPECT_EQ(data.gene, (std::vector<int>{1, 2}));
-}
-
-TEST(Cov1Data_LoadParquet, NumericDictionaryGene) {
-    TempDir dir("cov1_data");
-    auto x = arr_f64({1, 2});
-    auto y = arr_f64({1, 2});
-    // Dictionary-encoded numeric gene column. Parquet does not keep numeric
-    // dictionaries, so it is read back as a plain int64 column and goes
-    // through the numeric gene-name path ("7", "9").
-    auto gene = arr_dict(arr_i64({7, 9}), {0, 1});
-    auto path = write_parquet(dir, "dict_num.parquet",
-                              {{"x", x}, {"y", y}, {"gene", gene}},
-                              /*store_schema=*/true);
-    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
-    ASSERT_EQ(data.n_molecules(), 2);
-    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"7", "9"}));
-    EXPECT_EQ(data.gene, (std::vector<int>{1, 2}));
-}
-
-TEST(Cov1Data_LoadParquet, NumericGeneColumn) {
-    TempDir dir("cov1_data");
-    auto x = arr_f64({1, 2, 3});
-    auto y = arr_f64({1, 1, 1});
-    auto gene = arr_i64({7, 7, 9});
-    auto path = write_parquet(dir, "numgene.parquet", {{"x", x}, {"y", y}, {"gene", gene}});
-    auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
-    ASSERT_EQ(data.n_molecules(), 3);
-    EXPECT_EQ(data.gene_names, (std::vector<std::string>{"7", "9"}));
+    const struct {
+        const char* name;
+        std::shared_ptr<arrow::Array> gene;
+        std::vector<std::string> gene_names;
+    } cases[] = {
+        {"large_string", arr_lstr({"G1", "G2", "G1"}), {"G1", "G2"}},
+        {"dict_large_string", arr_dict(arr_lstr({"G1", "G2"}), {0, 1, 0}), {"G1", "G2"}},
+        // Binary dictionary values are decoded as text.
+        {"dict_binary", arr_dict(arr_bin({"bin1", "bin2"}), {0, 1, 0}), {"bin1", "bin2"}},
+        // Parquet keeps no numeric dictionaries: read back as int64 gene ids.
+        {"dict_numeric", arr_dict(arr_i64({7, 9}), {0, 1, 0}), {"7", "9"}},
+        {"int64", arr_i64({7, 9, 7}), {"7", "9"}},
+    };
+    for (const auto& c : cases) {
+        const auto path = write_parquet(dir, std::string(c.name) + ".parquet",
+                                        {{"x", arr_f64({1, 2, 3})}, {"y", arr_f64({1, 1, 1})}, {"gene", c.gene}},
+                                        /*store_schema=*/true);
+        const auto data = baysor::load_molecules(path, baysor::MoleculeInputOptions{});
+        EXPECT_EQ(data.gene_names, c.gene_names) << c.name;
+        EXPECT_EQ(data.gene, (std::vector<int>{1, 2, 1})) << c.name;
+    }
 }
 
 TEST(Cov1Data_LoadParquet, ExcludeGenePatternSpecialCharacters) {
@@ -857,31 +782,24 @@ TEST(Cov1Data_Prior, TiffCorruptScanlineThrows) {
                      std::runtime_error, "Error reading TIFF scanline");
 }
 
-TEST(Cov1Data_Prior, TiffNoMoleculesYieldsEmptyResult) {
+TEST(Cov1Data_Prior, TiffWithoutMoleculesInBounds) {
     TempDir dir("cov1_data");
-    std::vector<uint8_t> px(8 * 8, 255);
-    const auto path = write_tiff_mask(dir, "m8.tif", px, 8, 8);
+    const auto path = write_tiff_mask(dir, "m8.tif", std::vector<uint8_t>(8 * 8, 255), 8, 8);
 
     // No molecules at all.
     auto res = baysor::load_prior_from_image(path, {}, {}, 1);
     EXPECT_TRUE(res.segment_per_molecule.empty());
     EXPECT_TRUE(res.component_pixel_areas.empty());
-}
-
-TEST(Cov1Data_Prior, TiffMoleculesOutOfBounds) {
-    TempDir dir("cov1_data");
-    std::vector<uint8_t> px(8 * 8, 255);
-    const auto path = write_tiff_mask(dir, "m8b.tif", px, 8, 8);
 
     // All molecules outside the image -> nothing to load.
-    auto res = baysor::load_prior_from_image(path, {100, 200}, {100, 200}, 1);
+    res = baysor::load_prior_from_image(path, {100, 200}, {100, 200}, 1);
     EXPECT_EQ(res.segment_per_molecule, (std::vector<int>{0, 0}));
 
     // Mixed: only the in-bounds molecule is considered (and lands on mask).
-    auto res2 = baysor::load_prior_from_image(path, {2, 100}, {2, 100}, 1);
-    ASSERT_EQ(res2.segment_per_molecule.size(), 2u);
-    EXPECT_GT(res2.segment_per_molecule[0], 0);
-    EXPECT_EQ(res2.segment_per_molecule[1], 0);
+    res = baysor::load_prior_from_image(path, {2, 100}, {2, 100}, 1);
+    ASSERT_EQ(res.segment_per_molecule.size(), 2u);
+    EXPECT_GT(res.segment_per_molecule[0], 0);
+    EXPECT_EQ(res.segment_per_molecule[1], 0);
 }
 
 TEST(Cov1Data_Prior, TiffFullImageWindowLogs) {

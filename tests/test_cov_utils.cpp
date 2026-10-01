@@ -357,28 +357,16 @@ TEST(Cov1Utils_Options, LoadConfigDataSectionAndTypedValues) {
 
 TEST(Cov1Utils_Options, LoadConfigPriorTypes) {
     TempDir dir("cov1_utils");
-
-    const auto img_path = dir.write("img.toml",
-        "[prior]\n"
-        "type = \"IMAGE\"\n"
-        "path = \"mask.tiff\"\n");
-    auto img = baysor::load_config(img_path);
+    const auto img = baysor::load_config(dir.write("img.toml", "[prior]\ntype = \"IMAGE\"\npath = \"mask.tiff\"\n"));
     EXPECT_EQ(img.prior.type, baysor::PriorInputType::Image);
     EXPECT_EQ(img.prior.path, "mask.tiff");
 
-    const auto bnd_path = dir.write("bnd.toml",
-        "[prior]\n"
-        "type = \"boundary\"\n"
-        "path = \"b.csv\"\n"
-        "min_molecules_per_segment = 7\n");
-    auto bnd = baysor::load_config(bnd_path);
+    const auto bnd = baysor::load_config(dir.write(
+        "bnd.toml", "[prior]\ntype = \"boundary\"\npath = \"b.csv\"\nmin_molecules_per_segment = 7\n"));
     EXPECT_EQ(bnd.prior.type, baysor::PriorInputType::Boundary);
     EXPECT_EQ(bnd.prior.min_molecules_per_segment, 7);
 
-    const auto none_path = dir.write("none.toml",
-        "[prior]\n"
-        "type = \"none\"\n");
-    auto none = baysor::load_config(none_path);
+    const auto none = baysor::load_config(dir.write("none.toml", "[prior]\ntype = \"none\"\n"));
     EXPECT_EQ(none.prior.type, baysor::PriorInputType::None);
 }
 
