@@ -23,7 +23,6 @@ namespace {
 using baysor::AdjList;
 using baysor::BmmData;
 using baysor::CategoricalSmoothed;
-using baysor::Component;
 using baysor::MvNormal;
 using baysor::ShapePrior;
 
@@ -180,22 +179,6 @@ BmmData<3> cov2_make_3d_data() {
     data.segment_per_molecule = {1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2};
     data.n_molecules_per_segment = {8, 4};
     return data;
-}
-
-Component<2> cov2_make_component_2d(int guid) {
-    Eigen::Vector2d mu = Eigen::Vector2d::Zero();
-    const Eigen::Matrix2d sigma = Eigen::Matrix2d::Identity();
-    CategoricalSmoothed comp_params(1, 1.0);
-    comp_params.set_dense_counts({1.0f});
-    return Component<2>(MvNormal<2>(mu, sigma), comp_params, std::nullopt, guid);
-}
-
-Component<3> cov2_make_component_3d(int guid) {
-    Eigen::Vector3d mu = Eigen::Vector3d::Zero();
-    const Eigen::Matrix3d sigma = Eigen::Matrix3d::Identity();
-    CategoricalSmoothed comp_params(1, 1.0);
-    comp_params.set_dense_counts({1.0f});
-    return Component<3>(MvNormal<3>(mu, sigma), comp_params, std::nullopt, guid);
 }
 
 } // namespace
