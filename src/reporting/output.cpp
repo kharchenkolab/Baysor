@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -79,6 +80,34 @@ std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
         append_le<double>(out, xy[1]);
     }
     return out;
+}
+
+// Integer cell id for the v0.7.1 `GeometryCollectionLegacy` format. Baysor
+// v0.7.1 named cells `C<run_id>-<n>` and kept the part after the first dash;
+// the C++ line names them `cell_<n>`, so strip that prefix when present.
+int legacy_polygon_cell_id(const std::string& cell_name) {
+    std::string digits = cell_name;
+    static const std::string kCellPrefix = "cell_";
+    if (digits.rfind(kCellPrefix, 0) == 0) {
+        digits = digits.substr(kCellPrefix.size());
+    }
+    const auto dash = digits.find('-');
+    if (dash != std::string::npos) {
+        digits = digits.substr(dash + 1);
+    }
+    std::size_t consumed = 0;
+    int value = 0;
+    try {
+        value = std::stoi(digits, &consumed);
+    } catch (const std::exception&) {
+        throw std::runtime_error(
+            "GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
+    }
+    if (consumed != digits.size()) {
+        throw std::runtime_error(
+            "GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
+    }
+    return value;
 }
 
 std::shared_ptr<arrow::Table> make_table(
@@ -174,13 +203,46 @@ std::string to_string(OutputStyle style) {
     return "legacy"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
 }
 
+namespace {
+
+std::string lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+} // namespace
+
+PolygonFormat parse_polygon_format(const std::string& format) {
+    // Baysor v0.7.1 lower-cased the option before comparing (`format_lc`).
+    const std::string fmt = lowercase(format);
+    if (fmt == "featurecollection") return PolygonFormat::FeatureCollection;
+    if (fmt == "geometrycollection") return PolygonFormat::GeometryCollection;
+    if (fmt == "geometrycollectionlegacy") return PolygonFormat::GeometryCollectionLegacy;
+    if (fmt == "none") return PolygonFormat::None;
+    throw std::invalid_argument(
+        "Unknown polygon format: " + format +
+        ". Expected one of FeatureCollection, GeometryCollection, GeometryCollectionLegacy, none");
+}
+
+std::string to_string(PolygonFormat format) {
+    switch (format) {
+        case PolygonFormat::FeatureCollection: return "FeatureCollection";
+        case PolygonFormat::GeometryCollection: return "GeometryCollection";
+        case PolygonFormat::GeometryCollectionLegacy: return "GeometryCollectionLegacy";
+        case PolygonFormat::None: return "none";
+    }
+    return "FeatureCollection"; // GCOVR_EXCL_LINE: unreachable defensive return after exhaustive switch over the enum
+}
+
 static nlohmann::json polygons_to_geojson_json(
     const PolygonCollection& polygons,
-    const std::string& format
+    PolygonFormat format
 ) {
     nlohmann::json out;
 
-    const bool is_feature = (format != "GeometryCollection");
+    const bool is_feature = (format == PolygonFormat::FeatureCollection);
+    const bool is_legacy = (format == PolygonFormat::GeometryCollectionLegacy);
     if (is_feature) {
         out["type"] = "FeatureCollection";
         out["features"] = nlohmann::json::array();
@@ -223,10 +285,15 @@ static nlohmann::json polygons_to_geojson_json(
                 }}
             });
         } else {
+            // v0.7.1 `GeometryCollectionLegacy` rewrote string keys by parsing
+            // the integer cell id out of the name (`split(k, '-')[2]`); the C++
+            // line names cells `cell_<n>` instead.
+            nlohmann::json cell = is_legacy ? nlohmann::json(legacy_polygon_cell_id(cell_name))
+                                            : nlohmann::json(cell_name);
             out["geometries"].push_back({
                 {"type", "Polygon"},
                 {"coordinates", nlohmann::json::array({ring})},
-                {"cell", cell_name}
+                {"cell", cell}
             });
         }
     }
@@ -753,11 +820,12 @@ void save_matrix_to_tsv(const Eigen::SparseMatrix<double>& matrix,
 void save_polygons_geojson(const PolygonCollection& polygons,
                             const std::string& path,
                             const std::string& format) {
-    if (format == "none" || polygons.empty()) return;
+    const PolygonFormat fmt = parse_polygon_format(format);
+    if (fmt == PolygonFormat::None || polygons.empty()) return;
 
     std::ofstream f(path);
     if (!f) throw std::runtime_error("save_polygons_geojson: cannot open " + path);
-    f << polygons_to_geojson_json(polygons, format).dump();
+    f << polygons_to_geojson_json(polygons, fmt).dump();
 }
 
 void save_polygons_geoparquet(const PolygonCollection& polygons,
@@ -803,7 +871,8 @@ void save_polygons_geoparquet(const PolygonCollection& polygons,
 void save_polygon_stack_geojson(const PolygonStack& polygons,
                                 const OutputPaths& out_paths,
                                 const std::string& format) {
-    if (format == "none" || polygons.empty()) return;
+    const PolygonFormat fmt = parse_polygon_format(format);
+    if (fmt == PolygonFormat::None || polygons.empty()) return;
 
     nlohmann::json by_layer = nlohmann::json::object();
     bool has_3d = false;
@@ -813,7 +882,7 @@ void save_polygon_stack_geojson(const PolygonStack& polygons,
             save_polygons_geojson(poly, out_paths.polygons_2d, format);
             continue;
         }
-        by_layer[layer_name] = polygons_to_geojson_json(poly, format);
+        by_layer[layer_name] = polygons_to_geojson_json(poly, fmt);
         has_3d = true;
     }
 

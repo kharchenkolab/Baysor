@@ -6,6 +6,14 @@ All notable changes to the C++ line of Baysor are documented here.
 
 ### Added
 
+- `--polygon-format GeometryCollectionLegacy` for Xenium Ranger 3.x: the same
+  `GeometryCollection` layout as `GeometryCollection` but with integer `cell`
+  ids (Baysor v0.7.1 format, stripped of the old `C<run_id>-` prefix). Xenium
+  Ranger 4.0+ reads the default `FeatureCollection`, so the legacy format is
+  only needed for Ranger 3.x. The option is now case-insensitive and rejected
+  with a clear error for unknown values instead of silently writing
+  `FeatureCollection`.
+
 - `--threads` / `-t` on `run`, `preview` and `segfree` (and a top-level
   `threads` config key) to set the number of worker threads. Defaults to
   `BAYSOR_NUM_THREADS`, then `OMP_NUM_THREADS` (backward compatibility for

@@ -31,6 +31,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <thread>
@@ -841,7 +842,17 @@ int main(int argc, char* argv[]) {
     run->add_option("--output-style", run_output_style,
         "Output bundle style: legacy or parquet (default: legacy)");
     run->add_option("--polygon-format", run_polygon_format,
-        "Polygon output format: FeatureCollection, GeometryCollection, or none (default: FeatureCollection)");
+        "Polygon output format: FeatureCollection, GeometryCollection, "
+        "GeometryCollectionLegacy, or none (default: FeatureCollection). "
+        "GeometryCollectionLegacy writes integer cell ids for Xenium Ranger 3.x; "
+        "FeatureCollection is read by Xenium Ranger 4.0+")
+        ->transform(CLI::CheckedTransformer(
+            std::map<std::string, std::string>{
+                {"featurecollection", "FeatureCollection"},
+                {"geometrycollection", "GeometryCollection"},
+                {"geometrycollectionlegacy", "GeometryCollectionLegacy"},
+                {"none", "none"}},
+            CLI::ignore_case));
     run->add_option("--count-matrix-format", run_count_format,
         "Count matrix format: loom or tsv (default: loom)");
     run->add_flag("-p,--plot", run_plot,

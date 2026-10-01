@@ -41,7 +41,12 @@ bundle automatically adds the fields needed by
 - `segmentation.csv` includes `transcript_id` and writes `is_noise` as
   `true` / `false`
 - `segmentation_polygons_2d.json` uses a GeoJSON `FeatureCollection` with
-  `properties.cell`
+  `properties.cell`; `--polygon-format GeometryCollectionLegacy` switches to
+  the integer-id `GeometryCollection` layout required by Xenium Ranger 3.1
+  and earlier
+
+The two files contain exactly the same cells, so the import does not fail
+with `EmptyCellsError` or `MissingCellPolygon`.
 
 Use `legacy` when the result will be handed off to Xenium Ranger / Xenium
 Explorer.

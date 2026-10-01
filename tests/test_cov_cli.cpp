@@ -12,6 +12,8 @@
 
 #include <gtest/gtest.h>
 
+#include <nlohmann/json.hpp>
+
 #include <arrow/api.h>
 #include <arrow/io/api.h>
 #include <parquet/arrow/writer.h>
@@ -25,6 +27,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -424,6 +427,18 @@ TEST(Cov5CliValidate, UnknownOutputStyleFails) {
     EXPECT_NE(r.out.find("Unknown output style: xml"), std::string::npos) << r.out;
 }
 
+TEST(Cov5CliValidate, UnknownPolygonFormatFails) {
+    TempDir tmp("val_polygon");
+    auto csv = write_2d_csv(tmp, 20);
+    auto r = run_cli(tmp, "run '" + csv.string() +
+                              "' -m 10 -s 2.5 --polygon-format geo -o '" +
+                              (tmp.path / "seg").string() + "'");
+    EXPECT_NE(r.exit_code, 0);
+    const std::string combined = r.out + r.err;
+    EXPECT_NE(combined.find("polygon-format"), std::string::npos) << combined;
+    EXPECT_FALSE(fs::exists(tmp.path / "seg" / "segmentation_polygons_2d.json"));
+}
+
 TEST(Cov5CliValidate, UnknownClusterMethodFails) {
     TempDir tmp("val_cluster");
     auto csv = write_2d_csv(tmp, 20);
@@ -631,6 +646,54 @@ TEST(Cov5CliRun, PriorColumnLegacy2DBundle) {
     EXPECT_NE(read_text_file(out / "segmentation_log.log")
                   .find("Segmentation complete"),
               std::string::npos);
+}
+
+TEST(Cov5CliRun, PriorColumnLegacyGeometryCollectionLegacyHasIntegerCellIds) {
+    TempDir tmp("run_legacy_poly");
+    // Last clump is a horizontal line: its free-form polygon estimation fails
+    // and the fallback keeps it in the polygons file (kharchenkolab/Baysor#165).
+    auto csv = write_2d_csv(tmp, 50, "mols_legacy.csv", /*wide=*/false,
+                            /*collinear_last=*/true);
+    const fs::path out = tmp.path / "seg";
+
+    auto r = run_cli(tmp, "run '" + csv.string() +
+                              "' ':cell_id' -m 10 --iters 12 -s 2.5"
+                              " --polygon-format GeometryCollectionLegacy -o '" +
+                              out.string() + "'");
+    ASSERT_TRUE(cli_success(r));
+
+    const std::string json_text = read_text_file(out / "segmentation_polygons_2d.json");
+    const auto doc = nlohmann::json::parse(json_text);
+    EXPECT_EQ(doc.at("type"), "GeometryCollection");
+
+    // Collect integer polygon ids and the CSV's cell_<n> names; the sets must
+    // be identical after stripping the CSV prefix.
+    std::set<int> poly_ids;
+    for (const auto& geom : doc.at("geometries")) {
+        ASSERT_TRUE(geom.at("cell").is_number_integer()) << geom.dump();
+        poly_ids.insert(geom.at("cell").get<int>());
+    }
+    std::set<int> csv_ids;
+    {
+        std::ifstream f(out / "segmentation.csv");
+        std::string header;
+        ASSERT_TRUE(std::getline(f, header));
+        const auto cols = header.find("cell,");
+        ASSERT_NE(cols, std::string::npos) << header;
+        const int cell_col = static_cast<int>(std::count(header.begin(),
+                                                         header.begin() + cols, ','));
+        std::string line;
+        while (std::getline(f, line)) {
+            std::stringstream ss(line);
+            std::string field;
+            for (int i = 0; i <= cell_col; ++i) ASSERT_TRUE(std::getline(ss, field, ','));
+            if (field.rfind("cell_", 0) == 0) {
+                csv_ids.insert(std::stoi(field.substr(5)));
+            }
+        }
+    }
+    EXPECT_EQ(poly_ids, csv_ids);
+    EXPECT_FALSE(poly_ids.empty());
 }
 
 TEST(Cov5CliRun, ParquetStyleWithPlotAndIgnoredFormatWarnings) {
