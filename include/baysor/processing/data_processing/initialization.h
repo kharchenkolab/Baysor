@@ -39,11 +39,13 @@ AdjList build_molecule_graph(
     int n_gene_pcs = 0
 );
 
-/// Full initialization of BmmData from molecule data
+/// Full initialization of BmmData from molecule data. The adjacency list is
+/// taken by value and moved into BmmData: pass an rvalue when the caller no
+/// longer needs it, so that only one copy of the molecule graph exists.
 template<int N>
 BmmData<N> initialize_bmm_data(
     const MoleculeData& mol_data,
-    const AdjList& adj_list,
+    AdjList adj_list,
     int n_cells_init,
     double scale,
     const std::string& scale_std = "25%",

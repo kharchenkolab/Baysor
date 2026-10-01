@@ -36,6 +36,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 
 using namespace baysor;
 
@@ -261,7 +262,9 @@ int cmd_run(
 
         spdlog::info("Initializing BmmData ({}D)...", N);
         auto bm_data = initialize_bmm_data<N>(
-            data, adj_list, n_cells, scale, scale_std, psc, min_mols, /*verbose=*/true);
+            // The molecule graph is not needed after this point: move it into
+            // BmmData instead of holding two copies during segmentation.
+            data, std::move(adj_list), n_cells, scale, scale_std, psc, min_mols, /*verbose=*/true);
 
         // Wire molecule clusters into BmmData
         if (!mol_clusters.empty()) {
