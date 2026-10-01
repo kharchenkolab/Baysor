@@ -71,18 +71,22 @@ void BmmData<N>::update_n_mols_per_segment(const IdsByComponent& ids_by_comp) {
     // the main-segment tie-breaks are unchanged.
     int nc = n_components();
     main_segment_per_cell.assign(nc, 0);
-    parallel_for(0, nc, 2, [&](int ci) {
-        auto& seg_map = components[ci].n_molecules_per_segment;
-        seg_map.clear();
-        const int* ids = ids_by_comp.begin(ci);
-        const int np = ids_by_comp.size(ci);
-        for (int k = 0; k < np; ++k) {
-            int c_seg = segment_per_molecule[ids[k]];
-            if (c_seg <= 0) continue;
-            seg_map[c_seg]++;
-        }
-        update_main_segment(ci);
-    });
+    parallel_for(0, nc, 2, [&](int ci) { update_n_mols_per_segment_of(ci, ids_by_comp); });
+}
+
+template<int N>
+void BmmData<N>::update_n_mols_per_segment_of(int ci, const IdsByComponent& ids_by_comp) {
+    auto& seg_map = components[ci].n_molecules_per_segment;
+    seg_map.clear();
+    const int* ids = ids_by_comp.begin(ci);
+    const int np = ids_by_comp.size(ci);
+    for (int k = 0; k < np; ++k) {
+        int c_seg = segment_per_molecule[ids[k]];
+        if (c_seg <= 0) continue;
+        seg_map[c_seg]++;
+    }
+    main_segment_per_cell[ci] = 0;
+    update_main_segment(ci);
 }
 
 template<int N>

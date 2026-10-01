@@ -82,6 +82,11 @@ struct BmmData {
     /// assignment (e.g. workspace.ids_by_comp right after an M-step).
     void update_n_mols_per_segment(const IdsByComponent& ids_by_comp);
 
+    /// The per-component step of the above for component ci (0-based);
+    /// main_segment_per_cell must already have n_components() entries.
+    /// Different components may be updated concurrently.
+    void update_n_mols_per_segment_of(int ci, const IdsByComponent& ids_by_comp);
+
 private:
     void update_main_segment(int ci);
 public:

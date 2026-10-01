@@ -40,6 +40,7 @@ struct BmmWorkspace {
 
     // Applying the E-step result
     std::vector<std::int64_t> worker_count;
+    std::vector<std::vector<int>> changed;   // per worker, with prior segments
     std::int64_t n_changed = 0;
 
     // M-step: per-worker arenas for the cluster-mode count maps

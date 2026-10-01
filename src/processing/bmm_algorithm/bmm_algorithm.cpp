@@ -288,7 +288,8 @@ static void estep_phase(ParallelRegion& region, BmmData<N>& data, bool stochasti
         // Fresh 16-slot dictionaries per call: the table size persists after a
         // grow() and determines the slot order, so it must not leak from one
         // E-step call into the next.
-        component_weights_buf.assign(n_workers, JuliaIntDoubleDict());
+        component_weights_buf.resize(n_workers);
+        for (auto& d : component_weights_buf) d.reset();
     });
 
     // Loop-invariant factors of adjust_densities_by_prior_segmentation
@@ -481,15 +482,27 @@ static std::int64_t apply_phase(ParallelRegion& region, BmmData<N>& data) {
         // assign() updates the per-segment maps of the old and new component;
         // call it only for changed molecules (unchanged ones are no-ops in
         // assign), in ascending order, so every map receives the same
-        // operation sequence as before.
+        // operation sequence as before. The changed molecules are found in
+        // parallel (static blocks: ascending within and across workers).
+        region.single([&]() {
+            if (static_cast<int>(ws.changed.size()) != region.n_workers()) {
+                ws.changed.assign(region.n_workers(), {});
+            }
+        });
+        region.for_chunks(0, n, 0, Scheduling::Static,
+            [&](std::int64_t b, std::int64_t e, int w) {
+            auto& out = ws.changed[w];
+            out.clear();
+            for (std::int64_t i = b; i < e; ++i) {
+                if (data.assignment[i] != ws.new_assignment[i]) out.push_back(static_cast<int>(i));
+            }
+        });
         region.single([&]() {
             std::int64_t cnt = 0;
-            for (int mol_id = 0; mol_id < n; ++mol_id) {
-                const int a = ws.new_assignment[mol_id];
-                if (data.assignment[mol_id] != a) {
-                    ++cnt;
-                    data.assign(mol_id, a);
-                }
+            for (auto& list : ws.changed) {
+                for (int mol_id : list) data.assign(mol_id, ws.new_assignment[mol_id]);
+                cnt += static_cast<std::int64_t>(list.size());
+                list.clear();
             }
             ws.n_changed = cnt;
         });
@@ -842,49 +855,73 @@ void bmm(BmmData<N>& data,
     trace_n_components(data, disp_thresh);
     maximize(data, freeze_composition, freeze_position);
 
+    BmmWorkspace& ws = data.workspace;
+    const bool has_segments = !data.segment_per_molecule.empty();
+
     for (int iter = 1; iter <= n_iters; ++iter) {
-        // Update prior probabilities: each component's prior = n_samples
-        for (auto& comp : data.components) {
-            comp.prior_probability = static_cast<double>(comp.n_samples);
-        }
+        const bool split_now = (iter % component_split_step == 0) || (iter == n_iters);
+        // With tol == 0 all n_iters iterations run, so only the last
+        // assignment_history_depth entries can survive the trimming.
+        const bool record_history = (tol > 0.0 || iter > n_iters - assignment_history_depth);
+        std::int64_t n_changed = 0;
 
-        // The grouping of the last M-step is still the grouping of the
-        // current assignment.
-        data.update_n_mols_per_segment(groups);
+        // One parallel region per iteration: the pool wakes once, and the
+        // phases are separated by barriers. Serial work in between runs in
+        // `single` blocks. The order of operations is the one of the serial
+        // loop, so the result is unchanged.
+        parallel_region([&](ParallelRegion& region) {
+            // Update prior probabilities (each component's prior = n_samples)
+            // and the prior-segmentation bookkeeping, per component, from the
+            // grouping of the last M-step: it is still the grouping of the
+            // current assignment.
+            if (has_segments) {
+                region.single([&]() { data.main_segment_per_cell.assign(data.n_components(), 0); });
+            }
+            region.for_each(0, data.n_components(), 2, [&](int ci) {
+                auto& comp = data.components[ci];
+                comp.prior_probability = static_cast<double>(comp.n_samples);
+                if (has_segments) data.update_n_mols_per_segment_of(ci, groups);
+            });
 
-        // E-step — track assignment changes for convergence.
-        // rng_salt = iteration index: multi-threaded draws come from per-chunk
-        // streams keyed by (iteration, chunk), so different every iteration.
-        EstepStats estep_stats = expect_dirichlet_spatial(data, /*stochastic=*/true,
-                                                          /*rng_salt=*/static_cast<std::uint64_t>(iter));
+            // E-step — track assignment changes for convergence.
+            // rng_salt = iteration index: multi-threaded draws come from
+            // per-chunk streams keyed by (iteration, chunk), so different
+            // every iteration.
+            estep_phase(region, data, /*stochastic=*/true, /*rng_salt=*/static_cast<std::uint64_t>(iter));
+            const std::int64_t changed = apply_phase(region, data);
+            if (region.is_master()) n_changed = changed;
+
+            // Periodic connected component splitting
+            if (split_now) {
+                group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws.group_hist);
+                split_phase(region, data, ws.ids_by_comp);
+            }
+
+            // Grouping of the current assignment: per-cell counts for the
+            // drop step and the M-step grouping.
+            group_phase(region, data.assignment, data.n_components(), ws.ids_by_comp, ws.group_hist);
+
+            // Drop components with fewer than min_molecules_drop molecules.
+            // Matches Julia's drop_unused_components!(data) which has hardcoded default min_n_samples=2.
+            if (!freeze_components) {
+                drop_phase(region, data, min_molecules_drop, ws.ids_by_comp);
+            }
+
+            // M-step
+            maximize_phase(region, data, ws.ids_by_comp, freeze_composition, freeze_position);
+
+            // Tracing
+            region.single([&]() { trace_n_components(data, disp_thresh, groups); });
+            if (record_history) {
+                trace_assignment_history(region, data, assignment_history_depth);
+            }
+        });
 
         // Compute fraction of changed assignments
         if (tol > 0.0) {
             int n_total   = data.n_molecules();
             change_fracs.push_back(
-                static_cast<double>(estep_stats.n_changed) / std::max(n_total, 1));
-        }
-
-        // Periodic connected component splitting
-        if ((iter % component_split_step == 0) || (iter == n_iters)) {
-            split_cells_by_connected_components(data);
-        }
-
-        // Drop components with fewer than min_molecules_drop molecules.
-        // Matches Julia's drop_unused_components!(data) which has hardcoded default min_n_samples=2.
-        if (!freeze_components) {
-            drop_unused_components(data, min_molecules_drop);
-        }
-
-        // M-step
-        maximize(data, freeze_composition, freeze_position);
-
-        // Tracing
-        trace_n_components(data, disp_thresh, groups);
-        // With tol == 0 all n_iters iterations run, so only the last
-        // assignment_history_depth entries can survive the trimming.
-        if (tol > 0.0 || iter > n_iters - assignment_history_depth) {
-            trace_assignment_history(data, assignment_history_depth);
+                static_cast<double>(n_changed) / std::max(n_total, 1));
         }
 
         if (verbose) {

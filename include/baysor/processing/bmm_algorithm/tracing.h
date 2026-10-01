@@ -22,6 +22,12 @@ void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
 template<int N>
 void trace_assignment_history(BmmData<N>& data, int assignment_history_depth);
 
+/// Same, as work-shared phases of a parallel region (every participant must
+/// call it).
+template<int N>
+void trace_assignment_history(ParallelRegion& region, BmmData<N>& data,
+                              int assignment_history_depth);
+
 /// Estimate how long each component has existed in the assignment history
 std::unordered_map<int, int> estimate_component_lifespan(
     const std::vector<std::vector<int>>& assignment_history

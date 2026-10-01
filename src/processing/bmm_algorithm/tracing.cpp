@@ -47,21 +47,27 @@ void trace_n_components(BmmData<N>& data, int min_molecules_per_cell,
 }
 
 template<int N>
-void trace_assignment_history(BmmData<N>& data, int assignment_history_depth) {
+void trace_assignment_history(ParallelRegion& region, BmmData<N>& data,
+                              int assignment_history_depth) {
     if (assignment_history_depth <= 0) return;
 
-    // Trim to depth - 1 first, so the evicted delta buffer is recycled
-    auto& history = data.assignment_history;
-    while (!history.empty() && static_cast<int>(history.size()) >= assignment_history_depth) {
-        history.pop_front();
-    }
-
-    // Global assignment: local 1-based IDs replaced with component GUIDs
+    // Global assignment: local 1-based IDs replaced with component GUIDs.
+    // The oldest entries are dropped first (trim to depth), so the evicted
+    // delta buffer is recycled.
     const auto& assignment = data.assignment;
     const auto& components = data.components;
-    history.push_back_generated(data.n_molecules(), [&](int i) {
+    data.assignment_history.push_back_generated(
+        region, data.n_molecules(), static_cast<size_t>(assignment_history_depth), [&](int i) {
         const int a = assignment[i];
         return (a > 0) ? components[a - 1].guid : 0;
+    });
+}
+
+template<int N>
+void trace_assignment_history(BmmData<N>& data, int assignment_history_depth) {
+    if (assignment_history_depth <= 0) return;
+    parallel_region([&](ParallelRegion& region) {
+        trace_assignment_history(region, data, assignment_history_depth);
     });
 }
 
@@ -147,5 +153,7 @@ template void trace_n_components<2>(BmmData<2>&, int, const IdsByComponent&);
 template void trace_n_components<3>(BmmData<3>&, int, const IdsByComponent&);
 template void trace_assignment_history<2>(BmmData<2>&, int);
 template void trace_assignment_history<3>(BmmData<3>&, int);
+template void trace_assignment_history<2>(ParallelRegion&, BmmData<2>&, int);
+template void trace_assignment_history<3>(ParallelRegion&, BmmData<3>&, int);
 
 } // namespace baysor
