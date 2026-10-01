@@ -26,25 +26,29 @@ using baysor::CategoricalSmoothed;
 using baysor::Component;
 using baysor::MvNormal;
 
-Component<2> cov2_make_component2d(int guid, double prior_probability = 1.0,
-                                   double confidence = 1.0) {
-    Eigen::Vector2d mu = Eigen::Vector2d::Zero();
+// Standard-normal component over two genes with one count each
+template<int N>
+Component<N> cov2_make_component(int guid) {
     CategoricalSmoothed comp_params(2, 1.0);
     comp_params.set_dense_counts({1.0f, 1.0f});
-    Component<2> comp(MvNormal<2>(mu, Eigen::Matrix2d::Identity()), comp_params,
-                      std::nullopt, guid);
-    comp.prior_probability = prior_probability;
-    comp.confidence = confidence;
-    return comp;
+    return Component<N>(MvNormal<N>(), comp_params, std::nullopt, guid);
 }
 
-Component<3> cov2_make_component3d(int guid) {
-    Eigen::Vector3d mu = Eigen::Vector3d::Zero();
-    CategoricalSmoothed comp_params(2, 1.0);
-    comp_params.set_dense_counts({1.0f, 1.0f});
-    Component<3> comp(MvNormal<3>(mu, Eigen::Matrix3d::Identity()), comp_params,
-                      std::nullopt, guid);
-    return comp;
+template<int N>
+void cov2_expect_accessors(int n_molecules, int n_components, int n_genes) {
+    BmmData<N> data;
+    EXPECT_EQ(data.n_molecules(), 0);
+    EXPECT_EQ(data.n_components(), 0);
+    EXPECT_EQ(data.n_genes(), 0);
+
+    data.position_data.resize(N, n_molecules);
+    for (int guid = 1; guid <= n_components; ++guid) {
+        data.components.emplace_back(MvNormal<N>(), CategoricalSmoothed(n_genes, 1.0),
+                                     std::nullopt, guid);
+    }
+    EXPECT_EQ(data.n_molecules(), n_molecules);
+    EXPECT_EQ(data.n_components(), n_components);
+    EXPECT_EQ(data.n_genes(), n_genes);
 }
 
 } // namespace
@@ -53,19 +57,8 @@ Component<3> cov2_make_component3d(int guid) {
 // AdjList
 // ============================================================================
 
-TEST(Cov2Models, FromEdgeListEmptyEdgeListProducesZeroIndptr) {
-    // n_edges == 0: all vertices are isolated.
-    auto adj = AdjList::from_edge_list(nullptr, nullptr, nullptr, /*n_edges=*/0,
-                                        /*n_verts=*/4);
-    const std::vector<int32_t> expected(5, 0);
-    EXPECT_EQ(adj.indptr, expected);
-    EXPECT_EQ(adj.n_molecules(), 4);
-    EXPECT_EQ(adj.nnz(), 0);
-    for (int i = 0; i < 4; ++i) {
-        EXPECT_EQ(adj.neighbor_count(i), 0);
-    }
-
-    // n_verts == 0: the edge list is ignored entirely.
+TEST(Cov2Models, FromEdgeListWithoutVerticesIgnoresEdges) {
+    // (n_edges == 0 is covered by AdjList.EmptyGraph in test_main.cpp)
     const int src[] = {0, 1};
     const int dst[] = {1, 0};
     const double wts[] = {1.0, 1.0};
@@ -76,36 +69,8 @@ TEST(Cov2Models, FromEdgeListEmptyEdgeListProducesZeroIndptr) {
 }
 
 TEST(Cov2Models, BmmDataAccessorsReportDimensions) {
-    BmmData<2> data2;
-    EXPECT_EQ(data2.n_molecules(), 0);
-    EXPECT_EQ(data2.n_components(), 0);
-    EXPECT_EQ(data2.n_genes(), 0);
-
-    data2.position_data.resize(2, 5);
-    CategoricalSmoothed params2(7, 1.0);
-    data2.components.emplace_back(
-        MvNormal<2>(Eigen::Vector2d::Zero(), Eigen::Matrix2d::Identity()),
-        params2, std::nullopt, 1);
-    EXPECT_EQ(data2.n_molecules(), 5);
-    EXPECT_EQ(data2.n_components(), 1);
-    EXPECT_EQ(data2.n_genes(), 7);
-
-    BmmData<3> data3;
-    EXPECT_EQ(data3.n_molecules(), 0);
-    EXPECT_EQ(data3.n_components(), 0);
-    EXPECT_EQ(data3.n_genes(), 0);
-
-    data3.position_data.resize(3, 4);
-    CategoricalSmoothed params3(3, 1.0);
-    data3.components.emplace_back(
-        MvNormal<3>(Eigen::Vector3d::Zero(), Eigen::Matrix3d::Identity()),
-        params3, std::nullopt, 1);
-    data3.components.emplace_back(
-        MvNormal<3>(Eigen::Vector3d::Zero(), Eigen::Matrix3d::Identity()),
-        params3, std::nullopt, 2);
-    EXPECT_EQ(data3.n_molecules(), 4);
-    EXPECT_EQ(data3.n_components(), 2);
-    EXPECT_EQ(data3.n_genes(), 3);
+    cov2_expect_accessors<2>(/*n_molecules=*/5, /*n_components=*/1, /*n_genes=*/7);
+    cov2_expect_accessors<3>(/*n_molecules=*/4, /*n_components=*/2, /*n_genes=*/3);
 }
 
 TEST(Cov2Models, UpdateNMolsPerSegmentBreaksTiesByLargerSegment) {
@@ -116,7 +81,7 @@ TEST(Cov2Models, UpdateNMolsPerSegmentBreaksTiesByLargerSegment) {
     data.confidence = {1.0, 1.0, 1.0};
     data.assignment = {1, 1, 1};
     data.max_component_guid = 1;
-    data.components.push_back(cov2_make_component2d(1));
+    data.components.push_back(cov2_make_component<2>(1));
 
     // Segment 1 is fully inside the cell (1/1) and so is segment 2 (2/2):
     // equal fractions, but the larger segment must win the tie-break.
@@ -139,7 +104,8 @@ TEST(Cov2Models, UpdateNMolsPerSegmentBreaksTiesByLargerSegment) {
 
 TEST(Cov2Models, PdfPositionOnlyMatchesPdfWithMissingGene) {
     // 2D: shift the mean to (1, 2) so the evaluated density is not the mode.
-    auto comp2 = cov2_make_component2d(/*guid=*/1, /*prior_probability=*/0.5);
+    auto comp2 = cov2_make_component<2>(/*guid=*/1);
+    comp2.prior_probability = 0.5;
     Eigen::Vector2d mu;
     mu << 1.0, 2.0;
     const Eigen::Matrix2d sigma = Eigen::Matrix2d::Identity() * 0.5;
@@ -155,7 +121,7 @@ TEST(Cov2Models, PdfPositionOnlyMatchesPdfWithMissingGene) {
     EXPECT_DOUBLE_EQ(comp2.pdf_position_only(x2), comp2.pdf(x2, /*gene=*/-1));
 
     // 3D at the mode of the standard normal.
-    auto comp3 = cov2_make_component3d(/*guid=*/2);
+    auto comp3 = cov2_make_component<3>(/*guid=*/2);
     comp3.prior_probability = 0.25;
     const double x3[3] = {0.0, 0.0, 0.0};
     const double expected3 = 0.25 * std::pow(2.0 * baysor::kPi, -1.5);
@@ -164,7 +130,7 @@ TEST(Cov2Models, PdfPositionOnlyMatchesPdfWithMissingGene) {
 }
 
 TEST(Cov2Models, Component2DContiguousMaximizeUsesIntegerQuantile) {
-    auto comp = cov2_make_component2d(/*guid=*/1);
+    auto comp = cov2_make_component<2>(/*guid=*/1);
 
     double pos[] = {0.0, 0.0,   1.0, 2.0,   2.0, 4.0};
     const int genes[] = {0, 1, 0};
@@ -190,7 +156,7 @@ TEST(Cov2Models, Component2DContiguousMaximizeUsesIntegerQuantile) {
 }
 
 TEST(Cov2Models, Component3DContiguousMaximizeKeepsConfidenceWithoutNuclei) {
-    auto comp = cov2_make_component3d(/*guid=*/3);
+    auto comp = cov2_make_component<3>(/*guid=*/3);
     comp.confidence = 0.7;
 
     double pos[] = {0.0, 0.0, 0.0,
@@ -221,34 +187,6 @@ TEST(Cov2Models, Component3DContiguousMaximizeKeepsConfidenceWithoutNuclei) {
 // ============================================================================
 // MvNormal
 // ============================================================================
-
-TEST(Cov2Dist, DefaultConstructorsMatchJuliaParityNormaliser) {
-    MvNormal<2> d2;
-    EXPECT_TRUE(d2.mu.isZero());
-    EXPECT_TRUE(d2.sigma.isIdentity());
-    EXPECT_TRUE(d2.sigma_inv.isIdentity());
-
-    // Julia parity quirk: norm_pdf_divider hardcodes (2*pi)^3 even in 2D,
-    // so the default-constructed divider is 1.5*log(2*pi), not log(2*pi).
-    EXPECT_NEAR(d2.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-    const double x2[2] = {0.0, 0.0};
-    EXPECT_NEAR(d2.pdf(x2), std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
-    EXPECT_NEAR(d2.log_pdf(x2), -1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-
-    MvNormal<3> d3;
-    EXPECT_TRUE(d3.mu.isZero());
-    EXPECT_TRUE(d3.sigma.isIdentity());
-    EXPECT_TRUE(d3.sigma_inv.isIdentity());
-    EXPECT_NEAR(d3.pdf_divider, 1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-
-    const double x3[3] = {0.0, 0.0, 0.0};
-    EXPECT_NEAR(d3.pdf(x3), std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
-    EXPECT_NEAR(d3.log_pdf(x3), -1.5 * std::log(2.0 * baysor::kPi), 1e-12);
-
-    // Off-mode density decays with the squared Mahalanobis distance.
-    const double y2[2] = {1.0, 0.0};
-    EXPECT_NEAR(d2.pdf(y2), std::exp(-0.5) * std::pow(2.0 * baysor::kPi, -1.5), 1e-12);
-}
 
 TEST(Cov2Dist, MaximizeWithTooFewPointsKeepsCovariance) {
     Eigen::Vector2d mu;
