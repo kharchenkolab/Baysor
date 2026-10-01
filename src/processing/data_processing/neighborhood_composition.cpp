@@ -1,4 +1,5 @@
 #include "baysor/processing/data_processing/neighborhood_composition.h"
+#include "baysor/processing/data_processing/heap_knn_result_set.h"
 #include "baysor/utils/thread_pool.h"
 
 #include <third_party/nanoflann.hpp>
@@ -59,39 +60,11 @@ public:
             std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
 
             parallel_for(0, block_n, 256, [&](int local_i) {
-                const int global_i = block_start + local_i;
-                int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-                double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-
-                nanoflann::KNNResultSet<double, int> result_set(k);
-                result_set.init(idx_ptr, dist_ptr);
-                tree_.findNeighbors(
-                    result_set,
-                    query_points.col(global_i).data(),
-                    nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
+                search_one(
+                    query_points.col(block_start + local_i).data(), k, sorted,
+                    indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k),
+                    distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k)
                 );
-
-                if (sorted) {
-                    std::vector<int> order(k);
-                    std::iota(order.begin(), order.end(), 0);
-                    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                        if (dist_ptr[a] != dist_ptr[b]) return dist_ptr[a] < dist_ptr[b];
-                        return idx_ptr[a] < idx_ptr[b];
-                    });
-
-                    std::vector<int> sorted_indices(k);
-                    std::vector<double> sorted_distances(k);
-                    for (int j = 0; j < k; ++j) {
-                        sorted_indices[j] = idx_ptr[order[j]];
-                        sorted_distances[j] = dist_ptr[order[j]];
-                    }
-                    std::copy(sorted_indices.begin(), sorted_indices.end(), idx_ptr);
-                    std::copy(sorted_distances.begin(), sorted_distances.end(), dist_ptr);
-                }
-
-                for (int j = 0; j < k; ++j) {
-                    dist_ptr[j] = std::sqrt(dist_ptr[j]);
-                }
             });
 
             callback(block_start, block_n, k, indices, distances);
@@ -117,39 +90,11 @@ public:
             std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
 
             parallel_for(0, block_n, 256, [&](int local_i) {
-                const int query_id = query_ids[block_start + local_i];
-                int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-                double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-
-                nanoflann::KNNResultSet<double, int> result_set(k);
-                result_set.init(idx_ptr, dist_ptr);
-                tree_.findNeighbors(
-                    result_set,
-                    query_points.col(query_id).data(),
-                    nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
+                search_one(
+                    query_points.col(query_ids[block_start + local_i]).data(), k, sorted,
+                    indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k),
+                    distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k)
                 );
-
-                if (sorted) {
-                    std::vector<int> order(k);
-                    std::iota(order.begin(), order.end(), 0);
-                    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                        if (dist_ptr[a] != dist_ptr[b]) return dist_ptr[a] < dist_ptr[b];
-                        return idx_ptr[a] < idx_ptr[b];
-                    });
-
-                    std::vector<int> sorted_indices(k);
-                    std::vector<double> sorted_distances(k);
-                    for (int j = 0; j < k; ++j) {
-                        sorted_indices[j] = idx_ptr[order[j]];
-                        sorted_distances[j] = dist_ptr[order[j]];
-                    }
-                    std::copy(sorted_indices.begin(), sorted_indices.end(), idx_ptr);
-                    std::copy(sorted_distances.begin(), sorted_distances.end(), dist_ptr);
-                }
-
-                for (int j = 0; j < k; ++j) {
-                    dist_ptr[j] = std::sqrt(dist_ptr[j]);
-                }
             });
 
             callback(block_start, block_n, k, indices, distances);
@@ -157,6 +102,54 @@ public:
     }
 
 private:
+    // Above this k the heap result set is cheaper than KNNResultSet's
+    // insertion shift; both return the same neighbours in the same order.
+    static constexpr int heap_min_k = 33;
+
+    // k nearest tree points of one query: indices and Euclidean distances,
+    // ordered by (distance, index) when `sorted`.
+    void search_one(const double* query, int k, bool sorted, int* idx_ptr, double* dist_ptr) const {
+        if (sorted && k >= heap_min_k) {
+            thread_local std::vector<HeapKnnEntry> heap_buf;
+            if (heap_buf.size() < static_cast<size_t>(k)) heap_buf.resize(static_cast<size_t>(k));
+            HeapKnnResultSet result_set(static_cast<size_t>(k), heap_buf.data());
+            tree_.findNeighbors(
+                result_set, query,
+                nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ true)
+            );
+            result_set.extract_sorted(idx_ptr, dist_ptr);
+        } else {
+            nanoflann::KNNResultSet<double, int> result_set(k);
+            result_set.init(idx_ptr, dist_ptr);
+            tree_.findNeighbors(
+                result_set, query,
+                nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
+            );
+
+            if (sorted) {
+                std::vector<int> order(k);
+                std::iota(order.begin(), order.end(), 0);
+                std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+                    if (dist_ptr[a] != dist_ptr[b]) return dist_ptr[a] < dist_ptr[b];
+                    return idx_ptr[a] < idx_ptr[b];
+                });
+
+                std::vector<int> sorted_indices(k);
+                std::vector<double> sorted_distances(k);
+                for (int j = 0; j < k; ++j) {
+                    sorted_indices[j] = idx_ptr[order[j]];
+                    sorted_distances[j] = dist_ptr[order[j]];
+                }
+                std::copy(sorted_indices.begin(), sorted_indices.end(), idx_ptr);
+                std::copy(sorted_distances.begin(), sorted_distances.end(), dist_ptr);
+            }
+        }
+
+        for (int j = 0; j < k; ++j) {
+            dist_ptr[j] = std::sqrt(dist_ptr[j]);
+        }
+    }
+
     int n_dims_;
     int n_tree_;
     EigenColMajorAdaptor adaptor_;
