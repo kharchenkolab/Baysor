@@ -1,13 +1,15 @@
 // ICA whitening for large gene panels (molecule_clustering.cpp): above
-// ica_dense_whitening_max_genes the top-k covariance eigenpairs come from a
-// truncated SVD (irlba) instead of the dense eigen-decomposition. Both must
-// span the same subspace with the same eigenvalues; the truncated vectors use
-// a fixed sign convention (largest-magnitude entry positive).
+// ica_dense_whitening_max_genes the gene co-occurrence matrix is built sparse
+// and the top-k covariance eigenpairs come from a truncated SVD (irlba)
+// instead of the dense eigen-decomposition. Both must give the same
+// eigenvalues and eigenvectors up to sign; the truncated vectors use a fixed
+// sign convention (largest-magnitude entry positive).
 
 #include <gtest/gtest.h>
 
 #include "baysor/processing/bmm_algorithm/molecule_clustering.h"
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/reporting/color_utils.h"
 #include "baysor/utils/thread_pool.h"
 
 #include "test_cov_helpers.h"
@@ -109,7 +111,7 @@ TEST(IcaTruncatedWhitening, MatchesDenseEigenDecomposition) {
     for (int k : {1, 4, 6}) {
         SCOPED_TRACE(k);
         expect_same_eigenpairs(baysor::detail::ica_whitening_dense(x, k),
-                               baysor::detail::ica_whitening_truncated(x, k));
+                               baysor::detail::ica_whitening_truncated(x.sparseView(), k));
     }
 }
 
@@ -117,8 +119,8 @@ TEST(IcaTruncatedWhitening, SmallMatricesUseTheExactFallback) {
     // irlba switches to an exact SVD when 2k >= min(rows, cols).
     const Eigen::MatrixXd x = structured_matrix(6, 2);
     expect_same_eigenpairs(baysor::detail::ica_whitening_dense(x, 3),
-                           baysor::detail::ica_whitening_truncated(x, 3));
-    EXPECT_THROW(baysor::detail::ica_whitening_truncated(x, 7), std::invalid_argument);
+                           baysor::detail::ica_whitening_truncated(x.sparseView(), 3));
+    EXPECT_THROW(baysor::detail::ica_whitening_truncated(x.sparseView(), 7), std::invalid_argument);
 }
 
 TEST(IcaTruncatedWhitening, ClusteringUsesTruncatedPathAboveThreshold) {
@@ -132,7 +134,7 @@ TEST(IcaTruncatedWhitening, ClusteringUsesTruncatedPathAboveThreshold) {
                                             /*verbose=*/true, /*dense_whitening_max_genes=*/39);
     }
     const std::string logs = sink->data();
-    EXPECT_NE(logs.find("ICA whitening: truncated eigen-decomposition (40 genes > 39)"), std::string::npos) << logs;
+    EXPECT_NE(logs.find("ICA whitening: truncated eigen-decomposition (40 genes > 39, "), std::string::npos) << logs;
     EXPECT_NE(logs.find("ICA initialization succeeded (4 components)"), std::string::npos) << logs;
     EXPECT_EQ(logs.find("falling back"), std::string::npos) << logs;
     ASSERT_EQ(ref.assignment.size(), in.genes.size());
@@ -165,4 +167,35 @@ TEST(IcaTruncatedWhitening, TooFewGenesStillFallsBackToHashInit) {
     const std::string logs = sink->data();
     EXPECT_NE(logs.find("falling back to hash initialization"), std::string::npos) << logs;
     EXPECT_NE(logs.find("k must not exceed min(m, n)"), std::string::npos) << logs;
+}
+
+TEST(IcaTruncatedWhitening, SparseCoOccurrenceMatchesDenseBuilder) {
+    IcaInput in = make_domains(50, 60, 8);
+    std::mt19937 rng(2);
+    std::uniform_real_distribution<double> unif(0.0, 1.0);
+    for (double& c : in.confidence) c = unif(rng) < 0.2 ? 0.5 : 0.97;  // threshold 0.95
+    const Eigen::MatrixXd dense = baysor::pairwise_gene_spatial_cor(in.genes, in.confidence, in.adj);
+    for (int threads : {1, 4}) {
+        PoolSizeGuard pool(threads);
+        const Eigen::SparseMatrix<double> sparse =
+            baysor::detail::sparse_gene_spatial_cor(in.genes, in.confidence, in.adj);
+        ASSERT_EQ(sparse.rows(), dense.rows());
+        ASSERT_EQ(sparse.cols(), dense.cols());
+        const Eigen::MatrixXd as_dense = Eigen::MatrixXd(sparse);
+        int nnz_dense = 0;
+        for (Eigen::Index c = 0; c < dense.cols(); ++c) {
+            for (Eigen::Index r = 0; r < dense.rows(); ++r) {
+                if (dense(r, c) != 0.0) ++nnz_dense;
+                EXPECT_EQ(dense(r, c) == 0.0, as_dense(r, c) == 0.0) << r << "," << c;
+                EXPECT_NEAR(as_dense(r, c), dense(r, c), 1e-14 * std::abs(dense(r, c))) << r << "," << c;
+            }
+        }
+        EXPECT_EQ(sparse.nonZeros(), nnz_dense);
+        EXPECT_GT(nnz_dense, 0);
+    }
+    // Whitening of both matrices agrees.
+    const Eigen::SparseMatrix<double> sparse =
+        baysor::detail::sparse_gene_spatial_cor(in.genes, in.confidence, in.adj);
+    expect_same_eigenpairs(baysor::detail::ica_whitening_dense(dense, 4),
+                           baysor::detail::ica_whitening_truncated(sparse, 4));
 }

@@ -4,6 +4,7 @@
 #include "baysor/reporting/color_utils.h"
 #include "baysor/utils/options.h"
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <memory>
 #include <vector>
 
@@ -129,9 +130,21 @@ struct IcaWhitening {
 /// Dense covariance + full symmetric eigen-decomposition (Julia's whitening).
 IcaWhitening ica_whitening_dense(const Eigen::MatrixXd& X, int k);
 
-/// Truncated SVD of the implicitly centred X; each eigenvector's
+/// Truncated SVD (irlba) of the implicitly centred X; each eigenvector's
 /// largest-magnitude entry is positive.
-IcaWhitening ica_whitening_truncated(const Eigen::MatrixXd& X, int k);
+IcaWhitening ica_whitening_truncated(const Eigen::SparseMatrix<double>& X, int k);
+
+/// Sparse pairwise_gene_spatial_cor: the same co-occurrence matrix with only
+/// the gene pairs that are neighbours somewhere stored. The co-occurrence sums
+/// are accumulated in the dense builder's order; the normalising row and
+/// column sums are summed over the non-zeros, so values can differ from the
+/// dense matrix in the last bits.
+Eigen::SparseMatrix<double> sparse_gene_spatial_cor(
+    const std::vector<int>& genes,
+    const std::vector<double>& confidence,
+    const AdjList& adj_list,
+    double confidence_threshold = 0.95
+);
 
 } // namespace detail
 
