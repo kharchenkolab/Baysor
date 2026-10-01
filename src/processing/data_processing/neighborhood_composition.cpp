@@ -183,6 +183,21 @@ struct NeighborhoodScratch {
     }
 };
 
+// Queries per k-NN block. A block holds block x k neighbour indices and
+// distances (12 B per neighbour) plus the per-query results built from them,
+// so a fixed query count made the peak memory grow with k, which is
+// n_genes / 10 for the NCV neighbourhoods (32,768 x 840 x 12 B = 315 MiB per
+// block on an 8,400-gene panel). Bounding the block by bytes keeps it near
+// 32 MiB. Blocks are consumed in query order and every query is independent,
+// so results do not depend on the block size.
+int knn_block_size(int k) {
+    constexpr std::size_t budget_bytes = std::size_t(32) << 20;
+    constexpr std::size_t min_block = 2048;   // keeps the 256-query parallel chunks fed
+    constexpr std::size_t max_block = 32768;
+    const std::size_t per_query = static_cast<std::size_t>(std::max(k, 1)) * (sizeof(int) + sizeof(double));
+    return static_cast<int>(std::clamp(budget_bytes / per_query, min_block, max_block));
+}
+
 std::vector<int> make_query_ids(int n, const std::vector<int>* query_ids) {
     if (query_ids) return *query_ids;
     std::vector<int> ids(n);
@@ -273,7 +288,7 @@ void for_each_neighborhood_block_with_searcher(
     double distance_floor,
     Callback&& callback
 ) {
-    constexpr int block_size = 32768;
+    const int block_size = knn_block_size(k);
     double med_closest_dist = distance_floor;
     if (normalize_by_dist && med_closest_dist <= 0.0) {
         std::vector<double> closest_nonzero =
@@ -534,10 +549,11 @@ Eigen::SparseMatrix<float> neighborhood_count_matrix_subset(
     k = std::min(k, n_total);
     if (n_genes <= 0) n_genes = *std::max_element(genes.begin(), genes.end());
 
-    using StorageIndex = Eigen::SparseMatrix<float>::StorageIndex;
-    std::vector<StorageIndex> outer(static_cast<size_t>(n_query) + 1, 0);
-    std::vector<StorageIndex> inner;
-    std::vector<float> values;
+    // Assemble the CSC arrays directly in the result's storage, growing it
+    // geometrically across blocks, instead of building them in separate
+    // vectors and copying the whole matrix at the end.
+    Eigen::SparseMatrix<float> result(n_genes, n_query);
+    Eigen::Index nnz = 0;
 
     for_each_neighborhood_block(
         pos_data, genes, query_ids, k, n_genes, confidences,
@@ -545,22 +561,19 @@ Eigen::SparseMatrix<float> neighborhood_count_matrix_subset(
         [&](int block_start, const auto& block_rows, const auto& block_vals) {
             size_t block_nnz = 0;
             for (const auto& rows : block_rows) block_nnz += rows.size();
-            inner.reserve(inner.size() + block_nnz);
-            values.reserve(values.size() + block_nnz);
+            result.data().resize(nnz + static_cast<Eigen::Index>(block_nnz), /* reserveSizeFactor = */ 1.0);
+            auto* outer = result.outerIndexPtr();
             for (size_t local_i = 0; local_i < block_rows.size(); ++local_i) {
                 const size_t query_idx = static_cast<size_t>(block_start) + local_i;
-                outer[query_idx + 1] =
-                    outer[query_idx] + static_cast<StorageIndex>(block_rows[local_i].size());
-                inner.insert(inner.end(), block_rows[local_i].begin(), block_rows[local_i].end());
-                values.insert(values.end(), block_vals[local_i].begin(), block_vals[local_i].end());
+                const auto& rows = block_rows[local_i];
+                const auto& vals = block_vals[local_i];
+                std::copy(rows.begin(), rows.end(), result.innerIndexPtr() + nnz);
+                std::copy(vals.begin(), vals.end(), result.valuePtr() + nnz);
+                nnz += static_cast<Eigen::Index>(rows.size());
+                outer[query_idx + 1] = static_cast<Eigen::SparseMatrix<float>::StorageIndex>(nnz);
             }
         });
 
-    Eigen::Map<const Eigen::SparseMatrix<float>> mapped(
-        n_genes, n_query,
-        static_cast<Eigen::Index>(values.size()),
-        outer.data(), inner.data(), values.data());
-    Eigen::SparseMatrix<float> result = mapped;
     return result;
 }
 
@@ -681,7 +694,7 @@ Eigen::MatrixXf project_neighborhood_vectors(
     Eigen::MatrixXf out = Eigen::MatrixXf::Zero(gene_emb_t.rows(), static_cast<int>(ids.size()));
     stream_projected_neighborhood_vectors(
         pos_data, genes, k, gene_emb_t, n_genes, &ids, confidences,
-        normalize_by_dist, normalize, distance_floor, log_transform, 32768,
+        normalize_by_dist, normalize, distance_floor, log_transform, knn_block_size(k),
         [&](int block_start, const std::vector<int>&, const Eigen::MatrixXf& block_vecs) {
             out.middleCols(block_start, block_vecs.cols()) = block_vecs;
         }
