@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -21,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "baysor/utils/thread_pool.h"
 #include "test_cov_helpers.h"
 
 #if !defined(BAYSOR_CLI_PATH) || defined(_WIN32)
@@ -224,6 +226,27 @@ TEST(Cov5CliHelp, VersionFlags) {
         // Sopa parses this with packaging.version.Version: no "baysor " prefix.
         EXPECT_EQ(r.out, std::string(BAYSOR_VERSION) + "\n") << command;
     }
+}
+
+TEST(Cov5Cli, ThreadCountFromOmpNumThreads) {
+    // The thread count is logged before the (missing) input is read.
+    TempDir tmp("threads");
+    const struct { const char* env; const char* args; const char* expected; } cases[] = {
+        {"3", "", "Using 3 threads"},
+        {"3", "-t 2 ", "Using 2 threads"},  // --threads wins
+        {"5,2", "", "Using 5 threads"},     // first entry of an OpenMP list
+    };
+    for (const auto& c : cases) {
+        setenv("OMP_NUM_THREADS", c.env, 1);
+        const auto r = run_cli(tmp, std::string("run ") + c.args + "-s 5 '" +
+                                        (tmp.path / "missing.csv").string() + "'");
+        EXPECT_NE(r.out.find(c.expected), std::string::npos) << c.env << " " << c.args << r.out;
+    }
+    setenv("OMP_NUM_THREADS", "bogus", 1);  // ignored: falls back to the core count
+    const auto r = run_cli(tmp, "run -s 5 '" + (tmp.path / "missing.csv").string() + "'");
+    EXPECT_NE(r.out.find("Using " + std::to_string(baysor::default_thread_count()) + " threads"),
+              std::string::npos) << r.out;
+    unsetenv("OMP_NUM_THREADS");
 }
 
 // ============================================================================
