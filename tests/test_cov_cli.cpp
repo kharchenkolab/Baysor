@@ -380,6 +380,17 @@ TEST(Cov5CliHelp, VersionFlagPrintsProjectVersion) {
     EXPECT_EQ(r.out, std::string("baysor ") + BAYSOR_VERSION + "\n");
 }
 
+TEST(Cov5CliHelp, SubcommandVersionFlagsPrintBareParseableVersion) {
+    TempDir tmp("subcommand_version");
+    for (const auto* command : {"run", "preview", "segfree"}) {
+        const auto r = run_cli(tmp, std::string(command) + " --version");
+        EXPECT_EQ(r.exit_code, 0) << command << ": " << r.err;
+        // Sopa parses stdout directly with packaging.version.Version, which
+        // accepts the bare version but not the top-level "baysor " prefix.
+        EXPECT_EQ(r.out, std::string(BAYSOR_VERSION) + "\n") << command;
+    }
+}
+
 TEST(Cov5CliParse, RequiresExactlyOneSubcommand) {
     TempDir tmp("parse_no_sub");
     auto r = run_cli(tmp, "");

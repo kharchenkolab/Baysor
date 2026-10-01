@@ -4,6 +4,20 @@ There are three ways to get the `baysor` binary: download a release archive,
 pull a published Docker image, or build from source (the repository also
 ships a Dockerfile for a self-built image).
 
+## Legacy Julia implementation
+
+The recommended path is the C++ release binary below. If you still need the
+last Julia implementation (v0.7.1), pin the package revision explicitly:
+
+```julia
+using Pkg
+Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="v0.7.1"))
+Pkg.build("Baysor")
+```
+
+The repository's default branch is now the C++ line, so omitting `rev="v0.7.1"`
+will not install the Julia package. See the [archived Julia documentation](https://kharchenkolab.github.io/Baysor/0.7.1/).
+
 ## Release binaries
 
 Every GitHub release publishes prebuilt archives on the

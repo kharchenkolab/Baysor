@@ -12,12 +12,24 @@ outputs.
 
 ## Installation
 
-- Baysor.jl was installed as a Julia package (`Pkg.add` + `Pkg.build`, or a
-  Julia-based Docker image).
-- The C++ line is a single native binary: [release
-  binaries](installation.md#release-binaries) for Linux x86-64, macOS arm64,
-  and Windows x86-64, a [source build](installation.md#building-from-source)
-  via `./configure.sh`, or [Docker](installation.md#docker).
+The C++ line is the recommended installation: it is a single native binary
+with [release binaries](installation.md#release-binaries) for Linux x86-64,
+macOS arm64, and Windows x86-64, plus a [source build](installation.md#building-from-source)
+via `./configure.sh` and [Docker](installation.md#docker).
+
+If you still need the legacy Julia implementation, install its last release
+explicitly. The repository's default branch is now C++, so the old unpinned
+`Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git"))`
+command fetches sources that are not a Julia package:
+
+```julia
+using Pkg
+Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="v0.7.1"))
+Pkg.build("Baysor")
+```
+
+See the [archived Julia v0.7.1 documentation](https://kharchenkolab.github.io/Baysor/0.7.1/)
+for that implementation.
 
 ## CLI
 
