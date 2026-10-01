@@ -97,7 +97,7 @@ Prior input specifics; see [Prior segmentation](priors.md) for semantics.
 | `gene_composition_neighborhood` | int | `0` | Spatial neighborhood size used to compute NCVs. `0` = `max(n_genes / 10, min_molecules_per_cell, 3)` |
 | `gene_composition_neigborhood` | int | — | Julia-era misspelling of the key above, still accepted |
 | `min_pixels_per_cell` | int | `15` | Accepted for compatibility with Julia-era configs; currently unused by the C++ pipeline |
-| `max_plot_size` | int | `3000` | Accepted for compatibility with Julia-era configs; currently unused by the C++ pipeline |
+| `max_plot_size` | int | `3000` | Size in pixels of the longer side of the molecule images in the `run --plot` segmentation report and the `preview` report (the other side follows the data aspect ratio). Values below 1 use the default |
 | `ncv_method` | string | `ri` | Accepted for compatibility (`ri`/`dense`/`sparse`); the C++ pipeline currently always uses random indexing |
 
 ## Clustering options

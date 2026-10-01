@@ -23,7 +23,8 @@
       ]
     },
     "nlohmann-json",
-    "tiff"
+    "tiff",
+    "zlib"
   ],
   "features": {
     "tests": {

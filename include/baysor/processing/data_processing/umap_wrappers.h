@@ -2,7 +2,32 @@
 
 #include <Eigen/Dense>
 
+#include <utility>
+#include <vector>
+
 namespace baysor {
+
+/// UMAP fuzzy neighbour graph: for each observation, (neighbour, similarity)
+/// pairs of the symmetrised kNN graph (umappp's NeighborList<int, double>).
+using UmapGraph = std::vector<std::vector<std::pair<int, double>>>;
+
+/// Build the UMAP graph of a column-major data matrix (ndim x nobs): the
+/// Euclidean kNN graph (n_neighbors, at most nobs - 1) with umappp's smoothed
+/// similarities, symmetrised. Several embeddings of the same data can share it
+/// (umap_embed_graph); umap_embed(data, ...) is
+/// umap_embed_graph(umap_fuzzy_graph(data, n_neighbors), ...).
+UmapGraph umap_fuzzy_graph(const Eigen::MatrixXd& data, int n_neighbors = 15);
+
+/// Optimise a UMAP embedding of a prebuilt graph (see umap_fuzzy_graph).
+/// @returns ndim_out x nobs embedding matrix
+Eigen::MatrixXd umap_embed_graph(
+    const UmapGraph& graph,
+    int ndim_out,
+    int n_epochs    = 200,
+    int seed        = 42,
+    double spread   = 1.0,
+    double min_dist = 0.1
+);
 
 /// Run UMAP on a column-major data matrix.
 /// @param data       ndim x nobs matrix (column per observation)
