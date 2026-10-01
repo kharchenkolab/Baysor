@@ -2,6 +2,31 @@
 
 namespace baysor {
 
+// main_segment_per_cell[ci]: the segment with the highest fraction of its
+// molecules in component ci (0 if none)
+template<int N>
+static void update_main_segment(BmmData<N>& data, int ci) {
+    int   best_seg   = 0;
+    double best_frac = 0.0;
+    int   best_size  = 0;
+
+    for (const auto& [si, nms] : data.components[ci].n_molecules_per_segment) {
+        if (si <= 0 || si > static_cast<int>(data.n_molecules_per_segment.size())) continue;
+        int seg_size = data.n_molecules_per_segment[si - 1];
+        if (seg_size <= 0) continue;
+        double frac = static_cast<double>(nms) / seg_size;
+
+        // Matches Julia: (frac > best_frac + 1e-10) or (nms == seg_size && seg_size > best_size)
+        if (frac > best_frac + 1e-10
+            || (nms == seg_size && seg_size > best_size)) {
+            best_frac = frac;
+            best_seg  = si;
+            best_size = seg_size;
+        }
+    }
+    data.main_segment_per_cell[ci] = best_seg;
+}
+
 template<int N>
 void BmmData<N>::assign(int mol_id, int component_id) {
     int old_id = assignment[mol_id];
@@ -46,11 +71,9 @@ void BmmData<N>::update_n_mols_per_segment() {
         components[c_cell - 1].n_molecules_per_segment[c_seg]++;
     }
 
-    // Compute main_segment_per_cell: segment with highest fraction of its molecules in this cell
-    int nc = n_components();
-    main_segment_per_cell.assign(nc, 0);
-    for (int ci = 0; ci < nc; ++ci) {
-        update_main_segment(ci);
+    main_segment_per_cell.resize(n_components());
+    for (int ci = 0; ci < n_components(); ++ci) {
+        update_main_segment(*this, ci);
     }
 }
 
@@ -59,40 +82,12 @@ void BmmData<N>::update_n_mols_per_segment_of(int ci, const IdsByComponent& ids_
     auto& seg_map = components[ci].n_molecules_per_segment;
     seg_map.clear();
     const int* ids = ids_by_comp.begin(ci);
-    const int np = ids_by_comp.size(ci);
-    for (int k = 0; k < np; ++k) {
+    for (int k = 0; k < ids_by_comp.size(ci); ++k) {
         int c_seg = segment_per_molecule[ids[k]];
         if (c_seg <= 0) continue;
         seg_map[c_seg]++;
     }
-    main_segment_per_cell[ci] = 0;
-    update_main_segment(ci);
-}
-
-template<int N>
-void BmmData<N>::update_main_segment(int ci) {
-    const auto& seg_map = components[ci].n_molecules_per_segment;
-    if (seg_map.empty()) return;
-
-    int   best_seg   = 0;
-    double best_frac = 0.0;
-    int   best_size  = 0;
-
-    for (const auto& [si, nms] : seg_map) {
-        if (si <= 0 || si > static_cast<int>(n_molecules_per_segment.size())) continue;
-        int seg_size = n_molecules_per_segment[si - 1];
-        if (seg_size <= 0) continue;
-        double frac = static_cast<double>(nms) / seg_size;
-
-        // Matches Julia: (frac > best_frac + 1e-10) or (nms == seg_size && seg_size > best_size)
-        if (frac > best_frac + 1e-10
-            || (nms == seg_size && seg_size > best_size)) {
-            best_frac = frac;
-            best_seg  = si;
-            best_size = seg_size;
-        }
-    }
-    main_segment_per_cell[ci] = best_seg;
+    update_main_segment(*this, ci);
 }
 
 template struct BmmData<2>;

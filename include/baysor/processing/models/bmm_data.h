@@ -74,19 +74,12 @@ struct BmmData {
     /// Update n_molecules_per_segment and main_segment_per_cell
     void update_n_mols_per_segment();
 
-    /// The result of update_n_mols_per_segment() for component ci (0-based),
-    /// computed from `ids_by_comp`, the grouping of the current assignment
-    /// (e.g. workspace.ids_by_comp right after an M-step). The map receives
-    /// the operation sequence of the serial molecule loop (clear, then ++ in
-    /// ascending molecule order), so its state, iteration order and the
-    /// main-segment tie-break are the same. main_segment_per_cell must
-    /// already have n_components() entries. Different components may be
-    /// updated concurrently.
+    /// update_n_mols_per_segment() for component ci (0-based) only, from
+    /// `ids_by_comp`, the grouping of the current assignment. Gives the same
+    /// map (contents and iteration order) as the serial molecule loop.
+    /// main_segment_per_cell must already have n_components() entries;
+    /// different components may be updated concurrently.
     void update_n_mols_per_segment_of(int ci, const IdsByComponent& ids_by_comp);
-
-private:
-    void update_main_segment(int ci);
-public:
 };
 
 extern template struct BmmData<2>;
