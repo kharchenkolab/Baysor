@@ -1,63 +1,31 @@
-# Segmentation-free analysis (`baysor segfree`)
+# Segmentation-free analysis
 
-`segfree` extracts neighborhood composition vectors (NCVs) without running
-the cell segmentation algorithm — one vector per molecule, summarizing the
-local transcriptional composition. Many analyses don't require segmentation
-and can run on these local neighborhoods instead:
+Analyze local gene composition without assigning molecules to cells:
 
 ```bash
-baysor segfree [OPTIONS] coordinates
+baysor segfree -m 30 -k 100 -o ncvs.loom molecules.csv
 ```
 
-## Typical use
+Baysor computes one neighborhood composition vector (NCV) per molecule from
+its nearest neighbors, then log-transforms it. `-k` / `--k-neighbors` sets the
+neighborhood size: larger values emphasize broader spatial patterns. If
+omitted, it is `max(n_genes / 10, min_molecules_per_cell, 3)` (integer division).
 
-```bash
-baysor segfree -c configs/xenium.toml -k 100 -o ncvs.loom data/transcripts.parquet
-```
-
-## What it computes
-
-- loads and filters the molecules
-- builds per-molecule neighborhood-composition counts with `k` nearest
-  neighbors and log-transforms them
-- estimates per-molecule confidences (noise model)
-- computes NCV colors
-- writes a [loom](https://linnarssonlab.org/loompy/format/index.html) file
-  with one NCV per molecule
-
-## Options
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `coordinates` | — | required. CSV/Parquet molecule table, or a Xenium `experiment.xenium` manifest |
-| `-c, --config` | — | TOML file with configuration |
-| `-x, --x-column` | `x` | Name of the x column |
-| `-y, --y-column` | `y` | Name of the y column |
-| `-z, --z-column` | `z` | Name of the z column |
-| `-g, --gene-column` | `gene` | Name of the gene column |
-| `--qv-column` | `qv` | Name of the quality-value column used by `--min-qv` |
-| `-m, --min-molecules-per-cell` | — | Minimal number of molecules for a cell to be considered real. Required (CLI or config); used to derive `k` |
-| `--min-qv` | `-1` | Drop molecules with quality value below this threshold |
-| `--x-min`, `--x-max` | ±∞ | Keep only molecules within this x range |
-| `--y-min`, `--y-max` | ±∞ | Keep only molecules within this y range |
-| `--z-min`, `--z-max` | ±∞ | Keep only molecules within this z range |
-| `-k, --k-neighbors` | auto | Number of neighbors per NCV. Auto = `max(n_genes / 10, min_molecules_per_cell, 3)` |
-| `-o, --output` | `ncvs.loom` | Output Loom file |
-| `--force-2d` | off | Ignore the z column in the data |
-| `-t, --threads` | auto | Number of worker threads; auto = `OMP_NUM_THREADS`, then physical CPU cores |
+`-m` is required (CLI or config) for noise-estimation defaults even when `-k`
+is set. No scale or prior is needed. CSV, Parquet and Xenium manifests are
+accepted; use `-c config.toml` for column mappings and filters. See
+[Input data](inputs.md) and [Configuration](configuration.md).
 
 ## Output
 
-The Loom file contains:
+`-o` names a [Loom file](https://linnarssonlab.org/loompy/format/index.html)
+(default `ncvs.loom`), not a directory:
 
-- `/matrix` — the NCV matrix, one column per molecule
-- `/col_attrs/ncv_color` — per-molecule NCV color
-- `/col_attrs/confidence` — per-molecule confidence from the noise model
+- `/matrix` — genes × molecules, one log-transformed NCV per column
+- `/col_attrs/Name` — molecule names `V1` … `VN`
+- `/col_attrs/ncv_color` — local gene-composition color
+- `/col_attrs/confidence` — molecule confidence from the noise model
 
-## Notes
-
-- `segfree` accepts a transcript table directly; for Xenium datasets it also
-  accepts `experiment.xenium` and resolves the underlying transcript table
-  automatically.
-- the output is segmentation-free: molecules are not grouped into cells, and
-  every molecule is its own "cell" (`V1..VN`).
+These are overlapping neighborhoods, not segmented cells or a cell count
+matrix. `--threads` works as for [run](run.md#threading). See the
+[CLI reference](cli.md) or `baysor segfree --help` for all options.

@@ -44,22 +44,23 @@ theme:
 nav:
   - Home: index.md
   - Installation: installation.md
-  - Running Baysor:
+  - Usage:
       - Cell segmentation: run.md
       - Dataset preview: preview.md
       - Segmentation-free analysis: segfree.md
+      - Configuration: configuration.md
       - Xenium workflow: xenium.md
       - Examples: examples.md
   - Reference:
       - Input data: inputs.md
       - Prior segmentation: priors.md
-      - Configuration: configuration.md
+      - Command-line options: cli.md
       - Outputs: outputs.md
-      - Output files: output_files.md
+      - Output file formats: output_files.md
   - Performance:
       - Benchmarks: performance/benchmarks.md
       - Profiling: performance/profiling.md
-  - Migrating from Baysor.jl (v0.7.x): migrating.md
+  - Migrating from Julia: migrating.md
   - Development: development.md
   - Citation: citation.md
 

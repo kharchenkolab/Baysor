@@ -1,60 +1,30 @@
-# Dataset preview (`baysor preview`)
+# Dataset preview
 
-`preview` generates a self-contained HTML overview of a dataset without
-running the full segmentation. It is useful for sanity checks and for
-estimating parameters before a `run`:
+Check the data before choosing parameters for a full segmentation:
 
 ```bash
-baysor preview [OPTIONS] coordinates
+baysor preview -m 30 -o preview.html molecules.csv
 ```
 
-## Typical use
+Open `preview.html` in a browser. It shows molecule-confidence diagnostics,
+local gene-composition colors and gene structure, without assigning molecules
+to cells. `-m` must be positive (CLI or config); no scale or prior is needed.
+
+For a large dataset, preview a crop first:
 
 ```bash
-baysor preview -c configs/xenium.toml -o preview.html data/transcripts.parquet
+baysor preview -m 30 --x-min 0 --x-max 2000 --y-min 0 --y-max 2000 \
+  -o preview.html molecules.csv
 ```
 
-For Xenium-style columns without a config:
+The bounds are in the input coordinate units. Whole-slide reports can be
+large and slow to open.
 
-```bash
-baysor preview -m 30 --qv-column qv -g feature_name -x x_location -y y_location \
-  -o preview.html data/transcripts.parquet
-```
+CSV, Parquet and Xenium manifests are accepted; see [Input data](inputs.md).
+Use `-c config.toml` for column mappings and filters, or `-x`, `-y`, `-z`,
+`-g` for column names. The [Xenium preset](configuration.md#protocol-presets)
+already maps Xenium columns.
 
-## What it computes
-
-- loads and filters the molecules
-- estimates a molecule-confidence / noise model
-- computes neighborhood-composition colors
-- estimates a gene-structure embedding
-- writes one HTML report with dataset diagnostics
-
-The HTML output can be large for whole-slide datasets; run on a crop (see the
-coordinate bounds below) first if in doubt.
-
-## Options
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `coordinates` | — | required. CSV/Parquet molecule table, or a Xenium `experiment.xenium` manifest |
-| `-c, --config` | — | TOML file with configuration |
-| `-x, --x-column` | `x` | Name of the x column |
-| `-y, --y-column` | `y` | Name of the y column |
-| `-z, --z-column` | `z` | Name of the z column |
-| `-g, --gene-column` | `gene` | Name of the gene column |
-| `--qv-column` | `qv` | Name of the quality-value column used by `--min-qv` |
-| `-m, --min-molecules-per-cell` | — | Minimal number of molecules for a cell to be considered real. Required (CLI or config) |
-| `--min-qv` | `-1` | Drop molecules with quality value below this threshold |
-| `--x-min`, `--x-max` | ±∞ | Keep only molecules within this x range |
-| `--y-min`, `--y-max` | ±∞ | Keep only molecules within this y range |
-| `--z-min`, `--z-max` | ±∞ | Keep only molecules within this z range |
-| `-o, --output` | `preview.html` | Output HTML file |
-| `--force-2d` | off | Ignore the z column in the data |
-| `-t, --threads` | auto | Number of worker threads; auto = `OMP_NUM_THREADS`, then physical CPU cores |
-
-## Notes
-
-- `preview` accepts a transcript table directly; for Xenium datasets it also
-  accepts `experiment.xenium` and resolves the underlying transcript table
-  automatically.
-- the coordinate bounds make it cheap to preview a crop of a large dataset.
+`-o` names an HTML file (default `preview.html`), not a directory.
+`--threads` controls worker threads as for [run](run.md#threading).
+See the [CLI reference](cli.md) or `baysor preview --help` for all options.
