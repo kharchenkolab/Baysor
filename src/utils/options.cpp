@@ -446,6 +446,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     f << "cluster_basis_sample_size = " << opts.segmentation.cluster_basis_sample_size << "\n";
     f << "prior_segmentation_confidence = " << opts.segmentation.prior_segmentation_confidence << "\n";
     f << "iters = " << opts.segmentation.iters << "\n";
+    f << "tol = " << opts.segmentation.tol << "\n";
     f << "n_cells_init = " << opts.segmentation.n_cells_init << "\n";
     f << "nuclei_genes = \"" << opts.segmentation.nuclei_genes << "\"\n";
     f << "cyto_genes = \"" << opts.segmentation.cyto_genes << "\"\n";

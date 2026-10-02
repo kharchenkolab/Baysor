@@ -422,6 +422,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     opts.segmentation.cluster_basis_sample_size = 1234;
     opts.segmentation.prior_segmentation_confidence = 0.4;
     opts.segmentation.iters = 250;
+    opts.segmentation.tol = 0.005;
     opts.segmentation.n_cells_init = 60;
     opts.segmentation.nuclei_genes = "G1,G2";
     opts.segmentation.cyto_genes = "G3";
@@ -469,6 +470,7 @@ TEST(Cov1Utils_Options, SaveParamsTomlRoundtripAndError) {
     EXPECT_EQ(back.segmentation.cluster_method, baysor::ClusterMethod::Leiden);
     EXPECT_EQ(back.segmentation.n_clusters, 12);
     EXPECT_EQ(back.segmentation.iters, 250);
+    EXPECT_DOUBLE_EQ(back.segmentation.tol, 0.005);
     EXPECT_EQ(back.plotting.max_z_slices, 42);
     EXPECT_EQ(back.plotting.ncv_method, "sparse");
 

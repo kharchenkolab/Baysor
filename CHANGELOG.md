@@ -59,6 +59,9 @@ All notable changes to the C++ line of Baysor are documented here.
   with very few anchors.
 - Gene names stored in Parquet binary-dictionary columns are decoded as text.
 - CLI help shows the actual `--tol` default.
+- `configs/example_config.toml` lists every C++ option with its actual default
+  (it still described Baysor.jl behaviour), and the parameter dump of a run
+  now records `tol`.
 
 ## [cpp-0.8.3] — 2026-07-31
 
