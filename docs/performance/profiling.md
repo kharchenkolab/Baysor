@@ -1,123 +1,100 @@
 # Profiling
 
-Time and memory costs within Baysor cpp-0.9.0: which steps dominate and how
-they scale with dataset size. For release-to-release comparisons, see
+Run time and memory of Baysor cpp-0.9.0, and how they grow with the number
+of molecules, threads and genes. For what the segmentations look like, see
 [Benchmarks](benchmarks.md).
 
-!!! success "At a glance"
-
-    - **Run time is linear in the number of molecules**: CPU time grows with
-      exponent 1.08 from 0.1 to 10.6 million molecules. A whole Xenium lung
-      slide (10.6M molecules, 377 genes) needs 168 CPU-minutes and 5.3 GiB.
-    - **Memory: about 0.5 KB per molecule** at slide scale (539 bytes on the
-      whole lung slide); peak RSS is 31–48 % lower than before the
-      optimisation work on slides of 1M molecules and more.
-    - **95 % of the work runs in parallel** at real sizes, so 8 threads can
-      give up to 5.9× (Amdahl bound). On small crops a single-threaded step,
-      the colour embedding, caps the gain at about 1.4×.
-    - **The bottlenecks now are** the BMM E-step (the core of the algorithm),
-      molecule clustering, which grows faster than linearly, and gene-rich
-      panels.
+*All numbers were measured on an old server CPU (Intel Xeon E5-2670, Sandy
+Bridge generation, 2011–2012); current hardware is expected to be noticeably
+faster.*
 
 ??? info "Measurement setup"
 
-    Same host as the [benchmarks](benchmarks.md): Intel Xeon E5-2670
-    (Sandy Bridge, 8 cores / 16 threads, no AVX2), 60 GB RAM, Ubuntu 26.04.
-    Code: `perf-optimization` @ `20bc45c` (2026-10-01), which has all the
-    performance work of cpp-0.9.0 (the later commits fix bugs and simplify
-    code), compared with `e45fddc` (2026-09-30, the start of the optimisation
-    work). Build: `cmake --preset profiling` = Release
-    (`-O3 -DNDEBUG`) plus `-g`, conda GCC 15.3; its machine code is identical
-    to the Release binary. Unlike the benchmarks, the profiled runs compute the
-    neighbourhood colour embedding (the default; `--skip-ncv-color` is off).
-    The host was shared: wall times of the real-size runs were taken at a
-    1-minute load of 5–53, so they include contention. CPU time, instruction
-    counts and memory help separate computational cost from wall-time delays.
+    | | |
+    |---|---|
+    | CPU | Intel Xeon E5-2670 @ 2.60 GHz (Sandy Bridge, 2012), 1 socket, 8 cores / 16 threads, AVX but no AVX2 |
+    | memory, OS | 60 GB RAM, Ubuntu 26.04 |
+    | build | from source with the conda GCC 15.3 toolchain: `./configure.sh --deps=conda`, CMake `Release` (`-O3 -DNDEBUG`, generic x86-64, no `-march=native`) |
+    | benchmark runs | cpp-0.9.0 release candidate (`perf-optimization` @ `1636267`, output-identical to the release), 2026-10-01; [baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks) harness, the dataset's command line plus `--skip-ncv-color --output-style parquet`; threads set with `OMP_NUM_THREADS`; wall time and peak RSS from `/usr/bin/time -v`; 3 replicates at 6 threads (1 for the 2M-molecule crops), 1–2 at 1 thread |
+    | profiling runs | `perf-optimization` @ `20bc45c` (2026-10-01), which has all the performance work of cpp-0.9.0 (the later commits fix bugs and simplify code), compared with `e45fddc` (2026-09-30, the start of the optimisation work); `cmake --preset profiling` = Release plus `-g`, the same machine code; NCV colours on (the default); CPU time and peak RSS from gperftools and `/proc` sampling |
 
-## What was measured
+    The host was shared with other jobs. The 1-minute load average was 5–21
+    during the benchmark runs and 5–53 during the real-size profiling runs,
+    so wall times include contention; CPU times and memory are less affected.
+    The [thread sweep](#threads) ran one process at a time at a load of 2–13.
 
-| tool | what it gives | data |
-|---|---|---|
-| Valgrind callgrind | instructions per pipeline phase and function, 1 thread; exact and load-independent | 11 crops of 10k–40k molecules and 35–8,407 genes, cut from 9 real and simulated datasets |
-| Valgrind DHAT, heaptrack | heap peak, allocation counts and sites | the crops; 2M-molecule and whole-slide runs |
-| gperftools + `/proc` sampling | CPU time per phase and function, peak RSS, parallel share | real-size ladders: a Xenium lung slide (0.1M → 10.6M molecules) and a Xenium Prime 5K slide (0.1M → 8M), 1 and 8 threads; a 3M-molecule CosMx whole-transcriptome slide |
-| native timing | wall and CPU time, 1–16 threads | the crops, 3 runs each |
+## Run time and memory on real data
 
-The suite and its HTML report generator live in
-[`profiling/`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/profiling)
-of baysor-benchmarks (`profile.py`, `scaling.py`, `summarize.py`,
-`report_html.py`).
+[Figure 1 data (JSON)](data/runtime_vs_molecules.json){ .perf-chart }
 
-## Where the time goes
-
-![Stacked bars: instructions per phase on 20k-molecule crops and CPU share per phase at real sizes](img/phases-light.svg#only-light)
-![Stacked bars: instructions per phase on 20k-molecule crops and CPU share per phase at real sizes](img/phases-dark.svg#only-dark)
-
-**Figure 1.** Left: instructions per phase on 20k-molecule crops (callgrind,
-1 thread). Right: share of the CPU time per phase at real sizes (gperftools,
-8 threads). "BMM iterations" is the segmentation itself; "molecule
-clustering" is the initial assignment of molecules to cell types (the MRF
-clustering or, for whole-transcriptome panels, the neighbourhood-graph
-clustering); "NCV colours" is the colour embedding used by the plots and the
-`ncv_color` output column.
-
-- On **small crops** the colour embedding dominates: 66–84 % of the
-  instructions on every panel below 1,000 genes, mostly umappp's
-  single-threaded layout optimisation. It costs a fixed amount (at most
-  20,000 anchors), so it fades at real sizes: 8 % of the CPU time on the whole
-  lung slide. Skip it with `--skip-ncv-color` if you do not need the colours.
-- On **real slides** (1M molecules and more) the BMM iterations take 37–74 %
-  of the CPU time and molecule clustering 13–43 %; on the 18,935-gene CosMx slide molecule
-  clustering takes 79 %.
-- The **dense ICA** behind the 2,793-gene crop's huge clustering bar is the
-  1,000–3,000-gene case of [Benchmarks › Gene panel size](benchmarks.md#gene-panel-size).
+**Figure 1.** Wall time (top) and peak resident memory (bottom) at 6 threads
+against the number of molecules, for the 26 real-data crops of the benchmark
+(log–log; median of the replicates). Run time grows roughly linearly with the
+number of molecules. The labelled crops with thousands of genes sit above the
+trend. Hover a point for its dataset and run; "Data table" lists every point.
 
 ## Scaling with the size of the data
 
-![CPU time, wall time and peak memory against the number of molecules for the real-size ladders](img/scaling-light.svg#only-light)
-![CPU time, wall time and peak memory against the number of molecules for the real-size ladders](img/scaling-dark.svg#only-dark)
+[Figure 2 data (JSON)](data/scaling.json){ .perf-chart }
 
-**Figure 2.** Real-size ladders: random subsets of a Xenium lung slide
-(blue) and a Xenium Prime 5K slide (orange), up to the whole slide, and a
-CosMx whole-transcriptome slide (green). Left: total CPU time at 8 threads
-(dotted: linear). Middle: wall time at 8 threads (solid) and 1 thread (dotted;
-1-thread runs stop at 2M molecules). Right: peak memory at 8 threads. Dashed
-open marks are the code before the optimisation (`e45fddc`). Wall times are
-load-sensitive: the 8M lung rung ran at a load of 20, which explains its jump.
+**Figure 2.** Real-size ladders: random subsets of a Xenium lung slide and a
+Xenium Prime 5K slide, up to the whole slide, and a CosMx
+whole-transcriptome slide. CPU time at 8 threads (dotted: linear), wall time
+at 8 threads (solid) and 1 thread (dotted; 1-thread runs stop at 2M
+molecules), and peak memory at 8 threads. Dashed open marks are the code
+before the optimisation (`e45fddc`). Wall times are load-sensitive: the 8M
+lung rung ran at a load of 20, which explains its jump.
 
-| | lung 1M | lung 2M | lung 10.6M (slide) | Prime 5K 1M | Prime 5K 8M | CosMx WTx 3M |
-|---|---:|---:|---:|---:|---:|---:|
-| genes | 377 | 377 | 377 | 4,358 | 5,078 | 18,935 |
-| CPU time, 8 threads | 9.7 min | 24.3 min | 168 min | 13.7 min | 161 min | 98 min |
-| CPU time before | 14.0 min | 30.1 min | 195 min | 23.1 min | 221 min | 257 min |
-| wall time, 8 threads | 122 s | 297 s | 63 min | 152 s | 31 min | 19.5 min |
-| peak RSS | 676 MiB | 1.15 GiB | 5.32 GiB | 843 MiB | 4.24 GiB | 2.16 GiB |
-| peak RSS before | 1.13 GiB | 1.95 GiB | 8.17 GiB | 1.47 GiB | 6.87 GiB | 3.11 GiB |
-| RSS per molecule | 709 B | 620 B | 539 B | 888 B | 569 B | 779 B |
+## Run time and memory per dataset
 
-??? note "Scaling exponents per phase"
+<!-- docs_figures:runtime-table begin (generated by make_figures.py; do not edit) -->
 
-    Fitted exponent *b* in value ∝ molecules<sup>*b*</sup> for the CPU time
-    of the whole run and of each phase, and for the peak RSS (gperftools,
-    8 threads; lung 0.1M–10.6M, Prime 5K 0.1M–8M). 1 = linear.
+| dataset | molecules | genes | threads | wall time | CPU time | peak RSS | RSS per molecule | wall time, 1 thread | CPU time before | peak RSS before |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ISS hippocampus | 82,077 | 84 | 6 | 8.9 s | 43 s | 158 MiB | 2,022 B | 29 s |  |  |
+| Xenium Prime 5K ovarian | 130,000 | 4,603 | 6 | 73 s | 120 s | 353 MiB | 2,844 B | 83 s |  |  |
+| Xenium pancreas | 130,001 | 376 | 6 | 8.3 s | 42 s | 187 MiB | 1,512 B | 36 s |  |  |
+| CosMx WTx colon | 149,771 | 17,533 | 6 | 35 s | 144 s | 1.01 GiB | 7,264 B | — |  |  |
+| STARmap cortex (3D) | 149,994 | 1,020 | 6 | 10.8 s | 55 s | 218 MiB | 1,521 B | — |  |  |
+| osmFISH cortex | 149,997 | 35 | 6 | 8.1 s | 39 s | 169 MiB | 1,180 B | — |  |  |
+| Xenium lung cancer | 550,000 | 377 | 6 | 50 s | 246 s | 393 MiB | 750 B | — |  |  |
+| MERFISH ileum (3D) | 819,665 | 241 | 6 | 67 s | 340 s | 534 MiB | 684 B | — |  |  |
+| Xenium Prime 5K slide, 1.0M subset | 995,906 | 4,358 | 8 | 152 s | 13.7 min | 843 MiB | 888 B | — | 23.1 min | 1.47 GiB |
+| Xenium lung slide, 1.0M subset | 1,000,001 | 377 | 8 | 122 s | 579 s | 676 MiB | 709 B | 18.5 min | 14.0 min | 1.13 GiB |
+| CosMx lung cancer | 1,967,437 | 960 | 6 | 243 s | 21.4 min | 1.07 GiB | 586 B | — |  |  |
+| Xenium breast cancer | 1,991,578 | 321 | 6 | 138 s | 11.2 min | 1.06 GiB | 572 B | — |  |  |
+| Xenium pancreas | 1,999,991 | 377 | 6 | 194 s | 16.1 min | 1.06 GiB | 570 B | — |  |  |
+| Xenium Prime 5K ovarian | 1,999,997 | 5,088 | 6 | 242 s | 21.3 min | 1.06 GiB | 569 B | — |  |  |
+| Xenium lung slide, 2.0M subset | 2,000,000 | 377 | 8 | 297 s | 24.3 min | 1.15 GiB | 620 B | 33.2 min | 30.1 min | 1.95 GiB |
+| CosMx WTx colon slide | 2,969,193 | 18,935 | 8 | 19.5 min | 98.3 min | 2.16 GiB | 779 B | — | 257.0 min | 3.11 GiB |
+| Xenium Prime 5K slide, 8.0M subset | 8,000,091 | 5,078 | 8 | 31.1 min | 161.3 min | 4.24 GiB | 569 B | — | 221.1 min | 6.87 GiB |
+| Xenium lung slide (whole) | 10,605,483 | 377 | 8 | 63.2 min | 167.5 min | 5.32 GiB | 539 B | — | 194.9 min | 8.17 GiB |
 
-    | | lung | Prime 5K |
-    |---|---:|---:|
-    | whole run, CPU time | 1.08 | 1.07 |
-    | whole run, peak RSS | 0.73 | 0.59 |
-    | BMM iterations | 1.15 | 1.10 |
-    | molecule clustering | **1.32** | **1.23** |
-    | polygons | 1.24 | 1.38 |
-    | molecule graph | 1.25 | 1.02 |
-    | confidence | 1.04 | 1.10 |
-    | NCV colours (capped) | 0.71 | 0.86 |
+<!-- docs_figures:runtime-table end -->
 
-    Molecule clustering is the only large phase that is clearly super-linear:
-    its iteration count grows with the slide (181 → 592 iterations on the lung
-    ladder), so its share rises from 6 % (0.1M) to 23 % (whole slide) of the
-    lung CPU time.
+Benchmark crops at 6 threads (median of the replicates) and profiling
+ladders at 8 threads (one run), ordered by the number of molecules; click a
+column header to sort. "Genes" is the panel size of the crop or slide subset.
+The "before" columns are the code before the optimisation (`e45fddc`),
+profiled for the ladders only. The datasets are described in the benchmark
+repository's
+[DATASETS.md](https://github.com/VPetukhov/baysor-benchmarks/blob/main/DATASETS.md).
+{: .perf-sortable }
 
 ## Threads
+
+[Figure 3 data (JSON)](data/threads.json){ .perf-chart }
+
+**Figure 3.** Wall time (left) and total CPU time (right) for 1–16 threads on
+the 130k-molecule Xenium pancreas crop and the 820k-molecule 3D MERFISH crop
+(log–log; one run per point, one process at a time, with
+`--skip-ncv-color` as in the benchmark runs). The dotted lines are ideal
+scaling from the 1-thread time. The vertical line marks the 8 physical
+cores; 16 threads use hyper-threading.
+
+8 threads are 6.0× faster than 1 thread on the Xenium crop (42.8 s → 7.2 s)
+and 5.8× on the MERFISH crop (346 s → 60 s), while the total CPU time stays
+nearly flat (+7 % and +11 %). Hyper-threads (16 threads) add about 20 %.
 
 At real sizes 95 % of the CPU time is in parallel code (lung 2M: serial
 share 5.1 %, was 12.7 % before), and the thread pool hardly waits (≤ 0.4 % of
@@ -125,58 +102,60 @@ the CPU time at 8 threads on rungs of 1M molecules and more). That bounds the
 speed-up at 5.9× on 8 threads and 9.1× on 16. The serial remainder is mostly
 graph construction, confidence estimation and polygons.
 
-Small crops behave differently: 62 % of the instructions of a 20k-molecule
-crop run serially, most of them in the colour embedding, so it speeds up only
-1.38× on 8 threads (18.9 s → 13.7 s). With `--skip-ncv-color`, as in the
-[benchmark thread sweep](benchmarks.md#threads), the same kind of data scales
-much further. Running more threads than physical cores gains little in this
-series; see [Threading](../run.md#threading) for setting the count.
+Small crops behave differently when the NCV colours are on: 62 % of the
+instructions of a 20k-molecule crop run serially, most of them in the colour
+embedding, so it speeds up only 1.38× on 8 threads (18.9 s → 13.7 s). Skip
+the colours with `--skip-ncv-color` if you do not need them; the same kind of
+data then scales as in Figure 3.
+
+By default Baysor uses one thread per physical core (8 on this host). Set the
+count with `-t/--threads`, the `threads` config key or `OMP_NUM_THREADS`; see
+[Threading](../run.md#threading).
 
 ??? note "Crop thread series (with the colour embedding)"
 
     Minimum wall time and median CPU time of 3 runs.
 
-    | threads | 1 | 2 | 4 | 8 | 16 |
-    |---|---:|---:|---:|---:|---:|
-    | Xenium pancreas 20k, wall | 18.9 s | 15.9 s | 14.4 s | 13.7 s | 13.8 s |
-    | Xenium pancreas 20k, CPU | 21.3 s | 19.2 s | 20.0 s | 21.2 s | 24.3 s |
-    | Xenium Prime 5K 20k, wall | 14.5 s | 12.5 s | 12.1 s | 10.2 s | 11.0 s |
-    | Xenium Prime 5K 20k, CPU | 14.5 s | 16.5 s | 16.7 s | 16.6 s | 18.0 s |
+    | crop | threads | wall time | CPU time |
+    |---|---:|---:|---:|
+    | Xenium pancreas 20k | 1 | 18.9 s | 21.3 s |
+    | Xenium pancreas 20k | 2 | 15.9 s | 19.2 s |
+    | Xenium pancreas 20k | 4 | 14.4 s | 20.0 s |
+    | Xenium pancreas 20k | 8 | 13.7 s | 21.2 s |
+    | Xenium pancreas 20k | 16 | 13.8 s | 24.3 s |
+    | Xenium Prime 5K 20k | 1 | 14.5 s | 14.5 s |
+    | Xenium Prime 5K 20k | 2 | 12.5 s | 16.5 s |
+    | Xenium Prime 5K 20k | 4 | 12.1 s | 16.7 s |
+    | Xenium Prime 5K 20k | 8 | 10.2 s | 16.6 s |
+    | Xenium Prime 5K 20k | 16 | 11.0 s | 18.0 s |
 
     Before the optimisation the 20k pancreas crop used 97 s of CPU time on
     16 threads (OpenMP spin-waiting); now 24 s.
+    {: .perf-sortable }
 
-## Current bottlenecks
+## Gene panel size
 
-Ranked by their share of the CPU time at real sizes (whole lung slide and
-Prime 5K 8M, 8 threads).
+[Figure 4 data (JSON)](data/time_vs_genes.json){ .perf-chart }
 
-1. **BMM E-step** — about 35 % of the CPU on the whole lung slide (the E-step
-   chunk, `CategoricalSmoothed::pdf` and `exp`). Linear and 99 % parallel:
-   this is the algorithm's core work, not overhead.
-2. **Molecule clustering** — 23 % (lung) and 42 % (Prime 5K 8M) of the CPU,
-   super-linear (exponent 1.32), because the MRF clustering needs more
-   iterations on larger slides.
-3. **BMM bookkeeping** (splitting and grouping components, hash-map updates)
-   — about 22 % of the CPU on the whole slide, mildly super-linear
-   (exponents 1.2–1.4).
-4. **NCV colour embedding** on small data — single-threaded, 61 % of the
-   instructions on a 20k crop; negligible on slides. Use `--skip-ncv-color`
-   when the colours are not needed.
-5. **Gene-rich panels** — the neighbourhood k-NN with k = genes / 10 takes
-   65 % of the CPU on the 18,935-gene CosMx slide, and panels of
-   1,000–3,000 genes still run the dense O(genes³) ICA (87 % of the
-   instructions on the 2,793-gene crop, single-threaded).
-
-Memory at the whole-slide peak (5.06 GiB heap) is spread over the molecule
-adjacency list (787 MiB), the assignment history (728 MiB), the MRF clustering
-state (383 MiB) and three copies of the molecule positions (3 × 170 MiB).
+**Figure 4.** Wall time (left) and peak memory (right) at 6 threads against
+the gene-panel size, for three families of simulations that differ only in the
+number of genes (64k–116k molecules each). On these simulations the panel
+size hardly matters: from 20 to about 5,000 genes the wall time stays at
+3–9 s and the peak memory at 143–185 MiB. Above 3,000 genes the
+initialisation uses a truncated solver. Panels between 1,000 and 3,000
+genes still take the dense initialisation, whose cost grows with the cube of
+the number of genes; on real data this is the slowest case per molecule, e.g.
+the 130k-molecule Xenium Prime 5K crop, whose 2,672 used genes go through the
+dense path, takes 73 s at 6 threads (Figure 1).
 
 ## Reproduce
 
-The full report and per-function / per-line hotspots are produced by the
+The charts, their data and the per-dataset table are regenerated from the
+benchmark and profiling results with one command,
+[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/docs_figures)
+in baysor-benchmarks; `docs_figures/generated/tables.md` there lists the
+source file of each number. Per-function and per-line hotspots come from the
 [profiling suite](https://github.com/VPetukhov/baysor-benchmarks/tree/main/profiling)
-(`profile.py` for the crops, `scaling.py` for the ladders, `report_html.py`
-for the HTML report). The figures and tables on this page are regenerated
-from its summaries by
-[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/docs_figures).
+(`profile.py` for small crops, `scaling.py` for the ladders, `report_html.py`
+for the HTML report). To benchmark your own build, see
+[Development › Benchmarks](../development.md#benchmarks).

@@ -1,0 +1,66 @@
+/* Charts and sortable tables of the "Performance" pages (perfcharts.js).
+   Text, axes, grid and surface follow the Material theme variables; the data
+   colours are the dataviz reference palette (first three slots validated
+   all-pairs for colour-vision deficiencies), one set per colour scheme. */
+.perf-chart {
+  --pc-ink: var(--md-default-fg-color); --pc-ink2: var(--md-default-fg-color--light);
+  --pc-muted: var(--md-default-fg-color--light); --pc-grid: var(--md-default-fg-color--lightest);
+  --pc-axis: var(--md-default-fg-color--lighter); --pc-surface: var(--md-default-bg-color);
+  --pc-c0: #2a78d6; --pc-c1: #eb6834; --pc-c2: #1baf7a; --pc-base: #898781;
+  position: relative;
+  margin: 1em 0 0.6em;
+}
+[data-md-color-scheme="slate"] .perf-chart {
+  --pc-c0: #3987e5; --pc-c1: #d95926; --pc-c2: #199e70; --pc-base: #9a9890;
+}
+.perf-chart:not(.perf-chart-ready) { min-height: 3em; }
+.perf-legend {
+  display: flex; flex-wrap: wrap; gap: 0.2em 1.2em;
+  font-size: 0.68rem; color: var(--pc-ink2); margin-bottom: 0.4em;
+}
+.perf-legend-item { display: inline-flex; align-items: center; gap: 0.35em; }
+.perf-panels { display: grid; gap: 0.6em 16px; }
+.perf-panel { min-width: 0; }
+.perf-panel-title { font-size: 0.72rem; font-weight: 700; color: var(--pc-ink); margin: 0.3em 0 0.1em; }
+.perf-svg { display: block; overflow: visible; font-family: var(--md-text-font-family, sans-serif); }
+.perf-svg:focus { outline: none; }
+.perf-svg:focus-visible { outline: 2px solid var(--md-accent-fg-color, var(--pc-c0)); outline-offset: 2px; }
+.perf-grid line { stroke: var(--pc-grid); stroke-width: 1; }
+.perf-axis { stroke: var(--pc-axis); stroke-width: 1; }
+.perf-tick { fill: var(--pc-ink2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.perf-label { fill: var(--pc-ink2); font-size: 11.5px; }
+.perf-annot { fill: var(--pc-ink2); font-size: 10.5px; }
+.perf-ref line, .perf-ref path { stroke: var(--pc-muted); stroke-width: 1; fill: none; }
+.perf-ref-label { fill: var(--pc-muted); font-size: 10.5px; }
+.perf-link { stroke: var(--pc-axis); stroke-width: 1.5; }
+.perf-hover { fill: none; stroke: var(--pc-ink); stroke-width: 1.5; pointer-events: none; }
+.perf-cross { stroke: var(--pc-axis); stroke-width: 1; pointer-events: none; }
+.perf-tip {
+  display: none; position: absolute; z-index: 3; pointer-events: none;
+  max-width: 22rem; padding: 0.45em 0.65em; border-radius: 4px;
+  background: var(--md-default-bg-color); color: var(--pc-ink2);
+  box-shadow: var(--md-shadow-z2, 0 2px 8px rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--pc-grid); font-size: 0.66rem; line-height: 1.45;
+}
+.perf-tip-title { color: var(--pc-ink); font-weight: 700; margin-bottom: 0.15em; }
+.perf-tip-row { display: flex; align-items: baseline; gap: 0.3em; white-space: nowrap; }
+.perf-tip-row strong { color: var(--pc-ink); font-variant-numeric: tabular-nums; }
+.perf-tip-key { align-self: center; flex: none; width: 18px; }
+.md-typeset .perf-chart-table { margin: 0.4em 0 0; font-size: 0.68rem; }
+.md-typeset .perf-chart-table summary { cursor: pointer; color: var(--md-default-fg-color--light); }
+
+/* sortable tables */
+.perf-table-wrap { overflow-x: auto; }
+.md-typeset p.perf-sortable { margin-top: 0.4em; }
+.md-typeset table[data-sortable] { font-size: 0.62rem; }
+.md-typeset table[data-sortable] th, .md-typeset table[data-sortable] td { padding: 0.55em 0.5em; }
+.md-typeset table[data-sortable] th { vertical-align: bottom; min-width: 0; }
+.md-typeset table[data-sortable] td:not(:first-child) { white-space: nowrap; }
+.perf-sort {
+  all: inherit; display: inline; cursor: pointer; padding: 0; border: 0; background: none;
+}
+.perf-sort::after { content: " ↕"; color: var(--md-default-fg-color--lighter); font-weight: 400; }
+th[aria-sort="ascending"] .perf-sort::after { content: " ▲"; color: inherit; }
+th[aria-sort="descending"] .perf-sort::after { content: " ▼"; color: inherit; }
+.perf-sort:focus-visible { outline: 2px solid var(--md-accent-fg-color); }
+.md-typeset table[data-sortable] td { font-variant-numeric: tabular-nums; }
