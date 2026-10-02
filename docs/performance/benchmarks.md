@@ -194,7 +194,7 @@ the 130k Xenium Prime 5K crop goes the other way (3.7 % vs 3.4 %).
 
 The figures and every number on this page are regenerated with one command
 from the benchmark results by
-[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/docs-figures/docs_figures)
+[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/docs_figures)
 in baysor-benchmarks; `docs_figures/generated/tables.md` there lists the
 source file of each number. To benchmark your own build, see
 [Development › Benchmarks](../development.md#benchmarks).

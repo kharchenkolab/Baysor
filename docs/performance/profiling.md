@@ -179,4 +179,4 @@ the method — is produced by the
 (`profile.py` for the crops, `scaling.py` for the ladders, `report_html.py`
 for the HTML report). The figures and tables on this page are regenerated
 from its summaries by
-[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/docs-figures/docs_figures).
+[`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/docs_figures).
