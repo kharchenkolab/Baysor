@@ -1,87 +1,63 @@
 # Input data
 
-Baysor consumes a molecule table plus an optional
-[prior segmentation](priors.md) input.
-
-## Supported molecule inputs
-
-The `coordinates` positional argument of `run`, `preview`, and `segfree` may
-be:
-
-- a CSV molecule table
-- a Parquet molecule table
-- a Xenium `experiment.xenium` manifest
-
-When `experiment.xenium` is passed, Baysor resolves the adjacent Xenium
-transcript table automatically and keeps enough source context to make the
-`legacy` outputs compatible with `xeniumranger import-segmentation` (see the
-[Xenium workflow](xenium.md)).
-
-## Molecule table columns
-
-Required columns:
-
-- `x`, `y` — molecule coordinates
-- `gene` — gene name
-
-Optional columns, used when present:
-
-- `z` — third coordinate; enables 3D segmentation (ignored with `--force-2d`)
-- `qv` — per-molecule quality value, filtered by `--min-qv` (column name set
-  by `--qv-column`)
-- `transcript_id` — preserved and written back to `legacy` output, and makes
-  `segmentation.csv` compatible with `xeniumranger import-segmentation`
-- `confidence` — precomputed molecule confidence, reused instead of estimating
-  the noise model
-- `cluster` — precomputed molecule-cluster labels
-- the prior column referenced by `:column_name` (see
-  [Prior segmentation](priors.md))
-
-Column names are configurable through CLI flags (`-x`, `-y`, `-z`, `-g`,
-`--qv-column`) or the config file ([Configuration](configuration.md)). For
-Xenium, [configs/xenium.toml](https://github.com/kharchenkolab/Baysor/blob/HEAD/configs/xenium.toml)
-already maps `x_location`, `y_location`, `z_location`, `feature_name`, and
-`qv`.
-
-If a numeric z column has only one unique value, it is dropped and the run
-becomes 2D.
-
-## Filtering during input load
-
-Molecules are filtered while loading:
-
-- `--min-qv` drops molecules with quality value below the threshold (no
-  filtering by default);
-- `--x-min` / `--x-max` / `--y-min` / `--y-max` / `--z-min` / `--z-max` crop
-  the dataset spatially;
-- `--min-molecules-per-gene` drops genes with too few molecules;
-- `--exclude-genes` drops genes by name or glob pattern (`*`, `?`), e.g.
-  `--exclude-genes 'Blank*,MALAT1'`.
-
-Cropping and filtering are useful for quick development runs, protocol
-debugging, and testing large datasets without loading the full field of view.
-Note that a cropped run is not appropriate input for
-`xeniumranger import-segmentation` (see [Xenium workflow](xenium.md)).
-
-## 2D vs 3D data
-
-Baysor segments in 3D when a z column with varying values is present (and
-`--force-2d` is not set), in 2D otherwise. 3D runs write per-layer polygons
-(`segmentation_polygons_3d.json` in the `legacy` style), 2D runs write joined
-polygons (`segmentation_polygons_2d.json`).
-
-## Protocol notes
-
-### Xenium
-
-Preferred input is the manifest:
+Use a molecule table with one row per detected molecule. `run`, `preview` and
+`segfree` accept CSV, Parquet or a Xenium `experiment.xenium` manifest:
 
 ```bash
-baysor run -c configs/xenium.toml -o out data/experiment.xenium :cell_id
+baysor run -m 30 -s 8 -o out molecules.csv
 ```
 
-### ISS / osm-FISH / STARmap
+## Table columns
 
-These usually use CSV molecule tables plus either no prior with an explicit
-`--scale`, an image mask prior, or a boundary table prior. See
-[Examples](examples.md) for runnable commands.
+| Column | Required? | Meaning |
+| --- | --- | --- |
+| `x`, `y` | yes | Numeric molecule coordinates. |
+| `gene` | yes | Gene name. |
+| `z` | no | Numeric third coordinate; varying values enable 3D segmentation. |
+| `qv` | no | Quality value; filtered only when `--min-qv` is nonnegative. |
+| `transcript_id` | no | Numeric transcript ID, preserved in legacy output for Xenium Ranger. |
+| A prior-label column | no | Existing cell assignments, selected with `:column_name`. |
+
+Coordinates and scale must use the same units. Column names can be changed
+with `-x`, `-y`, `-z`, `-g` and `--qv-column`, or in a
+[config file](configuration.md). For example:
+
+```bash
+baysor run -m 30 -s 8 -x x_location -y y_location -g feature_name \
+  -o out transcripts.parquet
+```
+
+Input `confidence` and `cluster` columns do not bypass fitting: the CLI
+recalculates molecule confidence and computes its own clustering prior.
+
+## Xenium
+
+Prefer `experiment.xenium` to a transcript table alone. Baysor locates the
+adjacent transcript table automatically. The
+[Xenium workflow](xenium.md) includes the preset for `x_location`,
+`y_location`, `z_location`, `feature_name` and `qv`, prior labels and the
+Xenium Ranger handoff.
+
+## Filtering and crops
+
+Input filtering applies before segmentation:
+
+- `--min-qv` drops low-quality molecules when the quality column is present
+  (disabled by default).
+- `--x-min` / `--x-max`, `--y-min` / `--y-max` and `--z-min` / `--z-max` keep
+  a coordinate range.
+- `--min-molecules-per-gene` drops genes with too few molecules.
+- `--exclude-genes 'Blank*,MALAT1'` drops names or glob patterns (`*`, `?`).
+
+The gene-filter flags are `run`-only; use the corresponding config keys for
+`preview` or `segfree`. Crops are useful for choosing parameters, but use the
+full dataset for [Xenium Ranger import](xenium.md#xenium-explorer-handoff).
+
+## 2D and 3D
+
+A varying z column enables 3D segmentation; missing or constant z gives a 2D
+run. `--force-2d` ignores z. 3D runs write both per-layer polygons and joined
+2D polygons pooled across the z-stack; see [Outputs](outputs.md).
+
+For optional TIFF masks, boundary tables and molecule-label priors, see
+[Prior segmentation](priors.md).
