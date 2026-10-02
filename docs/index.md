@@ -1,60 +1,58 @@
 # Baysor
 
-**Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data.
-
-Baysor segments imaging-based spatial transcriptomics data using spatial
-position, local gene composition, and optional prior segmentations. The
-approach can take nuclear or cytoplasmic staining into account, but can also
-segment based on the detected molecules alone. The method is described in the
-[Nature Biotechnology paper](https://www.nature.com/articles/s41587-021-01044-w).
-
-This site documents the **C++ line** of Baysor: a native C++17 implementation
-of the Baysor segmentation algorithm, distributed as a single `baysor` binary
-with three subcommands:
-
-- [`baysor run`](run.md) — cell segmentation
-- [`baysor preview`](preview.md) — quick dataset overview
-- [`baysor segfree`](segfree.md) — segmentation-free neighborhood composition
-  vectors (NCVs)
-
-The documentation is versioned. The version selector in the header switches
-between the docs of released versions; `latest` tracks the most recent release.
-The old Julia (Baysor.jl v0.7.x) documentation is kept as an archived version —
-see [Migrating from Baysor.jl](migrating.md).
+Baysor finds cells in imaging-based spatial transcriptomics data using
+molecule positions and gene composition, with or without a prior
+segmentation. These docs cover the native C++ release **cpp-0.9.0**.
 
 ## Quick start
 
-Install a [release binary](installation.md#release-binaries) or
-[build from source](installation.md#building-from-source), then:
+**Linux x86-64** — install and run on your molecule table:
 
 ```bash
-baysor run -m 30 --scale 8 -o out molecules.csv
+curl -fL -o baysor-0.9.0-linux-x86_64.tar.gz \
+  https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
+export PATH="$PWD/baysor-0.9.0-linux-x86_64/bin:$PATH"
+baysor run -m 30 -s 8 -o out --threads 8 molecules.csv
 ```
 
-`-m/--min-molecules-per-cell` and either `--scale` or a
-[prior segmentation](priors.md) are the only things you always need to decide
-on. For Xenium data, start from [the Xenium workflow](xenium.md) instead.
+**Docker** — from the directory containing `molecules.csv`:
 
-## What is implemented
+```bash
+docker pull ghcr.io/kharchenkolab/baysor:0.9.0
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/data" \
+  ghcr.io/kharchenkolab/baysor:0.9.0 \
+  run -m 30 -s 8 -o /data/out --threads 8 /data/molecules.csv
+```
 
-- CSV / Parquet molecule tables and Xenium `experiment.xenium` manifests as
-  input
-- prior segmentation from transcript columns (`:column_name`), TIFF masks, or
-  boundary tables
-- `legacy` (CSV/GeoJSON/Loom) and `parquet` (Parquet/GeoParquet/10x-HDF5)
-  [output styles](outputs.md)
-- 2D and 3D segmentation with per-layer polygon output
-- HTML diagnostic reports (`run --plot`, `preview`)
+See [Installation](installation.md) for macOS / Windows binaries and system
+requirements. The table needs `x`, `y` and `gene` columns; an optional `z`
+column enables 3D segmentation. CSV and Parquet are supported.
 
-## Where to go next
+| Setting | What to choose |
+| --- | --- |
+| `-m` | Minimum molecules expected in a real cell; choose for your protocol. |
+| `-s` / `--scale` | Approximate cell radius in coordinate units. Or pass a [prior](priors.md) as the second input and set `--prior-segmentation-confidence` (default `0.2`). |
+| `-c` | [TOML config](configuration.md); explicit CLI flags override it. |
+| `-o` | Output directory (default `segmentation`). |
+| `--threads` | Worker threads; omit to use `OMP_NUM_THREADS`, then physical CPU cores. |
 
-- [Installation](installation.md) — release binaries, source builds, Docker
-- [Running Baysor](run.md) — the main `run` subcommand
-- [Input data](inputs.md) and [Configuration](configuration.md) — formats and
-  all options
-- [Outputs](outputs.md) — what Baysor writes
-- [Examples](examples.md) — runnable protocol-specific datasets
+`30` molecules and radius `8` are examples, not universal settings. For
+Xenium data, start with the [Xenium workflow](xenium.md).
+
+## Next steps
+
+- [Cell segmentation](run.md) — choose parameters and inspect the results
+- [Dataset preview](preview.md) — check the data before a full run
+- [Segmentation-free analysis](segfree.md) — analyze local gene composition
+  without assigning cells
+- [Examples](examples.md) — workflows for Xenium, ISS, osm-FISH and STARmap
+- [Outputs](outputs.md) — molecule assignments, count matrices and polygons
 - [Performance](performance/benchmarks.md) — run time, memory and accuracy
-  benchmarks, and profiling
-- [Development](development.md) — tests, coverage, benchmarks, releasing
-- [Citation](citation.md)
+
+The method is described in the [Nature Biotechnology paper](citation.md).
+Questions? Start a [discussion](https://github.com/kharchenkolab/Baysor/discussions).
+
+Use the version selector for other releases. For Baysor.jl, see
+[Migrating from Julia](migrating.md) and the
+[archived v0.7.1 docs](https://kharchenkolab.github.io/Baysor/0.7.1/).

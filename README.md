@@ -1,42 +1,62 @@
 # Baysor
 
 **Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data.
-
-Baysor segments imaging-based spatial transcriptomics data using spatial
-position, local gene composition, and optional prior segmentations. This
-repository contains the native C++ implementation (the `cpp` line), a single
-`baysor` binary with `run`, `preview`, and `segfree` subcommands.
-
-- **Documentation:** [kharchenkolab.github.io/Baysor](https://kharchenkolab.github.io/Baysor/)
-  (versioned per release; includes a
-  [migration guide](https://kharchenkolab.github.io/Baysor/latest/migrating/)
-  from Baysor.jl v0.7.x and the [archived Julia docs](https://kharchenkolab.github.io/Baysor/0.7.1/))
-- **Release binaries:** [GitHub Releases](https://github.com/kharchenkolab/Baysor/releases)
-  (Linux x86-64, macOS arm64, Windows x86-64, with `SHA256SUMS`)
-
-The C++ release binaries are the recommended path. If you still need the
-legacy Julia implementation, pin its last release because the repository's
-default branch is now C++:
-
-```julia
-using Pkg
-Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="v0.7.1"))
-Pkg.build("Baysor")
-```
+Baysor finds cells from molecule positions and gene composition, with or
+without a prior segmentation. This is the native C++ release **cpp-0.9.0**.
 
 ## Quick start
 
+**Linux x86-64** — download the release binary and run on your molecule table:
+
 ```bash
-baysor run -m 30 --scale 8 -o out molecules.csv
+curl -fL -o baysor-0.9.0-linux-x86_64.tar.gz \
+  https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
+export PATH="$PWD/baysor-0.9.0-linux-x86_64/bin:$PATH"
+baysor run -m 30 -s 8 -o out --threads 8 molecules.csv
 ```
 
-See the documentation for [installation](https://kharchenkolab.github.io/Baysor/latest/installation/)
-(binaries, source builds, Docker) and the
-[run reference](https://kharchenkolab.github.io/Baysor/latest/run/).
+**Docker** — from the directory containing `molecules.csv`:
+
+```bash
+docker pull ghcr.io/kharchenkolab/baysor:0.9.0
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/data" \
+  ghcr.io/kharchenkolab/baysor:0.9.0 \
+  run -m 30 -s 8 -o /data/out --threads 8 /data/molecules.csv
+```
+
+The table needs `x`, `y` and `gene` columns (optional `z` for 3D).
+`30` molecules and radius `8` are examples, not universal settings.
+
+| Setting | What to choose |
+| --- | --- |
+| `-m` | Minimum molecules expected in a real cell; choose for your protocol. |
+| `-s` / `--scale` | Approximate cell radius in coordinate units. Alternatively, pass a prior as the second input and set `--prior-segmentation-confidence` (default `0.2`). |
+| `-c` | TOML config file; explicit CLI flags override it. |
+| `-o` | Output directory (default `segmentation`). |
+| `--threads` | Worker threads; omit to use `OMP_NUM_THREADS`, then physical CPU cores. |
+
+## Documentation
+
+- [Installation](https://kharchenkolab.github.io/Baysor/latest/installation/) —
+  macOS / Windows binaries, requirements, Docker and source builds
+- [Cell segmentation](https://kharchenkolab.github.io/Baysor/latest/run/) —
+  choosing parameters, using a prior and inspecting results
+- [Xenium workflow](https://kharchenkolab.github.io/Baysor/latest/xenium/) and
+  [examples](https://kharchenkolab.github.io/Baysor/latest/examples/)
+- [Performance](https://kharchenkolab.github.io/Baysor/latest/performance/benchmarks/) —
+  run time, memory and accuracy
+
+The [documentation](https://kharchenkolab.github.io/Baysor/) is versioned per
+release. For the old Julia implementation, see the
+[migration guide](https://kharchenkolab.github.io/Baysor/latest/migrating/) and
+[archived v0.7.1 docs](https://kharchenkolab.github.io/Baysor/0.7.1/).
 
 ## Citation
 
-```
+If you use Baysor in a publication, please cite:
+
+```text
 Petukhov V, Xu RJ, Soldatov RA, Cadinu P, Khodosevich K, Moffitt JR & Kharchenko PV.
 Cell segmentation in imaging-based spatial transcriptomics.
 Nat Biotechnol (2021). https://doi.org/10.1038/s41587-021-01044-w
