@@ -1,8 +1,8 @@
 # Profiling
 
-Where Baysor cpp-0.9.0 spends its time and memory, how that grows with the
-size of the data, and what is still slow. The [benchmarks](benchmarks.md)
-compare versions; this page looks inside one run.
+Time and memory costs within Baysor cpp-0.9.0: which steps dominate and how
+they scale with dataset size. For release-to-release comparisons, see
+[Benchmarks](benchmarks.md).
 
 !!! success "At a glance"
 
@@ -19,7 +19,7 @@ compare versions; this page looks inside one run.
       molecule clustering, which grows faster than linearly, and gene-rich
       panels.
 
-!!! info "Setup"
+??? info "Measurement setup"
 
     Same host as the [benchmarks](benchmarks.md): Intel Xeon E5-2670
     (Sandy Bridge, 8 cores / 16 threads, no AVX2), 60 GB RAM, Ubuntu 26.04.
@@ -31,8 +31,8 @@ compare versions; this page looks inside one run.
     to the Release binary. Unlike the benchmarks, the profiled runs compute the
     neighbourhood colour embedding (the default; `--skip-ncv-color` is off).
     The host was shared: wall times of the real-size runs were taken at a
-    1-minute load of 5–53, so they are pessimistic; CPU time, instruction
-    counts and memory do not depend on the load.
+    1-minute load of 5–53, so they include contention. CPU time, instruction
+    counts and memory help separate computational cost from wall-time delays.
 
 ## What was measured
 
@@ -129,7 +129,8 @@ Small crops behave differently: 62 % of the instructions of a 20k-molecule
 crop run serially, most of them in the colour embedding, so it speeds up only
 1.38× on 8 threads (18.9 s → 13.7 s). With `--skip-ncv-color`, as in the
 [benchmark thread sweep](benchmarks.md#threads), the same kind of data scales
-much further. Running more threads than physical cores gains little.
+much further. Running more threads than physical cores gains little in this
+series; see [Threading](../run.md#threading) for setting the count.
 
 ??? note "Crop thread series (with the colour embedding)"
 
@@ -173,8 +174,7 @@ state (383 MiB) and three copies of the molecule positions (3 × 170 MiB).
 
 ## Reproduce
 
-The full report — every table, the per-function and per-line hotspots, and
-the method — is produced by the
+The full report and per-function / per-line hotspots are produced by the
 [profiling suite](https://github.com/VPetukhov/baysor-benchmarks/tree/main/profiling)
 (`profile.py` for the crops, `scaling.py` for the ladders, `report_html.py`
 for the HTML report). The figures and tables on this page are regenerated

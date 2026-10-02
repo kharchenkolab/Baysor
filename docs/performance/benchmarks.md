@@ -1,15 +1,14 @@
 # Benchmarks
 
-How fast Baysor cpp-0.9.0 is, how much memory it needs, and whether it still
-segments as well as cpp-0.8.3. Both versions ran the same command lines on 77
-datasets: 26 crops of real data from six platforms and 51 simulations with
-ground truth.
+Run time, memory and segmentation accuracy of Baysor cpp-0.9.0 compared with
+cpp-0.8.3. Both versions used the same commands on 77 datasets: 26 real-data
+crops from six platforms and 51 simulations with ground truth.
 
 !!! success "At a glance"
 
     - **About 2× faster** at 6 threads: median wall time 0.46× that of
       cpp-0.8.3 over all 77 datasets (CPU time 0.44×).
-    - **Large gene panels are no longer a problem.** Above 3,000 genes the
+    - **Faster large-panel initialisation.** Above 3,000 genes the
       initialisation uses a truncated solver: a 4,963-gene simulation takes
       3.7 s instead of 237 s and needs 164 MiB instead of 901 MiB.
     - **Less memory**: median peak RSS 0.82× of cpp-0.8.3; the 2-million-molecule
@@ -22,7 +21,7 @@ ground truth.
       2,672 used genes still go through the dense initialisation, takes
       73 s instead of 66 s at 6 threads.
 
-!!! info "Hardware and software"
+??? info "Measurement setup"
 
     | | |
     |---|---|
@@ -35,9 +34,9 @@ ground truth.
 
     The host was shared with other jobs. During the comparison runs the
     1-minute load average was 5–21 on 16 logical CPUs, so the wall times
-    below are pessimistic for both versions. CPU times and the ratios between
-    the versions are robust, because both saw the same load. The
-    [thread sweep](#threads) ran one process at a time at a load of 2–13.
+    below include contention for both versions. CPU times and alternating
+    version comparisons help distinguish computational cost from contention.
+    The [thread sweep](#threads) ran one process at a time at a load of 2–13.
 
 ## Run time and memory on real data
 
@@ -108,7 +107,8 @@ faster than cpp-0.8.3; at 1 thread it is 1.27× faster on both. Hyper-threads
 
 By default cpp-0.9.0 uses one thread per physical core (8 on this host;
 cpp-0.8.3's OpenMP default was all 16 logical CPUs). Set the count with
-`-t/--threads`, the `threads` config key or `OMP_NUM_THREADS`.
+`-t/--threads`, the `threads` config key or `OMP_NUM_THREADS`; see
+[Threading](../run.md#threading).
 
 ## Gene panel size
 
@@ -144,9 +144,11 @@ versions.
 cpp-0.8.3 gives a different segmentation on every multi-threaded run, and its
 6-thread results drift away from the 1-thread result (10,634–10,736 vs 10,051
 cells): all threads re-seeded their random streams identically. cpp-0.9.0 keys
-the random streams by iteration and work chunk, so a run is reproducible at any
-thread count (three identical runs, 9,996 cells) and stays close to the
-1-thread result (10,037 cells).
+the random streams by iteration and work chunk, so multi-threaded outputs are
+reproducible across multi-threaded counts (three identical runs, 9,996 cells)
+and stay close to the 1-thread result (10,037 cells). The single-threaded
+result can differ; reproducibility does not mean identical output between
+versions.
 
 On real data, where there is no ground truth, the two versions agree with
 each other as well as two runs of cpp-0.8.3 agree among themselves (e.g. the
@@ -192,8 +194,7 @@ the 130k Xenium Prime 5K crop goes the other way (3.7 % vs 3.4 %).
 
 ## Reproduce
 
-The figures and every number on this page are regenerated with one command
-from the benchmark results by
+Figures and tables are regenerated from the benchmark results by
 [`docs_figures/make_figures.py`](https://github.com/VPetukhov/baysor-benchmarks/tree/main/docs_figures)
 in baysor-benchmarks; `docs_figures/generated/tables.md` there lists the
 source file of each number. To benchmark your own build, see
