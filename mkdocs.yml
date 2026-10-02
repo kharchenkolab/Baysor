@@ -15,9 +15,10 @@ edit_uri: ''
 
 docs_dir: docs
 
-# Theme overrides live in docs/overrides but must not ship as site pages.
+# Theme overrides and maintainer notes are not user-guide pages.
 exclude_docs: |
   overrides/
+  README.md
 
 theme:
   name: material

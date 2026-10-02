@@ -62,22 +62,14 @@ text reports to `<build-dir>/coverage/`.
 
 ## Benchmarks
 
-The regression/quality benchmark suite lives in its own repository,
-[baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks) (this
-repo's former `benchmarks/` directory, history preserved): cropped real
-datasets and simulated datasets with known ground truth, a runner with
-metrics and baseline comparison, and a cellAdmix admixture audit. It checks
-that a change keeps simulated-data metrics within the noise floor of a
-stored baseline and real-data segmentations essentially unchanged
-(`--expect identical|same`), or improves accuracy without regressions
-(`--expect improved`); datasets and baselines live under a local data dir
-(`.bench-data`, never in git). To run it against a Baysor build, clone that
-repository, create its Python env from `environment.yml`, and point the
-harness at your binary explicitly, e.g.
-`harness/bench.sh --baysor /path/to/baysor --preset regular --run-id r1`
-(≈20 min; `--preset release` before a release, `--dry-run` to resolve the
-plan without running Baysor). See its README for the dataset contract,
-suites and baselines.
+The regression / accuracy suite lives in
+[baysor-benchmarks](https://github.com/VPetukhov/baysor-benchmarks). It covers
+real crops, simulations with ground truth and a cellAdmix audit. Clone that
+repository, create its environment from `environment.yml` and point the
+harness at your build:
+`harness/bench.sh --baysor /path/to/baysor --preset regular --run-id r1`.
+Use `--preset release` before a release; see its README for datasets,
+baselines and comparison rules.
 
 ## Releasing
 
@@ -87,28 +79,15 @@ release. The release procedure is documented in
 
 ## Documentation site
 
-The docs site (this site) is built with MkDocs + Material and versioned with
-mike:
+The site uses MkDocs + Material and is versioned with mike. In an environment
+with `docs/requirements.txt` installed, run from the repository root:
 
 ```bash
-python -m pip install -r docs/requirements.txt
-mkdocs build --strict     # build into site/
-mkdocs serve              # local preview
-python docs/tools/check_cli_docs.py   # docs <-> CLI/config consistency check
+mkdocs build --strict
+python3 docs/tools/check_cli_docs.py
 ```
 
-- `.github/workflows/docs.yml` builds the docs strictly on every docs-related
-  push/PR and deploys one version per GitHub release to the `gh-pages` branch
-  (`mike deploy --push --update-aliases <version> latest` +
-  `mike set-default --push latest`). The `latest` alias only moves to the
-  newest stable release: pre-releases, `workflow_dispatch` redeploys of older
-  tags, and backport patch releases are deployed without touching `latest`.
-  Promoting a pre-release to a full release redeploys it and moves `latest`
-  if it is the newest stable version.
-- `docs/tools/check_cli_docs.py` fails if the docs mention a CLI option or
-  config key that does not exist in the sources, and warns about options that
-  are not documented. It parses `src/cli/main.cpp`, `src/utils/options.cpp`,
-  and `configure.sh`, so it runs without building Baysor.
-- `docs/tools/migrate_gh_pages.py` is the one-time migration that moved the
-  archived Julia site from `dev/` to `0.7.1/` on `gh-pages` (see the
-  `Migrating from Baysor.jl` page and the script header for usage).
+See [docs/README.md](https://github.com/kharchenkolab/Baysor/blob/HEAD/docs/README.md)
+for setup and editing notes. Publishing is handled by
+[the docs workflow](https://github.com/kharchenkolab/Baysor/blob/HEAD/.github/workflows/docs.yml);
+`latest` follows the newest stable release.
