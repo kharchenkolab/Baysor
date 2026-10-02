@@ -53,9 +53,6 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
-extra_css:
-  - stylesheets/documenter.css
-
 nav:
   - Home: index.md
   - Installation: installation.md
@@ -85,6 +82,7 @@ nav:
 extra_javascript:
   - assets/perfcharts/perfcharts.js
 extra_css:
+  - stylesheets/documenter.css
   - assets/perfcharts/perfcharts.css
 
 markdown_extensions:
