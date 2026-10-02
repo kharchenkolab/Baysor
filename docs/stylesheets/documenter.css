@@ -1,0 +1,1219 @@
+/*
+ * Documenter.jl look for the Material theme.
+ *
+ * Reproduces the documenter-light / documenter-dark themes of the old Julia
+ * site (https://kharchenkolab.github.io/Baysor/): fixed 18rem sidebar with
+ * logo, package name, search button, navigation tree and version selector;
+ * a breadcrumb navbar above a 52rem content column; Lato / JuliaMono; Bulma
+ * colours, code blocks, tables, admonitions and the « prev | next » footer.
+ * Sizes are in px because Documenter uses a fixed 16px root, while Material
+ * rems are 20px (and grow on wide screens unless pinned, see `html` below).
+ *
+ * Only HTML text elements are restyled; svg / canvas content (performance
+ * charts) is left alone.
+ */
+
+/* Same font files the Documenter site loads. */
+@import url("https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css");
+@import url("https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css");
+
+:root {
+  --md-text-font: "Lato Medium";
+  --md-code-font: "JuliaMono";
+}
+
+/* Documenter does not scale text up on wide screens. */
+html {
+  font-size: 125%;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Colours                                                                */
+/* ---------------------------------------------------------------------- */
+
+[data-md-color-scheme="default"] {
+  --docs-bg: #fff;
+  --docs-text: #222;
+  --docs-strong: #222;
+  --docs-link: #2e63b8;
+  --docs-link-hover: #363636;
+  --docs-border: #dbdbdb;
+  --docs-sidebar-bg: #f5f5f5;
+  --docs-sidebar-fg: #0a0a0a;
+  --docs-sidebar-hover: #ebebeb;
+  --docs-sidebar-active: #fff;
+  --docs-muted: #7a7a7a;
+  --docs-search-fg: #707070;
+  --docs-breadcrumb-sep: #b5b5b5;
+  --docs-pre-bg: #f5f5f5;
+  --docs-code-bg: rgba(0, 0, 0, 0.05);
+  --docs-code-fg: #000;
+  --docs-adm-bg: #f5f5f5;
+  --docs-adm-body: rgba(0, 0, 0, 0.7);
+  --docs-adm-default: #4a4a4a;
+  --docs-adm-warning: #a98800;
+  --docs-scrollbar: #e0e0e0;
+
+  --md-default-bg-color: var(--docs-bg);
+  --md-default-fg-color: rgba(0, 0, 0, 0.87);
+  --md-primary-fg-color: var(--docs-link);
+  --md-primary-fg-color--light: #5a86cc;
+  --md-primary-fg-color--dark: #234b8c;
+  --md-primary-bg-color: #fff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+  --md-accent-fg-color: var(--docs-link-hover);
+  --md-accent-fg-color--transparent: rgba(46, 99, 184, 0.1);
+  --md-typeset-color: var(--docs-text);
+  --md-typeset-a-color: var(--docs-link);
+
+  /* highlight.js "default" theme used by documenter-light */
+  --md-code-bg-color: var(--docs-pre-bg);
+  --md-code-fg-color: #444;
+  --md-code-hl-color: #2e63b8;
+  --md-code-hl-color--light: rgba(46, 99, 184, 0.1);
+  --md-code-hl-comment-color: #697070;
+  --md-code-hl-keyword-color: #444;
+  --md-code-hl-string-color: #880000;
+  --md-code-hl-number-color: #880000;
+  --md-code-hl-function-color: #880000;
+  --md-code-hl-constant-color: #397300;
+  --md-code-hl-special-color: #ab5656;
+  --md-code-hl-variable-color: #ab5656;
+  --md-code-hl-operator-color: #444;
+  --md-code-hl-punctuation-color: rgba(68, 68, 68, 0.67);
+  --md-code-hl-name-color: #444;
+  --md-code-hl-generic-color: #1f7199;
+
+  --md-footer-bg-color: var(--docs-bg);
+  --md-footer-bg-color--dark: var(--docs-bg);
+  --md-footer-fg-color: var(--docs-text);
+  --md-footer-fg-color--light: var(--docs-text);
+  --md-footer-fg-color--lighter: var(--docs-muted);
+}
+
+[data-md-color-scheme="slate"] {
+  --docs-bg: #1f2424;
+  --docs-text: #fff;
+  --docs-strong: #f2f2f2;
+  --docs-link: #1abc9c;
+  --docs-link-hover: #1dd2af;
+  --docs-border: #5e6d6f;
+  --docs-sidebar-bg: #282f2f;
+  --docs-sidebar-fg: #fff;
+  --docs-sidebar-hover: #32393a;
+  --docs-sidebar-active: #1f2424;
+  --docs-muted: #8c9b9d;
+  --docs-search-fg: #868c98;
+  --docs-breadcrumb-sep: #8c9b9d;
+  --docs-pre-bg: #282f2f;
+  --docs-code-bg: rgba(255, 255, 255, 0.05);
+  --docs-code-fg: #ececec;
+  --docs-adm-bg: #282f2f;
+  --docs-adm-body: #fff;
+  --docs-adm-default: #dbdee0;
+  --docs-adm-warning: #f4c72f;
+  --docs-scrollbar: #3b4445;
+
+  --md-hue: 180;
+  --md-default-bg-color: var(--docs-bg);
+  --md-default-bg-color--light: rgba(31, 36, 36, 0.54);
+  --md-default-bg-color--lighter: rgba(31, 36, 36, 0.26);
+  --md-default-bg-color--lightest: rgba(31, 36, 36, 0.07);
+  --md-default-fg-color: rgba(255, 255, 255, 0.87);
+  --md-default-fg-color--light: rgba(255, 255, 255, 0.62);
+  --md-default-fg-color--lighter: rgba(255, 255, 255, 0.32);
+  --md-default-fg-color--lightest: rgba(255, 255, 255, 0.12);
+  --md-primary-fg-color: var(--docs-link);
+  --md-primary-fg-color--light: #48c9b0;
+  --md-primary-fg-color--dark: #148f77;
+  --md-primary-bg-color: #fff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+  --md-accent-fg-color: var(--docs-link-hover);
+  --md-accent-fg-color--transparent: rgba(26, 188, 156, 0.1);
+  --md-typeset-color: var(--docs-text);
+  --md-typeset-a-color: var(--docs-link);
+
+  /* highlight.js "a11y-dark" theme used by documenter-dark */
+  --md-code-bg-color: var(--docs-pre-bg);
+  --md-code-fg-color: #f8f8f2;
+  --md-code-hl-color: #1abc9c;
+  --md-code-hl-color--light: rgba(26, 188, 156, 0.15);
+  --md-code-hl-comment-color: #d4d0ab;
+  --md-code-hl-keyword-color: #dcc6e0;
+  --md-code-hl-string-color: #abe338;
+  --md-code-hl-number-color: #f5ab35;
+  --md-code-hl-function-color: #00e0e0;
+  --md-code-hl-constant-color: #f5ab35;
+  --md-code-hl-special-color: #ffa07a;
+  --md-code-hl-variable-color: #ffa07a;
+  --md-code-hl-operator-color: #f8f8f2;
+  --md-code-hl-punctuation-color: #f8f8f2;
+  --md-code-hl-name-color: #f8f8f2;
+  --md-code-hl-generic-color: #f5ab35;
+
+  --md-footer-bg-color: var(--docs-bg);
+  --md-footer-bg-color--dark: var(--docs-bg);
+  --md-footer-fg-color: var(--docs-text);
+  --md-footer-fg-color--light: var(--docs-text);
+  --md-footer-fg-color--lighter: var(--docs-muted);
+}
+
+body {
+  background-color: var(--docs-bg);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Navbar (header): breadcrumbs left, GitHub link and theme toggle right  */
+/* ---------------------------------------------------------------------- */
+
+.md-header {
+  background-color: var(--docs-bg);
+  color: var(--docs-text);
+  border-bottom: 1px solid var(--docs-border);
+  box-shadow: none;
+}
+
+.md-header--shadow {
+  box-shadow: none;
+}
+
+.md-header__inner {
+  min-height: 64px;
+  padding: 0 16px;
+}
+
+.md-header__button,
+.md-header__option .md-header__button {
+  color: var(--docs-link);
+  margin: 0 6px;
+}
+
+.md-header__button:hover {
+  color: var(--docs-link-hover);
+  opacity: 1;
+}
+
+.docs-breadcrumb {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.docs-breadcrumb ol {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-breadcrumb li {
+  display: flex;
+  align-items: center;
+}
+
+.docs-breadcrumb li > * {
+  padding: 0 0.75em;
+  color: var(--docs-strong);
+}
+
+.docs-breadcrumb li:first-child > * {
+  padding-left: 0;
+}
+
+.docs-breadcrumb li + li::before {
+  content: "/";
+  color: var(--docs-breadcrumb-sep);
+}
+
+.docs-breadcrumb li.is-active a {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Narrow screens: only the page title, as in Documenter. */
+@media screen and (max-width: 59.984375em) {
+  .docs-breadcrumb li:not(.is-active) {
+    display: none;
+  }
+
+  .docs-breadcrumb li + li::before {
+    content: none;
+  }
+
+  .docs-breadcrumb li.is-active > * {
+    padding-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.docs-navbar-link {
+  display: flex;
+  align-items: center;
+  margin: 0 6px;
+  color: var(--docs-link);
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.docs-navbar-link:hover {
+  color: var(--docs-link-hover);
+}
+
+.docs-navbar-link .docs-icon svg {
+  display: block;
+  width: 1.1em;
+  height: 1.1em;
+  fill: currentcolor;
+}
+
+.docs-navbar-link .docs-label {
+  margin-left: 0.3em;
+}
+
+@media screen and (max-width: 44.984375em) {
+  .docs-navbar-link .docs-label {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Search: a centred dialog opened from the sidebar button (or "/")        */
+/* ---------------------------------------------------------------------- */
+
+@media screen and (min-width: 60em) {
+  .md-search {
+    padding: 0;
+  }
+
+  .md-search__inner {
+    float: none;
+    position: fixed;
+    top: 10vh;
+    left: 50%;
+    width: min(640px, 90vw);
+    padding: 0;
+    transform: translateX(-50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    z-index: 6;
+  }
+
+  [data-md-toggle="search"]:checked ~ .md-header .md-search__inner {
+    width: min(640px, 90vw);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .md-search__form,
+  [data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+    height: 40px;
+    background-color: var(--docs-bg);
+    color: var(--docs-text);
+    border: 1px solid var(--docs-border);
+    border-radius: 4px 4px 0 0;
+  }
+
+  .md-search__form:hover {
+    background-color: var(--docs-bg);
+  }
+
+  .md-search__input {
+    font-size: 16px;
+  }
+
+  .md-search__input::placeholder,
+  .md-search__input + .md-search__icon {
+    color: var(--docs-search-fg);
+  }
+
+  .md-search__icon[for="__search"] {
+    top: 8px;
+  }
+
+  .md-search__output {
+    top: 40px;
+  }
+
+  .md-search__scrollwrap {
+    width: 100%;
+  }
+
+  .md-search__overlay {
+    background-color: rgba(10, 10, 10, 0.6);
+  }
+
+  /* The dialog and its backdrop also cover the fixed sidebar. */
+  [data-md-toggle="search"]:checked ~ .md-header {
+    z-index: 6;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Sidebar: logo, package name, search button, menu, version selector     */
+/* ---------------------------------------------------------------------- */
+
+.md-sidebar--primary {
+  --md-default-bg-color: var(--docs-sidebar-bg);
+  background-color: var(--docs-sidebar-bg);
+  color: var(--docs-sidebar-fg);
+}
+
+.md-nav--primary > .md-nav__title {
+  display: none;
+}
+
+.docs-sidebar-head {
+  text-align: center;
+}
+
+.docs-logo {
+  display: block;
+  margin-top: 16px;
+  padding: 0 16px;
+}
+
+.docs-logo > img {
+  display: block;
+  max-height: 96px;
+  margin: auto;
+}
+
+.docs-package-name {
+  padding: 8px 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.docs-package-name a,
+.docs-package-name a:hover {
+  color: var(--docs-sidebar-fg);
+}
+
+.docs-search-query {
+  display: flex;
+  align-items: center;
+  width: 230px;
+  height: 30px;
+  margin: 8px auto;
+  padding: 4px 8px 4px 13px;
+  border: 1px solid var(--docs-border);
+  border-radius: 9999px;
+  background-color: var(--docs-bg);
+  box-shadow: inset 0 1px 2px rgba(10, 10, 10, 0.1);
+  color: var(--docs-search-fg);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.md-sidebar--primary .md-nav {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.md-sidebar--primary .md-nav__link,
+.md-sidebar--primary .md-nav__link--active,
+.md-sidebar--primary .md-nav__link:hover,
+.md-sidebar--primary .md-nav__link:focus {
+  color: var(--docs-sidebar-fg);
+}
+
+.md-sidebar--primary .md-ellipsis {
+  white-space: normal;
+  overflow: visible;
+}
+
+.docs-version-selector {
+  display: flex;
+  align-items: stretch;
+  padding: 8px;
+  border-top: 1px solid var(--docs-border);
+  background-color: var(--docs-sidebar-bg);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.docs-version-selector:not(:has(.md-version)) {
+  display: none;
+}
+
+.docs-version-selector .docs-label {
+  display: flex;
+  align-items: center;
+  padding: 0 0.75em;
+  border: 1px solid var(--docs-border);
+  border-radius: 4px 0 0 4px;
+  background-color: var(--docs-sidebar-bg);
+  color: var(--docs-muted);
+}
+
+.docs-version-selector .md-header__topic {
+  position: relative;
+  display: block;
+  flex: 1 1 auto;
+  max-width: none;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  font-weight: 400;
+  z-index: auto;
+}
+
+.docs-version-selector .md-version {
+  height: auto;
+  font-size: 12px;
+}
+
+.docs-version-selector .md-version__current {
+  display: block;
+  top: 0;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  padding: 0 2.5em 0 0.75em;
+  border: 1px solid var(--docs-border);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  background-color: var(--docs-bg);
+  color: var(--docs-text);
+  text-align: left;
+}
+
+.docs-version-selector .md-version__current::after {
+  position: absolute;
+  top: 50%;
+  right: 0.9em;
+  margin: -0.3rem 0 0;
+  color: var(--docs-link);
+}
+
+.docs-version-selector .md-version__list {
+  top: auto;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin: 0 0 4px;
+  border: 1px solid var(--docs-border);
+  border-radius: 4px;
+}
+
+.docs-version-selector .md-version__link {
+  padding: 0 0.75em;
+}
+
+/* Desktop: fixed full-height sidebar, 52rem column next to it ----------- */
+
+@media screen and (min-width: 76.25em) {
+  .md-header,
+  .md-container {
+    margin-left: 320px;
+    margin-right: 16px;
+    max-width: 816px;
+  }
+
+  .md-header {
+    position: relative;
+    margin-bottom: 16px;
+  }
+
+  .md-header__inner {
+    padding: 0;
+  }
+
+  .md-grid {
+    max-width: none;
+    margin: 0;
+  }
+
+  .md-main__inner {
+    margin-top: 0;
+  }
+
+  /* Material's script sets an inline `top` (header height); override it. */
+  .md-sidebar--primary {
+    position: fixed;
+    top: 0 !important;
+    left: 0;
+    width: 288px;
+    height: 100vh !important;
+    padding: 0;
+    border-right: 1px solid var(--docs-border);
+    z-index: 5;
+  }
+
+  .md-sidebar--primary .md-sidebar__scrollwrap {
+    height: 100% !important;
+    margin: 0;
+    scrollbar-gutter: auto;
+    scrollbar-color: var(--docs-scrollbar) transparent;
+    scrollbar-width: thin;
+  }
+
+  /* Chromium/WebKit: Documenter's 0.3rem scrollbar instead of a gutter */
+  @supports selector(::-webkit-scrollbar) {
+    .md-sidebar--primary .md-sidebar__scrollwrap {
+      scrollbar-color: auto;
+      scrollbar-width: auto;
+    }
+
+    .md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar {
+      width: 4.8px;
+      background: none;
+    }
+
+    .md-sidebar--primary .md-sidebar__scrollwrap::-webkit-scrollbar-thumb,
+    .md-sidebar--primary .md-sidebar__scrollwrap:hover::-webkit-scrollbar-thumb {
+      border-radius: 5px 0 0 5px;
+      background: var(--docs-scrollbar);
+    }
+  }
+
+  .md-sidebar--primary .md-sidebar__inner {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: 0 !important;
+  }
+
+  .md-nav--primary {
+    display: flex;
+    flex: 1 0 auto;
+    flex-direction: column;
+  }
+
+  .md-nav--primary > .md-nav__list {
+    flex: 1 0 auto;
+    padding-bottom: 24px;
+    border-top: 1px solid var(--docs-border);
+  }
+
+  .docs-version-selector {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+  }
+
+  /* Menu items (Documenter .tocitem) */
+  [dir="ltr"] .md-nav--primary .md-nav__list {
+    margin: 0;
+    padding-left: 0;
+  }
+
+  .md-nav--primary .md-nav__item {
+    padding: 0;
+  }
+
+  [dir="ltr"] .md-nav--primary .md-nav__link {
+    display: flex;
+    margin: 0;
+    padding: 8px;
+    border-radius: 0;
+    transition: none;
+  }
+
+  .md-nav--primary a.md-nav__link:hover,
+  .md-nav--primary label.md-nav__link:hover {
+    background-color: var(--docs-sidebar-hover);
+  }
+
+  .md-nav--primary > .md-nav__list > .md-nav__item > .md-nav__link {
+    font-weight: 700;
+  }
+
+  /* Sections ("Usage", "Reference", ...): bold label, indented children */
+  .md-nav--primary .md-nav__item--section {
+    margin: 0;
+  }
+
+  .md-nav--primary .md-nav__item--section > .md-nav__link {
+    color: var(--docs-sidebar-fg);
+    pointer-events: none;
+  }
+
+  .md-nav--primary .md-nav__item--section > .md-nav__link .md-nav__icon {
+    display: none;
+  }
+
+  .md-nav--primary .md-nav__item--section > .md-nav {
+    display: block;
+    margin: 0;
+  }
+
+  .md-nav--primary .md-nav__item .md-nav__item {
+    margin-left: 16px;
+    border-left: 1px solid var(--docs-border);
+    font-size: 0.95em;
+  }
+
+  /* The current page: white box with its sections below (toc.integrate) */
+  .md-nav--primary .md-nav__item--active:has(> .md-nav__link--active) {
+    border-top: 1px solid var(--docs-border);
+    border-bottom: 1px solid var(--docs-border);
+    background-color: var(--docs-sidebar-active);
+  }
+
+  .md-nav--primary > .md-nav__list > .md-nav__item--active:first-child {
+    border-top: none;
+  }
+
+  .md-nav--primary .md-nav__item--active > a.md-nav__link--active:hover {
+    background-color: var(--docs-sidebar-active);
+  }
+
+  [dir] .md-nav--primary .md-nav__link[for="__toc"] {
+    display: none;
+  }
+
+  [dir] .md-nav--primary.md-nav--integrated .md-nav__item--active > .md-nav--secondary {
+    margin: 0 8px 8px;
+    border-top: 1px solid var(--docs-border);
+    border-left: none;
+  }
+
+  .md-nav--primary .md-nav--secondary > .md-nav__list {
+    padding: 0;
+  }
+
+  .md-nav--primary .md-nav--secondary .md-nav__item {
+    margin: 8px 0 0;
+    border-left: none;
+    font-size: 13.6px;
+  }
+
+  [dir="ltr"] .md-nav--primary .md-nav--secondary .md-nav__link {
+    display: block;
+    padding: 0;
+  }
+
+  .md-nav--primary .md-nav--secondary .md-nav__link:hover {
+    background-color: var(--docs-sidebar-hover);
+  }
+
+  .md-nav--primary .md-nav--secondary .md-nav__link::before {
+    content: "⚬";
+    margin-right: 0.4em;
+  }
+
+  /* Documenter lists only the level-2 headings of the page. */
+  .md-nav--primary .md-nav--secondary .md-nav .md-nav {
+    display: none;
+  }
+
+  .md-nav--primary .md-nav--secondary > .md-nav__title {
+    display: none;
+  }
+
+  /* Content column */
+  .md-content__inner {
+    margin: 0 0 16px;
+    padding-top: 0;
+  }
+
+  [dir="ltr"] .md-sidebar--primary:not([hidden]) ~ .md-content > .md-content__inner {
+    margin-left: 0;
+  }
+
+  .md-content__inner::before {
+    display: none;
+  }
+
+  .md-top {
+    margin-left: 160px;
+  }
+}
+
+/* Tablet / phone: Documenter's sidebar slides in at full 18rem width ---- */
+
+@media screen and (max-width: 76.234375em) {
+  [dir="ltr"] .md-sidebar--primary {
+    left: -288px;
+    width: 288px;
+  }
+
+  [dir="ltr"] [data-md-toggle="drawer"]:checked ~ .md-container .md-sidebar--primary {
+    transform: translateX(288px);
+  }
+
+  .md-nav--primary .md-nav__item {
+    border-top-color: var(--docs-border);
+  }
+
+  .md-main__inner {
+    margin-top: 16px;
+  }
+
+  .md-content__inner {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Content typography                                                     */
+/* ---------------------------------------------------------------------- */
+
+.md-typeset {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--docs-text);
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--docs-strong);
+  font-weight: 600;
+  line-height: 1.125;
+  letter-spacing: normal;
+}
+
+.md-typeset h1 {
+  font-size: 2em;
+  margin: 1em 0 0.5em;
+}
+
+.md-typeset h2 {
+  font-size: 1.75em;
+  margin: 1.1428em 0 0.5714em;
+}
+
+.md-typeset h3 {
+  font-size: 1.5em;
+  margin: 1.3333em 0 0.6666em;
+}
+
+.md-typeset h4 {
+  font-size: 1.25em;
+  margin: 1em 0 0.8em;
+}
+
+.md-typeset h5 {
+  font-size: 1.125em;
+  margin: 1em 0 0.8888em;
+  color: var(--docs-strong);
+  text-transform: none;
+}
+
+.md-typeset h6 {
+  font-size: 1em;
+  margin: 1em 0;
+  color: var(--docs-strong);
+  text-transform: none;
+}
+
+.md-typeset > h1:first-child,
+.md-typeset > :first-child {
+  margin-top: 0;
+}
+
+/* Permalink icon appears on hover, like Documenter's link icon. */
+.md-typeset .headerlink {
+  margin-left: 0.5em;
+  font-size: 0.7em;
+  color: var(--docs-muted);
+}
+
+.md-typeset .headerlink:hover,
+.md-typeset .headerlink:focus {
+  color: var(--docs-link);
+}
+
+.md-typeset p,
+.md-typeset ol,
+.md-typeset ul,
+.md-typeset dl,
+.md-typeset blockquote {
+  margin: 0 0 1em;
+}
+
+[dir] .md-typeset ul,
+[dir] .md-typeset ol {
+  margin-left: 2em;
+  padding: 0;
+}
+
+.md-typeset ul li,
+.md-typeset ol li {
+  margin: 0;
+}
+
+.md-typeset ul li + li,
+.md-typeset ol li + li {
+  margin-top: 0.25em;
+}
+
+[dir="ltr"] .md-typeset ul li,
+[dir="ltr"] .md-typeset ol li {
+  margin-left: 0;
+}
+
+.md-typeset ul ul,
+.md-typeset ol ol,
+.md-typeset ul ol,
+.md-typeset ol ul {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.md-typeset ul ul {
+  list-style-type: circle;
+}
+
+.md-typeset a {
+  color: var(--docs-link);
+}
+
+.md-typeset a:hover,
+.md-typeset a:focus {
+  color: var(--docs-link-hover);
+}
+
+.md-typeset strong {
+  color: var(--docs-strong);
+  font-weight: 700;
+}
+
+.md-typeset hr {
+  height: 2px;
+  margin: 1.5rem 0;
+  border: none;
+  background-color: var(--docs-pre-bg);
+}
+
+.md-typeset blockquote {
+  padding: 1.25em 1.5em;
+  border-left: 5px solid var(--docs-border);
+  background-color: var(--docs-pre-bg);
+  color: var(--docs-text);
+}
+
+/* Inline code */
+.md-typeset code,
+.md-typeset kbd {
+  font-size: 0.875em;
+}
+
+.md-typeset :not(pre) > code {
+  padding: 0.1em;
+  border-radius: 0;
+  background-color: var(--docs-code-bg);
+  color: var(--docs-code-fg);
+  font-weight: inherit;
+}
+
+.md-typeset a > code,
+.md-typeset a:not(:hover) > code {
+  color: var(--docs-link);
+}
+
+.md-typeset a:hover > code {
+  color: var(--docs-link-hover);
+}
+
+.md-typeset h1 code,
+.md-typeset h2 code,
+.md-typeset h3 code,
+.md-typeset h4 code {
+  color: var(--docs-strong);
+}
+
+/* Code blocks: grey box with a 2px border and rounded corners */
+.md-content .md-typeset pre {
+  margin: 0 0 1em;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.md-typeset .highlight pre,
+.md-typeset pre:not(.mermaid) {
+  border: 2px solid var(--docs-border);
+  border-radius: 4px;
+  background-color: var(--docs-pre-bg);
+}
+
+.md-typeset .highlight pre > code,
+.md-typeset pre > code {
+  padding: 8px 12px;
+  font-size: 1em;
+  background-color: transparent;
+  border-radius: 0;
+}
+
+.md-typeset .highlight {
+  margin: 0 0 1em;
+}
+
+.md-typeset .highlight .k,
+.md-typeset .highlight .kd,
+.md-typeset .highlight .kn,
+.md-typeset .highlight .kr,
+.md-typeset .highlight .kt,
+.md-typeset .highlight .nt,
+.md-typeset .highlight .gh,
+.md-typeset .highlight .gu {
+  font-weight: 700;
+}
+
+.md-clipboard {
+  color: var(--docs-text);
+  opacity: 0.2;
+}
+
+.md-typeset .highlight:hover .md-clipboard,
+.md-clipboard:hover,
+.md-clipboard:focus {
+  color: var(--docs-link);
+  opacity: 1;
+}
+
+/* Tables: Bulma .content tables (rules between rows, no outer frame) */
+.md-typeset table:not([class]) {
+  border: none;
+  border-radius: 0;
+  font-size: 1em;
+  line-height: 1.5;
+  background-color: transparent;
+}
+
+.md-typeset table:not([class]) th,
+.md-typeset table:not([class]) td {
+  padding: 0.5em 0.75em;
+  border: solid var(--docs-border);
+  border-width: 0 0 1px;
+  vertical-align: top;
+}
+
+.md-typeset table:not([class]) th {
+  min-width: 0;
+  border-bottom-width: 2px;
+  background-color: transparent;
+  color: var(--docs-strong);
+  font-weight: 700;
+}
+
+.md-typeset table:not([class]) tbody tr:last-child td {
+  border-bottom-width: 0;
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+/* Admonitions: 2px coloured frame, coloured title, grey body */
+.md-typeset .admonition,
+.md-typeset details {
+  --docs-adm-color: var(--docs-adm-default);
+  margin: 0 0 1.5em;
+  padding: 0 12px;
+  border: 2px solid var(--docs-adm-color);
+  border-radius: 4px;
+  background-color: var(--docs-adm-bg);
+  box-shadow: none;
+  color: var(--docs-adm-body);
+  font-size: 1em;
+}
+
+/* [class] outranks Material's per-type colours (.md-typeset .note > ...) */
+.md-typeset .admonition[class],
+.md-typeset details[class] {
+  border-color: var(--docs-adm-color);
+}
+
+.md-typeset .admonition[class] > .admonition-title,
+.md-typeset details[class] > summary {
+  margin: 0 -12px;
+  padding: 8px 12px 8px 40px;
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--docs-adm-color);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.md-typeset .admonition[class] > .admonition-title::before,
+.md-typeset details[class] > summary::before {
+  left: 12px;
+  top: 8px;
+  width: 18px;
+  height: 18px;
+  background-color: var(--docs-adm-color);
+}
+
+.md-typeset details[class] > summary::after {
+  top: 10px;
+  color: var(--docs-adm-color);
+}
+
+.md-typeset .admonition.note,
+.md-typeset details.note,
+.md-typeset .admonition.info,
+.md-typeset details.info,
+.md-typeset .admonition.todo,
+.md-typeset details.todo {
+  --docs-adm-color: #3c5dcd;
+}
+
+.md-typeset .admonition.tip,
+.md-typeset details.tip,
+.md-typeset .admonition.hint,
+.md-typeset details.hint,
+.md-typeset .admonition.important,
+.md-typeset details.important,
+.md-typeset .admonition.success,
+.md-typeset details.success,
+.md-typeset .admonition.check,
+.md-typeset details.check,
+.md-typeset .admonition.done,
+.md-typeset details.done {
+  --docs-adm-color: #259a12;
+}
+
+.md-typeset .admonition.warning,
+.md-typeset details.warning,
+.md-typeset .admonition.caution,
+.md-typeset details.caution,
+.md-typeset .admonition.attention,
+.md-typeset details.attention,
+.md-typeset .admonition.question,
+.md-typeset details.question,
+.md-typeset .admonition.help,
+.md-typeset details.help,
+.md-typeset .admonition.faq,
+.md-typeset details.faq {
+  --docs-adm-color: var(--docs-adm-warning);
+}
+
+.md-typeset .admonition[class]:is(.warning, .caution, .attention, .question, .help, .faq),
+.md-typeset details[class]:is(.warning, .caution, .attention, .question, .help, .faq) {
+  border-color: #f4c72f;
+}
+
+.md-typeset .admonition.danger,
+.md-typeset details.danger,
+.md-typeset .admonition.error,
+.md-typeset details.error,
+.md-typeset .admonition.failure,
+.md-typeset details.failure,
+.md-typeset .admonition.fail,
+.md-typeset details.fail,
+.md-typeset .admonition.missing,
+.md-typeset details.missing,
+.md-typeset .admonition.bug,
+.md-typeset details.bug {
+  --docs-adm-color: #cb3c33;
+}
+
+.md-typeset .admonition.example,
+.md-typeset details.example {
+  --docs-adm-color: #9558b2;
+}
+
+.md-typeset .admonition.abstract,
+.md-typeset details.abstract,
+.md-typeset .admonition.summary,
+.md-typeset details.summary,
+.md-typeset .admonition.tldr,
+.md-typeset details.tldr {
+  --docs-adm-color: #3489da;
+}
+
+.md-typeset .admonition pre,
+.md-typeset details pre {
+  background-color: var(--docs-pre-bg);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Footer: « previous | next » links and a small centred message          */
+/* ---------------------------------------------------------------------- */
+
+.md-footer {
+  background-color: transparent;
+  color: var(--docs-text);
+}
+
+.md-footer__inner {
+  padding: 16px 0;
+  border-top: 1px solid var(--docs-border);
+}
+
+.md-footer__link {
+  align-items: baseline;
+  flex-grow: 1;
+  margin: 0;
+  color: var(--docs-link);
+}
+
+.md-footer__link:hover,
+.md-footer__link:focus {
+  opacity: 1;
+  color: var(--docs-link-hover);
+}
+
+.md-footer__button,
+.md-footer__direction {
+  display: none;
+}
+
+.md-footer__title {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.md-footer__link--prev .md-ellipsis::before {
+  content: "« ";
+}
+
+.md-footer__link--next .md-ellipsis::after {
+  content: " »";
+}
+
+@media screen and (max-width: 44.984375em) {
+  .md-footer__link--prev .md-footer__title {
+    display: block;
+  }
+}
+
+.md-footer-meta,
+.md-footer-meta.md-typeset {
+  background-color: transparent;
+}
+
+.md-footer-meta__inner {
+  justify-content: center;
+  padding: 0 0 16px;
+}
+
+.md-copyright {
+  width: auto;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--docs-text);
+  font-size: 12.8px;
+  text-align: center;
+}
+
+html .md-footer-meta.md-typeset a {
+  color: var(--docs-link);
+}
+
+html .md-footer-meta.md-typeset a:hover,
+html .md-footer-meta.md-typeset a:focus {
+  color: var(--docs-link-hover);
+}
