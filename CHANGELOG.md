@@ -25,8 +25,10 @@ All notable changes to the C++ line of Baysor are documented here.
 ### Changed
 
 - OpenMP is no longer used: all parallel code runs on Baysor's own thread pool.
-  Multi-threaded runs are deterministic and give the same result at any thread
-  count.
+  Runs are reproducible: repeated runs give identical results, and all
+  multi-threaded runs give the same result whatever the number of threads
+  (a single-threaded run uses its own random-number stream and can differ
+  slightly).
 - Faster segmentation with less memory than cpp-0.8.3: about 2–3× faster at
   6 threads and 20–30 % faster at 1 thread, with 10–40 % lower peak memory.
 - Molecule clustering scales to large gene panels: above 3,000 genes the ICA
@@ -49,8 +51,8 @@ All notable changes to the C++ line of Baysor are documented here.
 - Every cell in `segmentation.csv` gets exactly one polygon, so Xenium Ranger
   no longer reports `MissingCellPolygon` (#165).
 - Multi-threaded runs reused the same random numbers in every iteration, which
-  made results depend on the thread count (e.g. about 7 % more cells on an ISS
-  dataset at 6 threads).
+  made results depend on the thread count and differ between repeated runs
+  (e.g. about 7 % more cells on an ISS dataset at 6 threads).
 - Single-threaded results no longer depend on the output path.
 - Crashes on very small inputs: `--n-cells-init 1` or too few molecules for
   `-m`, fewer genes than clusters in the ICA initialisation, and NCV colours
