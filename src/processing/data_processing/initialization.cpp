@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace baysor {
@@ -38,6 +40,11 @@ static std::vector<int> select_ids_uniformly(
     const std::vector<double>* confidences,
     double confidence_threshold = 0.25
 ) {
+    // Matches Julia's select_ids_uniformly; the step below divides by n - 1
+    if (n <= 1) {
+        throw std::runtime_error("n must be > 1");
+    }
+
     int total = static_cast<int>(pos_data.cols());
 
     // Collect high-confidence molecule indices
@@ -53,11 +60,13 @@ static std::vector<int> select_ids_uniformly(
     }
 
     if (static_cast<int>(high_conf_ids.size()) < n) {
-        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.",
+        spdlog::warn("n={} > high_conf molecules ({}). Using all high-conf molecules.", // GCOVR_EXCL_LINE: dead GCC block; the call executes and is counted on the following line(s)
                      n, high_conf_ids.size());
         n = static_cast<int>(high_conf_ids.size());
     }
     if (n <= 0) return {};
+
+    if (n == 1) return {high_conf_ids[0]};  // a single high-confidence molecule
 
     // Sort high_conf_ids by sum of coordinates
     std::vector<std::pair<double,int>> sum_ids(high_conf_ids.size());
@@ -81,26 +90,14 @@ static std::vector<int> select_ids_uniformly(
 // build_molecule_graph
 // ============================================================================
 
-AdjList build_molecule_graph(
-    const MoleculeData& data,
-    bool filter,
-    bool use_local_gene_similarities,
-    AdjacencyType type,
-    int composition_neighborhood,
-    int n_gene_pcs
-) {
+AdjacencyResult compute_molecule_adjacency(const MoleculeData& data) {
     Eigen::MatrixXd pos = data.position_matrix();
-    int n = static_cast<int>(pos.cols());
+    return adjacency_list(pos, /*filter=*/false, /*n_mads=*/2.0, /*k_adj=*/5,
+                          AdjacencyType::Auto);
+}
 
-    auto adj_result = adjacency_list(pos, filter, /*n_mads=*/2.0, /*k_adj=*/5, type);
-
+AdjList build_molecule_graph_from_edges(const AdjacencyResult& adj_result, int n) {
     int n_edges = static_cast<int>(adj_result.edge_src.size());
-    if (n_edges == 0) {
-        AdjList adj;
-        adj.indptr.assign(n + 1, 0);
-        return adj;
-    }
-
     double min_edge_length = quantile_vec(adj_result.edge_dists, 0.3);
 
     std::vector<double> edge_weights(n_edges);
@@ -115,6 +112,33 @@ AdjList build_molecule_graph(
         n_edges,
         n
     );
+}
+
+AdjList build_molecule_graph(
+    const MoleculeData& data,
+    bool filter,
+    bool use_local_gene_similarities,
+    AdjacencyType type,
+    int composition_neighborhood,
+    int n_gene_pcs,
+    std::optional<AdjacencyResult> precomputed_edges
+) {
+    // Without duplicate coordinates the triangulation is a pure function of
+    // the positions and draws no RNG, so the precomputed edges equal a
+    // recomputation. With duplicates each computation draws its own jitter,
+    // so recompute as if no edges had been passed.
+    if (precomputed_edges.has_value() && precomputed_edges->normalize_rng_draws == 0) {
+        if (filter) {
+            filter_long_edges(*precomputed_edges, /*n_mads=*/2.0);
+        }
+        return build_molecule_graph_from_edges(*precomputed_edges, data.n_molecules());
+    }
+
+    Eigen::MatrixXd pos = data.position_matrix();
+    int n = static_cast<int>(pos.cols());
+
+    auto adj_result = adjacency_list(pos, filter, /*n_mads=*/2.0, /*k_adj=*/5, type);
+    return build_molecule_graph_from_edges(adj_result, n);
 }
 
 // ============================================================================
@@ -132,14 +156,13 @@ InitialParams<N> cell_centers_uniformly(
 
     int n_mols = static_cast<int>(pos_data.cols());
     n_clusters = std::min(n_clusters, n_mols);
-    if (n_clusters <= 0) n_clusters = 1;
 
     // Select n_clusters initial centers evenly-spaced in coordinate-sum order
     auto center_ids = select_ids_uniformly(pos_data, n_clusters, confidences);
     n_clusters = static_cast<int>(center_ids.size());
     if (n_clusters == 0) {
         // Degenerate: return empty
-        InitialParams<N> result;
+        InitialParams<N> result; // GCOVR_EXCL_LINE: dead GCC block; statement counted on the following line
         result.centers = Eigen::MatrixXd::Zero(0, N);
         result.assignment.assign(n_mols, 1);
         return result;
@@ -155,7 +178,7 @@ InitialParams<N> cell_centers_uniformly(
     auto knn = knn_parallel(center_mat, pos_data, 1, /*sorted=*/false);
     std::vector<int> cluster_labels(n_mols);
     for (int i = 0; i < n_mols; ++i) {
-        cluster_labels[i] = knn.indices[i][0] + 1;  // 1-based
+        cluster_labels[i] = knn.idx_row(i)[0] + 1;  // 1-based
     }
 
     // Build covariances
@@ -230,7 +253,7 @@ InitialParams<N> cell_centers_uniformly(
 template<int N>
 BmmData<N> initialize_bmm_data(
     const MoleculeData& mol_data,
-    const AdjList& adj_list,
+    AdjList adj_list,
     int n_cells_init,
     double scale,
     const std::string& scale_std_str,
@@ -315,7 +338,7 @@ BmmData<N> initialize_bmm_data(
     bm_data.cluster_per_molecule = mol_data.cluster;
     bm_data.nuclei_prob_per_molecule = mol_data.nuclei_probs;
 
-    bm_data.adj_list   = adj_list;
+    bm_data.adj_list   = std::move(adj_list);
     bm_data.components = std::move(components);
     bm_data.assignment = init.assignment;
     bm_data.max_component_guid = actual_n_cells;
@@ -350,10 +373,10 @@ template InitialParams<2> cell_centers_uniformly<2>(
 template InitialParams<3> cell_centers_uniformly<3>(
     const Eigen::MatrixXd&, int, const std::vector<double>*, double);
 template BmmData<2> initialize_bmm_data<2>(
-    const MoleculeData&, const AdjList&, int, double,
+    const MoleculeData&, AdjList, int, double,
     const std::string&, double, int, bool);
 template BmmData<3> initialize_bmm_data<3>(
-    const MoleculeData&, const AdjList&, int, double,
+    const MoleculeData&, AdjList, int, double,
     const std::string&, double, int, bool);
 
 } // namespace baysor

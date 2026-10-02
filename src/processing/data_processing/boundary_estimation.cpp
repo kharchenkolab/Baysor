@@ -1,8 +1,10 @@
 #include "baysor/processing/data_processing/boundary_estimation.h"
+#include "baysor/processing/data_processing/boundary_estimation_internal.h"
 
 #include "baysor/processing/data_processing/triangulation.h"
 #include "baysor/processing/utils/utils.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
@@ -13,7 +15,6 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
-#include <omp.h>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <unordered_map>
@@ -174,11 +175,7 @@ std::vector<Triangle> extract_triangle_verts(CgalDelaunay& dt) {
     std::vector<Triangle> triangles;
     triangles.reserve(static_cast<size_t>(dt.number_of_faces()));
     for (auto fit = dt.finite_faces_begin(); fit != dt.finite_faces_end(); ++fit) {
-        triangles.push_back({
-            fit->vertex(0)->info(),
-            fit->vertex(1)->info(),
-            fit->vertex(2)->info()
-        });
+        triangles.push_back({fit->vertex(0)->info(), fit->vertex(1)->info(), fit->vertex(2)->info()});
     }
     return triangles;
 }
@@ -211,11 +208,15 @@ std::vector<Edge> extract_border_edges(const std::vector<Triangle>& triangles) {
     return border_edges;
 }
 
+} // namespace
+
+namespace internal {
+
 std::vector<Edge> find_border_without_admixture(
     const std::vector<Triangle>& triangles,
     const Eigen::MatrixXd& pos_data,
     const Eigen::MatrixXd& non_cell_pos,
-    int max_iters = 100
+    int max_iters
 ) {
     std::vector<std::array<Edge, 3>> edges_per_tri(triangles.size());
     std::unordered_map<std::uint64_t, int> edge_counts;
@@ -301,15 +302,12 @@ std::vector<Edge> find_border_without_admixture(
     border_edges.reserve(edge_counts.size());
     for (const auto& [key, n] : edge_counts) {
         if (n != 1) continue;
-        border_edges.push_back({
-            static_cast<int>(key >> 32),
-            static_cast<int>(key & 0xffffffffu)
-        });
+        border_edges.push_back({static_cast<int>(key >> 32), static_cast<int>(key & 0xffffffffu)});
     }
     return border_edges;
 }
 
-std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int max_border_len = 10000) {
+std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int max_border_len) {
     if (border_edges.size() <= 2) return {};
 
     std::unordered_map<int, std::pair<int, int>> adjacency;
@@ -358,6 +356,10 @@ std::vector<int> border_edges_to_poly(const std::vector<Edge>& border_edges, int
     return {};
 }
 
+} // namespace internal
+
+namespace {
+
 PolygonCollection build_polygons_for_cells(
     const Eigen::MatrixXd& pos_data,
     const std::vector<int>& cell_labels,
@@ -377,104 +379,106 @@ PolygonCollection build_polygons_for_cells(
     auto ids_per_bbox = extract_ids_per_bbox(pos2d.row(0).transpose(), pos2d.row(1).transpose(), bboxes);
     auto mids_per_cell = split_ids(cell_labels, max_label, /*drop_zero=*/true);
 
-    auto knn = knn_parallel(pos2d, pos2d, 2, true);
-    double mean_nn_dist = 1.0;
-    if (!knn.distances.empty()) {
-        double sum = 0.0;
-        int count = 0;
-        for (const auto& d : knn.distances) {
-            if (d.size() >= 2) {
-                sum += d[1];
-                ++count;
-            }
-        }
-        if (count > 0) mean_nn_dist = sum / count;
-    }
+    const std::vector<double> nn_dists = knn_kth_distances(pos2d, 2, 1);
+    const double mean_nn_dist = std::accumulate(nn_dists.begin(), nn_dists.end(), 0.0) / n;
     const double offset = mean_nn_dist * offset_rel;
 
-    std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
-
-    #pragma omp parallel for schedule(dynamic, 32) if(!omp_in_parallel())
-    for (int cid = 1; cid <= max_label; ++cid) {
+    // Free-form polygon of one cell; empty if the estimation fails.
+    auto cell_polygon = [&](int cid) -> Eigen::MatrixXd {
         const auto& cell_ids = mids_per_cell[cid - 1];
-        if (cell_ids.empty()) continue;
-
-        Eigen::MatrixXd poly;
         if (cell_ids.size() == 1) {
             const Eigen::Vector2d p = pos2d.col(cell_ids[0]);
-            poly.resize(2, 4);
+            Eigen::MatrixXd poly(2, 4);
             poly.col(0) = p + Eigen::Vector2d(offset, 0.0);
             poly.col(1) = p + Eigen::Vector2d(-offset, 0.0);
             poly.col(2) = p + Eigen::Vector2d(0.0, offset);
             poly.col(3) = p + Eigen::Vector2d(0.0, -offset);
-        } else if (cell_ids.size() == 2) {
+            return poly;
+        }
+        if (cell_ids.size() == 2) {
             const Eigen::Vector2d p1 = pos2d.col(cell_ids[0]);
             const Eigen::Vector2d p2 = pos2d.col(cell_ids[1]);
             const Eigen::Vector2d center = (p1 + p2) / 2.0;
-            poly.resize(2, 4);
+            Eigen::MatrixXd poly(2, 4);
             poly.col(0) = p1;
             poly.col(1) = p2;
             poly.col(2) = center + Eigen::Vector2d(offset, 0.0);
             poly.col(3) = center + Eigen::Vector2d(-offset, 0.0);
-        } else {
-            const auto& mids = ids_per_bbox[cid - 1];
-            if (mids.empty()) continue;
+            return poly;
+        }
 
-            const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
-            const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
+        const auto& mids = ids_per_bbox[cid - 1];
+        if (mids.empty()) return {};
 
-            std::vector<int> bbox_labels(mids.size());
-            int n_cell_pts = 0;
-            for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
-                bbox_labels[i] = cell_labels[mids[i]];
-                n_cell_pts += (bbox_labels[i] == cid);
-            }
-            if (n_cell_pts < 3) continue;
+        const Eigen::MatrixXd bbox_pos = subset_columns(pos2d, mids);
+        const Eigen::MatrixXd bbox_norm = subset_columns(norm_pts, mids);
 
-            std::vector<CgalPointWithInfo> cell_points;
-            cell_points.reserve(n_cell_pts);
-            std::vector<int> non_cell_ids;
-            non_cell_ids.reserve(mids.size() - n_cell_pts);
+        std::vector<int> bbox_labels(mids.size());
+        int n_cell_pts = 0;
+        for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
+            bbox_labels[i] = cell_labels[mids[i]];
+            n_cell_pts += (bbox_labels[i] == cid);
+        }
+        if (n_cell_pts < 3) return {};
 
-            for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
-                if (bbox_labels[i] == cid) {
-                    cell_points.push_back({CgalPoint(bbox_norm(0, i), bbox_norm(1, i)), i});
-                } else {
-                    non_cell_ids.push_back(i);
-                }
-            }
+        std::vector<CgalPointWithInfo> cell_points;
+        cell_points.reserve(n_cell_pts);
+        std::vector<int> non_cell_ids;
+        non_cell_ids.reserve(mids.size() - n_cell_pts);
 
-            CgalDelaunay dt;
-            dt.insert(cell_points.begin(), cell_points.end());
-            auto triangles = extract_triangle_verts(dt);
-            if (triangles.empty()) continue;
-
-            Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
-            for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
-                non_cell_pos.col(i) = bbox_pos.col(non_cell_ids[i]);
-            }
-
-            auto border_edges = find_border_without_admixture(triangles, bbox_pos, non_cell_pos);
-            auto poly_ids = border_edges_to_poly(border_edges);
-            if (poly_ids.empty()) continue;
-
-            poly.resize(2, static_cast<int>(poly_ids.size()));
-            for (int i = 0; i < static_cast<int>(poly_ids.size()); ++i) {
-                poly.col(i) = bbox_pos.col(poly_ids[i]);
+        for (int i = 0; i < static_cast<int>(mids.size()); ++i) {
+            if (bbox_labels[i] == cid) {
+                cell_points.push_back({CgalPoint(bbox_norm(0, i), bbox_norm(1, i)), i});
+            } else {
+                non_cell_ids.push_back(i);
             }
         }
 
-        if (poly.cols() == 0) continue;
-        polygons_by_cell[cid - 1] = std::move(poly);
-    }
+        CgalDelaunay dt;
+        dt.insert(cell_points.begin(), cell_points.end());
+        auto triangles = extract_triangle_verts(dt);
+        if (triangles.empty()) return {};
+
+        Eigen::MatrixXd non_cell_pos(2, static_cast<int>(non_cell_ids.size()));
+        for (int i = 0; i < static_cast<int>(non_cell_ids.size()); ++i) {
+            non_cell_pos.col(i) = bbox_pos.col(non_cell_ids[i]);
+        }
+
+        auto border_edges = internal::find_border_without_admixture(triangles, bbox_pos, non_cell_pos);
+        return subset_columns(bbox_pos, internal::border_edges_to_poly(border_edges));
+    };
+
+    // Bounding box of the cell's molecules, padded by the offset: every cell
+    // with a molecule needs a polygon, or the segmentation CSV and the
+    // polygons disagree and Xenium Ranger rejects the import.
+    auto bbox_polygon = [&](int cid) {
+        const Eigen::MatrixXd pts = subset_columns(pos2d, mids_per_cell[cid - 1]);
+        const double pad = std::max(offset, 1e-6);
+        const Eigen::Vector2d lo = pts.rowwise().minCoeff().array() - pad;
+        const Eigen::Vector2d hi = pts.rowwise().maxCoeff().array() + pad;
+        Eigen::MatrixXd poly(2, 4);
+        poly << lo.x(), hi.x(), hi.x(), lo.x(),
+                lo.y(), lo.y(), hi.y(), hi.y();
+        return poly;
+    };
+
+    std::vector<Eigen::MatrixXd> polygons_by_cell(max_label);
+    parallel_for(1, max_label + 1, 32, [&](int cid) {
+        if (mids_per_cell[cid - 1].empty()) return;
+        Eigen::MatrixXd poly = cell_polygon(cid);
+        polygons_by_cell[cid - 1] = poly.cols() >= 3 ? std::move(poly) : bbox_polygon(cid);
+    });
 
     PolygonCollection polygons;
     polygons.reserve(max_label);
     for (int cid = 1; cid <= max_label; ++cid) {
         if (polygons_by_cell[cid - 1].cols() == 0) continue;
-        const std::string cell_name = (cell_names && cid - 1 < static_cast<int>(cell_names->size()))
-            ? (*cell_names)[cid - 1]
-            : default_cell_name(cid);
+        // Labels beyond `cell_names` get the molecule CSV's name, `cell_<n>`.
+        std::string cell_name = default_cell_name(cid);
+        if (cell_names) {
+            cell_name = cid <= static_cast<int>(cell_names->size()) ? (*cell_names)[cid - 1]
+                                                                    : "cell_" + cell_name;
+        }
         polygons[cell_name] = std::move(polygons_by_cell[cid - 1]);
     }
 
@@ -556,7 +560,7 @@ std::vector<Eigen::MatrixXd> boundary_polygons_from_grid(
         dt.insert(pts.begin(), pts.end());
         auto triangles = extract_triangle_verts(dt);
         auto border_edges = extract_border_edges(triangles);
-        auto poly_ids = border_edges_to_poly(border_edges);
+        auto poly_ids = internal::border_edges_to_poly(border_edges);
         if (poly_ids.empty()) {
             polys.emplace_back();
             continue;
@@ -577,7 +581,8 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
     const std::vector<int>& assignment,
     bool estimate_per_z,
     const std::vector<std::string>* cell_names,
-    bool verbose
+    bool verbose,
+    int max_z_slices
 ) {
     if (verbose) {
         spdlog::info("Estimating boundary polygons...");
@@ -591,7 +596,6 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
         return {poly_joined, poly_stack};
     }
 
-    constexpr int max_z_slices = 10;
     std::vector<double> z_vals(pos_data.cols());
     for (int i = 0; i < pos_data.cols(); ++i) z_vals[i] = pos_data(2, i);
 
@@ -604,7 +608,8 @@ std::pair<PolygonCollection, PolygonStack> boundary_polygons_auto(
 
     if (static_cast<int>(unique_z.size()) > max_z_slices) {
         if (verbose) {
-            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation.",
+            spdlog::warn("Too many z values ({}). Binning z-stack into {} layers for polygon estimation. " // GCOVR_EXCL_LINE: gcov dead block
+                         "Increase the [plotting] max_z_slices option to use more layers.",
                          unique_z.size(), max_z_slices);
         }
         const double clip = std::min(1.0 / max_z_slices / 4.0, 0.025);

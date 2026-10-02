@@ -1,0 +1,47 @@
+{#-
+  Documenter.jl-style sidebar: logo, package name and search button above
+  the navigation tree, version selector at the bottom. Based on
+  mkdocs-material 9.7 partials/nav.html. The mike version selector is
+  appended by the bundle to the first ".md-header__topic" in the page; the
+  header override has none, so it lands in .docs-version-selector here.
+-#}
+{% import "partials/nav-item.html" as item with context %}
+{% set class = "md-nav md-nav--primary" %}
+{% if "toc.integrate" in features %}
+  {% set class = class ~ " md-nav--integrated" %}
+{% endif %}
+{% set home = config.extra.homepage | d(nav.homepage.url, true) | url %}
+<nav class="{{ class }}" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="{{ home }}" title="{{ config.site_name | e }}" class="md-nav__button md-logo" aria-label="{{ config.site_name }}" data-md-component="logo">
+      {% include "partials/logo.html" %}
+    </a>
+    {{ config.site_name }}
+  </label>
+  <div class="docs-sidebar-head">
+    {% if config.theme.logo %}
+      <a class="docs-logo" href="{{ home }}">
+        <img src="{{ config.theme.logo | url }}" alt="{{ config.site_name | e }} logo">
+      </a>
+    {% endif %}
+    <div class="docs-package-name">
+      <a href="{{ home }}">{{ config.site_name }}</a>
+    </div>
+    {% if "material/search" in config.plugins %}
+      {#- Material focuses the query only for the header search button. -#}
+      <label class="docs-search-query" for="__search" onclick="setTimeout(function(){document.querySelector('.md-search__input').focus()})">Search docs (/)</label>
+    {% endif %}
+  </div>
+  <ul class="md-nav__list" data-md-scrollfix>
+    {% for nav_item in nav.items %}
+      {% set path = "__nav_" ~ loop.index %}
+      {{ item.render(nav_item, path, 1) }}
+    {% endfor %}
+  </ul>
+  {% if config.extra.version %}
+    <div class="docs-version-selector">
+      <span class="docs-label">Version</span>
+      <div class="md-header__topic"></div>
+    </div>
+  {% endif %}
+</nav>

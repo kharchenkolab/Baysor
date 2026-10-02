@@ -1,115 +1,57 @@
 # Baysor
 
-**Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data
+**Bay**esian **s**egmentation **o**f imaging-based spatial t**r**anscriptomics data.
+Baysor finds cells from molecule positions and gene composition, with or
+without a prior segmentation. This is the native C++ release **cpp-0.9.0**.
 
-## Overview
+## Quick start
 
-Baysor segments imaging-based spatial transcriptomics data using spatial position, local gene composition, and optional prior segmentation masks.
-
-This `cpp` branch contains the first C++ port of Baysor.
-
-The current goal of this branch is to preserve the core segmentation algorithm
-of the current Baysor release line on `master` (`v0.7.1`), while improving the
-implementation around it:
-
-- native C++17 / CMake build
-- substantial performance and memory optimizations
-- `legacy` and `parquet` output styles
-- Parquet / GeoParquet output support
-- direct `experiment.xenium` input resolution
-- documented Xenium workflow via `xeniumranger import-segmentation`
-- the `run`, `preview`, and `segfree` subcommands in one native binary
-
-Future C++ releases may diverge algorithmically, but this first release is
-intended as a faithful C++ implementation of the current Baysor algorithm with
-a more efficient runtime and broader modern I/O support.
-
-## Usage
-
-The main CLI entrypoint is:
+**Linux x86-64** — download the release binary and run on your molecule table:
 
 ```bash
-./build/baysor run --help
+curl -fLO https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
+./baysor-0.9.0-linux-x86_64/bin/baysor run -m 30 -s 8 molecules.csv
 ```
 
-Example datasets and runnable commands:
+**Docker** — from the directory containing `molecules.csv`:
 
-- [Xenium pancreas](examples/Xenium_pancreas_membrane_377/README.md)
-- [ISS](examples/iss/README.md)
-- [osm-FISH](examples/osm-FISH/README.md)
-- [STARmap](examples/STARmap/README.md)
+```bash
+docker run --rm -v "$PWD:/data" ghcr.io/kharchenkolab/baysor:0.9.0 run -m 30 -s 8 molecules.csv
+```
 
-User-facing documentation for this branch:
+The table needs `x`, `y` and `gene` columns (optional `z` for 3D).
+`30` molecules and radius `8` are examples, not universal settings.
 
-- [docs/README.md](docs/README.md)
-
-## Highlights
-
-- **Algorithmic continuity**: follows the Baysor `v0.7.1` segmentation
-  algorithmic line while reimplementing it in C++.
-- **Performance work**: reduces memory pressure in clustering, segmentation,
-  NCV computation, and Loom writing, and improves Parquet loading.
-- **Modern output support**: keeps the familiar `legacy` bundle and adds a
-  `parquet` bundle with Parquet / GeoParquet tables and a 10x-style HDF5 count
-  matrix.
-- **Xenium workflow**: accepts `experiment.xenium` directly and documents the
-  recommended Xenium Explorer handoff through `xeniumranger import-segmentation`.
-- **Volumetric support**: includes 3D handling and polygon output for datasets
-  such as STARmap.
-
-## Build
-
-### Dependencies
-
-Install CMake, Ninja, a C++17 toolchain, plus the libraries required by
-`find_package()` in [CMakeLists.txt](CMakeLists.txt). Versions are kept
-intentionally broad for package-manager builds:
-
-| Dependency | Version note |
+| Setting | What to choose |
 | --- | --- |
-| CMake | `>= 3.20` |
-| C++ compiler | C++17 compiler; GCC 9.4.0 and Visual Studio 2022 are known to work |
-| Ninja | Recent Ninja; 1.10.0 is known to work |
-| Eigen3 | `>= 3.3` |
-| OpenMP | C++ OpenMP target; GCC OpenMP 4.5 is known to work |
-| spdlog | Not pinned; 1.5.0 is known to work |
-| CGAL | Not pinned; 5.0.2 is known to work |
-| Arrow / Parquet | Not pinned; 19.0.1 is known to work; Arrow must include compute, CSV, and Parquet support |
-| HDF5 | Not pinned; 1.10.x is known to work |
-| nlohmann_json | Not pinned; 3.7.3 is known to work |
-| libtiff | Not pinned; 4.1.0 is known to work |
+| `-m` | Minimum molecules expected in a real cell; choose for your protocol. |
+| `-s` / `--scale` | Approximate cell radius in coordinate units. Alternatively, pass a prior as the second input and set `--prior-segmentation-confidence` (default `0.2`). |
+| `-c` | TOML config file; explicit CLI flags override it. |
+| `-o` | Output directory (default `segmentation`). |
+| `--threads` | Worker threads; physical CPU cores by default. |
 
-Several header-only dependencies are fetched automatically by CMake with pinned
-tags: `aarand v1.0.2`, `CppKmeans v3.1.1`, `subpar v0.3.1`,
-`knncolle v2.3.0`, `CppIrlba v2.0.2`, and `umappp v2.0.1`.
+## Documentation
 
-### Configure, build, and install
+- [Installation](https://kharchenkolab.github.io/Baysor/latest/installation/) —
+  macOS / Windows binaries, requirements, Docker and source builds
+- [Cell segmentation](https://kharchenkolab.github.io/Baysor/latest/run/) —
+  choosing parameters, using a prior and inspecting results
+- [Xenium workflow](https://kharchenkolab.github.io/Baysor/latest/xenium/) and
+  [examples](https://kharchenkolab.github.io/Baysor/latest/examples/)
+- [Performance](https://kharchenkolab.github.io/Baysor/latest/performance/profiling/) —
+  run time, memory and segmentation examples
 
-After dependencies are installed, use the same command on Linux, macOS, and
-Windows:
-
-```bash
-cmake -P cmake/build_and_install.cmake
-```
-
-This configures an end-user build: optimized, tests off, and installed to
-`./install/bin`. Platform-specific prerequisite commands are in
-[docs/installation.md](docs/installation.md). Windows uses vcpkg when
-`VCPKG_ROOT` is set; Linux and macOS use system packages by default.
-
-Run the installed binary with:
-
-```bash
-./install/bin/baysor --help
-```
-
-Detailed installation instructions are in [docs/installation.md](docs/installation.md).
+The [documentation](https://kharchenkolab.github.io/Baysor/) is versioned per
+release. For the old Julia implementation, see the
+[migration guide](https://kharchenkolab.github.io/Baysor/latest/migrating/) and
+[archived v0.7.1 docs](https://kharchenkolab.github.io/Baysor/0.7.1/).
 
 ## Citation
 
-If you find Baysor useful for your publication, please cite:
+If you use Baysor in a publication, please cite:
 
-```
+```text
 Petukhov V, Xu RJ, Soldatov RA, Cadinu P, Khodosevich K, Moffitt JR & Kharchenko PV.
 Cell segmentation in imaging-based spatial transcriptomics.
 Nat Biotechnol (2021). https://doi.org/10.1038/s41587-021-01044-w

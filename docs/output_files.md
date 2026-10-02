@@ -1,372 +1,192 @@
-# Output Files
+# Output file formats
 
-This page defines the files written by `baysor run`.
-
-For bundle-level selection, see [Outputs](outputs.md).
+Reference for the files written by `baysor run`. For choosing a bundle, see
+[Outputs](outputs.md).
 
 ## Conventions
 
-- `N` = number of retained molecules after input filtering and cropping
-- `C` = number of final cells in the segmentation
-- `G` = number of genes after input filtering
-- cell names are written as `cell_<1-based-id>`
-- noise / unassigned molecules are written with cell name `0`
+- `N` — retained molecules after filtering and cropping
+- `C` — final cells; `G` — retained genes
+- Cell names are `cell_<1-based-id>`; noise / unassigned molecules have cell
+  name `0`.
+- Bracketed columns below are conditional: z for 3D, cluster fields when
+  clustering runs, NCV colors unless skipped, and confidence / history fields
+  when available.
 
-## Legacy Bundle
+## Legacy bundle
 
 ### `segmentation.csv`
 
-Shape:
-- `N` rows
-- one row per retained molecule
+One row per retained molecule (`N` rows). Column order:
 
-Exact column order:
-- `[transcript_id,] cell, gene, x, y [,z] [,confidence] [,cluster] [,ncv_color] [,assignment_confidence], is_noise`
+```text
+[transcript_id,] cell, gene, x, y [,z] [,confidence] [,cluster] [,ncv_color] [,assignment_confidence], is_noise
+```
 
-Columns:
-- `transcript_id`
-  - present only for Xenium-origin inputs that preserve source transcript IDs
-  - string
-- `cell`
-  - assigned cell name
-  - string
-  - `0` means noise / unassigned
-- `gene`
-  - gene name written from the current input panel
-  - string
-- `x`, `y`
-  - molecule coordinates
-  - float
-- `z`
-  - present for 3D inputs only
-  - float
-- `confidence`
-  - molecule confidence estimated during noise modeling
-  - float
-- `cluster`
-  - molecule-cluster label from the molecule clustering stage
-  - integer
-- `ncv_color`
-  - per-molecule NCV color as hex RGB, for example `#4F9BD5`
-  - string
-- `assignment_confidence`
-  - per-molecule posterior assignment confidence
-  - float
-- `is_noise`
-  - last column, always present
-  - for Xenium-origin inputs: literal `true` / `false`
-  - otherwise: `1` / `0`
+| Column | Meaning |
+| --- | --- |
+| `transcript_id` | Numeric source transcript ID, present when retained from the input. |
+| `cell` | Assigned cell name, or `0` for noise. |
+| `gene` | Gene name. |
+| `x`, `y`, `z` | Molecule coordinates. |
+| `confidence` | Molecule confidence from the noise model. |
+| `cluster` | Integer molecule-cluster label. |
+| `ncv_color` | NCV color as hex RGB, e.g. `#4F9BD5`. |
+| `assignment_confidence` | Assignment stability estimated from recent iteration history. |
+| `is_noise` | Always last; `true` / `false` when source transcript IDs are retained, `1` / `0` otherwise. |
 
 ### `segmentation_cell_stats.csv`
 
-Shape:
-- `C` rows
-- one row per final cell
+One row per final cell (`C` rows). Column order:
 
-Exact column order:
-- `cell`
-- `x`, `y`
-- optional `z`
-- optional `cluster`
-- `n_transcripts`
-- `density`
-- `elongation`
-- `area`
-- `avg_confidence`
-- optional `avg_assignment_confidence`
-- optional `max_cluster_frac`
-- optional `lifespan`
+```text
+cell, x, y [,z] [,cluster], n_transcripts, density, elongation, area, avg_confidence [,avg_assignment_confidence] [,max_cluster_frac] [,lifespan]
+```
 
-Columns:
-- `cell`
-  - cell name, for example `cell_17`
-  - string
-- `x`, `y`, optional `z`
-  - centroid of molecules assigned to the cell
-  - float
-- `cluster`
-  - dominant / assigned cell-level cluster label when available
-  - float-valued column containing integer labels
-- `n_transcripts`
-  - number of molecules assigned to the cell
-  - float-valued column containing counts
-- `density`
-  - `n_transcripts / area` when area is available
-  - float
-- `elongation`
-  - ratio of principal covariance eigenvalues for the cell molecule cloud
-  - float
-- `area`
-  - 2D convex-hull area used for cell summary statistics
-  - float
-- `avg_confidence`
-  - mean molecule confidence within the cell
-  - float
-- `avg_assignment_confidence`
-  - mean posterior assignment confidence within the cell
-  - float
-- `max_cluster_frac`
-  - fraction of molecules in the most frequent molecule-cluster label within the cell
-  - float
-- `lifespan`
-  - number of traced iterations for the component GUID when tracing is available
-  - float-valued column containing integer values
+| Column | Meaning |
+| --- | --- |
+| `cell` | Cell name. |
+| `x`, `y`, `z` | Centroid of assigned molecules. |
+| `cluster` | Cell-level cluster label. |
+| `n_transcripts` | Number of assigned molecules. |
+| `density` | Molecule count / area when area is available. |
+| `elongation` | Ratio of the two x/y covariance eigenvalues. |
+| `area` | 2D convex-hull area of the cell's molecules. |
+| `avg_confidence` | Mean molecule confidence. |
+| `avg_assignment_confidence` | Mean assignment stability. |
+| `max_cluster_frac` | Fraction of molecules in the most frequent molecule cluster. |
+| `lifespan` | Consecutive stored iterations in which the component exists; limited by the retained history window. |
+
+All columns except `cell` are numeric; labels and counts are stored as
+floating-point values. Low `avg_assignment_confidence` can flag unstable
+assignments, while low `max_cluster_frac` can flag mixtures of molecule
+clusters. These are diagnostics, not automatic cell-quality filters.
 
 ### `segmentation_polygons_2d.json`
 
-When `--polygon-format FeatureCollection`:
-- root object type: `FeatureCollection`
-- one feature per cell with a valid 2D polygon
-- each feature has:
-  - `id`: cell name
-  - `geometry.type`: `Polygon`
-  - `geometry.coordinates`: one closed outer ring in data coordinates
-  - `properties.cell`: cell name
+One joined polygon per assigned cell. For 3D data, molecules are pooled
+across z. A failed boundary estimate gets a fallback rectangle so that the
+cell set matches `segmentation.csv`.
 
-When `--polygon-format GeometryCollection`:
-- root object type: `GeometryCollection`
-- one geometry object per cell
-- each geometry stores:
-  - `type: Polygon`
-  - `coordinates`
-  - `cell`
+`--polygon-format` controls the GeoJSON schema:
 
-When `--polygon-format none`:
-- file is omitted
+| Value | Schema |
+| --- | --- |
+| `FeatureCollection` (default) | One feature per cell, with `id` and `properties.cell` set to the cell name; `geometry.type` is `Polygon`. |
+| `GeometryCollection` | One polygon geometry per cell with a string `cell` field. |
+| `GeometryCollectionLegacy` | Same collection, but `cell` is an integer (`cell_17` → `17`) for Xenium Ranger 3.x. |
+| `none` | No polygon files written. |
+
+Coordinates use data units and one closed outer ring. Format names are
+case-insensitive; unknown names are rejected.
 
 ### `segmentation_polygons_3d.json`
 
-Shape:
-- JSON object keyed by layer name
-
-Structure:
-- each key is a layer name such as `"z_003"` or another layer label emitted by polygon estimation
-- each value is a 2D polygon collection in the same schema as `segmentation_polygons_2d.json`
-- omitted when no per-layer polygon stack is written
+Written for 3D runs only: a JSON object keyed by layer (e.g. `z_003`), with a
+2D polygon collection per layer using the schema above.
+[`[plotting] max_z_slices`](configuration.md#plotting) (default `10`) limits
+the layer count; stacks with more distinct z values are binned first.
 
 ### `segmentation_counts.loom`
 
-HDF5 layout written by the current C++ implementation:
-- `/matrix`
-  - dataset type: `float32`
-  - shape: `(G, C)`
-- `/attrs/LOOM_SPEC_VERSION`
-  - variable-length UTF-8 string
-  - value: `"3.0.0"`
-- `/row_attrs/Name`
-  - UTF-8 string array
-  - length: `G`
-  - gene names
-- `/col_attrs/Name`
-  - UTF-8 string array
-  - length: `C`
-  - cell names
-- `/col_attrs/CellID`
-  - `float64`
-  - length: `C`
-  - values `1, 2, ..., C`
-- optional extra `/col_attrs/<key>`
-  - written when additional column attributes are supplied
-  - string arrays or float64 arrays
+Counts in Loom 3.0.0 format:
 
-Notes:
-- matrix values are counts
-- rows are genes and columns are cells, matching Loom row/column attributes
+| HDF5 path | Type and shape | Contents |
+| --- | --- | --- |
+| `/matrix` | float32, `(G, C)` | Gene × cell counts. |
+| `/attrs/LOOM_SPEC_VERSION` | UTF-8 string array, length 1 | `3.0.0`. |
+| `/row_attrs/Name` | UTF-8 string array, length `G` | Gene names. |
+| `/col_attrs/Name` | UTF-8 string array, length `C` | Cell names. |
+| `/col_attrs/CellID` | float64 array, length `C` | IDs `1` … `C`. |
 
 ### `segmentation_counts.tsv`
 
-Shape:
-- dense tab-separated matrix
-
-Layout:
-- first column header: `gene`
-- remaining column headers: one column per cell name
-- one data row per gene
-- matrix shape on disk: `(G rows) x (1 + C columns)`
-
-This is the text alternative to the Loom count matrix.
+Dense tab-separated counts: the first column is `gene`, followed by one
+column per cell name, with one row per gene. Shape: `G × (1 + C)`.
 
 ### `segmentation_params.dump.toml`
 
-Shape:
-- TOML document
-
-Contents:
-- resolved run parameters after config-file loading and CLI overrides
+Config values used by the pipeline, with the CLI invocation in a comment on
+the first line. Keep the original config and command for reproducibility:
+not every setting is serialized (for example, `tol` is omitted).
 
 ### `segmentation_log.log`
 
-Shape:
-- line-oriented text log
-
-Contents:
-- stage progress
-- iteration summaries
-- convergence messages
-- save-step messages
+Text log with stage progress, iteration summaries, convergence and save
+messages.
 
 ### `diagnostic_report.html`
 
-Shape:
-- self-contained HTML document
-
-Contents:
-- diagnostic plots and summary panels for `run --plot`
+Self-contained HTML diagnostics, written only with `--plot`.
 
 ### `segmentation_plot.html`
 
-Shape:
-- self-contained HTML document
+Self-contained molecule / cell visualization, written only with `--plot`.
 
-Contents:
-- interactive molecule / cell visualization for `run --plot`
-
-## Parquet Bundle
+## Parquet bundle
 
 ### `molecules.parquet`
 
-Shape:
-- `N` rows
-- one row per retained molecule
+`N` rows, with the same column order as `segmentation.csv` except that
+`transcript_id` is not written:
 
-Exact column order:
-- `cell, gene, x, y [,z] [,confidence] [,cluster] [,ncv_color] [,assignment_confidence], is_noise`
+| Columns | Type |
+| --- | --- |
+| `cell`, `gene`, `ncv_color` | UTF-8 string |
+| `x`, `y`, `z`, `confidence`, `assignment_confidence` | float64 |
+| `cluster` | int32 |
+| `is_noise` | boolean |
 
-Column types:
-- `cell`: UTF-8 string
-- `gene`: UTF-8 string
-- `x`, `y`, optional `z`: float64
-- `confidence`: float64
-- `cluster`: int32
-- `ncv_color`: UTF-8 string
-- `assignment_confidence`: float64
-- `is_noise`: boolean
-
-Notes:
-- unlike Xenium-friendly legacy CSV output, `transcript_id` is not currently written here
+The same conditional-column rules apply. Use legacy output for Xenium
+Ranger compatibility.
 
 ### `cells.parquet`
 
-Shape:
-- `C` rows
-- one row per final cell
-
-Columns:
-- `cell`
-- then the same cell-stat columns and order as `segmentation_cell_stats.csv`
-
-Column types:
-- `cell`: UTF-8 string
-- all statistic columns: float64
+`C` rows, with the same columns and order as `segmentation_cell_stats.csv`:
+`cell` is UTF-8 string; all statistics are float64.
 
 ### `cell_boundaries.parquet`
 
-Shape:
-- one row per cell with a valid 2D polygon
+One row per joined 2D cell polygon (pooled across z for 3D data):
 
-Columns:
-- `cell`
-  - UTF-8 string
-- `n_vertices`
-  - int32
-  - number of polygon vertices excluding the duplicated closing vertex
-- `geometry`
-  - binary WKB polygon
+| Column | Type | Contents |
+| --- | --- | --- |
+| `cell` | UTF-8 string | Cell name. |
+| `n_vertices` | int32 | Vertices, excluding the repeated closing vertex. |
+| `geometry` | binary | WKB polygon. |
 
-GeoParquet metadata:
-- primary geometry column: `geometry`
-- encoding: `WKB`
-- geometry type: `Polygon`
-- CRS: unset / `null`
+GeoParquet metadata sets the primary geometry column to `geometry`, encoding
+`WKB`, geometry type `Polygon`, and no CRS.
 
 ### `cell_boundaries_3d.parquet`
 
-Shape:
-- one row per `(cell, layer)` polygon in the polygon stack
-
-Columns:
-- `cell`
-  - UTF-8 string
-- `layer`
-  - UTF-8 string
-- `n_vertices`
-  - int32
-- `geometry`
-  - binary WKB polygon
-
-GeoParquet metadata:
-- same `geometry` metadata as `cell_boundaries.parquet`
+3D runs only: one row per `(cell, layer)` polygon. Column order is `cell`,
+`layer`, `n_vertices`, `geometry`; `layer` is UTF-8 string. Other types and
+GeoParquet metadata match `cell_boundaries.parquet`.
 
 ### `feature_matrix.h5`
 
-10x-style HDF5 layout:
-- `/matrix/barcodes`
-  - UTF-8 string array
-  - length: `C`
-  - cell names
-- `/matrix/data`
-  - int32
-  - length: `nnz`
-  - nonzero values of the sparse matrix
-- `/matrix/indices`
-  - int32
-  - length: `nnz`
-  - row indices into the feature axis
-- `/matrix/indptr`
-  - int64
-  - length: `C + 1`
-  - column pointer array
-- `/matrix/shape`
-  - int64
-  - length: `2`
-  - value: `[G, C]`
-- `/matrix/features/id`
-  - UTF-8 string array
-  - length: `G`
-- `/matrix/features/name`
-  - UTF-8 string array
-  - length: `G`
-- `/matrix/features/feature_type`
-  - UTF-8 string array
-  - length: `G`
-  - current value for every gene: `Gene Expression`
-- `/matrix/features/genome`
-  - UTF-8 string array
-  - length: `G`
-  - current value for every gene: empty string
+10x-style sparse CSC matrix, genes × cells (`nnz` = nonzero entries):
 
-Notes:
-- the matrix is stored as CSC after transposing the internal `C x G` count matrix to `G x C`
-- current implementation writes `id = name = gene_names`
+| HDF5 path | Type and shape | Contents |
+| --- | --- | --- |
+| `/matrix/barcodes` | UTF-8 strings, length `C` | Cell names. |
+| `/matrix/data` | int32, length `nnz` | Counts. |
+| `/matrix/indices` | int32, length `nnz` | Gene-row indices. |
+| `/matrix/indptr` | int64, length `C + 1` | Column pointers. |
+| `/matrix/shape` | int64, length `2` | `[G, C]`. |
+| `/matrix/features/id`, `/matrix/features/name` | UTF-8 strings, length `G` | Gene names in both arrays. |
+| `/matrix/features/feature_type` | UTF-8 strings, length `G` | `Gene Expression`. |
+| `/matrix/features/genome` | UTF-8 strings, length `G` | Empty strings. |
 
 ### `run_params.toml`
 
-Shape:
-- TOML document
-
-Contents:
-- resolved run parameters for the Parquet bundle
+Same config dump and limitations as `segmentation_params.dump.toml`.
 
 ### `run.log`
 
-Shape:
-- line-oriented text log
+Text log for Parquet output.
 
-Contents:
-- run progress and stage messages for the Parquet bundle
+### `diagnostic_report.html` / `segmentation_plot.html`
 
-### `diagnostic_report.html`
-
-Shape:
-- self-contained HTML document
-
-Contents:
-- diagnostic plots and summary panels for `run --plot`
-
-### `segmentation_plot.html`
-
-Shape:
-- self-contained HTML document
-
-Contents:
-- interactive molecule / cell visualization for `run --plot`
+Same reports as in legacy output; written only with `--plot`.

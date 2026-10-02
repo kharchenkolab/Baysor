@@ -1,0 +1,57 @@
+{#-
+  Documenter.jl-style navbar: breadcrumbs on the left, GitHub link and the
+  light/dark toggle on the right. The site name moves to the sidebar
+  (partials/nav.html), which also hosts the mike version selector.
+  Based on mkdocs-material 9.7 partials/header.html; keep the search label
+  inside <header>, the bundle binds to "header [for=__search]".
+-#}
+<header class="md-header docs-navbar" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="{{ lang.t('header') }}">
+    <label class="md-header__button md-icon" for="__drawer">
+      {% set icon = config.theme.icon.menu or "material/menu" %}
+      {% include ".icons/" ~ icon ~ ".svg" %}
+    </label>
+    <div class="docs-breadcrumb">
+      <ol>
+        {% if page %}
+          {% for section in page.ancestors | reverse %}
+            <li><span>{{ section.title }}</span></li>
+          {% endfor %}
+          <li class="is-active">
+            <a href="{{ page.url | url }}">
+              {%- if page.meta and page.meta.title -%}
+                {{ page.meta.title }}
+              {%- else -%}
+                {{ page.title }}
+              {%- endif -%}
+            </a>
+          </li>
+        {% endif %}
+      </ol>
+    </div>
+    {% if "material/search" in config.plugins %}
+      {% set search = config.plugins["material/search"] | attr("config") %}
+      {% if search.enabled %}
+        <label class="md-header__button md-icon" for="__search">
+          {% set icon = config.theme.icon.search or "material/magnify" %}
+          {% include ".icons/" ~ icon ~ ".svg" %}
+        </label>
+        {% include "partials/search.html" %}
+      {% endif %}
+    {% endif %}
+    {% if config.repo_url %}
+      <a class="docs-navbar-link" href="{{ config.repo_url }}" title="{{ lang.t('source') }}">
+        <span class="docs-icon md-icon">{% include ".icons/fontawesome/brands/github.svg" %}</span>
+        <span class="docs-label">GitHub</span>
+      </a>
+    {% endif %}
+    {% if config.theme.palette %}
+      {% if not config.theme.palette is mapping %}
+        {% include "partials/palette.html" %}
+      {% endif %}
+    {% endif %}
+    {% if not config.theme.palette is mapping %}
+      {% include "partials/javascripts/palette.html" %}
+    {% endif %}
+  </nav>
+</header>

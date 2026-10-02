@@ -1,67 +1,31 @@
-# Segmentation-Free NCVs
+# Segmentation-free analysis
 
-`segfree` extracts neighborhood-composition vectors (NCVs) without running the
-cell segmentation algorithm.
-
-CLI shape:
+Analyze local gene composition without assigning molecules to cells:
 
 ```bash
-./build/baysor segfree [OPTIONS] coordinates
+baysor segfree -m 30 -k 100 -o ncvs.loom molecules.csv
 ```
 
-## Typical Use
+Baysor computes one neighborhood composition vector (NCV) per molecule from
+its nearest neighbors, then log-transforms it. `-k` / `--k-neighbors` sets the
+neighborhood size: larger values emphasize broader spatial patterns. If
+omitted, it is `max(n_genes / 10, min_molecules_per_cell, 3)` (integer division).
 
-```bash
-./build/baysor segfree \
-  -c configs/xenium.toml \
-  -k 100 \
-  -o ncvs.loom \
-  data/transcripts.parquet
-```
-
-## What It Computes
-
-The current pipeline:
-
-- loads molecules
-- builds neighborhood-composition counts
-- log-transforms the neighborhood matrix
-- estimates molecule confidences
-- computes NCV colors
-- writes a Loom file with per-neighborhood vectors and attributes
-
-## Common Options
-
-- `-c,--config`
-- `-x,--x-column`
-- `-y,--y-column`
-- `-z,--z-column`
-- `-g,--gene-column`
-- `--qv-column`
-- `--min-qv`
-- `--x-min`, `--x-max`
-- `--y-min`, `--y-max`
-- `--z-min`, `--z-max`
-- `-k,--k-neighbors`
-- `-o,--output`
-- `--force-2d`
+`-m` is required (CLI or config) for noise-estimation defaults even when `-k`
+is set. No scale or prior is needed. CSV, Parquet and Xenium manifests are
+accepted; use `-c config.toml` for column mappings and filters. See
+[Input data](inputs.md) and [Configuration](configuration.md).
 
 ## Output
 
-The default output is:
+`-o` names a [Loom file](https://linnarssonlab.org/loompy/format/index.html)
+(default `ncvs.loom`), not a directory:
 
-```text
-ncvs.loom
-```
+- `/matrix` — genes × molecules, one log-transformed NCV per column
+- `/col_attrs/Name` — molecule names `V1` … `VN`
+- `/col_attrs/ncv_color` — local gene-composition color
+- `/col_attrs/confidence` — molecule confidence from the noise model
 
-The Loom file includes:
-
-- the NCV matrix
-- `ncv_color`
-- per-molecule confidence
-
-## Notes
-
-- `segfree` accepts a transcript table directly.
-- for Xenium datasets, it also accepts `experiment.xenium` and resolves the
-  underlying transcript table automatically.
+These are overlapping neighborhoods, not segmented cells or a cell count
+matrix. `--threads` works as for [run](run.md#threading). See the
+[CLI reference](cli.md) or `baysor segfree --help` for all options.

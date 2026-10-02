@@ -1,4 +1,4 @@
-[data]
+[molecules]
 min_molecules_per_gene = 50
 min_molecules_per_cell = 30
 

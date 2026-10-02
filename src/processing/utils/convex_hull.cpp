@@ -17,7 +17,8 @@ static double cross(double ax, double ay,
 
 // Andrew's monotone chain convex hull (2D).
 // Input:  points  — 2 × n matrix (row 0 = x, row 1 = y)
-// Output: 2 × hull_size matrix of hull vertices in counter-clockwise order.
+// Output: 2 × hull_size matrix of hull vertices in clockwise order, as in
+//         Julia's convex_hull.jl.
 // Degenerate cases: 0 points → empty; 1–2 points → return as-is.
 Eigen::MatrixXd convex_hull(const Eigen::MatrixXd& points) {
     int n = static_cast<int>(points.cols());
@@ -52,7 +53,7 @@ Eigen::MatrixXd convex_hull(const Eigen::MatrixXd& points) {
         hull.push_back(p);
     }
 
-    // Lower hull (counter-clockwise turns), reversed direction
+    // Lower hull (also keeping clockwise turns; scanned in reverse order)
     int upper_size = static_cast<int>(hull.size()) + 1;
     for (int i = n - 2; i >= 0; --i) {
         int p = idx[i];

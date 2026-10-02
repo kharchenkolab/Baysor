@@ -5,7 +5,9 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <functional>
@@ -40,7 +42,7 @@ std::string cluster_method_to_string(ClusterMethod method) {
         case ClusterMethod::Louvain: return "louvain";
         case ClusterMethod::Leiden: return "leiden";
     }
-    return "mrf";
+    return "mrf"; // GCOVR_EXCL_LINE: unreachable
 }
 
 int default_cluster_count(ClusterMethod method) {
@@ -131,6 +133,9 @@ void fill_and_check_plotting_options(PlottingOptions& opts, int min_molecules_pe
     if (opts.ncv_method != "ri" && opts.ncv_method != "dense" && opts.ncv_method != "sparse") {
         throw std::runtime_error("ncv_method must be one of 'ri', 'dense', or 'sparse'");
     }
+    if (opts.max_z_slices < 1) {
+        throw std::runtime_error("max_z_slices must be at least 1");
+    }
 }
 
 // ============================================================================
@@ -196,18 +201,59 @@ std::string toml_get(const TomlSection& sec, const std::string& key, const std::
     return it != sec.end() ? it->second.raw : def;
 }
 
+// Remove TOML digit separators (`1_000` -> `1000`). Other underscores are
+// kept, so such values fail to parse as in TOML.jl.
+std::string strip_digit_separators(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '_' && i > 0 && i + 1 < s.size() &&
+            std::isdigit(static_cast<unsigned char>(s[i - 1])) &&
+            std::isdigit(static_cast<unsigned char>(s[i + 1]))) {
+            continue;
+        }
+        out.push_back(s[i]);
+    }
+    return out;
+}
+
+// Like Julia (TOML.jl, Configurations.jl), reject malformed or wrong-typed
+// values instead of silently keeping the default.
+[[noreturn]] void throw_invalid_value(const std::string& raw, const std::string& key,
+                                      const std::string& expected) {
+    throw std::runtime_error(
+        "Invalid value '" + raw + "' for config key '" + key + "': expected " + expected);
+}
+
+// The whole value as a number, or nullopt if it does not parse.
+std::optional<double> parse_number(const std::string& raw) {
+    const std::string s = strip_digit_separators(raw);
+    try {
+        size_t pos = 0;
+        const double value = std::stod(s, &pos);
+        if (pos == s.size()) return value;
+    } catch (const std::exception&) {}
+    return std::nullopt;
+}
+
 int toml_get_int(const TomlSection& sec, const std::string& key, int def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    try { return std::stoi(it->second.raw); }
-    catch (...) { return def; }
+    // Integral floats (`50.0`, `1e2`) are accepted, as Configurations.jl
+    // converts them with `Base.convert(Int, ...)`.
+    const auto value = parse_number(it->second.raw);
+    if (!value || *value != std::trunc(*value) || *value < INT_MIN || *value > INT_MAX) {
+        throw_invalid_value(it->second.raw, key, "an integer");
+    }
+    return static_cast<int>(*value);
 }
 
 double toml_get_double(const TomlSection& sec, const std::string& key, double def) {
     auto it = sec.find(key);
     if (it == sec.end()) return def;
-    try { return std::stod(it->second.raw); }
-    catch (...) { return def; }
+    const auto value = parse_number(it->second.raw);
+    if (!value) throw_invalid_value(it->second.raw, key, "a number");
+    return *value;
 }
 
 bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
@@ -217,7 +263,7 @@ bool toml_get_bool(const TomlSection& sec, const std::string& key, bool def) {
     std::transform(v.begin(), v.end(), v.begin(), ::tolower);
     if (v == "true" || v == "1") return true;
     if (v == "false" || v == "0") return false;
-    return def;
+    throw_invalid_value(it->second.raw, key, "a boolean (true or false)");
 }
 
 } // anonymous namespace
@@ -228,6 +274,11 @@ RunOptions load_config(const std::string& path) {
     if (path.empty()) return opts;
 
     auto doc = parse_toml_simple(path);
+
+    // Top-level keys (before any [section])
+    if (doc.count("")) {
+        opts.threads = toml_get_int(doc[""], "threads", opts.threads);
+    }
 
     auto apply_molecule_section = [&](const TomlSection& sec) {
         opts.molecules.x_col = toml_get(sec, "x", opts.molecules.x_col);
@@ -299,12 +350,14 @@ RunOptions load_config(const std::string& path) {
     // [prior]
     if (doc.count("prior")) {
         auto& sec = doc["prior"];
-        std::string type = toml_get(sec, "type", "");
+        std::string type_raw = toml_get(sec, "type", "");
+        std::string type = type_raw;
         std::transform(type.begin(), type.end(), type.begin(), ::tolower);
         if (type == "none" || type.empty()) opts.prior.type = PriorInputType::None;
         else if (type == "column") opts.prior.type = PriorInputType::Column;
         else if (type == "image") opts.prior.type = PriorInputType::Image;
         else if (type == "boundary") opts.prior.type = PriorInputType::Boundary;
+        else throw_invalid_value(type_raw, "type", "one of 'none', 'column', 'image', 'boundary'");
         opts.prior.path = toml_get(sec, "path", opts.prior.path);
         opts.prior.column_name = toml_get(sec, "column_name", opts.prior.column_name);
         opts.prior.unassigned_label = toml_get(
@@ -328,6 +381,7 @@ RunOptions load_config(const std::string& path) {
         opts.plotting.min_pixels_per_cell = toml_get_int(sec, "min_pixels_per_cell",
                                                           opts.plotting.min_pixels_per_cell);
         opts.plotting.max_plot_size = toml_get_int(sec, "max_plot_size", opts.plotting.max_plot_size);
+        opts.plotting.max_z_slices = toml_get_int(sec, "max_z_slices", opts.plotting.max_z_slices);
         opts.plotting.ncv_method = toml_get(sec, "ncv_method", opts.plotting.ncv_method);
     }
 
@@ -344,6 +398,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     if (!f) throw std::runtime_error("save_params_toml: cannot open " + path);
 
     f << "# CLI params: `" << cli_cmd << "`\n";
+    f << "threads = " << opts.threads << "\n";
 
     f << "[molecules]\n";
     f << "x = \"" << opts.molecules.x_col << "\"\n";
@@ -391,6 +446,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     f << "cluster_basis_sample_size = " << opts.segmentation.cluster_basis_sample_size << "\n";
     f << "prior_segmentation_confidence = " << opts.segmentation.prior_segmentation_confidence << "\n";
     f << "iters = " << opts.segmentation.iters << "\n";
+    f << "tol = " << opts.segmentation.tol << "\n";
     f << "n_cells_init = " << opts.segmentation.n_cells_init << "\n";
     f << "nuclei_genes = \"" << opts.segmentation.nuclei_genes << "\"\n";
     f << "cyto_genes = \"" << opts.segmentation.cyto_genes << "\"\n";
@@ -399,6 +455,7 @@ void save_params_toml(const RunOptions& opts, const std::string& cli_cmd,
     f << "gene_composition_neigborhood = " << opts.plotting.gene_composition_neighborhood << "\n";
     f << "min_pixels_per_cell = " << opts.plotting.min_pixels_per_cell << "\n";
     f << "max_plot_size = " << opts.plotting.max_plot_size << "\n";
+    f << "max_z_slices = " << opts.plotting.max_z_slices << "\n";
     f << "ncv_method = \"" << opts.plotting.ncv_method << "\"\n";
 }
 

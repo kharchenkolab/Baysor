@@ -1,67 +1,30 @@
-# Dataset Preview
+# Dataset preview
 
-`preview` generates an HTML overview of a dataset without running full
-segmentation.
-
-CLI shape:
+Check the data before choosing parameters for a full segmentation:
 
 ```bash
-./build/baysor preview [OPTIONS] coordinates
+baysor preview -m 30 -o preview.html molecules.csv
 ```
 
-## Typical Use
+Open `preview.html` in a browser. It shows molecule-confidence diagnostics,
+local gene-composition colors and gene structure, without assigning molecules
+to cells. `-m` must be positive (CLI or config); no scale or prior is needed.
+
+For a large dataset, preview a crop first:
 
 ```bash
-./build/baysor preview \
-  -c configs/xenium.toml \
-  -o preview.html \
-  data/transcripts.parquet
+baysor preview -m 30 --x-min 0 --x-max 2000 --y-min 0 --y-max 2000 \
+  -o preview.html molecules.csv
 ```
 
-or for Xenium-style columns:
+The bounds are in the input coordinate units. Whole-slide reports can be
+large and slow to open.
 
-```bash
-./build/baysor preview \
-  -c configs/xenium.toml \
-  data/transcripts.parquet
-```
+CSV, Parquet and Xenium manifests are accepted; see [Input data](inputs.md).
+Use `-c config.toml` for column mappings and filters, or `-x`, `-y`, `-z`,
+`-g` for column names. The [Xenium preset](configuration.md#protocol-presets)
+already maps Xenium columns.
 
-## What It Computes
-
-The preview pipeline currently does the following:
-
-- loads molecules
-- estimates a molecule-confidence / noise model
-- computes neighborhood-composition colors
-- estimates a gene-structure embedding
-- writes an HTML summary report
-
-## Common Options
-
-- `-c,--config`
-- `-x,--x-column`
-- `-y,--y-column`
-- `-z,--z-column`
-- `-g,--gene-column`
-- `--qv-column`
-- `--min-qv`
-- `--x-min`, `--x-max`
-- `--y-min`, `--y-max`
-- `--z-min`, `--z-max`
-- `-o,--output`
-- `--force-2d`
-
-## Output
-
-The default output is:
-
-```text
-preview.html
-```
-
-## Notes
-
-- `preview` accepts a transcript table directly.
-- for Xenium datasets, it also accepts `experiment.xenium` and resolves the
-  underlying transcript table automatically.
-- this is useful for quick sanity checks before a full segmentation run.
+`-o` names an HTML file (default `preview.html`), not a directory.
+`--threads` controls worker threads as for [run](run.md#threading).
+See the [CLI reference](cli.md) or `baysor preview --help` for all options.

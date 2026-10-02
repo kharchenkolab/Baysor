@@ -3,12 +3,13 @@
 #include "baysor/processing/utils/utils.h"
 #include "baysor/data_loading/data.h"
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <numeric>
-#include <omp.h>
 
 namespace baysor {
 
@@ -58,16 +59,17 @@ static void expect_noise_probabilities(
 
     // Precompute component densities in parallel.
     std::vector<double> pdf1(n), pdf2(n);
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
+    parallel_for_static(0, n, [&](int i) {
         pdf1[i] = normal_pdf(edge_lengths[i], mu1, sigma1);
         pdf2[i] = normal_pdf(edge_lengths[i], mu2, sigma2);
-    }
+    });
 
-    // Component sizes.
-    double n1 = 0.0;
-    #pragma omp parallel for reduction(+:n1) schedule(static)
-    for (int i = 0; i < n; ++i) n1 += assignment_probs(i, 0);
+    // Component sizes (deterministic, see parallel_reduce)
+    double n1 = parallel_reduce<double>(0, n, /*bucket_size=*/1024, 0.0,
+        [&](std::int64_t b, std::int64_t e, double& acc) {
+            for (std::int64_t i = b; i < e; ++i) acc += assignment_probs(i, 0);
+        },
+        std::plus<double>());
     double n2 = n - n1;
 
     int m = static_cast<int>(updating_ids.size());
@@ -181,7 +183,7 @@ NoiseFitResult fit_noise_probabilities(
         new_sigma2 = std::max(new_sigma2, 1e-10);
 
         // Convergence: max relative parameter change
-        double param_diff = std::max({
+        double param_diff = std::max({ // GCOVR_EXCL_LINE: dead GCC block; statement counted on the following lines
             std::abs(new_mu1 - mu1) / std::max(std::abs(mu1), 1e-20),
             std::abs(new_mu2 - mu2) / std::max(std::abs(mu2), 1e-20),
             std::abs(new_sigma1 - sigma1) / std::max(std::abs(sigma1), 1e-20),
@@ -276,17 +278,13 @@ ConfidenceEstimationDetails estimate_confidence_details(
 
     Eigen::MatrixXd pos = data.position_matrix();
 
-    // KNN: find nn_id+1 neighbors (first is self), extract distance to the (nn_id+1)-th
-    auto knn = knn_parallel(pos, pos, nn_id + 1, true);
+    // KNN distance to the (nn_id+1)-th neighbor (first is self)
+    std::vector<double> mean_dists = knn_kth_distances(pos, nn_id + 1, nn_id);
 
-    std::vector<double> mean_dists(n);
-    for (int i = 0; i < n; ++i) {
-        int k = static_cast<int>(knn.distances[i].size());
-        mean_dists[i] = (k > nn_id) ? knn.distances[i][nn_id] : knn.distances[i].back();
-    }
-
-    // Build molecule graph (unfiltered, matching Julia)
-    auto adj_list = build_molecule_graph(data, /*filter=*/false);
+    // Build molecule graph (unfiltered, matching Julia); the edges are
+    // returned for reuse by the segmentation graph
+    auto adj_edges = compute_molecule_adjacency(data);
+    auto adj_list = build_molecule_graph_from_edges(adj_edges, n);
 
     // Compute min_confidence from prior segmentation if available
     std::vector<double> min_conf;
@@ -311,6 +309,7 @@ ConfidenceEstimationDetails estimate_confidence_details(
     details.edge_lengths = std::move(mean_dists);
     details.fit_result = std::move(result);
     details.nn_id = nn_id;
+    details.adjacency = std::move(adj_edges);
     return details;
 }
 

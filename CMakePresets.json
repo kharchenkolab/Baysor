@@ -29,6 +29,17 @@
       }
     },
     {
+      "name": "profiling",
+      "displayName": "Profiling Build",
+      "description": "Release build plus -g debug info for profilers (Valgrind, gperftools, heaptrack); -g does not change the generated code.",
+      "inherits": "user",
+      "binaryDir": "${sourceDir}/build/profiling",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-g",
+        "CMAKE_CXX_FLAGS": "-g"
+      }
+    },
+    {
       "name": "user-vcpkg",
       "displayName": "User Build With vcpkg",
       "description": "End-user build with dependencies installed in user space through vcpkg manifest mode.",
@@ -49,6 +60,63 @@
         "BAYSOR_WITH_TESTS": "ON",
         "VCPKG_MANIFEST_FEATURES": "tests"
       }
+    },
+    {
+      "name": "release-base",
+      "hidden": true,
+      "description": "Portable release binaries (packaging/build_release.py). Static vcpkg dependencies built with the triplets in packaging/vcpkg-triplets.",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BAYSOR_WITH_TESTS": "OFF",
+        "BAYSOR_WITH_CUDA": "OFF",
+        "BAYSOR_INSTALL_RUNTIME": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/${presetName}/vcpkg_installed",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/packaging/vcpkg-triplets",
+        "VCPKG_MANIFEST_FEATURES": "release",
+        "VCPKG_INSTALL_OPTIONS": "--clean-after-build"
+      }
+    },
+    {
+      "name": "release-linux-x86_64",
+      "displayName": "Release binary: Linux x86_64",
+      "description": "Generic x86-64 (SSE2) build with static dependencies, libstdc++ and libgcc. Run inside packaging/linux/Dockerfile (manylinux_2_28, glibc 2.28).",
+      "inherits": "release-base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-linux-release",
+        "VCPKG_HOST_TRIPLET": "x64-linux-release",
+        "CMAKE_C_FLAGS": "-march=x86-64 -mtune=generic",
+        "CMAKE_CXX_FLAGS": "-march=x86-64 -mtune=generic",
+        "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc"
+      }
+    },
+    {
+      "name": "release-macos-arm64",
+      "displayName": "Release binary: macOS arm64",
+      "description": "Apple silicon build with static dependencies.",
+      "inherits": "release-base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "arm64-osx-release",
+        "VCPKG_HOST_TRIPLET": "arm64-osx-release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0"
+      }
+    },
+    {
+      "name": "release-windows-x86_64",
+      "displayName": "Release binary: Windows x64",
+      "description": "MSVC build (default /arch, i.e. SSE2); dependency DLLs and the MSVC runtime are installed next to baysor.exe.",
+      "inherits": "release-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-release",
+        "VCPKG_HOST_TRIPLET": "x64-windows-release",
+        "X_VCPKG_APPLOCAL_DEPS_INSTALL": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -65,6 +133,13 @@
       "targets": [
         "baysor",
         "baysor_tests"
+      ]
+    },
+    {
+      "name": "profiling",
+      "configurePreset": "profiling",
+      "targets": [
+        "baysor"
       ]
     },
     {

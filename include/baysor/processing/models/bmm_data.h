@@ -2,6 +2,8 @@
 
 #include "baysor/processing/models/component.h"
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/processing/models/assignment_history.h"
+#include "baysor/processing/models/bmm_workspace.h"
 #include <vector>
 #include <string>
 #include <any>
@@ -52,11 +54,14 @@ struct BmmData {
     double real_edge_weight = 1.0;
 
     // --- Tracing ---
-    std::vector<std::vector<int>> assignment_history;
+    AssignmentHistory assignment_history;   // global GUIDs per molecule, delta-encoded
     std::vector<std::unordered_map<int, int>> n_components_trace;
 
     // --- Output: per-molecule assignment confidence (fraction of history agreeing with final) ---
     std::vector<double> assignment_confidence;
+
+    // --- Scratch buffers of the BMM loop (no algorithm state) ---
+    BmmWorkspace workspace;
 
     // --- Accessors ---
     int n_molecules() const { return static_cast<int>(position_data.cols()); }
@@ -66,11 +71,15 @@ struct BmmData {
     /// Assign molecule to component, updating segment bookkeeping
     void assign(int mol_id, int component_id);
 
-    /// Count molecules per cell
-    std::vector<int> num_molecules_per_cell() const;
-
     /// Update n_molecules_per_segment and main_segment_per_cell
     void update_n_mols_per_segment();
+
+    /// update_n_mols_per_segment() for component ci (0-based) only, from
+    /// `ids_by_comp`, the grouping of the current assignment. Gives the same
+    /// map (contents and iteration order) as the serial molecule loop.
+    /// main_segment_per_cell must already have n_components() entries;
+    /// different components may be updated concurrently.
+    void update_n_mols_per_segment_of(int ci, const IdsByComponent& ids_by_comp);
 };
 
 extern template struct BmmData<2>;

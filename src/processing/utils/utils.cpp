@@ -1,10 +1,10 @@
 #include "baysor/processing/utils/utils.h"
+#include "baysor/utils/thread_pool.h"
 #include <third_party/nanoflann.hpp>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <vector>
-#include <omp.h>
 
 namespace baysor {
 
@@ -98,6 +98,21 @@ using KDTree = nanoflann::KDTreeSingleIndexAdaptor<
     int  // index type
 >;
 
+int knn_block_size(int k) {
+    constexpr std::size_t budget_bytes = std::size_t(32) << 20;
+    constexpr std::size_t min_block = 2048;  // keeps the 256-query parallel chunks fed
+    constexpr std::size_t max_block = 32768;
+    const std::size_t per_query = static_cast<std::size_t>(std::max(k, 1)) * (sizeof(int) + sizeof(double));
+    return static_cast<int>(std::clamp(budget_bytes / per_query, min_block, max_block));
+}
+
+void sort_tied_runs_by_index(int* indices, const double* distances, int k) {
+    for (int begin = 0, end; begin < k; begin = end) {
+        for (end = begin + 1; end < k && distances[end] == distances[begin]; ++end) {}
+        if (end - begin > 1) std::sort(indices + begin, indices + end);
+    }
+}
+
 KnnResult knn_parallel(
     const Eigen::MatrixXd& tree_points,
     const Eigen::MatrixXd& query_points,
@@ -116,20 +131,21 @@ KnnResult knn_parallel(
     k = std::min(k, n_tree);
 
     KnnResult result;
-    result.indices.resize(n_query);
-    result.distances.resize(n_query);
+    result.n = n_query;
+    result.k = k;
+    result.indices.resize(static_cast<std::size_t>(n_query) * k);
+    result.distances.resize(static_cast<std::size_t>(n_query) * k);
 
     // Build KD-tree
     EigenColMajorAdaptor adaptor(tree_points);
     KDTree tree(n_dims, adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10));
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int i = 0; i < n_query; ++i) {
-        result.indices[i].resize(k);
-        result.distances[i].resize(k);
+    parallel_for(0, n_query, 256, [&](int i) {
+        int* row_indices = result.indices.data() + static_cast<std::size_t>(i) * k;
+        double* row_distances = result.distances.data() + static_cast<std::size_t>(i) * k;
 
         nanoflann::KNNResultSet<double, int> resultSet(k);
-        resultSet.init(result.indices[i].data(), result.distances[i].data());
+        resultSet.init(row_indices, row_distances);
         tree.findNeighbors(
             resultSet,
             query_points.col(i).data(),
@@ -139,32 +155,54 @@ KnnResult knn_parallel(
         // Keep sorted=true deterministic even when the backend does not define
         // a stable tie order for equal-distance neighbors.
         if (sorted) {
-            std::vector<int> order(k);
-            std::iota(order.begin(), order.end(), 0);
-            std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                if (result.distances[i][a] != result.distances[i][b]) {
-                    return result.distances[i][a] < result.distances[i][b];
-                }
-                return result.indices[i][a] < result.indices[i][b];
-            });
-
-            std::vector<int> sorted_indices(k);
-            std::vector<double> sorted_distances(k);
-            for (int j = 0; j < k; ++j) {
-                sorted_indices[j] = result.indices[i][order[j]];
-                sorted_distances[j] = result.distances[i][order[j]];
-            }
-            result.indices[i].swap(sorted_indices);
-            result.distances[i].swap(sorted_distances);
+            sort_tied_runs_by_index(row_indices, row_distances, k);
         }
 
         // nanoflann returns squared distances; convert to actual distances.
-        for (double& d : result.distances[i]) {
-            d = std::sqrt(d);
+        for (int j = 0; j < k; ++j) {
+            row_distances[j] = std::sqrt(row_distances[j]);
         }
-    }
+    });
 
     return result;
+}
+
+std::vector<double> knn_kth_distances(
+    const Eigen::MatrixXd& points,
+    int k,
+    int kth
+) {
+    const int n = static_cast<int>(points.cols());
+    if (n == 0 || k <= 0) {
+        return {};
+    }
+    k = std::min(k, n);
+    kth = std::min(kth, k - 1);
+
+    EigenColMajorAdaptor adaptor(points);
+    KDTree tree(static_cast<int>(points.rows()), adaptor, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10));
+
+    const int block = std::min(knn_block_size(k), n);
+    std::vector<int> scratch_indices(static_cast<std::size_t>(block) * k);
+    std::vector<double> scratch_distances(static_cast<std::size_t>(block) * k);
+    std::vector<double> out(n);
+
+    for (int block_begin = 0; block_begin < n; block_begin += block) {
+        parallel_for(block_begin, std::min(block_begin + block, n), 256, [&](int i) {
+            const std::size_t offset = static_cast<std::size_t>(i - block_begin) * k;
+            nanoflann::KNNResultSet<double, int> resultSet(k);
+            resultSet.init(scratch_indices.data() + offset, scratch_distances.data() + offset);
+            tree.findNeighbors(
+                resultSet,
+                points.col(i).data(),
+                nanoflann::SearchParameters(/*eps=*/0.0f, /*sorted=*/true)
+            );
+            // The kth distance does not depend on the order of tied neighbors.
+            out[i] = std::sqrt(scratch_distances[offset + kth]);
+        });
+    }
+
+    return out;
 }
 
 } // namespace baysor

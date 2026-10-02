@@ -1,6 +1,7 @@
 #pragma once
 
 #include "baysor/processing/models/adj_list.h"
+#include "baysor/processing/data_processing/triangulation.h"
 #include <vector>
 #include <Eigen/Dense>
 
@@ -23,6 +24,9 @@ struct ConfidenceEstimationDetails {
     std::vector<double> edge_lengths;
     NoiseFitResult fit_result;
     int nn_id = 0;
+    /// Unfiltered molecule-graph edges of the noise-model MRF, for reuse by
+    /// build_molecule_graph()
+    AdjacencyResult adjacency;
 };
 
 /// Fit two-component mixture (signal vs noise) on KNN distances using MRF-regularized EM

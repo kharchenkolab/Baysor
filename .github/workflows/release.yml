@@ -1,0 +1,393 @@
+name: release
+
+# Builds the portable Baysor archives for a GitHub release and attaches them,
+# with SHA256SUMS, to it; the `docker` job publishes an image of the Linux
+# binary. With workflow_dispatch and dry_run=true the same builds run for any
+# ref without a release and without uploading. See RELEASING.md.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build binaries for, e.g. cpp-0.8.3 (ignored in dry runs)"
+        required: false
+        type: string
+      ref:
+        description: "Git ref (branch name or SHA) to build in a dry run (default: the ref the workflow runs on)"
+        required: false
+        type: string
+      dry_run:
+        description: "Build and smoke-test only; do not require a release and do not upload to one"
+        required: false
+        type: boolean
+        default: false
+      platforms:
+        description: "Comma-separated subset of platforms to build (linux-x86_64, macos-arm64, windows-x86_64); empty means all"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag || inputs.ref || github.ref }}-${{ inputs.dry_run && 'dry-run' || 'release' }}
+  cancel-in-progress: false
+
+env:
+  VCPKG_DISABLE_METRICS: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+      version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Resolve tag and ref
+        id: resolve
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REF: ${{ inputs.ref }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          if [[ "$DRY_RUN" == true ]]; then
+            ref="${REF:-$GITHUB_REF}"
+            echo "Dry run of $ref (no release, no upload)"
+            TAG=
+          elif [[ -n "$TAG" ]]; then
+            ref="refs/tags/$TAG"
+          else
+            echo "::error::no release tag (set the tag input, or dry_run=true)"
+            exit 1
+          fi
+          { echo "tag=$TAG"; echo "ref=$ref"; echo "dry_run=$DRY_RUN"; } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+
+      - name: Check that the release exists
+        if: steps.resolve.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft
+
+      # Without a tag (dry run) the version is that of the sources.
+      - name: Derive and check version
+        id: version
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          version="$(packaging/release_version.sh "$TAG")"
+          echo "version $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Select platforms
+        id: matrix
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          matrix='[
+            {"platform": "linux-x86_64", "os": "ubuntu-24.04", "archive": "tar.gz"},
+            {"platform": "macos-arm64", "os": "macos-14", "archive": "tar.gz"},
+            {"platform": "windows-x86_64", "os": "windows-2022", "archive": "zip"}
+          ]'
+          if [[ -n "${PLATFORMS// /}" ]]; then
+            for p in ${PLATFORMS//,/ }; do
+              jq -e --arg p "$p" 'any(.[]; .platform == $p)' <<< "$matrix" > /dev/null \
+                || { echo "::error::unknown platform in the platforms input: $p"; exit 1; }
+            done
+            matrix="$(jq --arg want "${PLATFORMS// /}" '[.[] | select(.platform | IN($want | split(",")[]))]' <<< "$matrix")"
+          fi
+          if [[ "$(jq length <<< "$matrix")" == 0 ]]; then
+            echo "::error::no platforms selected"
+            exit 1
+          fi
+          echo "matrix=$(jq -c . <<< "$matrix")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.matrix) }}
+    env:
+      ASSET: baysor-${{ needs.version.outputs.version }}-${{ matrix.platform }}
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.ref }}
+
+      # vcpkg binary packages; a hit turns the build into a Baysor-only
+      # compile. Saved even when the build fails, so that a rerun reuses the
+      # packages built so far (a cold build takes hours).
+      - name: Compute cache key
+        id: cache-key
+        shell: bash
+        run: echo "prefix=release-${{ matrix.platform }}-${{ hashFiles('packaging/vcpkg-ref', 'packaging/vcpkg-triplets/**', 'vcpkg.json', 'vcpkg-configuration.json', 'packaging/vcpkg-overlay-ports/**', 'packaging/linux/Dockerfile', 'packaging/build_release.py') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .release-cache/vcpkg-bincache
+          key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ steps.cache-key.outputs.prefix }}-
+            release-${{ matrix.platform }}-
+
+      - name: Build (Linux, manylinux_2_28 container)
+        if: runner.os == 'Linux'
+        run: BAYSOR_JOBS="$(nproc)" packaging/linux/build-in-docker.sh
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        # bison: Apple's /usr/bin/bison is 2.3, but thrift (an Arrow/Parquet
+        # dependency) needs bison > 2.5 to regenerate its parser; vcpkg finds
+        # Homebrew's keg-only bison in /opt/homebrew/opt/bison/bin.
+        run: brew install ninja autoconf autoconf-archive automake libtool pkgconf bison
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: python3 packaging/build_release.py --platform macos-arm64 --jobs "$(sysctl -n hw.ncpu)"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python packaging/build_release.py --platform windows-x86_64 --jobs $env:NUMBER_OF_PROCESSORS
+
+      - name: Save build cache
+        if: always() && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: .release-cache/vcpkg-bincache
+          key: ${{ steps.cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # vcpkg removes a port's logs only after it builds successfully.
+      - name: Upload vcpkg failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-logs-${{ matrix.platform }}
+          path: .release-cache/vcpkg/buildtrees/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Smoke test (Linux; native, almalinux:8, debian:10, qemu64)
+        if: runner.os == 'Linux'
+        run: packaging/linux/test-in-docker.sh "dist/$ASSET.tar.gz"
+
+      # A minimal PATH, so that DLLs missing from the Windows archive cannot be
+      # picked up from tools installed on the runner.
+      - name: Smoke test (macOS, Windows)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          mkdir smoke && (cd smoke && cmake -E tar xf "../dist/$ASSET.${{ matrix.archive }}")
+          PATH="/usr/bin:/bin:/c/Windows/System32:/c/Windows" \
+            bash packaging/smoke_test.sh "smoke/$ASSET/bin/baysor${{ runner.os == 'Windows' && '.exe' || '' }}" "$VERSION"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: dist/${{ env.ASSET }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # Runs even if some platforms failed: the archives that were built are
+  # attached, and the job then fails, listing the missing platforms, so the
+  # run stays red until they are rebuilt (workflow_dispatch with the tag).
+  publish:
+    name: Upload to release
+    needs: [version, build]
+    if: always() && needs.version.result == 'success' && needs.version.outputs.dry_run != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: baysor-${{ needs.version.outputs.version }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        id: sums
+        run: |
+          mkdir -p dist && cd dist
+          missing=()
+          for a in linux-x86_64.tar.gz macos-arm64.tar.gz windows-x86_64.zip; do
+            [[ -f "baysor-$VERSION-$a" ]] || missing+=("baysor-$VERSION-$a")
+          done
+          if (( ${#missing[@]} == 3 )); then
+            echo "::error::no archives were built"
+            exit 1
+          fi
+          sha256sum baysor-"$VERSION"-* | tee SHA256SUMS
+          echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: dist
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            baysor-"$VERSION"-* SHA256SUMS
+
+      - name: Fail if a platform is missing
+        if: steps.sums.outputs.missing != ''
+        env:
+          MISSING: ${{ steps.sums.outputs.missing }}
+        run: |
+          echo "::error::not attached to the release (build failed): $MISSING"
+          exit 1
+
+  # Builds a runtime image from the Linux archive, smoke-tests it and pushes it
+  # to GHCR, and to Docker Hub when its secrets exist (RELEASING.md, "Docker
+  # images"). Independent of `publish`, so that neither failure hides the
+  # other; skipped when the platforms input leaves out linux-x86_64.
+  docker:
+    name: Docker image
+    needs: [version, build]
+    if: contains(needs.version.outputs.matrix, 'linux-x86_64')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      DRY_RUN: ${{ needs.version.outputs.dry_run }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      # The workflow's own ref, not the built one: a rebuilt tag may predate
+      # packaging/docker/.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux archive
+        uses: actions/download-artifact@v4
+        with:
+          name: baysor-${{ needs.version.outputs.version }}-linux-x86_64
+          path: docker-context
+
+      # X.Y.Z always, plus `latest` for the newest stable release. Dry runs
+      # consult no release and push nothing.
+      - name: Compute image names and tags
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'vpetukhov/baysor' }}
+        run: |
+          set -euo pipefail
+          ghcr="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/baysor"
+          dockerhub=""
+          versions=("$VERSION")
+          if [[ "$DRY_RUN" != true ]]; then
+            if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+              dockerhub="$DOCKERHUB_REPOSITORY"
+            else
+              echo "::warning::Docker Hub secrets DOCKERHUB_USERNAME/DOCKERHUB_TOKEN are not configured; pushing to GHCR only"
+            fi
+            pre=()
+            if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" == true ]]; then
+              pre=(--prerelease)
+            fi
+            if [[ "$(packaging/is_latest_release.py "$VERSION" "${pre[@]}" --repo "$GITHUB_REPOSITORY")" == true ]]; then
+              versions+=(latest)
+            fi
+          fi
+          ghcr_tags=("${versions[@]/#/$ghcr:}")
+          dockerhub_tags=()
+          if [[ -n "$dockerhub" ]]; then dockerhub_tags=("${versions[@]/#/$dockerhub:}"); fi
+          {
+            echo "image=${ghcr_tags[0]}"
+            echo "ghcr_tags<<EOF"; printf '%s\n' "${ghcr_tags[@]}"; echo "EOF"
+            if [[ -n "$dockerhub" ]]; then echo "dockerhub_tags<<EOF"; printf '%s\n' "${dockerhub_tags[@]}"; echo "EOF"; fi
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Docker image tags"
+            printf -- "- \`%s\`\n" "${ghcr_tags[@]}" "${dockerhub_tags[@]}"
+            if [[ "$DRY_RUN" == true ]]; then echo "Dry run: the image is built and smoke-tested, not pushed."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Loaded into the local daemon and pushed below only after the smoke
+      # test; no provenance, since `docker push` drops attestations anyway.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker-context
+          file: packaging/docker/Dockerfile
+          load: true
+          provenance: false
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          tags: |
+            ${{ steps.meta.outputs.ghcr_tags }}
+            ${{ steps.meta.outputs.dockerhub_tags }}
+
+      # The entrypoint must print the version; packaging/smoke_test.sh then
+      # checks --help and segments a synthetic dataset in the container, as
+      # the image's non-root user.
+      - name: Smoke-test image
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          out="$(docker run --rm "$IMAGE" --version)"
+          [[ "$out" == "baysor $VERSION" ]] || { echo "::error::expected 'baysor $VERSION', got '$out'"; exit 1; }
+          docker run --rm --entrypoint bash \
+            --mount "type=bind,src=$PWD/packaging/smoke_test.sh,dst=/smoke/smoke_test.sh,readonly" \
+            "$IMAGE" /smoke/smoke_test.sh /usr/local/bin/baysor "$VERSION"
+
+      - name: Log in to GHCR
+        if: env.DRY_RUN != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        if: env.DRY_RUN != 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.ghcr_tags }}
+        run: for t in $TAGS; do docker push "$t"; done
+
+      - name: Log in to Docker Hub
+        if: steps.meta.outputs.dockerhub_tags != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push image to Docker Hub
+        if: steps.meta.outputs.dockerhub_tags != ''
+        env:
+          TAGS: ${{ steps.meta.outputs.dockerhub_tags }}
+        run: for t in $TAGS; do docker push "$t"; done

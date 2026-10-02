@@ -5,7 +5,6 @@ on:
   pull_request:
 
 env:
-  VCPKG_GIT_REF: 2026.03.18
   VCPKG_DISABLE_METRICS: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
 
@@ -50,14 +49,19 @@ jobs:
             libhdf5-dev \
             nlohmann-json3-dev \
             libtiff-dev
-          wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
+          wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
           sudo apt-get install -y -V "./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
           sudo apt-get update
           sudo apt-get install -y -V libarrow-dev libparquet-dev
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
-        run: brew install ninja eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff libomp
+        run: brew install ninja eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
+
+      - name: Read the vcpkg release (as the release builds do)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "VCPKG_GIT_REF=$(cat packaging/vcpkg-ref)" >> "$GITHUB_ENV"
 
       - name: Checkout vcpkg
         if: runner.os == 'Windows'
@@ -72,7 +76,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .vcpkg-bincache
-          key: ${{ runner.os }}-${{ matrix.triplet }}-vcpkg-${{ env.VCPKG_GIT_REF }}-${{ hashFiles('vcpkg.json') }}
+          key: ${{ runner.os }}-${{ matrix.triplet }}-vcpkg-${{ env.VCPKG_GIT_REF }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'packaging/vcpkg-overlay-ports/**') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.triplet }}-vcpkg-${{ env.VCPKG_GIT_REF }}-
 
@@ -133,6 +137,16 @@ jobs:
         shell: pwsh
         run: cmake --build build/ci --config Release --target baysor --parallel
 
+      # vcpkg removes a port's logs only after it builds successfully.
+      - name: Upload vcpkg failure logs
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-logs-${{ matrix.triplet }}
+          path: .vcpkg/buildtrees/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   ubuntu_tests:
     name: Ubuntu tests
     runs-on: ubuntu-24.04
@@ -157,7 +171,7 @@ jobs:
             nlohmann-json3-dev \
             libtiff-dev \
             libgtest-dev
-          wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
+          wget "https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr '[:upper:]' '[:lower:]')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
           sudo apt-get install -y -V "./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb"
           sudo apt-get update
           sudo apt-get install -y -V libarrow-dev libparquet-dev

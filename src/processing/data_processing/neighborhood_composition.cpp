@@ -1,4 +1,7 @@
 #include "baysor/processing/data_processing/neighborhood_composition.h"
+#include "baysor/processing/data_processing/heap_knn_result_set.h"
+#include "baysor/processing/utils/utils.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <third_party/nanoflann.hpp>
 #include <algorithm>
@@ -6,7 +9,6 @@
 #include <limits>
 #include <numeric>
 #include <random>
-#include <omp.h>
 
 namespace baysor {
 
@@ -42,69 +44,10 @@ public:
         , tree_(n_dims_, adaptor_, nanoflann::KDTreeSingleIndexAdaptorParams(/* max_leaf = */ 10)) {}
 
     template<class Callback>
-    void for_each_block(
-        const Eigen::MatrixXd& query_points,
-        int k,
-        bool sorted,
-        int block_size,
-        Callback&& callback
-    ) const {
-        const int n_query = static_cast<int>(query_points.cols());
-        if (n_tree_ == 0 || n_query == 0 || k <= 0) return;
-
-        k = std::min(k, n_tree_);
-        for (int block_start = 0; block_start < n_query; block_start += block_size) {
-            const int block_n = std::min(block_size, n_query - block_start);
-            std::vector<int> indices(static_cast<size_t>(block_n) * static_cast<size_t>(k));
-            std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
-
-            #pragma omp parallel for schedule(dynamic, 256)
-            for (int local_i = 0; local_i < block_n; ++local_i) {
-                const int global_i = block_start + local_i;
-                int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-                double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-
-                nanoflann::KNNResultSet<double, int> result_set(k);
-                result_set.init(idx_ptr, dist_ptr);
-                tree_.findNeighbors(
-                    result_set,
-                    query_points.col(global_i).data(),
-                    nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
-                );
-
-                if (sorted) {
-                    std::vector<int> order(k);
-                    std::iota(order.begin(), order.end(), 0);
-                    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                        if (dist_ptr[a] != dist_ptr[b]) return dist_ptr[a] < dist_ptr[b];
-                        return idx_ptr[a] < idx_ptr[b];
-                    });
-
-                    std::vector<int> sorted_indices(k);
-                    std::vector<double> sorted_distances(k);
-                    for (int j = 0; j < k; ++j) {
-                        sorted_indices[j] = idx_ptr[order[j]];
-                        sorted_distances[j] = dist_ptr[order[j]];
-                    }
-                    std::copy(sorted_indices.begin(), sorted_indices.end(), idx_ptr);
-                    std::copy(sorted_distances.begin(), sorted_distances.end(), dist_ptr);
-                }
-
-                for (int j = 0; j < k; ++j) {
-                    dist_ptr[j] = std::sqrt(dist_ptr[j]);
-                }
-            }
-
-            callback(block_start, block_n, k, indices, distances);
-        }
-    }
-
-    template<class Callback>
     void for_each_index_block(
         const Eigen::MatrixXd& query_points,
         const std::vector<int>& query_ids,
         int k,
-        bool sorted,
         int block_size,
         Callback&& callback
     ) const {
@@ -117,48 +60,45 @@ public:
             std::vector<int> indices(static_cast<size_t>(block_n) * static_cast<size_t>(k));
             std::vector<double> distances(static_cast<size_t>(block_n) * static_cast<size_t>(k));
 
-            #pragma omp parallel for schedule(dynamic, 256)
-            for (int local_i = 0; local_i < block_n; ++local_i) {
-                const int query_id = query_ids[block_start + local_i];
-                int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-                double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k);
-
-                nanoflann::KNNResultSet<double, int> result_set(k);
-                result_set.init(idx_ptr, dist_ptr);
-                tree_.findNeighbors(
-                    result_set,
-                    query_points.col(query_id).data(),
-                    nanoflann::SearchParameters(/* eps = */ 0.0f, /* sorted = */ sorted)
+            parallel_for(0, block_n, 256, [&](int local_i) {
+                search_one(
+                    query_points.col(query_ids[block_start + local_i]).data(), k,
+                    indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k),
+                    distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(k)
                 );
-
-                if (sorted) {
-                    std::vector<int> order(k);
-                    std::iota(order.begin(), order.end(), 0);
-                    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                        if (dist_ptr[a] != dist_ptr[b]) return dist_ptr[a] < dist_ptr[b];
-                        return idx_ptr[a] < idx_ptr[b];
-                    });
-
-                    std::vector<int> sorted_indices(k);
-                    std::vector<double> sorted_distances(k);
-                    for (int j = 0; j < k; ++j) {
-                        sorted_indices[j] = idx_ptr[order[j]];
-                        sorted_distances[j] = dist_ptr[order[j]];
-                    }
-                    std::copy(sorted_indices.begin(), sorted_indices.end(), idx_ptr);
-                    std::copy(sorted_distances.begin(), sorted_distances.end(), dist_ptr);
-                }
-
-                for (int j = 0; j < k; ++j) {
-                    dist_ptr[j] = std::sqrt(dist_ptr[j]);
-                }
-            }
+            });
 
             callback(block_start, block_n, k, indices, distances);
         }
     }
 
 private:
+    // From this k on, the heap result set is cheaper than KNNResultSet's
+    // insertion shift; both return the same neighbours.
+    static constexpr int heap_min_k = 33;
+
+    // k nearest tree points of one query: indices and Euclidean distances,
+    // ordered by (distance, index).
+    void search_one(const double* query, int k, int* idx_ptr, double* dist_ptr) const {
+        const nanoflann::SearchParameters params(/* eps = */ 0.0f, /* sorted = */ true);
+        if (k >= heap_min_k) {
+            thread_local std::vector<HeapKnnEntry> heap_buf;
+            if (heap_buf.size() < static_cast<size_t>(k)) heap_buf.resize(static_cast<size_t>(k));
+            HeapKnnResultSet result_set(static_cast<size_t>(k), heap_buf.data());
+            tree_.findNeighbors(result_set, query, params);
+            result_set.extract_sorted(idx_ptr, dist_ptr);
+        } else {
+            nanoflann::KNNResultSet<double, int> result_set(k);
+            result_set.init(idx_ptr, dist_ptr);
+            tree_.findNeighbors(result_set, query, params);
+            sort_tied_runs_by_index(idx_ptr, dist_ptr, k);
+        }
+
+        for (int j = 0; j < k; ++j) {
+            dist_ptr[j] = std::sqrt(dist_ptr[j]);
+        }
+    }
+
     int n_dims_;
     int n_tree_;
     EigenColMajorAdaptor adaptor_;
@@ -185,8 +125,8 @@ struct NeighborhoodScratch {
 
     int next_mark() {
         if (current_mark == std::numeric_limits<int>::max()) {
-            std::fill(marks.begin(), marks.end(), 0);
-            current_mark = 1;
+            std::fill(marks.begin(), marks.end(), 0); // GCOVR_EXCL_LINE: impractical to test: needs >= 2^31 queries on one thread
+            current_mark = 1; // GCOVR_EXCL_LINE: impractical to test: needs >= 2^31 queries on one thread
         }
         return current_mark++;
     }
@@ -219,44 +159,34 @@ std::vector<double> exact_closest_nonzero_distances(
         std::vector<int> unresolved_query_ids(unresolved.size());
         for (size_t i = 0; i < unresolved.size(); ++i) unresolved_query_ids[i] = query_ids[unresolved[i]];
 
-        searcher.for_each_index_block(pos_data, unresolved_query_ids, current_k, true, block_size,
+        searcher.for_each_index_block(pos_data, unresolved_query_ids, current_k, block_size,
             [&](int block_start, int block_n, int block_k,
                 const std::vector<int>& indices,
                 const std::vector<double>& distances) {
-                std::vector<int> local_unresolved;
-                local_unresolved.reserve(static_cast<size_t>(block_n));
+                // Unresolved queries are flagged in parallel and collected in
+                // index order, independent of the thread count.
+                std::vector<unsigned char> is_unresolved(block_n, 0);
+                parallel_for(0, block_n, 256, [&](int local_i) {
+                    const int global_i = unresolved[block_start + local_i];
+                    const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
 
-                #pragma omp parallel
-                {
-                    std::vector<int> thread_unresolved;
-
-                    #pragma omp for schedule(dynamic, 256)
-                    for (int local_i = 0; local_i < block_n; ++local_i) {
-                        const int global_i = unresolved[block_start + local_i];
-                        const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
-
-                        double closest = 1e-15;
-                        for (int j = 0; j < block_k; ++j) {
-                            if (dist_ptr[j] > 1e-15) {
-                                closest = dist_ptr[j];
-                                break;
-                            }
-                        }
-
-                        if (closest > 1e-15 || current_k == n_total) {
-                            closest_nonzero[global_i] = closest;
-                        } else {
-                            thread_unresolved.push_back(global_i);
+                    double closest = 1e-15;
+                    for (int j = 0; j < block_k; ++j) {
+                        if (dist_ptr[j] > 1e-15) {
+                            closest = dist_ptr[j];
+                            break;
                         }
                     }
 
-                    #pragma omp critical
-                    local_unresolved.insert(local_unresolved.end(),
-                                            thread_unresolved.begin(), thread_unresolved.end());
+                    if (closest > 1e-15 || current_k == n_total) {
+                        closest_nonzero[global_i] = closest;
+                    } else {
+                        is_unresolved[local_i] = 1;
+                    }
+                });
+                for (int local_i = 0; local_i < block_n; ++local_i) {
+                    if (is_unresolved[local_i]) next_unresolved.push_back(unresolved[block_start + local_i]);
                 }
-
-                next_unresolved.insert(next_unresolved.end(),
-                                       local_unresolved.begin(), local_unresolved.end());
             });
 
         if (next_unresolved.empty() || current_k == n_total) break;
@@ -281,7 +211,7 @@ void for_each_neighborhood_block_with_searcher(
     double distance_floor,
     Callback&& callback
 ) {
-    constexpr int block_size = 32768;
+    const int block_size = knn_block_size(k);
     double med_closest_dist = distance_floor;
     if (normalize_by_dist && med_closest_dist <= 0.0) {
         std::vector<double> closest_nonzero =
@@ -299,7 +229,7 @@ void for_each_neighborhood_block_with_searcher(
         }
     }
 
-    searcher.for_each_index_block(pos_data, query_ids, k, true, block_size,
+    searcher.for_each_index_block(pos_data, query_ids, k, block_size,
         [&](int block_start, int block_n, int block_k,
             const std::vector<int>& indices,
             const std::vector<double>& distances) {
@@ -307,78 +237,73 @@ void for_each_neighborhood_block_with_searcher(
             std::vector<std::vector<StorageIndex>> block_rows(block_n);
             std::vector<std::vector<float>> block_vals(block_n);
 
-            #pragma omp parallel
-            {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 thread_local NeighborhoodScratch scratch;
                 scratch.ensure(n_genes);
+                const int mark = scratch.next_mark();
+                scratch.touched_buckets.clear();
+                int nnz = 0;
 
-                #pragma omp for schedule(dynamic, 256)
-                for (int local_i = 0; local_i < block_n; ++local_i) {
-                    const int mark = scratch.next_mark();
-                    scratch.touched_buckets.clear();
-                    int nnz = 0;
+                const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
+                const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
 
-                    const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
-                    const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
+                for (int j = 0; j < block_k; ++j) {
+                    const int idx = idx_ptr[j];
+                    const int gene = genes[idx] - 1;
+                    if (gene < 0 || gene >= n_genes) continue;
 
-                    for (int j = 0; j < block_k; ++j) {
-                        const int idx = idx_ptr[j];
-                        const int gene = genes[idx] - 1;
-                        if (gene < 0 || gene >= n_genes) continue;
-
-                        if (scratch.marks[gene] != mark) {
-                            scratch.marks[gene] = mark;
-                            scratch.counts[gene] = 0.0f;
-                            ++nnz;
-                            const int bucket = gene / NeighborhoodScratch::bucket_width;
-                            if (scratch.bucket_marks[bucket] != mark) {
-                                scratch.bucket_marks[bucket] = mark;
-                                scratch.touched_buckets.push_back(bucket);
-                            }
-                        }
-
-                        float weight = 1.0f;
-                        if (normalize_by_dist) {
-                            weight = static_cast<float>(1.0 / std::max(dist_ptr[j], med_closest_dist));
-                        } else if (confidences) {
-                            weight = static_cast<float>((*confidences)[idx]);
-                        }
-                        scratch.counts[gene] += weight;
-                    }
-
-                    float total = 0.0f;
-                    if (normalize) {
-                        for (int bucket : scratch.touched_buckets) {
-                            const int g0 = bucket * NeighborhoodScratch::bucket_width;
-                            const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
-                            for (int gene = g0; gene < g1; ++gene) {
-                                if (scratch.marks[gene] == mark) total += scratch.counts[gene];
-                            }
+                    if (scratch.marks[gene] != mark) {
+                        scratch.marks[gene] = mark;
+                        scratch.counts[gene] = 0.0f;
+                        ++nnz;
+                        const int bucket = gene / NeighborhoodScratch::bucket_width;
+                        if (scratch.bucket_marks[bucket] != mark) {
+                            scratch.bucket_marks[bucket] = mark;
+                            scratch.touched_buckets.push_back(bucket);
                         }
                     }
 
-                    std::sort(scratch.touched_buckets.begin(), scratch.touched_buckets.end());
-                    auto& rows = block_rows[local_i];
-                    auto& vals = block_vals[local_i];
-                    rows.reserve(static_cast<size_t>(nnz));
-                    vals.reserve(static_cast<size_t>(nnz));
+                    float weight = 1.0f;
+                    if (normalize_by_dist) {
+                        weight = static_cast<float>(1.0 / std::max(dist_ptr[j], med_closest_dist));
+                    } else if (confidences) {
+                        weight = static_cast<float>((*confidences)[idx]);
+                    }
+                    scratch.counts[gene] += weight;
+                }
 
+                float total = 0.0f;
+                if (normalize) {
                     for (int bucket : scratch.touched_buckets) {
                         const int g0 = bucket * NeighborhoodScratch::bucket_width;
                         const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
                         for (int gene = g0; gene < g1; ++gene) {
-                            if (scratch.marks[gene] != mark) continue;
-                            float value = scratch.counts[gene];
-                            scratch.counts[gene] = 0.0f;
-                            if (normalize && total > 0.0f) value /= total;
-                            if (value > 1e-5f) {
-                                rows.push_back(static_cast<StorageIndex>(gene));
-                                vals.push_back(value);
-                            }
+                            if (scratch.marks[gene] == mark) total += scratch.counts[gene];
                         }
                     }
                 }
-            }
+
+                std::sort(scratch.touched_buckets.begin(), scratch.touched_buckets.end());
+                auto& rows = block_rows[local_i];
+                auto& vals = block_vals[local_i];
+                rows.reserve(static_cast<size_t>(nnz));
+                vals.reserve(static_cast<size_t>(nnz));
+
+                for (int bucket : scratch.touched_buckets) {
+                    const int g0 = bucket * NeighborhoodScratch::bucket_width;
+                    const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
+                    for (int gene = g0; gene < g1; ++gene) {
+                        if (scratch.marks[gene] != mark) continue;
+                        float value = scratch.counts[gene];
+                        scratch.counts[gene] = 0.0f;
+                        if (normalize && total > 0.0f) value /= total;
+                        if (value > 1e-5f) {
+                            rows.push_back(static_cast<StorageIndex>(gene));
+                            vals.push_back(value);
+                        }
+                    }
+                }
+            });
 
             callback(block_start, block_rows, block_vals);
         });
@@ -413,13 +338,12 @@ Eigen::MatrixXf dense_times_sparse(
     const int n_cols = static_cast<int>(right.cols());
     Eigen::MatrixXf out = Eigen::MatrixXf::Zero(n_components, n_cols);
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_cols; ++col) {
+    parallel_for(0, n_cols, 256, [&](int col) {
         auto out_col = out.col(col);
         for (Eigen::SparseMatrix<float>::InnerIterator it(right, col); it; ++it) {
             out_col.noalias() += it.value() * left.col(it.row());
         }
-    }
+    });
     return out;
 }
 
@@ -431,23 +355,19 @@ Eigen::MatrixXf dense_times_sparse_transpose(
     const int n_rows = static_cast<int>(right.rows());
     const int n_cols = static_cast<int>(right.cols());
 
-    const int n_threads = omp_get_max_threads();
-    std::vector<Eigen::MatrixXf> locals(
-        n_threads, Eigen::MatrixXf::Zero(n_components, n_rows)
+    // Deterministic chunked reduction: per-bucket accumulators merged in index order.
+    Eigen::MatrixXf out = parallel_reduce<Eigen::MatrixXf>(
+        0, n_cols, /*bucket_size=*/256, Eigen::MatrixXf::Zero(n_components, n_rows),
+        [&](std::int64_t b, std::int64_t e, Eigen::MatrixXf& local) {
+            for (std::int64_t col = b; col < e; ++col) {
+                auto left_col = left.col(col);
+                for (Eigen::SparseMatrix<float>::InnerIterator it(right, static_cast<int>(col)); it; ++it) {
+                    local.col(it.row()).noalias() += it.value() * left_col;
+                }
+            }
+        },
+        [](const Eigen::MatrixXf& a, const Eigen::MatrixXf& b) -> Eigen::MatrixXf { return a + b; }
     );
-
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_cols; ++col) {
-        int tid = omp_get_thread_num();
-        auto left_col = left.col(col);
-        auto& local = locals[tid];
-        for (Eigen::SparseMatrix<float>::InnerIterator it(right, col); it; ++it) {
-            local.col(it.row()).noalias() += it.value() * left_col;
-        }
-    }
-
-    Eigen::MatrixXf out = Eigen::MatrixXf::Zero(n_components, n_rows);
-    for (const auto& local : locals) out += local;
     return out;
 }
 
@@ -460,39 +380,33 @@ void compute_diag_and_total_var(
     const int n_mols = static_cast<int>(count_matrix.cols());
 
     std::vector<float> col_sums(n_mols, 0.0f);
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_mols; ++col) {
+    parallel_for(0, n_mols, 256, [&](int col) {
         float sum = 0.0f;
         for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, col); it; ++it) {
             sum += it.value();
         }
         col_sums[col] = sum;
-    }
+    });
 
-    const int n_threads = omp_get_max_threads();
-    std::vector<Eigen::VectorXf> diag_locals(n_threads, Eigen::VectorXf::Zero(n_genes));
-    std::vector<Eigen::VectorXf> total_locals(n_threads, Eigen::VectorXf::Zero(n_genes));
+    // Deterministic chunked reduction, as in dense_times_sparse_transpose.
+    struct Acc { Eigen::VectorXf diag, total; };
+    Acc totals = parallel_reduce<Acc>(
+        0, n_mols, /*bucket_size=*/256,
+        Acc{Eigen::VectorXf::Zero(n_genes), Eigen::VectorXf::Zero(n_genes)},
+        [&](std::int64_t b, std::int64_t e, Acc& acc) {
+            for (std::int64_t col = b; col < e; ++col) {
+                const float col_sum = col_sums[col];
+                for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, static_cast<int>(col)); it; ++it) {
+                    acc.diag(it.row()) += it.value() * it.value();
+                    acc.total(it.row()) += it.value() * col_sum;
+                }
+            }
+        },
+        [](const Acc& a, const Acc& b) { return Acc{a.diag + b.diag, a.total + b.total}; }
+    );
 
-    #pragma omp parallel for schedule(dynamic, 256)
-    for (int col = 0; col < n_mols; ++col) {
-        int tid = omp_get_thread_num();
-        auto& diag_local = diag_locals[tid];
-        auto& total_local = total_locals[tid];
-        const float col_sum = col_sums[col];
-        for (Eigen::SparseMatrix<float>::InnerIterator it(count_matrix, col); it; ++it) {
-            const int row = it.row();
-            const float value = it.value();
-            diag_local(row) += value * value;
-            total_local(row) += value * col_sum;
-        }
-    }
-
-    diag_vals = Eigen::VectorXf::Zero(n_genes);
-    total_var = Eigen::VectorXf::Zero(n_genes);
-    for (int t = 0; t < n_threads; ++t) {
-        diag_vals += diag_locals[t];
-        total_var += total_locals[t];
-    }
+    diag_vals = std::move(totals.diag);
+    total_var = std::move(totals.total);
 }
 
 } // namespace
@@ -540,10 +454,10 @@ Eigen::SparseMatrix<float> neighborhood_count_matrix_subset(
     k = std::min(k, n_total);
     if (n_genes <= 0) n_genes = *std::max_element(genes.begin(), genes.end());
 
-    using StorageIndex = Eigen::SparseMatrix<float>::StorageIndex;
-    std::vector<StorageIndex> outer(static_cast<size_t>(n_query) + 1, 0);
-    std::vector<StorageIndex> inner;
-    std::vector<float> values;
+    // CSC arrays assembled directly in the result's storage, growing it
+    // geometrically across blocks.
+    Eigen::SparseMatrix<float> result(n_genes, n_query);
+    Eigen::Index nnz = 0;
 
     for_each_neighborhood_block(
         pos_data, genes, query_ids, k, n_genes, confidences,
@@ -551,22 +465,19 @@ Eigen::SparseMatrix<float> neighborhood_count_matrix_subset(
         [&](int block_start, const auto& block_rows, const auto& block_vals) {
             size_t block_nnz = 0;
             for (const auto& rows : block_rows) block_nnz += rows.size();
-            inner.reserve(inner.size() + block_nnz);
-            values.reserve(values.size() + block_nnz);
+            result.data().resize(nnz + static_cast<Eigen::Index>(block_nnz), /* reserveSizeFactor = */ 1.0);
+            auto* outer = result.outerIndexPtr();
             for (size_t local_i = 0; local_i < block_rows.size(); ++local_i) {
                 const size_t query_idx = static_cast<size_t>(block_start) + local_i;
-                outer[query_idx + 1] =
-                    outer[query_idx] + static_cast<StorageIndex>(block_rows[local_i].size());
-                inner.insert(inner.end(), block_rows[local_i].begin(), block_rows[local_i].end());
-                values.insert(values.end(), block_vals[local_i].begin(), block_vals[local_i].end());
+                const auto& rows = block_rows[local_i];
+                const auto& vals = block_vals[local_i];
+                std::copy(rows.begin(), rows.end(), result.innerIndexPtr() + nnz);
+                std::copy(vals.begin(), vals.end(), result.valuePtr() + nnz);
+                nnz += static_cast<Eigen::Index>(rows.size());
+                outer[query_idx + 1] = static_cast<Eigen::SparseMatrix<float>::StorageIndex>(nnz);
             }
         });
 
-    Eigen::Map<const Eigen::SparseMatrix<float>> mapped(
-        n_genes, n_query,
-        static_cast<Eigen::Index>(values.size()),
-        outer.data(), inner.data(), values.data());
-    Eigen::SparseMatrix<float> result = mapped;
     return result;
 }
 
@@ -687,7 +598,7 @@ Eigen::MatrixXf project_neighborhood_vectors(
     Eigen::MatrixXf out = Eigen::MatrixXf::Zero(gene_emb_t.rows(), static_cast<int>(ids.size()));
     stream_projected_neighborhood_vectors(
         pos_data, genes, k, gene_emb_t, n_genes, &ids, confidences,
-        normalize_by_dist, normalize, distance_floor, log_transform, 32768,
+        normalize_by_dist, normalize, distance_floor, log_transform, knn_block_size(k),
         [&](int block_start, const std::vector<int>&, const Eigen::MatrixXf& block_vecs) {
             out.middleCols(block_start, block_vecs.cols()) = block_vecs;
         }
@@ -733,82 +644,73 @@ void stream_projected_neighborhood_vectors(
         }
     }
 
-    searcher.for_each_index_block(pos_data, ids, k, true, block_size,
+    searcher.for_each_index_block(pos_data, ids, k, block_size,
         [&](int block_start, int block_n, int block_k,
             const std::vector<int>& indices,
             const std::vector<double>& distances) {
             Eigen::MatrixXf block_vecs = Eigen::MatrixXf::Zero(gene_emb_t.rows(), block_n);
 
-            #pragma omp parallel
-            {
+            parallel_for(0, block_n, 256, [&](int local_i) {
                 thread_local NeighborhoodScratch scratch;
                 scratch.ensure(n_genes);
+                const int mark = scratch.next_mark();
+                scratch.touched_buckets.clear();
 
-                #pragma omp for schedule(dynamic, 256)
-                for (int local_i = 0; local_i < block_n; ++local_i) {
-                    const int mark = scratch.next_mark();
-                    scratch.touched_buckets.clear();
+                const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
+                const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
 
-                    const int* idx_ptr = indices.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
-                    const double* dist_ptr = distances.data() + static_cast<size_t>(local_i) * static_cast<size_t>(block_k);
-
-                    for (int j = 0; j < block_k; ++j) {
-                        const int idx = idx_ptr[j];
-                        const int gene = genes[idx] - 1;
-                        if (gene < 0 || gene >= n_genes) continue;
-                        if (scratch.marks[gene] != mark) {
-                            scratch.marks[gene] = mark;
-                            scratch.counts[gene] = 0.0f;
-                            const int bucket = gene / NeighborhoodScratch::bucket_width;
-                            if (scratch.bucket_marks[bucket] != mark) {
-                                scratch.bucket_marks[bucket] = mark;
-                                scratch.touched_buckets.push_back(bucket);
-                            }
-                        }
-
-                        float weight = 1.0f;
-                        if (normalize_by_dist) {
-                            weight = static_cast<float>(1.0 / std::max(dist_ptr[j], med_closest_dist));
-                        } else if (confidences) {
-                            weight = static_cast<float>((*confidences)[idx]);
-                        }
-                        scratch.counts[gene] += weight;
-                    }
-
-                    float total = 0.0f;
-                    if (normalize) {
-                        for (int bucket : scratch.touched_buckets) {
-                            const int g0 = bucket * NeighborhoodScratch::bucket_width;
-                            const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
-                            for (int gene = g0; gene < g1; ++gene) {
-                                if (scratch.marks[gene] == mark) total += scratch.counts[gene];
-                            }
+                for (int j = 0; j < block_k; ++j) {
+                    const int idx = idx_ptr[j];
+                    const int gene = genes[idx] - 1;
+                    if (gene < 0 || gene >= n_genes) continue;
+                    if (scratch.marks[gene] != mark) {
+                        scratch.marks[gene] = mark;
+                        scratch.counts[gene] = 0.0f;
+                        const int bucket = gene / NeighborhoodScratch::bucket_width;
+                        if (scratch.bucket_marks[bucket] != mark) {
+                            scratch.bucket_marks[bucket] = mark;
+                            scratch.touched_buckets.push_back(bucket);
                         }
                     }
 
-                    std::sort(scratch.touched_buckets.begin(), scratch.touched_buckets.end());
-                    Eigen::VectorXf col = Eigen::VectorXf::Zero(gene_emb_t.rows());
+                    float weight = 1.0f;
+                    if (normalize_by_dist) {
+                        weight = static_cast<float>(1.0 / std::max(dist_ptr[j], med_closest_dist));
+                    } else if (confidences) {
+                        weight = static_cast<float>((*confidences)[idx]);
+                    }
+                    scratch.counts[gene] += weight;
+                }
+
+                float total = 0.0f;
+                if (normalize) {
                     for (int bucket : scratch.touched_buckets) {
                         const int g0 = bucket * NeighborhoodScratch::bucket_width;
                         const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
                         for (int gene = g0; gene < g1; ++gene) {
-                            if (scratch.marks[gene] != mark) continue;
-                            float value = scratch.counts[gene];
-                            scratch.counts[gene] = 0.0f;
-                            if (normalize && total > 0.0f) value /= total;
-                            if (log_transform) value = static_cast<float>(std::log(value * 10000.0f + 1e-5f));
-                            if (value > 1e-5f) col.noalias() += value * gene_emb_t.col(gene);
+                            if (scratch.marks[gene] == mark) total += scratch.counts[gene];
                         }
                     }
-                    block_vecs.col(local_i) = col;
                 }
-            }
 
-            std::vector<int> block_query_ids(
-                ids.begin() + block_start,
-                ids.begin() + block_start + block_n
-            );
-            callback(block_start, block_query_ids, block_vecs);
+                std::sort(scratch.touched_buckets.begin(), scratch.touched_buckets.end());
+                Eigen::VectorXf col = Eigen::VectorXf::Zero(gene_emb_t.rows());
+                for (int bucket : scratch.touched_buckets) {
+                    const int g0 = bucket * NeighborhoodScratch::bucket_width;
+                    const int g1 = std::min(n_genes, g0 + NeighborhoodScratch::bucket_width);
+                    for (int gene = g0; gene < g1; ++gene) {
+                        if (scratch.marks[gene] != mark) continue;
+                        float value = scratch.counts[gene];
+                        scratch.counts[gene] = 0.0f;
+                        if (normalize && total > 0.0f) value /= total;
+                        if (log_transform) value = static_cast<float>(std::log(value * 10000.0f + 1e-5f));
+                        if (value > 1e-5f) col.noalias() += value * gene_emb_t.col(gene);
+                    }
+                }
+                block_vecs.col(local_i) = col;
+            });
+
+            callback(block_start, std::vector<int>(ids.begin() + block_start, ids.begin() + block_start + block_n), block_vecs);
         });
 }
 

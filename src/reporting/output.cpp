@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -62,12 +63,7 @@ void append_le(std::string& out, T value) {
     out.append(ptr, ptr + sizeof(T));
 }
 
-std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
-    const auto vertices = polygon_vertices(poly);
-    if (vertices.size() < 4) {
-        return {};
-    }
-
+std::string polygon_to_wkb(const std::vector<std::array<double, 2>>& vertices) {
     std::string out;
     out.reserve(1 + 4 + 4 + 4 + vertices.size() * 16);
     append_le<std::uint8_t>(out, 1);          // little endian
@@ -79,6 +75,21 @@ std::string polygon_to_wkb(const Eigen::MatrixXd& poly) {
         append_le<double>(out, xy[1]);
     }
     return out;
+}
+
+// Integer cell id for the `GeometryCollectionLegacy` format: Baysor v0.7.1
+// named cells `C<run_id>-<n>` and kept the part after the first dash; the C++
+// line names them `cell_<n>`.
+int legacy_polygon_cell_id(const std::string& cell_name) {
+    std::string digits = cell_name;
+    if (digits.rfind("cell_", 0) == 0) digits.erase(0, 5);
+    if (const auto dash = digits.find('-'); dash != std::string::npos) digits.erase(0, dash + 1);
+    try {
+        std::size_t consumed = 0;
+        const int id = std::stoi(digits, &consumed);
+        if (consumed == digits.size()) return id;
+    } catch (const std::exception&) {}
+    throw std::runtime_error("GeometryCollectionLegacy requires integer cell ids, got: " + cell_name);
 }
 
 std::shared_ptr<arrow::Table> make_table(
@@ -171,16 +182,29 @@ std::string to_string(OutputStyle style) {
         case OutputStyle::Legacy: return "legacy";
         case OutputStyle::Parquet: return "parquet";
     }
-    return "legacy";
+    return "legacy"; // GCOVR_EXCL_LINE: unreachable
+}
+
+PolygonFormat parse_polygon_format(const std::string& format) {
+    std::string fmt = format;
+    std::transform(fmt.begin(), fmt.end(), fmt.begin(), ::tolower);
+    if (fmt == "featurecollection") return PolygonFormat::FeatureCollection;
+    if (fmt == "geometrycollection") return PolygonFormat::GeometryCollection;
+    if (fmt == "geometrycollectionlegacy") return PolygonFormat::GeometryCollectionLegacy;
+    if (fmt == "none") return PolygonFormat::None;
+    throw std::invalid_argument(
+        "Unknown polygon format: " + format +
+        ". Expected one of FeatureCollection, GeometryCollection, GeometryCollectionLegacy, none");
 }
 
 static nlohmann::json polygons_to_geojson_json(
     const PolygonCollection& polygons,
-    const std::string& format
+    PolygonFormat format
 ) {
     nlohmann::json out;
 
-    const bool is_feature = (format != "GeometryCollection");
+    const bool is_feature = (format == PolygonFormat::FeatureCollection);
+    const bool is_legacy = (format == PolygonFormat::GeometryCollectionLegacy);
     if (is_feature) {
         out["type"] = "FeatureCollection";
         out["features"] = nlohmann::json::array();
@@ -223,10 +247,12 @@ static nlohmann::json polygons_to_geojson_json(
                 }}
             });
         } else {
+            nlohmann::json cell = is_legacy ? nlohmann::json(legacy_polygon_cell_id(cell_name))
+                                            : nlohmann::json(cell_name);
             out["geometries"].push_back({
                 {"type", "Polygon"},
                 {"coordinates", nlohmann::json::array({ring})},
-                {"cell", cell_name}
+                {"cell", cell}
             });
         }
     }
@@ -753,11 +779,12 @@ void save_matrix_to_tsv(const Eigen::SparseMatrix<double>& matrix,
 void save_polygons_geojson(const PolygonCollection& polygons,
                             const std::string& path,
                             const std::string& format) {
-    if (format == "none" || polygons.empty()) return;
+    const PolygonFormat fmt = parse_polygon_format(format);
+    if (fmt == PolygonFormat::None || polygons.empty()) return;
 
     std::ofstream f(path);
     if (!f) throw std::runtime_error("save_polygons_geojson: cannot open " + path);
-    f << polygons_to_geojson_json(polygons, format).dump();
+    f << polygons_to_geojson_json(polygons, fmt).dump();
 }
 
 void save_polygons_geoparquet(const PolygonCollection& polygons,
@@ -775,11 +802,9 @@ void save_polygons_geoparquet(const PolygonCollection& polygons,
     for (const auto& [cell_name, poly] : polygons) {
         auto vertices = polygon_vertices(poly);
         if (vertices.size() < 4) continue;
-        std::string wkb = polygon_to_wkb(poly);
-        if (wkb.empty()) continue;
         cells.push_back(cell_name);
         n_vertices.push_back(static_cast<int>(vertices.size() - 1));
-        wkbs.push_back(std::move(wkb));
+        wkbs.push_back(polygon_to_wkb(vertices));
     }
     if (cells.empty()) return;
 
@@ -803,7 +828,8 @@ void save_polygons_geoparquet(const PolygonCollection& polygons,
 void save_polygon_stack_geojson(const PolygonStack& polygons,
                                 const OutputPaths& out_paths,
                                 const std::string& format) {
-    if (format == "none" || polygons.empty()) return;
+    const PolygonFormat fmt = parse_polygon_format(format);
+    if (fmt == PolygonFormat::None || polygons.empty()) return;
 
     nlohmann::json by_layer = nlohmann::json::object();
     bool has_3d = false;
@@ -813,7 +839,7 @@ void save_polygon_stack_geojson(const PolygonStack& polygons,
             save_polygons_geojson(poly, out_paths.polygons_2d, format);
             continue;
         }
-        by_layer[layer_name] = polygons_to_geojson_json(poly, format);
+        by_layer[layer_name] = polygons_to_geojson_json(poly, fmt);
         has_3d = true;
     }
 
@@ -843,12 +869,10 @@ void save_polygon_stack_geoparquet(const PolygonStack& polygons,
         for (const auto& [cell_name, geom] : poly) {
             auto vertices = polygon_vertices(geom);
             if (vertices.size() < 4) continue;
-            auto wkb = polygon_to_wkb(geom);
-            if (wkb.empty()) continue;
             cells.push_back(cell_name);
             layers.push_back(layer_name);
             n_vertices.push_back(static_cast<int>(vertices.size() - 1));
-            wkbs.push_back(std::move(wkb));
+            wkbs.push_back(polygon_to_wkb(vertices));
         }
     }
 

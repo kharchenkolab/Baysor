@@ -30,9 +30,13 @@ void bmm(BmmData<N>& data,
          double tol = 0.0,
          int min_molecules_display = 0);  ///< display threshold (0 = same as min_molecules_drop)
 
-/// E-step: reassign molecules to components based on spatial + expression density
+/// E-step: reassign molecules to components based on spatial + expression density.
+/// `rng_salt` keys the multi-threaded per-chunk RNG streams (pass the iteration
+/// index so draws differ between iterations); it has no effect with 1 thread,
+/// where the global stream is used in index order.
 template<int N>
-EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic = true);
+EstepStats expect_dirichlet_spatial(BmmData<N>& data, bool stochastic = true,
+                                    std::uint64_t rng_salt = 0);
 
 /// M-step: re-estimate all component parameters from current assignments
 template<int N>

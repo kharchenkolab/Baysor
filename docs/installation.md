@@ -1,150 +1,118 @@
 # Installation
 
-The C++ branch is built with CMake. The default build is optimized, installs
-under this checkout, and does not build tests.
+## Release binaries
 
-## Required Dependencies
+**Linux x86-64:**
 
-Baysor needs CMake, Ninja, a C++17 toolchain, plus the C++ libraries below.
-Only CMake, the C++ standard, and Eigen have explicit minimums in the build.
-Other libraries are intentionally not pinned so that system package managers,
-Homebrew, and vcpkg can provide compatible versions.
+```bash
+curl -fLO https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
+./baysor-0.9.0-linux-x86_64/bin/baysor run -m 30 -s 8 molecules.csv
+```
 
-| Dependency | Required / known-working version |
+`30` and `8` are example parameters; see [Cell segmentation](run.md) before
+choosing them for your data.
+
+Download other platforms and `SHA256SUMS` from the
+[cpp-0.9.0 release](https://github.com/kharchenkolab/Baysor/releases/tag/cpp-0.9.0):
+
+| Archive | Requirements |
 | --- | --- |
-| CMake | `>= 3.20` |
-| C++ compiler | C++17 compiler; GCC 9.4.0 and Visual Studio 2022 are known to work |
-| Ninja | Recent Ninja; 1.10.0 is known to work |
-| Eigen3 | `>= 3.3` |
-| OpenMP | C++ OpenMP target; GCC OpenMP 4.5 is known to work |
-| spdlog | Not pinned; 1.5.0 is known to work |
-| CGAL | Not pinned; 5.0.2 is known to work |
-| Arrow / Parquet | Not pinned; 19.0.1 is known to work; Arrow must include compute, CSV, and Parquet support |
-| HDF5 | Not pinned; 1.10.x is known to work |
-| nlohmann_json | Not pinned; 3.7.3 is known to work |
-| libtiff | Not pinned; 4.1.0 is known to work |
+| `baysor-0.9.0-linux-x86_64.tar.gz` | Linux x86-64, glibc 2.28 or newer <!-- GLIBC_FLOOR --> (e.g. Debian 10+, RHEL 8+) |
+| `baysor-0.9.0-macos-arm64.tar.gz` | macOS 12 or newer, Apple Silicon |
+| `baysor-0.9.0-windows-x86_64.zip` | 64-bit Windows 10 or newer |
 
-Several header-only UMAP dependencies are fetched automatically by CMake with
-pinned source tags:
+Extract the archive and use `bin/baysor` (`bin/baysor.exe` on Windows)
+inside the extracted directory. Keep the Windows DLLs beside the executable.
+The binaries use generic CPU baselines; AVX2 is not required.
 
-| Header-only dependency | Pinned tag |
-| --- | --- |
-| `aarand` | `v1.0.2` |
-| `CppKmeans` | `v3.1.1` |
-| `subpar` | `v0.3.1` |
-| `knncolle` | `v2.3.0` |
-| `CppIrlba` | `v2.0.2` |
-| `umappp` | `v2.0.1` |
-
-## Build And Install
-
-After the platform prerequisites below are installed, use the same command on
-Linux, macOS, and Windows:
+Optionally verify the Linux archive before extracting it:
 
 ```bash
-cmake -P cmake/build_and_install.cmake
+curl -fL -o SHA256SUMS \
+  https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-This installs `baysor` to `./install/bin` by default. The build is optimized,
-leaves tests off, and does not write to system directories. Linux and macOS use
-system packages by default. Windows uses the vcpkg manifest when `VCPKG_ROOT`
-is set.
+## Docker
 
-After installation, run:
+From the directory containing `molecules.csv`:
 
 ```bash
-./install/bin/baysor --help
+docker run --rm -v "$PWD:/data" ghcr.io/kharchenkolab/baysor:0.9.0 run -m 30 -s 8 molecules.csv
 ```
 
-## Ubuntu 24.04
+The release image is Linux x86-64 and uses `baysor` as its entrypoint: pass
+`run`, `preview` or `segfree` directly after the image name. `/data` is its
+working directory, so paths are relative to the mounted directory. The image
+runs as UID/GID 1000; if your user has another ID, add
+`--user "$(id -u):$(id -g)"` so the results are writable.
 
-The Docker build uses Ubuntu 24.04. Ubuntu's default repositories do not always
-provide the Arrow / Parquet development packages in the form expected by this
-build, so the commands below use the Apache Arrow apt source.
+Version tags (such as `0.9.0`) pin a release; `latest` tracks the newest stable
+release. The older Docker Hub images `vpetukhov/baysor` (`v0.4`–`v0.7.1`)
+contain the Julia implementation.
+
+## Building from source
+
+Use this only if a release binary does not suit your platform or you need to
+modify Baysor. On Linux / macOS, the simplest build uses a private conda-forge
+environment bootstrapped by `configure.sh`; no root access is needed:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-  ca-certificates \
-  lsb-release \
-  wget
-
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-sudo apt-get install -y --no-install-recommends ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-rm ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-  build-essential \
-  cmake \
-  ninja-build \
-  pkg-config \
-  git \
-  libeigen3-dev \
-  libomp-dev \
-  libspdlog-dev \
-  libcgal-dev \
-  libarrow-dev \
-  libparquet-dev \
-  libhdf5-dev \
-  nlohmann-json3-dev \
-  libtiff-dev
+git clone -b cpp-0.9.0 https://github.com/kharchenkolab/Baysor.git
+cd Baysor
+./configure.sh --deps=conda --install
+./install/bin/baysor --version
 ```
 
-## macOS
+The default dependency directory is `.deps`; the binary is installed in
+`install/bin`. Other dependency modes are `system` (packages already
+installed), `vcpkg` (requires `VCPKG_ROOT`) and `auto` (default: system if the
+build tools and Arrow/Parquet are available, otherwise conda).
 
-```bash
-brew install \
-  cmake \
-  ninja \
-  pkg-config \
-  eigen \
-  libomp \
-  spdlog \
-  cgal \
-  apache-arrow \
-  hdf5 \
-  nlohmann-json \
-  libtiff
-```
+??? note "Using system packages"
 
-## Windows
+    A source build needs a C++17 compiler, CMake ≥ 3.20, a build tool, Eigen ≥
+    3.3, spdlog, CGAL, Arrow/Parquet, HDF5, nlohmann_json, libtiff and zlib.
+    CMake fetches the header-only UMAP dependencies automatically.
 
-Install Visual Studio 2022 or newer with the C++ workload, CMake, Git, and
-vcpkg. Set `VCPKG_ROOT` to the vcpkg checkout before running the common build
-command:
+    On Ubuntu 24.04, first enable the Apache Arrow apt repository:
 
-```powershell
-git clone https://github.com/microsoft/vcpkg "$env:USERPROFILE\vcpkg"
-& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
-$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
-```
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends ca-certificates lsb-release wget
+    wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+    sudo apt-get install -y --no-install-recommends ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+    rm ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends \
+      build-essential cmake ninja-build pkg-config git \
+      libeigen3-dev libspdlog-dev libcgal-dev libarrow-dev libparquet-dev \
+      libhdf5-dev nlohmann-json3-dev libtiff-dev zlib1g-dev
+    ./configure.sh --deps=system --install
+    ```
 
-After running the common build command, the binary will be under:
+    On macOS with Homebrew:
 
-```text
-install/bin/baysor.exe
-```
+    ```bash
+    brew install cmake ninja pkg-config eigen spdlog cgal apache-arrow hdf5 nlohmann-json libtiff
+    ./configure.sh --deps=system --install
+    ```
 
-## Troubleshooting Dependencies
+    For dependencies in a non-standard location, pass their prefix to CMake:
 
-The CMake configure step checks each required dependency and prints the package
-manager command to install it when it is missing. If a dependency is installed
-in a non-standard location, set either:
+    ```bash
+    ./configure.sh --deps=system -- -DCMAKE_PREFIX_PATH=/path/to/prefix
+    ```
 
-```bash
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/prefix
-```
+The repository also provides a source-build Dockerfile:
+`docker build -t baysor .` from the repository root.
+See `./configure.sh --help` and [Development](development.md) for build and
+test options. If configuration fails, the error lists the missing dependency;
+include the configure log when [opening an issue](https://github.com/kharchenkolab/Baysor/issues).
 
-or the package-specific config directory:
+## Legacy Julia implementation
 
-```bash
-cmake -S . -B build -DArrow_DIR=/path/to/lib/cmake/arrow
-```
-
-## Continuous Integration
-
-The `platforms_build` workflow builds the `baysor` target on Ubuntu, macOS, and
-Windows. Ubuntu and macOS use native binary packages so CI does not spend time
-building Apache Arrow and Thrift from source; Windows uses the vcpkg manifest.
-A separate Ubuntu job builds and runs the developer tests.
+For Baysor.jl v0.7.1, follow the [migration page](migrating.md#installation)
+and [archived installation guide](https://kharchenkolab.github.io/Baysor/0.7.1/installation/).
+Do not use an unpinned Julia package install: the default branch is now C++.

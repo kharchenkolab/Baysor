@@ -5,6 +5,7 @@
 #include "baysor/processing/distributions/mv_normal.h"
 #include "baysor/processing/data_processing/triangulation.h"
 #include <Eigen/Dense>
+#include <optional>
 #include <vector>
 
 namespace baysor {
@@ -29,6 +30,15 @@ InitialParams<N> cell_centers_uniformly(
     double scale = -1.0
 );
 
+/// Compute the molecule-graph edge list once (normalized points, Delaunay
+/// triangulation / kNN, canonical dedup), unfiltered. The result can be passed
+/// to build_molecule_graph() to avoid recomputing the triangulation.
+AdjacencyResult compute_molecule_adjacency(const MoleculeData& data);
+
+/// Build the weighted molecule graph (CSR AdjList) from edges produced by
+/// compute_molecule_adjacency() or adjacency_list().
+AdjList build_molecule_graph_from_edges(const AdjacencyResult& edges, int n_molecules);
+
 /// Build the molecule adjacency graph (MRF)
 AdjList build_molecule_graph(
     const MoleculeData& data,
@@ -36,14 +46,17 @@ AdjList build_molecule_graph(
     bool use_local_gene_similarities = false,
     AdjacencyType type = AdjacencyType::Auto,
     int composition_neighborhood = 0,
-    int n_gene_pcs = 0
+    int n_gene_pcs = 0,
+    /// Unfiltered edges from compute_molecule_adjacency() to reuse (then
+    /// filtered here); ignored when the data has duplicate coordinates.
+    std::optional<AdjacencyResult> precomputed_edges = std::nullopt
 );
 
-/// Full initialization of BmmData from molecule data
+/// Full initialization of BmmData from molecule data (adj_list is moved in)
 template<int N>
 BmmData<N> initialize_bmm_data(
     const MoleculeData& mol_data,
-    const AdjList& adj_list,
+    AdjList adj_list,
     int n_cells_init,
     double scale,
     const std::string& scale_std = "25%",

@@ -20,6 +20,7 @@
 #include "baysor/reporting/run_report.h"
 
 #include "baysor/utils/general.h"
+#include "baysor/utils/thread_pool.h"
 #include "baysor/utils/xenium.h"
 
 #include <Eigen/Dense>
@@ -30,12 +31,28 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 
 using namespace baysor;
+
+// Thread-pool size: --threads (or config `threads`), else OMP_NUM_THREADS
+// (kept for existing scripts), else the physical cores.
+static int resolve_thread_count(int requested) {
+    if (requested > 0) return requested;
+    if (const char* env = std::getenv("OMP_NUM_THREADS")) {
+        // stoi takes the first entry of a list ("8,4"); malformed values are ignored.
+        try {
+            int n = std::stoi(env);
+            if (n > 0) return n;
+        } catch (...) {}
+    }
+    return default_thread_count();
+}
 
 // ============================================================================
 // Subcommand: run
@@ -109,7 +126,7 @@ int cmd_run(
                     prior_based_n_cells_init = std::max(prior_based_n_cells_init, n_active_prior_segments);
                     inferred_n_cells_init = std::min(inferred_n_cells_init, prior_based_n_cells_init);
 
-                    spdlog::info(
+                    spdlog::info( // GCOVR_EXCL_LINE: gcov artifact
                         "Using prior-aware n_cells_init={} (active prior segments={}, unassigned molecules={}, "
                         "default without prior would be {}).",
                         inferred_n_cells_init, n_active_prior_segments, n_unassigned,
@@ -127,31 +144,25 @@ int cmd_run(
         return 1;
     }
 
-    spdlog::info("Using scale={:.2f}, scale_std={}",
+    spdlog::info("Using scale={:.2f}, scale_std={}", // GCOVR_EXCL_LINE: gcov artifact
                  opts.segmentation.scale, opts.segmentation.scale_std);
 
     double psc = opts.segmentation.prior_segmentation_confidence;
 
-    std::vector<double> noise_edge_lengths;
-    NoiseFitResult noise_fit;
-    int confidence_nn_id = opts.molecules.confidence_nn_id;
     spdlog::info("Estimating confidence...");
-    if (plot) {
-        auto conf_details = estimate_confidence_details(data, opts.molecules.confidence_nn_id, psc);
-        confidence_nn_id = conf_details.nn_id;
-        noise_edge_lengths = std::move(conf_details.edge_lengths);
-        noise_fit = std::move(conf_details.fit_result);
-        data.confidence.resize(data.n_molecules());
-        for (int i = 0; i < data.n_molecules(); ++i) {
-            data.confidence[i] = noise_fit.assignment_probs(i, 0);
-        }
-    } else {
-        append_confidence(data, opts.molecules.confidence_nn_id, psc);
+    auto conf_details = estimate_confidence_details(data, opts.molecules.confidence_nn_id, psc);
+    data.confidence.resize(data.n_molecules());
+    for (int i = 0; i < data.n_molecules(); ++i) {
+        data.confidence[i] = conf_details.fit_result.assignment_probs(i, 0);
     }
 
-    // Build molecule adjacency graph (MRF)
+    // Build molecule adjacency graph (MRF), reusing the Delaunay edges of the
+    // confidence step.
     spdlog::info("Building molecule graph...");
-    auto adj_list = build_molecule_graph(data);
+    auto adj_list = build_molecule_graph(
+        data, /*filter=*/true, /*use_local_gene_similarities=*/false,
+        AdjacencyType::Auto, /*composition_neighborhood=*/0, /*n_gene_pcs=*/0,
+        std::move(conf_details.adjacency));
 
     // Create output directory
     {
@@ -238,8 +249,9 @@ int cmd_run(
         constexpr int N = decltype(tag)::value;
 
         spdlog::info("Initializing BmmData ({}D)...", N);
+        // adj_list is not needed afterwards: move it instead of keeping two copies.
         auto bm_data = initialize_bmm_data<N>(
-            data, adj_list, n_cells, scale, scale_std, psc, min_mols, /*verbose=*/true);
+            data, std::move(adj_list), n_cells, scale, scale_std, psc, min_mols, /*verbose=*/true);
 
         // Wire molecule clusters into BmmData
         if (!mol_clusters.empty()) {
@@ -249,7 +261,7 @@ int cmd_run(
         // History depth: match Julia's round(iters * 0.1)
         int history_depth = std::max(1, n_iters / 10);
 
-        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...",
+        spdlog::info("Running segmentation ({} iters, history_depth={}, tol={})...", // GCOVR_EXCL_LINE: gcov artifact
                      n_iters, history_depth, opts.segmentation.tol);
         // Julia hardcodes min_n_samples=2 in drop_unused_components! — match that exactly.
         // min_mols = min_molecules_per_cell = display threshold only.
@@ -312,8 +324,13 @@ int cmd_run(
         spdlog::info("Saving cell stats...");
         Eigen::MatrixXd cell_stats_mat;
         std::vector<std::string> cell_stat_col_names;
-        std::vector<std::string> cell_names(n_cells_final);
-        for (int i = 0; i < n_cells_final; ++i) {
+        // Names are indexed by component id. Cover every assigned label so the
+        // polygons are named exactly like the molecule table (#165); the
+        // cell-stats writer reads only the first n_cells_final names.
+        int n_cell_names = n_cells_final;
+        for (int a : bm_data.assignment) n_cell_names = std::max(n_cell_names, a);
+        std::vector<std::string> cell_names(n_cell_names);
+        for (int i = 0; i < n_cell_names; ++i) {
             cell_names[i] = "cell_" + std::to_string(i + 1);
         }
         {
@@ -438,7 +455,8 @@ int cmd_run(
         if (output_style == OutputStyle::Parquet || polygon_format != "none" || plot) {
             auto pos = data.position_matrix();
             auto polys = boundary_polygons_auto(
-                pos, bm_data.assignment, /*estimate_per_z=*/(N == 3), &cell_names, /*verbose=*/true);
+                pos, bm_data.assignment, /*estimate_per_z=*/(N == 3), &cell_names, /*verbose=*/true,
+                opts.plotting.max_z_slices);
             poly_joined = std::move(polys.first);
             poly_stack = std::move(polys.second);
             have_polygons = true;
@@ -506,9 +524,9 @@ int cmd_run(
             spdlog::info("Generating HTML run report...");
             auto diagnostic_html = generate_run_diagnostic_html(
                 data,
-                noise_edge_lengths,
-                noise_fit,
-                confidence_nn_id,
+                conf_details.edge_lengths,
+                conf_details.fit_result,
+                conf_details.nn_id,
                 bm_data.assignment,
                 bm_data.n_components_trace,
                 bm_data.assignment_confidence,
@@ -532,7 +550,8 @@ int cmd_run(
                 bm_data.assignment,
                 ncv_color,
                 mol_clusters.empty() ? nullptr : &mol_clusters,
-                have_polygons ? &poly_joined : nullptr
+                have_polygons ? &poly_joined : nullptr,
+                opts.plotting.max_plot_size
             );
             std::ofstream seg_plot_file(out_paths.molecule_plot);
             if (!seg_plot_file) {
@@ -579,13 +598,7 @@ int cmd_preview(
     if (nn_id <= 0) nn_id = std::max(data.n_genes() / 10, 10);
 
     auto pos = data.position_matrix();
-    auto knn = knn_parallel(pos, pos, nn_id + 1, true);
-
-    std::vector<double> edge_lengths(data.n_molecules());
-    for (int i = 0; i < data.n_molecules(); ++i) {
-        int k = static_cast<int>(knn.distances[i].size());
-        edge_lengths[i] = (k > nn_id) ? knn.distances[i][nn_id] : knn.distances[i].back();
-    }
+    std::vector<double> edge_lengths = knn_kth_distances(pos, nn_id + 1, nn_id);
 
     auto adj_list    = build_molecule_graph(data, false);
     auto noise_result = fit_noise_probabilities(edge_lengths, adj_list, nullptr, 100, 0.005, true);
@@ -614,7 +627,8 @@ int cmd_preview(
 
     // Generate HTML report
     spdlog::info("Generating HTML report...");
-    auto html = generate_preview_html(data, gene_colors, edge_lengths, noise_result, nn_id, &gene_structure);
+    auto html = generate_preview_html(data, gene_colors, edge_lengths, noise_result, nn_id, &gene_structure,
+                                      opts.plotting.max_plot_size);
 
     std::ofstream out_file(output);
     if (!out_file) {
@@ -699,6 +713,8 @@ int cmd_segfree(
 
 int main(int argc, char* argv[]) {
     CLI::App app{"Baysor — Bayesian cell segmentation of spatial transcriptomics data"};
+    app.set_version_flag("--version", std::string("baysor ") + BAYSOR_VERSION,
+                         "Print the Baysor version and exit");
     app.require_subcommand(1);
 
     // Pre-scan argv for -c/--config so we can load config before CLI11 registers
@@ -724,8 +740,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Subcommands print a bare version string: Sopa feeds it directly to
+    // packaging.version.Version.
+    auto add_subcommand = [&app](const std::string& name, const std::string& description) {
+        auto* sub = app.add_subcommand(name, description);
+        sub->set_version_flag("--version", BAYSOR_VERSION, "Print the Baysor version and exit");
+        return sub;
+    };
+    auto add_threads_option = [&opts](CLI::App* sub) {
+        sub->add_option("-t,--threads", opts.threads,
+            "Number of worker threads (default: OMP_NUM_THREADS, "
+            "then the number of physical CPU cores)");
+    };
+
     // ---- run ----
-    auto* run = app.add_subcommand("run", "Run cell segmentation");
+    auto* run = add_subcommand("run", "Run cell segmentation");
 
     std::string run_coordinates, run_prior_seg;
     std::string run_output = "segmentation";
@@ -801,7 +830,17 @@ int main(int argc, char* argv[]) {
     run->add_option("--output-style", run_output_style,
         "Output bundle style: legacy or parquet (default: legacy)");
     run->add_option("--polygon-format", run_polygon_format,
-        "Polygon output format: FeatureCollection, GeometryCollection, or none (default: FeatureCollection)");
+        "Polygon output format: FeatureCollection, GeometryCollection, "
+        "GeometryCollectionLegacy, or none (default: FeatureCollection). "
+        "GeometryCollectionLegacy writes integer cell ids for Xenium Ranger 3.x; "
+        "FeatureCollection is read by Xenium Ranger 4.0+")
+        ->transform(CLI::CheckedTransformer(
+            std::map<std::string, std::string>{
+                {"featurecollection", "FeatureCollection"},
+                {"geometrycollection", "GeometryCollection"},
+                {"geometrycollectionlegacy", "GeometryCollectionLegacy"},
+                {"none", "none"}},
+            CLI::ignore_case));
     run->add_option("--count-matrix-format", run_count_format,
         "Count matrix format: loom or tsv (default: loom)");
     run->add_flag("-p,--plot", run_plot,
@@ -814,14 +853,15 @@ int main(int argc, char* argv[]) {
         "Maximum number of algorithm iterations (default: 500)");
     run->add_option("--tol", opts.segmentation.tol,
         "Convergence tolerance: stop when <tol fraction of molecules change assignment "
-        "over 20 consecutive iterations. 0 = always run all --iters (default: 0.005)");
+        "over 20 consecutive iterations. 0 = always run all --iters (default: 0)");
     run->add_option("--n-cells-init", opts.segmentation.n_cells_init,
         "Initial number of cells (default: auto)");
     run->add_option("--unassigned-prior-label", opts.prior.unassigned_label,
         "Label for unassigned cells in prior segmentation (default: 0)");
+    add_threads_option(run);
 
     // ---- preview ----
-    auto* preview = app.add_subcommand("preview", "Plot a dataset preview");
+    auto* preview = add_subcommand("preview", "Plot a dataset preview");
 
     std::string prev_coordinates;
     std::string prev_output = "preview.html";
@@ -858,12 +898,13 @@ int main(int argc, char* argv[]) {
     preview->add_option("--z-max", opts.molecules.z_max,
         "Maximum z coordinate to keep during input loading");
     preview->add_option("-o,--output", prev_output,
-        "Output file or directory (default: preview.html)");
+        "Output HTML file (default: preview.html)");
     preview->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
+    add_threads_option(preview);
 
     // ---- segfree ----
-    auto* segfree = app.add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
+    auto* segfree = add_subcommand("segfree", "Extract Neighborhood Composition Vectors (NCVs)");
 
     std::string sf_coordinates;
     std::string sf_output = "ncvs.loom";
@@ -903,12 +944,18 @@ int main(int argc, char* argv[]) {
     segfree->add_option("-k,--k-neighbors", sf_k_neighbors,
         "Number of neighbors for segmentation-free pseudo-cells (default: inferred)");
     segfree->add_option("-o,--output", sf_output,
-        "Output file or directory (default: ncvs.loom)");
+        "Output .loom file (default: ncvs.loom)");
     segfree->add_flag("--force-2d", opts.molecules.force_2d,
         "Ignore z-column in the data");
+    add_threads_option(segfree);
 
     // ---- Parse ----
     CLI11_PARSE(app, argc, argv);
+
+    // Configure the global thread pool once, before any parallel work.
+    int n_threads = resolve_thread_count(opts.threads);
+    set_thread_pool_size(n_threads);
+    spdlog::info("Using {} threads", n_threads);
 
     // Reconstruct CLI command string for params dump
     std::string cli_cmd;
@@ -976,17 +1023,12 @@ int main(int argc, char* argv[]) {
         if (preview->parsed()) {
             return cmd_preview(resolve_xenium_input(prev_coordinates), opts, prev_output);
         }
-
-        if (segfree->parsed()) {
-            return cmd_segfree(resolve_xenium_input(sf_coordinates), opts, sf_k_neighbors, sf_output);
-        }
+        return cmd_segfree(resolve_xenium_input(sf_coordinates), opts, sf_k_neighbors, sf_output);
     } catch (const std::exception& e) {
         spdlog::error("{}", e.what());
         return 1;
     } catch (...) {
-        spdlog::error("Unknown error");
-        return 1;
+        spdlog::error("Unknown error"); // GCOVR_EXCL_LINE: unreachable
+        return 1; // GCOVR_EXCL_LINE: unreachable
     }
-
-    return 0;
 }

@@ -1,6 +1,6 @@
 {
   "name": "baysor",
-  "version-string": "0.8.3",
+  "version-string": "0.9.0",
   "description": "C++ implementation of Baysor for imaging-based spatial transcriptomics segmentation.",
   "dependencies": [
     "eigen3",
@@ -23,13 +23,26 @@
       ]
     },
     "nlohmann-json",
-    "tiff"
+    "tiff",
+    "zlib"
   ],
   "features": {
     "tests": {
       "description": "Dependencies needed to build and run the C++ unit tests.",
       "dependencies": [
         "gtest"
+      ]
+    },
+    "release": {
+      "description": "Extra settings for the portable release binaries (packaging/): GMP with run-time CPU dispatch on x86_64 Linux.",
+      "dependencies": [
+        {
+          "name": "gmp",
+          "features": [
+            "fat"
+          ],
+          "platform": "linux & x64"
+        }
       ]
     }
   }

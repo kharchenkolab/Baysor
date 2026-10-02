@@ -13,7 +13,10 @@ namespace baysor {
 // iteration order once parity is no longer the only goal.
 class JuliaIntDoubleDict {
 public:
-    JuliaIntDoubleDict() { reset_storage(16); }
+    JuliaIntDoubleDict() { reset(); }
+
+    /// Back to the state of a new dict (16 empty slots), keeping the capacity.
+    void reset() { reset_storage(16); }
 
     void clear() {
         std::fill(slots_.begin(), slots_.end(), 0);

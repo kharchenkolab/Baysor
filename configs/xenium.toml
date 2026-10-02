@@ -14,5 +14,3 @@ unassigned_label = "UNASSIGNED"
 [segmentation]
 prior_segmentation_confidence = 0.5
 
-[plotting]
-min_pixels_per_cell = 10

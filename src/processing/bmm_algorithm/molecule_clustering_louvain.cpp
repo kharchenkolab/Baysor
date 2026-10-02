@@ -1,5 +1,6 @@
 #include "baysor/processing/bmm_algorithm/molecule_clustering.h"
 #include "baysor/processing/data_processing/neighborhood_composition.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <spdlog/spdlog.h>
 #include <third_party/nanoflann.hpp>
@@ -385,68 +386,6 @@ static std::vector<int> run_leiden_zero_based(
     return reindex_membership_zero_based(finest_to_current);
 }
 
-static std::vector<int> evenly_sample_ids_by_spatial_sum(
-    const Eigen::MatrixXd& pos_data,
-    const std::vector<int>& ids,
-    int target_size
-) {
-    if (target_size <= 0 || static_cast<int>(ids.size()) <= target_size) return ids;
-
-    std::vector<std::pair<double, int>> ordered;
-    ordered.reserve(ids.size());
-    for (int id : ids) {
-        ordered.emplace_back(pos_data.col(id).sum(), id);
-    }
-    std::stable_sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
-        if (a.first != b.first) return a.first < b.first;
-        return a.second < b.second;
-    });
-
-    std::vector<int> out;
-    out.reserve(target_size);
-    for (int j = 0; j < target_size; ++j) {
-        int idx = static_cast<int>(std::floor(
-            static_cast<double>(j) * static_cast<double>(ordered.size()) /
-            static_cast<double>(target_size)
-        ));
-        idx = std::min(idx, static_cast<int>(ordered.size()) - 1);
-        out.push_back(ordered[idx].second);
-    }
-    return out;
-}
-
-static std::vector<int> select_basis_anchor_ids_simple(
-    const Eigen::MatrixXd& pos_data,
-    const std::vector<double>& confidence,
-    int basis_sample_size
-) {
-    const int n = static_cast<int>(pos_data.cols());
-    if (basis_sample_size <= 0 || basis_sample_size >= n) {
-        std::vector<int> ids(n);
-        std::iota(ids.begin(), ids.end(), 0);
-        return ids;
-    }
-
-    static const double thresholds[] = {0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50};
-    std::vector<int> candidates;
-    std::vector<int> last_nonempty;
-    for (double thr : thresholds) {
-        candidates.clear();
-        for (int i = 0; i < n; ++i) {
-            if (confidence[i] >= thr) candidates.push_back(i);
-        }
-        if (!candidates.empty()) last_nonempty = candidates;
-        if (static_cast<int>(candidates.size()) >= basis_sample_size) break;
-    }
-
-    if (candidates.empty()) candidates = last_nonempty;
-    if (candidates.empty()) {
-        candidates.resize(n);
-        std::iota(candidates.begin(), candidates.end(), 0);
-    }
-    return evenly_sample_ids_by_spatial_sum(pos_data, candidates, basis_sample_size);
-}
-
 struct EigenColMajorAdaptor {
     const Eigen::MatrixXd& mat;
 
@@ -471,15 +410,14 @@ using KDTree = nanoflann::KDTreeSingleIndexAdaptor<
 
 static Eigen::MatrixXd normalize_columns_l2(const Eigen::MatrixXf& mol_vecs) {
     Eigen::MatrixXd normalized = mol_vecs.cast<double>();
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < normalized.cols(); ++i) {
+    parallel_for_static(0, normalized.cols(), [&](int i) {
         const double norm = normalized.col(i).norm();
         if (norm > 1e-12) {
             normalized.col(i) /= norm;
         } else {
             normalized.col(i).setZero();
         }
-    }
+    });
     return normalized;
 }
 
@@ -507,26 +445,22 @@ AdjList build_knn_similarity_graph(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    const int n_threads = std::max(1, omp_get_max_threads());
-    std::vector<std::vector<int>> src_by_thread(n_threads);
-    std::vector<std::vector<int>> dst_by_thread(n_threads);
-    std::vector<std::vector<double>> wt_by_thread(n_threads);
+    // Edges collected per chunk and merged in chunk order: the canonical
+    // (src, neighbor) order at any thread count.
+    constexpr std::int64_t chunk = 256;
+    struct Edges {
+        std::vector<int> src, dst;
+        std::vector<double> wt;
+    };
+    std::vector<Edges> edges_by_chunk((n + chunk - 1) / chunk);
 
-    #pragma omp parallel
-    {
-        const int tid = omp_get_thread_num();
-        auto& src = src_by_thread[tid];
-        auto& dst = dst_by_thread[tid];
-        auto& wt = wt_by_thread[tid];
-        src.reserve(static_cast<size_t>(n / n_threads + 1) * static_cast<size_t>(k));
-        dst.reserve(src.capacity());
-        wt.reserve(src.capacity());
-
+    run_parallel_chunks(0, n, chunk, Scheduling::Dynamic,
+        [&](std::int64_t b, std::int64_t e, int) {
+        auto& [src, dst, wt] = edges_by_chunk[b / chunk];
         std::vector<int> nn_indices(query_k);
         std::vector<double> nn_distances(query_k);
 
-        #pragma omp for schedule(dynamic, 256)
-        for (int i = 0; i < n; ++i) {
+        for (int i = static_cast<int>(b); i < static_cast<int>(e); ++i) {
             nanoflann::KNNResultSet<double, int> result_set(query_k);
             result_set.init(nn_indices.data(), nn_distances.data());
             tree.findNeighbors(
@@ -549,22 +483,15 @@ AdjList build_knn_similarity_graph(
                 wt.push_back(weight);
             }
         }
-    }
+    });
 
-    size_t total_edges = 0;
-    for (const auto& v : src_by_thread) total_edges += v.size();
-    std::vector<int> src;
-    std::vector<int> dst;
-    std::vector<double> wt;
-    src.reserve(total_edges);
-    dst.reserve(total_edges);
-    wt.reserve(total_edges);
-
-    for (int tid = 0; tid < n_threads; ++tid) {
-        src.insert(src.end(), src_by_thread[tid].begin(), src_by_thread[tid].end());
-        dst.insert(dst.end(), dst_by_thread[tid].begin(), dst_by_thread[tid].end());
-        wt.insert(wt.end(), wt_by_thread[tid].begin(), wt_by_thread[tid].end());
+    Edges all;
+    for (const auto& c : edges_by_chunk) {
+        all.src.insert(all.src.end(), c.src.begin(), c.src.end());
+        all.dst.insert(all.dst.end(), c.dst.begin(), c.dst.end());
+        all.wt.insert(all.wt.end(), c.wt.begin(), c.wt.end());
     }
+    const auto& [src, dst, wt] = all;
 
     if (src.empty()) return out;
     return AdjList::from_edge_list(src.data(), dst.data(), wt.data(),
@@ -591,8 +518,8 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
         nanoflann::KDTreeSingleIndexAdaptorParams(/*max_leaf=*/10)
     );
 
-    #pragma omp parallel
-    {
+    run_parallel_chunks(0, n, 512, Scheduling::Dynamic,
+        [&](std::int64_t b, std::int64_t e, int) {
         std::vector<int> nn_indices(query_k);
         std::vector<double> nn_distances(query_k);
         std::vector<double> query(static_cast<size_t>(mol_vecs.rows()), 0.0);
@@ -600,8 +527,7 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
         std::vector<int> touched;
         touched.reserve(query_k);
 
-        #pragma omp for schedule(dynamic, 512)
-        for (int i = 0; i < n; ++i) {
+        for (int i = static_cast<int>(b); i < static_cast<int>(e); ++i) {
             double norm_sq = 0.0;
             for (int d = 0; d < mol_vecs.rows(); ++d) {
                 const double v = static_cast<double>(mol_vecs(d, i));
@@ -638,7 +564,7 @@ static std::vector<int> transfer_labels_from_anchor_vectors_exact(
             out[i] = best_label;
             for (int label : touched) label_w[label] = 0.0;
         }
-    }
+    });
 
     return out;
 }
@@ -651,16 +577,9 @@ static PartitionAttempt run_graph_partition_once(
 ) {
     PartitionAttempt out;
     out.resolution = resolution;
-    switch (method) {
-        case ClusterMethod::Louvain:
-            out.membership = run_louvain_zero_based(graph, resolution, max_passes, &out.move_fracs);
-            break;
-        case ClusterMethod::Leiden:
-            out.membership = run_leiden_zero_based(graph, resolution, max_passes, &out.move_fracs);
-            break;
-        default:
-            break;
-    }
+    out.membership = method == ClusterMethod::Leiden
+        ? run_leiden_zero_based(graph, resolution, max_passes, &out.move_fracs)
+        : run_louvain_zero_based(graph, resolution, max_passes, &out.move_fracs);
     out.membership = reindex_membership_zero_based(out.membership, &out.n_clusters);
     return out;
 }
@@ -790,11 +709,10 @@ std::vector<int> graph_partition_to_target(
     );
 
     std::vector<PartitionAttempt> attempts(candidate_resolutions.size());
-    #pragma omp parallel for schedule(dynamic, 1)
-    for (int i = 0; i < static_cast<int>(candidate_resolutions.size()); ++i) {
+    parallel_for(0, static_cast<int>(candidate_resolutions.size()), 1, [&](int i) {
         attempts[i] = run_graph_partition_once(
             graph, method, candidate_resolutions[static_cast<size_t>(i)], max_passes);
-    }
+    });
 
     const PartitionAttempt* chosen = nullptr;
     for (const auto& attempt : attempts) {
@@ -882,13 +800,10 @@ static ClusteringResult cluster_molecules_graph_backend(
     for (int id : cluster_anchor_ids) {
         cluster_anchor_confidence.push_back(confidence.empty() ? 1.0 : confidence[id]);
     }
+    const char* label = method == ClusterMethod::Leiden ? "Leiden" : "Louvain";
     if (verbose) {
-        spdlog::info(
-            "{} clustering: using {} basis anchors (spatial_k={}, graph_k={}).",
-            method == ClusterMethod::Leiden ? "Leiden" : "Louvain",
-            cluster_anchor_ids.size(),
-            effective_spatial_k, graph_k
-        );
+        spdlog::info("{} clustering: using {} basis anchors (spatial_k={}, graph_k={}).", // GCOVR_EXCL_LINE: gcov exception-cleanup artifact
+                     label, cluster_anchor_ids.size(), effective_spatial_k, graph_k);
     }
     const auto& anchor_vecs = ncv_model->basis.basis_vecs;
     AdjList weighted_graph = build_knn_similarity_graph(anchor_vecs, cluster_anchor_confidence, graph_k);
@@ -904,7 +819,6 @@ static ClusteringResult cluster_molecules_graph_backend(
     );
 
     if (verbose) {
-        const char* label = method == ClusterMethod::Leiden ? "Leiden" : "Louvain";
         if (graph_stats.n_components > 1 || graph_stats.n_isolated > 0) {
             spdlog::warn(
                 "{} anchor graph has {} connected components ({} isolated anchors; largest component={}).",

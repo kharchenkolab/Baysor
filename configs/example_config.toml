@@ -1,39 +1,42 @@
-[data]
-x = "x" # Name of the x column in the input data. Default: "x"
-y = "y" # Name of the y column in the input data. Default: "y"
-z = "z" # Name of the y column in the input data. Default: "z"
-gene = "gene" # Name of gene column in the input data. Default: "gene"
-force_2d = false # Ignores z-column in the data if it is provided
-min_molecules_per_gene = 1 # Minimal number of molecules per gene. Default: 1
-exclude_genes = "" # Comma-separated list of genes or regular expressions to ignore during segmentation. Example: 'Blank*,MALAT1'
-min_molecules_per_cell = 0 # Minimal number of molecules for a cell to be considered as real. It's an important parameter, as it's used to infer several other parameters. Default: 3
-min_molecules_per_segment = 0 # Minimal number of molecules in a segmented region, required for this region to be considered as a possible cell. Default: min-molecules-per-cell / 4
-confidence_nn_id = 0 # Number of nearest neighbors to use for confidence estimation. Default: min-molecules-per-cell / 2 + 1
+# Baysor config template. Every key is optional; the values below are the
+# defaults. CLI flags override config values. See docs/configuration.md.
 
-[segmentation]
-scale = -1.0 # Negative values mean it must be estimated from `min_molecules_per_cell`
-scale_std = "25%" # Standard deviation of scale across cells. Can be either number, which means absolute value of the std, or string ended with "%" to set it relative to scale. Default: "25%"
-estimate_scale_from_centers = true # Use scale estimate from DAPI if provided. Default: true
+threads = 0 # Worker threads. 0: OMP_NUM_THREADS, then the number of physical CPU cores
 
-cluster_method = "mrf" # Molecule clustering prior. One of: mrf, louvain, leiden, none. Default: mrf
-n_clusters = 0 # Target number of coarse clusters. Exact for mrf; merged target for louvain/leiden. Default: 4 for mrf, 10 for louvain/leiden
-cluster_resolution = 1.0 # Advanced overclustering resolution for louvain/leiden. Default: 1.0
-cluster_graph_k = 15 # NCV neighbor count used for graph clustering and NCV UMAPs. Default: 15
-cluster_n_dims = 20 # Number of low-dimensional NCV coordinates used by louvain/leiden. Default: 20
-cluster_basis_sample_size = 100000 # Maximum number of basis anchors used by louvain/leiden. Default: 100000
-prior_segmentation_confidence = 0.2 # Confidence of the prior segmentation. Default: 0.2
-iters = 500 # Number of iterations for the cell segmentation algorithm. Default: 500
-n_cells_init = 0 # Initial number of cells
-
-nuclei_genes = "" # Comma-separated list of nuclei-specific genes. If provided, `cyto-genes` has to be set, as well.
-cyto_genes = "" # Comma-separated list of cytoplasm-specific genes. If provided, `nuclei-genes` has to be set, as well.
+[molecules]
+x = "x" # Name of the x column in the input data
+y = "y" # Name of the y column in the input data
+z = "z" # Name of the z column in the input data (ignored if absent)
+gene = "gene" # Name of the gene column in the input data
+qv = "qv" # Name of the quality-score column (used only with min_qv)
+min_qv = -1.0 # Drop molecules with a quality score below this value. Negative: no filter
+force_2d = false # Ignore the z column even if it is present
+min_molecules_per_gene = 1 # Drop genes with fewer molecules
+exclude_genes = "" # Comma-separated gene names or wildcards to ignore. Example: "Blank*,MALAT1"
+min_molecules_per_cell = 0 # Required, here or with -m: minimal number of molecules of a real cell. Several defaults below are derived from it
+confidence_nn_id = 0 # Number of nearest neighbors used for the noise (confidence) estimate. 0: max(min_molecules_per_cell / 2 + 1, 5)
 
 [prior]
-unassigned_label = "0" # Label for unassigned cells in transcript-native prior segmentation. Default: "0"
-estimate_scale_from_prior = true # Estimate scale from prior segmentation when possible. Default: true
+unassigned_label = "0" # Prior label of molecules outside any prior cell (transcript-level prior column)
+min_molecules_per_segment = 0 # Prior cells with fewer molecules are ignored. 0: max(min_molecules_per_cell / 4, 2)
+estimate_scale_from_prior = true # Estimate the cell scale from the prior cells unless --scale is given
+
+[segmentation]
+scale = -1.0 # Approximate cell radius. Negative: estimated from the prior segmentation, which is then required
+scale_std = "25%" # Standard deviation of the scale across cells: a number, or a percentage of the scale
+prior_segmentation_confidence = 0.2 # Confidence of the prior segmentation, from 0 to 1
+iters = 500 # Number of iterations of the segmentation algorithm
+tol = 0.0 # Stop early once the fraction of molecules changing cell stays below this value. 0: run all iterations
+n_cells_init = 0 # Initial number of cells. 0: estimated from the number of molecules, min_molecules_per_cell and the prior
+
+cluster_method = "mrf" # Molecule clustering used as the cell-type prior: mrf, louvain, leiden or none
+n_clusters = 0 # Number of molecule clusters. 0: 4 for mrf, 10 for louvain/leiden
+cluster_resolution = 1.0 # louvain/leiden: resolution of the initial over-clustering
+cluster_graph_k = 15 # louvain/leiden and NCV embeddings: neighbors in the NCV graph
+cluster_n_dims = 20 # louvain/leiden: number of NCV dimensions
+cluster_basis_sample_size = 100000 # louvain/leiden: maximal number of anchor molecules
 
 [plotting]
-gene_composition_neigborhood = 0 # Spatial neighborhood size used to compute NCVs. Larger values emphasize broader patterns. Default: max(n_genes / 10, min-molecules-per-cell, 3)
-min_pixels_per_cell = 15 # Number of pixels per cell of minimal size, used to estimate size of the final plot. For most protocols values around 7-30 give enough visualization quality. Default: 15
-max_plot_size = 3000 # Maximum size of the molecule plot in pixels. Default: 5000
-ncv_method = "ri" # Method for gene vector estimation for NCV dimensionality reduction. Possible values: `ri` (Random Indexing), `dense` (PCA), `sparse` (Sparse PCA). Default: ri
+gene_composition_neigborhood = 0 # Neighborhood size for the neighborhood composition vectors (NCVs). 0: max(n_genes / 10, min_molecules_per_cell, 3)
+max_plot_size = 3000 # Longer side of the molecule plots of the HTML reports, in pixels
+max_z_slices = 10 # Number of z-layers used for 3D polygons; more distinct z values are binned into this many layers

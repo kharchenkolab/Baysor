@@ -3,6 +3,7 @@
 #include "baysor/processing/data_processing/umap_wrappers.h"
 #include "baysor/processing/models/adj_list.h"
 #include "baysor/processing/utils/utils.h"
+#include "baysor/utils/thread_pool.h"
 
 #include <Eigen/SVD>
 #include <spdlog/spdlog.h>
@@ -14,7 +15,6 @@
 #include <numeric>
 #include <random>
 #include <cstdio>
-#include <omp.h>
 
 namespace baysor {
 
@@ -179,12 +179,8 @@ struct LabNormalizationParams {
     double l_min = 10.0;
     double l_max = 90.0;
     double trim_frac = 0.0125;
-    bool log_colors = false;
     std::array<double, 3> row_q_lo{0.0, 0.0, 0.0};
     double max_val = 1.0;
-    double q05 = 1e-3;
-    std::array<double, 3> log_row_min{0.0, 0.0, 0.0};
-    std::array<double, 3> log_row_scale{1.0, 1.0, 1.0};
 };
 
 struct NcvInterpolationModel {
@@ -205,8 +201,7 @@ LabNormalizationParams fit_lab_normalization_params(
     const Eigen::MatrixXd& embedding,
     double l_min,
     double l_max,
-    double trim_frac,
-    bool log_colors
+    double trim_frac
 );
 
 void apply_lab_normalization_params(
@@ -279,7 +274,7 @@ static void fill_colors_from_projected_vectors(
         sample_vecs, sample_emb, n_pca_dims, graph_k
     );
     Eigen::MatrixXd basis_emb = interpolate_ncv_embedding(sample_model, basis_vecs);
-    LabNormalizationParams lab_params = fit_lab_normalization_params(basis_emb, 10.0, 90.0, 0.0125, false);
+    LabNormalizationParams lab_params = fit_lab_normalization_params(basis_emb, 10.0, 90.0, 0.0125);
 
     if (all_mol_vecs) {
         constexpr int block_size = 32768;
@@ -391,7 +386,7 @@ NcvReportEmbedding compute_ncv_embedding(
     // segmentation is still valid, but the UMAP fit/interpolation path below
     // would hit divisions by (sample_size - 1) and invalid KNN sizes.
     if (sample_size <= 1) {
-        spdlog::warn(
+        spdlog::warn( // GCOVR_EXCL_LINE: gcov artifact
             "NCV color embedding fallback: insufficient anchor molecules after adaptive thresholding "
             "(max_conf={:.4f}, threshold={:.2f}, anchors={}, sample_size={}).",
             confidence.empty() ? 0.0 : *std::max_element(confidence.begin(), confidence.end()),
@@ -435,12 +430,13 @@ NcvReportEmbedding compute_ncv_embedding(
     // In 3D the VPtree search is O(log N_sample), giving a ~1000× speedup.
     // The first few PCs capture the dominant variance in gene-expression space,
     // so neighbour quality changes are minimal for colour interpolation.
-    const int n_pca = std::min(n_pca_dims, n_components);
     Eigen::VectorXf sample_mean = sample_mat.rowwise().mean();
     Eigen::MatrixXf sample_centered = sample_mat.colwise() - sample_mean;
 
-    // Thin U of (n_components × sample_size): columns are principal components.
+    // Thin U of (n_components × sample_size): columns are principal components,
+    // at most min(n_components, sample_size) of them.
     Eigen::BDCSVD<Eigen::MatrixXf> svd(sample_centered, Eigen::ComputeThinU);
+    const int n_pca = std::min({n_pca_dims, n_components, sample_size});
     Eigen::MatrixXf pca_basis = svd.matrixU().leftCols(n_pca);  // n_components × n_pca
 
     // Project sample to PCA space: n_pca × sample_size
@@ -452,26 +448,28 @@ NcvReportEmbedding compute_ncv_embedding(
         (pca_basis.transpose() * (mol_vecs.colwise() - sample_mean))
         .cast<double>();
 
-    // KNN in PCA-3D space: nanoflann KD-tree via knn_parallel (already OMP-parallel).
+    // KNN in PCA-3D space: nanoflann KD-tree via knn_parallel (already parallel).
     // tree = sample_pca (n_pca × sample_size), query = all_pca (n_pca × n_mols).
-    int k_interp = std::min(graph_k, sample_size - 1);
+    // At least one neighbour, or the interpolation weights below sum to zero.
+    int k_interp = std::max(1, std::min(graph_k, sample_size - 1));
     auto knn = knn_parallel(sample_pca.cast<double>(), all_pca, k_interp);
 
     // Weighted interpolation of UMAP coordinates.
     Eigen::MatrixXd emb(3, n_mols);
     constexpr double dist_offset = 1e-10;
 
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n_mols; ++i) {
+    parallel_for_static(0, n_mols, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
-        for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
-            double w = 1.0 / (knn.distances[i][j] + dist_offset);
-            weighted += w * sample_emb.col(knn.indices[i][j]);
+        const int* nn_indices = knn.idx_row(i);
+        const double* nn_distances = knn.dist_row(i);
+        for (int j = 0; j < knn.k; ++j) {
+            double w = 1.0 / (nn_distances[j] + dist_offset);
+            weighted += w * sample_emb.col(nn_indices[j]);
             w_sum    += w;
         }
         emb.col(i) = weighted / w_sum;
-    }
+    });
 
     normalize_embedding_to_lab_range(emb);
     result.colors = embedding_to_hex(emb);
@@ -481,14 +479,12 @@ NcvReportEmbedding compute_ncv_embedding(
 LabNormalizationParams fit_lab_normalization_params(
     const Eigen::MatrixXd& embedding,
     double l_min = 10.0, double l_max = 90.0,
-    double trim_frac = 0.0125,
-    bool log_colors = false
+    double trim_frac = 0.0125
 ) {
     LabNormalizationParams params;
     params.l_min = l_min;
     params.l_max = l_max;
     params.trim_frac = trim_frac;
-    params.log_colors = log_colors;
 
     const int n = static_cast<int>(embedding.cols());
     if (n == 0) return params;
@@ -511,24 +507,6 @@ LabNormalizationParams fit_lab_normalization_params(
     params.max_val = quantile_vec(all_vals, 1.0 - trim_frac);
     if (params.max_val <= 0.0) params.max_val = 1.0;
 
-    work /= params.max_val;
-    work = work.cwiseMin(1.0);
-
-    if (log_colors) {
-        all_vals.clear();
-        for (int r = 0; r < 3; ++r)
-            for (int i = 0; i < n; ++i)
-                all_vals.push_back(work(r, i));
-        params.q05 = std::max(quantile_vec(all_vals, 0.05), 1e-3);
-        for (int r = 0; r < 3; ++r) {
-            for (int i = 0; i < n; ++i) work(r, i) = std::log10(work(r, i) + params.q05);
-            params.log_row_min[r] = work.row(r).minCoeff();
-            work.row(r).array() -= params.log_row_min[r];
-            params.log_row_scale[r] = work.row(r).maxCoeff();
-            if (params.log_row_scale[r] <= 0.0) params.log_row_scale[r] = 1.0;
-        }
-    }
-
     return params;
 }
 
@@ -544,16 +522,6 @@ void apply_lab_normalization_params(Eigen::MatrixXd& embedding, const LabNormali
 
     embedding /= params.max_val;
     embedding = embedding.cwiseMin(1.0);
-
-    if (params.log_colors) {
-        for (int r = 0; r < 3; ++r) {
-            for (int i = 0; i < n; ++i) {
-                embedding(r, i) = std::log10(embedding(r, i) + params.q05);
-            }
-            embedding.row(r).array() -= params.log_row_min[r];
-            embedding.row(r) /= params.log_row_scale[r];
-        }
-    }
 
     embedding.row(0) *= (params.l_max - params.l_min);
     embedding.row(0).array() += params.l_min;
@@ -637,7 +605,8 @@ NcvInterpolationModel fit_ncv_interpolation_model(
 ) {
     const int n_components = static_cast<int>(anchor_vecs.rows());
     const int n_anchors = static_cast<int>(anchor_vecs.cols());
-    const int n_pca = std::min(n_pca_dims, n_components);
+    // Thin U has only min(n_components, n_anchors) columns.
+    const int n_pca = std::min({n_pca_dims, n_components, n_anchors});
     NcvInterpolationModel model;
     model.sample_mean = anchor_vecs.rowwise().mean();
     Eigen::MatrixXf centered = anchor_vecs.colwise() - model.sample_mean;
@@ -646,7 +615,6 @@ NcvInterpolationModel fit_ncv_interpolation_model(
     model.anchor_pca = (model.pca_basis.transpose() * centered).cast<double>();
     model.anchor_emb = anchor_emb;
     model.interp_k = std::max(1, graph_k);
-    (void)n_anchors;
     return model;
 }
 
@@ -663,17 +631,18 @@ Eigen::MatrixXd interpolate_ncv_embedding(
     auto knn = knn_parallel(model.anchor_pca, query_pca, k_interp);
     Eigen::MatrixXd emb(3, n_query);
     constexpr double dist_offset = 1e-10;
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n_query; ++i) {
+    parallel_for_static(0, n_query, [&](int i) {
         double w_sum = 0.0;
         Eigen::Vector3d weighted = Eigen::Vector3d::Zero();
-        for (int j = 0; j < static_cast<int>(knn.indices[i].size()); ++j) {
-            double w = 1.0 / (knn.distances[i][j] + dist_offset);
-            weighted += w * model.anchor_emb.col(knn.indices[i][j]);
+        const int* nn_indices = knn.idx_row(i);
+        const double* nn_distances = knn.dist_row(i);
+        for (int j = 0; j < knn.k; ++j) {
+            double w = 1.0 / (nn_distances[j] + dist_offset);
+            weighted += w * model.anchor_emb.col(nn_indices[j]);
             w_sum += w;
         }
         emb.col(i) = weighted / w_sum;
-    }
+    });
     return emb;
 }
 

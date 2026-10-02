@@ -1,0 +1,106 @@
+# MkDocs configuration for the Baysor documentation site.
+#
+# The site is versioned with mike (https://github.com/jimporter/mike):
+# every GitHub release publishes a new version directory on the gh-pages
+# branch and moves the `latest` alias to it. See .github/workflows/docs.yml
+# and docs/tools/migrate_gh_pages.py for the publishing machinery.
+
+site_name: Baysor
+site_description: Documentation for Baysor, Bayesian segmentation of imaging-based spatial transcriptomics data (C++ line)
+site_url: https://kharchenkolab.github.io/Baysor/
+
+repo_url: https://github.com/kharchenkolab/Baysor
+repo_name: kharchenkolab/Baysor
+edit_uri: ''
+
+docs_dir: docs
+
+# Theme overrides and maintainer notes are not user-guide pages.
+exclude_docs: |
+  overrides/
+  README.md
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  # Look of the old Documenter.jl site: logo, Lato/JuliaMono (loaded from
+  # docs/stylesheets/documenter.css like Documenter does), the full navigation
+  # tree with the page sections in the left sidebar, prev/next footer.
+  logo: assets/logo.png
+  favicon: assets/favicon.png
+  font: false
+  features:
+    - navigation.sections
+    - navigation.footer
+    - navigation.top
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage:
+      - Summary: summary.md
+      - Cell segmentation: run.md
+      - Dataset preview: preview.md
+      - Segmentation-free analysis: segfree.md
+      - Configuration: configuration.md
+      - Xenium workflow: xenium.md
+      - Examples: examples.md
+  - Reference:
+      - Input data: inputs.md
+      - Prior segmentation: priors.md
+      - Command-line options: cli.md
+      - Outputs: outputs.md
+      - Output file formats: output_files.md
+  - Performance:
+      - Benchmarks: performance/benchmarks.md
+      - Profiling: performance/profiling.md
+  - Migrating from Julia: migrating.md
+  - Development: development.md
+  - Citation: citation.md
+
+# Interactive charts and sortable tables of the Performance pages (vendored,
+# no CDN); chart data are written by baysor-benchmarks/docs_figures.
+extra_javascript:
+  - assets/perfcharts/perfcharts.js
+extra_css:
+  - stylesheets/documenter.css
+  - assets/perfcharts/perfcharts.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+extra:
+  # Version selector backed by mike's versions.json (see docs/tools/).
+  # `alias: true` shows the version alias ("latest") next to each entry,
+  # e.g. "0.8.4 (latest)" and "0.7.1 (Julia)".
+  version:
+    provider: mike
+    alias: true
+    default: latest

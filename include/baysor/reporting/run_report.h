@@ -33,12 +33,15 @@ std::string generate_run_diagnostic_html(
 );
 
 /// Generate the post-segmentation molecule/border report used by `run --plot`.
+/// The molecule images are at most max_plot_size pixels on their longer side
+/// (`[plotting] max_plot_size`).
 std::string generate_run_segmentation_html(
     const MoleculeData& data,
     const std::vector<int>& assignment,
     const std::vector<std::string>& ncv_color,
     const std::vector<int>* molecule_clusters,
-    const PolygonCollection* polygons
+    const PolygonCollection* polygons,
+    int max_plot_size = PlottingOptions{}.max_plot_size
 );
 
 } // namespace baysor

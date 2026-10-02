@@ -27,7 +27,6 @@
 #include "baysor/reporting/run_report.h"
 
 #include <Eigen/Dense>
-#include <omp.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -44,6 +43,8 @@
 #include <parquet/arrow/writer.h>
 #include <hdf5.h>
 #include <tiffio.h>
+
+#include "test_cov_helpers.h"
 
 // Helper: write a temp CSV file and return its path
 static std::string write_temp_csv(const std::string& content, const std::string& suffix = ".csv") {
@@ -1136,12 +1137,10 @@ TEST(PriorSegmentation, EstimateScaleMatchesExactNearestCenterReference) {
     const double expected_std =
         ((abs_devs[n_cells / 2 - 1] + abs_devs[n_cells / 2]) / 2.0) * 1.4826;
 
-    int old_threads = omp_get_max_threads();
-    omp_set_num_threads(1);
+    baysor_test::PoolSizeGuard pool(1);
     auto [scale_1, scale_std_1] = baysor::estimate_scale_from_assignment(pos, assignment, mols_per_cell);
-    omp_set_num_threads(4);
+    baysor::set_thread_pool_size(4);
     auto [scale_4, scale_std_4] = baysor::estimate_scale_from_assignment(pos, assignment, mols_per_cell);
-    omp_set_num_threads(old_threads);
 
     EXPECT_NEAR(scale_1, expected_scale, 1e-10);
     EXPECT_NEAR(scale_std_1, expected_std, 1e-10);
@@ -1596,14 +1595,16 @@ TEST(KNN, SmallGrid) {
 
     auto result = baysor::knn_parallel(pts, pts, 3, true);
 
-    ASSERT_EQ(result.indices.size(), 4u);
-    ASSERT_EQ(result.distances.size(), 4u);
+    ASSERT_EQ(result.n, 4);
+    ASSERT_EQ(result.k, 3);
+    ASSERT_EQ(result.indices.size(), 12u);
+    ASSERT_EQ(result.distances.size(), 12u);
 
     // For point (0,0), nearest is itself (dist=0), then (1,0) or (0,1) (dist=1)
-    EXPECT_EQ(result.indices[0][0], 0);  // self
-    EXPECT_NEAR(result.distances[0][0], 0.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][1], 1.0, 1e-10);  // adjacent
-    EXPECT_NEAR(result.distances[0][2], 1.0, 1e-10);  // adjacent
+    EXPECT_EQ(result.idx_row(0)[0], 0);  // self
+    EXPECT_NEAR(result.dist_row(0)[0], 0.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[1], 1.0, 1e-10);  // adjacent
+    EXPECT_NEAR(result.dist_row(0)[2], 1.0, 1e-10);  // adjacent
 }
 
 TEST(KNN, SelfQuery) {
@@ -1616,8 +1617,8 @@ TEST(KNN, SelfQuery) {
 
     // First neighbor is always self
     for (int i = 0; i < 3; ++i) {
-        EXPECT_EQ(result.indices[i][0], i);
-        EXPECT_NEAR(result.distances[i][0], 0.0, 1e-10);
+        EXPECT_EQ(result.idx_row(i)[0], i);
+        EXPECT_NEAR(result.dist_row(i)[0], 0.0, 1e-10);
     }
 }
 
@@ -1628,8 +1629,8 @@ TEST(KNN, 3D) {
 
     auto result = baysor::knn_parallel(pts, pts, 2, true);
 
-    EXPECT_NEAR(result.distances[0][1], 5.0, 1e-10);
-    EXPECT_NEAR(result.distances[1][1], 5.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[1], 5.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(1)[1], 5.0, 1e-10);
 }
 
 TEST(KNN, 3DTieOrderIsDeterministic) {
@@ -1644,15 +1645,15 @@ TEST(KNN, 3DTieOrderIsDeterministic) {
 
     auto result = baysor::knn_parallel(pts, query, 4, true);
 
-    ASSERT_EQ(result.indices.size(), 1u);
-    ASSERT_EQ(result.indices[0].size(), 4u);
-    EXPECT_EQ(result.indices[0][0], 0);
-    EXPECT_EQ(result.indices[0][1], 1);
-    EXPECT_EQ(result.indices[0][2], 2);
-    EXPECT_EQ(result.indices[0][3], 3);
-    EXPECT_NEAR(result.distances[0][1], 1.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][2], 1.0, 1e-10);
-    EXPECT_NEAR(result.distances[0][3], 1.0, 1e-10);
+    ASSERT_EQ(result.n, 1);
+    ASSERT_EQ(result.k, 4);
+    EXPECT_EQ(result.idx_row(0)[0], 0);
+    EXPECT_EQ(result.idx_row(0)[1], 1);
+    EXPECT_EQ(result.idx_row(0)[2], 2);
+    EXPECT_EQ(result.idx_row(0)[3], 3);
+    EXPECT_NEAR(result.dist_row(0)[1], 1.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[2], 1.0, 1e-10);
+    EXPECT_NEAR(result.dist_row(0)[3], 1.0, 1e-10);
 }
 
 // ============================================================================
@@ -1848,14 +1849,12 @@ TEST(BoundaryEstimation, BoundaryPolygonsAutoStableAcrossThreadCounts) {
     add_square(3, 0.0, 10.0, 1.0);
     add_square(4, 10.0, 10.0, 1.0);
 
-    int old_threads = omp_get_max_threads();
-    omp_set_num_threads(1);
+    baysor_test::PoolSizeGuard pool(1);
     auto [joined_1, stack_1] = baysor::boundary_polygons_auto(
         pos, assignment, /*estimate_per_z=*/true, &cell_names, /*verbose=*/false);
-    omp_set_num_threads(4);
+    baysor::set_thread_pool_size(4);
     auto [joined_4, stack_4] = baysor::boundary_polygons_auto(
         pos, assignment, /*estimate_per_z=*/true, &cell_names, /*verbose=*/false);
-    omp_set_num_threads(old_threads);
 
     expect_polygon_collection_near(joined_4, joined_1);
     ASSERT_EQ(stack_4.size(), stack_1.size());
@@ -2742,20 +2741,18 @@ TEST(MoleculeClustering, GraphPartitionToTargetStableAcrossThreadCounts) {
     auto adj = baysor::build_knn_similarity_graph(mol_vecs, confidence, /*k=*/5);
 
     for (auto method : {baysor::ClusterMethod::Louvain, baysor::ClusterMethod::Leiden}) {
-        int old_threads = omp_get_max_threads();
-        omp_set_num_threads(1);
+        baysor_test::PoolSizeGuard pool(1);
         baysor::GraphClusteringSummary summary_1;
         auto assignment_1 = baysor::graph_partition_to_target(
             adj, mol_vecs, confidence, method,
             /*target_clusters=*/4, /*resolution_seed=*/1.0, /*max_passes=*/100, &summary_1
         );
-        omp_set_num_threads(4);
+        baysor::set_thread_pool_size(4);
         baysor::GraphClusteringSummary summary_4;
         auto assignment_4 = baysor::graph_partition_to_target(
             adj, mol_vecs, confidence, method,
             /*target_clusters=*/4, /*resolution_seed=*/1.0, /*max_passes=*/100, &summary_4
         );
-        omp_set_num_threads(old_threads);
 
         EXPECT_EQ(assignment_4, assignment_1);
         EXPECT_EQ(summary_4.micro_clusters, summary_1.micro_clusters);
@@ -3146,12 +3143,10 @@ TEST(BmmLoop, ConnectedComponentSplitMatchesAcrossThreadCounts) {
     one_thread.assignment.assign(one_thread.assignment.size(), 1);
     many_threads.assignment = one_thread.assignment;
 
-    int old_threads = omp_get_max_threads();
-    omp_set_num_threads(1);
+    baysor_test::PoolSizeGuard pool(1);
     baysor::split_cells_by_connected_components(one_thread);
-    omp_set_num_threads(4);
+    baysor::set_thread_pool_size(4);
     baysor::split_cells_by_connected_components(many_threads);
-    omp_set_num_threads(old_threads);
 
     const std::vector<int> expected = {1, 1, 1, 0, 0, 0, 0, 0};
     EXPECT_EQ(one_thread.assignment, expected);

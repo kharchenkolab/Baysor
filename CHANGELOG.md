@@ -2,6 +2,67 @@
 
 All notable changes to the C++ line of Baysor are documented here.
 
+## [cpp-0.9.0] — 2026-10-02
+
+### Added
+
+- Prebuilt binaries for every release: Linux x86-64 (glibc 2.28+), macOS arm64
+  (macOS 12+) and Windows x86-64, with `SHA256SUMS`. No extra packages are needed.
+- Docker images for every release on GHCR (`X.Y.Z`, and `latest`
+  for the newest stable release).
+- Versioned documentation site with pages rewritten for the C++ implementation,
+  a "Migrating from Baysor.jl (v0.7.x)" page and a "Performance" section.
+- `-t, --threads` for `run`, `preview` and `segfree` (and the `threads` config
+  key). By default Baysor uses `OMP_NUM_THREADS`, then the number of physical
+  CPU cores.
+- `--version` for `baysor` and every subcommand; `baysor run --version` prints a
+  bare version string, as expected by Sopa.
+- `--polygon-format GeometryCollectionLegacy` (integer cell ids) for Xenium
+  Ranger 3.x.
+- `[plotting] max_z_slices` sets the number of z-layers used for 3D polygons
+  (default 10, #169).
+
+### Changed
+
+- OpenMP is no longer used: all parallel code runs on Baysor's own thread pool.
+  Runs are reproducible: repeated runs give identical results, and all
+  multi-threaded runs give the same result whatever the number of threads
+  (a single-threaded run uses its own random-number stream and can differ
+  slightly).
+- Faster segmentation with less memory than cpp-0.8.3: about 2–3× faster at
+  6 threads and 20–30 % faster at 1 thread, with 10–40 % lower peak memory.
+- Molecule clustering scales to large gene panels: above 3,000 genes the ICA
+  initialisation uses a truncated sparse decomposition, which is up to 60×
+  faster with 5× less memory. On such panels clusters and segmentation can
+  differ slightly from cpp-0.8.3.
+- `run --plot` and `preview` reports are faster, and `[plotting] max_plot_size`
+  is now honoured.
+- The default thread count is the number of physical cores instead of all
+  logical CPUs.
+- Invalid config values are reported as errors naming the key instead of
+  silently falling back to the default. Integer keys accept `50.0`, `1e2` and
+  `1_000`, as in Baysor.jl.
+- `--polygon-format` is case-insensitive, and unknown values are an error.
+
+### Fixed
+
+- `--prior-segmentation-confidence 1` keeps all molecules of a prior cell in one
+  final cell, including duplicated CosMx transcripts (#117).
+- Every cell in `segmentation.csv` gets exactly one polygon, so Xenium Ranger
+  no longer reports `MissingCellPolygon` (#165).
+- Multi-threaded runs reused the same random numbers in every iteration, which
+  made results depend on the thread count and differ between repeated runs
+  (e.g. about 7 % more cells on an ISS dataset at 6 threads).
+- Single-threaded results no longer depend on the output path.
+- Crashes on very small inputs: `--n-cells-init 1` or too few molecules for
+  `-m`, fewer genes than clusters in the ICA initialisation, and NCV colours
+  with very few anchors.
+- Gene names stored in Parquet binary-dictionary columns are decoded as text.
+- CLI help shows the actual `--tol` default.
+- `configs/example_config.toml` lists every C++ option with its actual default
+  (it still described Baysor.jl behaviour), and the parameter dump of a run
+  now records `tol`.
+
 ## [cpp-0.8.3] — 2026-07-31
 
 ### Changed

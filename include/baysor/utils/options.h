@@ -74,6 +74,7 @@ struct PlottingOptions {
     int gene_composition_neighborhood = 0;
     int min_pixels_per_cell = 15;
     int max_plot_size = 3000;
+    int max_z_slices = 10;  ///< z-layers for 3D polygons; larger z-stacks are binned
     std::string ncv_method = "ri";
 };
 
@@ -82,6 +83,7 @@ struct RunOptions {
     PriorInputOptions prior;
     SegmentationOptions segmentation;
     PlottingOptions plotting;
+    int threads = 0;  ///< thread-pool size; 0 = OMP_NUM_THREADS or physical cores
 };
 
 /// Parse scale_std: "25%" relative to scale, or absolute number like "5.0"

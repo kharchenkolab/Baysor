@@ -1,6 +1,8 @@
 #include "baysor/processing/models/adj_list.h"
 #include <algorithm>
+#include <limits>
 #include <numeric>
+#include <stdexcept>
 
 namespace baysor {
 
@@ -8,8 +10,20 @@ AdjList AdjList::from_edge_list(
     const int* edges_src, const int* edges_dst,
     const double* edge_weights, int n_edges, int n_verts
 ) {
+    // indptr has n_verts + 1 entries and there are 2 * n_edges directed
+    // edges, all indexed with int
+    constexpr int kMax = std::numeric_limits<int>::max();
+    if (n_verts < 0)
+        throw std::invalid_argument("AdjList::from_edge_list: n_verts must be non-negative");
+    if (n_edges < 0)
+        throw std::invalid_argument("AdjList::from_edge_list: n_edges must be non-negative");
+    if (n_verts == kMax)
+        throw std::length_error("AdjList::from_edge_list: n_verts is too large for 32-bit indices");
+    if (n_edges > kMax / 2)
+        throw std::length_error("AdjList::from_edge_list: n_edges is too large for 32-bit indices");
+
     if (n_edges == 0 || n_verts == 0) {
-        AdjList adj;
+        AdjList adj; // GCOVR_EXCL_LINE: exception-cleanup block for this declaration is only reachable if `indptr.assign` throws inside this frame (allocation failure); no portable test input can induce that
         adj.indptr.assign(n_verts + 1, 0);
         return adj;
     }
