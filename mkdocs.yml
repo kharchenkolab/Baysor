@@ -23,24 +23,38 @@ exclude_docs: |
 theme:
   name: material
   custom_dir: docs/overrides
+  # Look of the old Documenter.jl site: logo, Lato/JuliaMono (loaded from
+  # docs/stylesheets/documenter.css like Documenter does), the full navigation
+  # tree with the page sections in the left sidebar, prev/next footer.
+  logo: assets/logo.png
+  favicon: assets/favicon.png
+  font: false
   features:
-    - navigation.tabs
     - navigation.sections
+    - navigation.footer
     - navigation.top
+    - toc.integrate
     - search.suggest
     - search.highlight
     - content.code.copy
   palette:
     - media: '(prefers-color-scheme: light)'
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: '(prefers-color-scheme: dark)'
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/documenter.css
 
 nav:
   - Home: index.md
