@@ -1,76 +1,51 @@
 # Outputs
 
-`baysor run` writes one output directory (`-o/--output`, default
-`segmentation`) in one of two styles (`--output-style`):
-
-- `legacy` (default) — CSV / GeoJSON / Loom, compatible with the classic
-  Baysor outputs and `xeniumranger import-segmentation`
-- `parquet` — Parquet / GeoParquet / 10x-style HDF5 for downstream analysis
-  in Python / R / DuckDB
+`baysor run` writes to the directory selected by `-o` (default `segmentation`).
+The default output style is `legacy`; select Parquet output with:
 
 ```bash
-baysor run --output-style legacy -o out ...
-baysor run --output-style parquet -o out ...
+baysor run -m 30 -s 8 --output-style parquet -o out molecules.csv
 ```
 
-For file-by-file definitions, including exact column order and storage layout,
-see [Output files](output_files.md).
+## Files
+
+| Contents | Legacy (default) | Parquet |
+| --- | --- | --- |
+| Molecule assignments | `segmentation.csv` | `molecules.parquet` |
+| Cell statistics | `segmentation_cell_stats.csv` | `cells.parquet` |
+| Joined 2D polygons | `segmentation_polygons_2d.json` | `cell_boundaries.parquet` |
+| Per-layer polygons (3D only) | `segmentation_polygons_3d.json` | `cell_boundaries_3d.parquet` |
+| Gene × cell count matrix | `segmentation_counts.loom` or `segmentation_counts.tsv` | `feature_matrix.h5` |
+| Config values and invocation | `segmentation_params.dump.toml` | `run_params.toml` |
+| Log | `segmentation_log.log` | `run.log` |
+
+For 3D data, joined polygons pool each cell's molecules across the z-stack.
+In molecule tables, cell `0` means noise / unassigned; other cells are named
+`cell_1`, `cell_2`, etc. See [Output file formats](output_files.md) for columns
+and storage layouts.
+
+Add `-p` / `--plot` for two self-contained browser reports in either style:
+
+- `diagnostic_report.html` — quality checks and run diagnostics
+- `segmentation_plot.html` — molecule and cell visualization
 
 ## Legacy output
 
-- `segmentation.csv` — per-molecule segmentation table
-- `segmentation_cell_stats.csv` — per-cell statistics
-- `segmentation_polygons_2d.json` — joined cell polygons, GeoJSON (for 3D
-  runs: all molecules pooled across the z-stack)
-- `segmentation_polygons_3d.json` — per-layer cell polygons, GeoJSON (3D runs
-  only)
-- `segmentation_counts.loom` or `segmentation_counts.tsv` — count matrix
-  (`--count-matrix-format`)
-- `segmentation_params.dump.toml` — resolved run parameters
-- `segmentation_log.log` — run log
+Use legacy output for CSV / GeoJSON / Loom workflows and Xenium Ranger.
+`--count-matrix-format tsv` changes the default Loom matrix to TSV.
+`--polygon-format` selects `FeatureCollection` (default),
+`GeometryCollection`, `GeometryCollectionLegacy` or `none` (no polygon files).
 
-With `--plot`, two extra HTML files are written: `diagnostic_report.html` and
-`segmentation_plot.html`.
-
-### Xenium compatibility
-
-For Xenium-origin inputs (started from `experiment.xenium`), the `legacy`
-bundle automatically adds the fields needed by
-`xeniumranger import-segmentation`:
-
-- `segmentation.csv` includes `transcript_id` and writes `is_noise` as
-  `true` / `false`
-- `segmentation_polygons_2d.json` uses a GeoJSON `FeatureCollection` with
-  `properties.cell`; `--polygon-format GeometryCollectionLegacy` switches to
-  the integer-id `GeometryCollection` layout required by Xenium Ranger 3.1
-  and earlier
-
-The two files contain exactly the same cells, so the import does not fail
-with `EmptyCellsError` or `MissingCellPolygon`.
-
-Use `legacy` when the result will be handed off to Xenium Ranger / Xenium
-Explorer.
+For [Xenium Ranger import](xenium.md#xenium-explorer-handoff), keep transcript
+IDs and choose the polygon format for your Ranger version. Molecule
+assignments and joined polygons use matching cell IDs; failed boundary
+estimates get fallback rectangles.
 
 ## Parquet output
 
-- `molecules.parquet` — per-molecule segmentation table
-- `cells.parquet` — per-cell statistics
-- `cell_boundaries.parquet` — joined 2D cell polygons, GeoParquet
-- `cell_boundaries_3d.parquet` — per-layer cell polygons, GeoParquet (3D runs
-  only)
-- `feature_matrix.h5` — 10x-style HDF5 feature-barcode matrix
-- `run_params.toml` — resolved run parameters
-- `run.log` — run log
+Use Parquet / GeoParquet tables and the 10x-style HDF5 matrix for downstream
+Python, R or DuckDB analysis. Transcript IDs are not included in this bundle;
+use legacy output for Xenium Ranger.
 
-With `--plot`, the same two HTML files as in `legacy` style are written.
-
-## Legacy-only flags
-
-`--polygon-format` and `--count-matrix-format` only affect the `legacy`
-bundle; in `parquet` style they are ignored with a warning.
-
-## Choosing between styles
-
-Use `legacy` when you want the classic Baysor outputs, GeoJSON polygons, or
-Xenium Ranger compatibility. Use `parquet` when you want Parquet / GeoParquet
-tables and a 10x-style HDF5 matrix for Python / R / DuckDB analysis.
+`--polygon-format` and `--count-matrix-format` are legacy-only and ignored for
+Parquet output.
