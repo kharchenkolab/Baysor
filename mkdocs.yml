@@ -66,6 +66,13 @@ nav:
   - Development: development.md
   - Citation: citation.md
 
+# Interactive charts and sortable tables of the Performance pages (vendored,
+# no CDN); chart data are written by baysor-benchmarks/docs_figures.
+extra_javascript:
+  - assets/perfcharts/perfcharts.js
+extra_css:
+  - assets/perfcharts/perfcharts.css
+
 markdown_extensions:
   - admonition
   - attr_list

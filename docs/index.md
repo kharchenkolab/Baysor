@@ -43,7 +43,7 @@ Xenium data, start with the [Xenium workflow](xenium.md).
   without assigning cells
 - [Examples](examples.md) — workflows for Xenium, ISS, osm-FISH and STARmap
 - [Outputs](outputs.md) — molecule assignments, count matrices and polygons
-- [Performance](performance/benchmarks.md) — run time, memory and accuracy
+- [Performance](performance/profiling.md) — run time, memory and scaling
 
 The method is described in the [Nature Biotechnology paper](citation.md).
 Questions? Start a [discussion](https://github.com/kharchenkolab/Baysor/discussions).

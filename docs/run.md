@@ -93,7 +93,7 @@ The effective count is logged at startup; some steps remain serial.
 
 Repeated runs are deterministic for the same data, parameters and thread
 count. Multi-threaded outputs agree across multi-threaded counts, but a
-single-threaded run can differ; see the [benchmarks](performance/benchmarks.md#accuracy-and-reproducibility).
+single-threaded run can differ.
 
 For all options and defaults, see the [CLI reference](cli.md) or run
 `baysor run --help`.
