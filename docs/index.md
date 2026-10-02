@@ -9,20 +9,15 @@ segmentation. These docs cover the native C++ release **cpp-0.9.0**.
 **Linux x86-64** — install and run on your molecule table:
 
 ```bash
-curl -fL -o baysor-0.9.0-linux-x86_64.tar.gz \
-  https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+curl -fLO https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
 tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
-export PATH="$PWD/baysor-0.9.0-linux-x86_64/bin:$PATH"
-baysor run -m 30 -s 8 -o out --threads 8 molecules.csv
+./baysor-0.9.0-linux-x86_64/bin/baysor run -m 30 -s 8 molecules.csv
 ```
 
 **Docker** — from the directory containing `molecules.csv`:
 
 ```bash
-docker pull ghcr.io/kharchenkolab/baysor:0.9.0
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/data" \
-  ghcr.io/kharchenkolab/baysor:0.9.0 \
-  run -m 30 -s 8 -o /data/out --threads 8 /data/molecules.csv
+docker run --rm -v "$PWD:/data" ghcr.io/kharchenkolab/baysor:0.9.0 run -m 30 -s 8 molecules.csv
 ```
 
 See [Installation](installation.md) for macOS / Windows binaries and system
@@ -35,7 +30,7 @@ column enables 3D segmentation. CSV and Parquet are supported.
 | `-s` / `--scale` | Approximate cell radius in coordinate units. Or pass a [prior](priors.md) as the second input and set `--prior-segmentation-confidence` (default `0.2`). |
 | `-c` | [TOML config](configuration.md); explicit CLI flags override it. |
 | `-o` | Output directory (default `segmentation`). |
-| `--threads` | Worker threads; omit to use `OMP_NUM_THREADS`, then physical CPU cores. |
+| `--threads` | Worker threads; physical CPU cores by default. |
 
 `30` molecules and radius `8` are examples, not universal settings. For
 Xenium data, start with the [Xenium workflow](xenium.md).

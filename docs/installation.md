@@ -1,22 +1,17 @@
 # Installation
 
-Use a release binary or Docker; neither requires Julia or a compiler.
-
 ## Release binaries
 
 **Linux x86-64:**
 
 ```bash
-curl -fL -o baysor-0.9.0-linux-x86_64.tar.gz \
-  https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
+curl -fLO https://github.com/kharchenkolab/Baysor/releases/download/cpp-0.9.0/baysor-0.9.0-linux-x86_64.tar.gz
 tar -xzf baysor-0.9.0-linux-x86_64.tar.gz
-export PATH="$PWD/baysor-0.9.0-linux-x86_64/bin:$PATH"
-baysor --version
-baysor run -m 30 -s 8 -o out molecules.csv
+./baysor-0.9.0-linux-x86_64/bin/baysor run -m 30 -s 8 molecules.csv
 ```
 
-The `PATH` setting lasts for the current shell. `30` and `8` are example
-parameters; see [Cell segmentation](run.md) before choosing them for your data.
+`30` and `8` are example parameters; see [Cell segmentation](run.md) before
+choosing them for your data.
 
 Download other platforms and `SHA256SUMS` from the
 [cpp-0.9.0 release](https://github.com/kharchenkolab/Baysor/releases/tag/cpp-0.9.0):
@@ -44,17 +39,14 @@ sha256sum --check --ignore-missing SHA256SUMS
 From the directory containing `molecules.csv`:
 
 ```bash
-docker pull ghcr.io/kharchenkolab/baysor:0.9.0
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/data" \
-  ghcr.io/kharchenkolab/baysor:0.9.0 \
-  run -m 30 -s 8 -o /data/out --threads 8 /data/molecules.csv
+docker run --rm -v "$PWD:/data" ghcr.io/kharchenkolab/baysor:0.9.0 run -m 30 -s 8 molecules.csv
 ```
 
 The release image is Linux x86-64 and uses `baysor` as its entrypoint: pass
 `run`, `preview` or `segfree` directly after the image name. `/data` is its
-working directory. `--user` writes results as your host user on Linux;
-without it, the image runs as UID/GID 1000. Mount an existing, writable data
-directory.
+working directory, so paths are relative to the mounted directory. The image
+runs as UID/GID 1000; if your user has another ID, add
+`--user "$(id -u):$(id -g)"` so the results are writable.
 
 Version tags (such as `0.9.0`) pin a release; `latest` tracks the newest stable
 release. Docker Hub images at

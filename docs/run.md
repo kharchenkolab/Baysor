@@ -1,7 +1,7 @@
 # Cell segmentation
 
 ```bash
-baysor run -m 30 -s 8 -o out --threads 8 molecules.csv
+baysor run -m 30 -s 8 molecules.csv
 ```
 
 | Parameter | Meaning |
@@ -10,7 +10,7 @@ baysor run -m 30 -s 8 -o out --threads 8 molecules.csv
 | `-s` / `--scale` | Approximate cell radius, in coordinate units. Or pass a [prior](priors.md) as the second input to estimate it; `--prior-segmentation-confidence` controls trust in the prior (default `0.2`). |
 | `-c` | [TOML config](configuration.md); CLI flags override its values. |
 | `-o` | Output directory (default `segmentation`). |
-| `--threads` / `-t` | Worker threads; auto uses `OMP_NUM_THREADS`, then physical CPU cores. |
+| `--threads` / `-t` | Worker threads; physical CPU cores by default. |
 
 The input is a CSV / Parquet table with `x`, `y` and `gene` columns; optional
 `z` enables 3D segmentation. See [Input data](inputs.md) for other column
