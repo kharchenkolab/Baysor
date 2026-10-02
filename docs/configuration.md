@@ -35,8 +35,7 @@ Download a preset separately from the binary, then adjust it for your data:
 
 See the [Xenium workflow](xenium.md) for a download-and-run command, or
 [example_config.toml](https://github.com/kharchenkolab/Baysor/blob/cpp-0.9.0/configs/example_config.toml)
-for a longer template. The tables below describe the C++ defaults; some
-comments in the example template still describe Julia-era behavior.
+for a template listing every key with its default.
 
 ## Config key reference
 
