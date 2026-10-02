@@ -39,8 +39,8 @@ The table needs `x`, `y` and `gene` columns (optional `z` for 3D).
   choosing parameters, using a prior and inspecting results
 - [Xenium workflow](https://kharchenkolab.github.io/Baysor/latest/xenium/) and
   [examples](https://kharchenkolab.github.io/Baysor/latest/examples/)
-- [Performance](https://kharchenkolab.github.io/Baysor/latest/performance/benchmarks/) —
-  run time, memory and accuracy
+- [Performance](https://kharchenkolab.github.io/Baysor/latest/performance/profiling/) —
+  run time, memory and segmentation examples
 
 The [documentation](https://kharchenkolab.github.io/Baysor/) is versioned per
 release. For the old Julia implementation, see the
