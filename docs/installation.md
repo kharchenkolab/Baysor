@@ -49,10 +49,8 @@ runs as UID/GID 1000; if your user has another ID, add
 `--user "$(id -u):$(id -g)"` so the results are writable.
 
 Version tags (such as `0.9.0`) pin a release; `latest` tracks the newest stable
-release. Docker Hub images at
-[`vpetukhov/baysor`](https://hub.docker.com/r/vpetukhov/baysor) are also
-published when Docker Hub credentials are configured. Older Docker Hub tags
-(`v0.4`–`v0.7.1`) contain the Julia implementation.
+release. The older Docker Hub images `vpetukhov/baysor` (`v0.4`–`v0.7.1`)
+contain the Julia implementation.
 
 ## Building from source
 

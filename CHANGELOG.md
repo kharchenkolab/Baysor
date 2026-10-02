@@ -8,7 +8,7 @@ All notable changes to the C++ line of Baysor are documented here.
 
 - Prebuilt binaries for every release: Linux x86-64 (glibc 2.28+), macOS arm64
   (macOS 12+) and Windows x86-64, with `SHA256SUMS`. No extra packages are needed.
-- Docker images for every release on GHCR and Docker Hub (`X.Y.Z`, and `latest`
+- Docker images for every release on GHCR (`X.Y.Z`, and `latest`
   for the newest stable release).
 - Versioned documentation site with pages rewritten for the C++ implementation,
   a "Migrating from Baysor.jl (v0.7.x)" page and a "Performance" section.
