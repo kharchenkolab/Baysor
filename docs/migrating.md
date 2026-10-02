@@ -1,26 +1,14 @@
-# Migrating from Baysor.jl (v0.7.x)
+# Migrating from Julia
 
-This site documents the **C++ line** of Baysor. The Julia implementation
-(Baysor.jl v0.7.x) is no longer developed; its documentation is archived as
-the version **0.7.1 (Julia)** in the version selector and at
-[0.7.1/](https://kharchenkolab.github.io/Baysor/0.7.1/). Old links under
-`/dev/...` redirect there.
-
-The C++ line follows the v0.7.x segmentation algorithm, so results are
-directly comparable. What changes is the packaging, the CLI surface, and some
-outputs.
+The C++ implementation uses the same Baysor method but ships as a native
+binary. CLI syntax and some output formats differ; results are not promised
+to be identical to Julia. The old documentation is archived at
+[0.7.1 (Julia)](https://kharchenkolab.github.io/Baysor/0.7.1/).
 
 ## Installation
 
-The C++ line is the recommended installation: it is a single native binary
-with [release binaries](installation.md#release-binaries) for Linux x86-64,
-macOS arm64, and Windows x86-64, plus a [source build](installation.md#building-from-source)
-via `./configure.sh` and [Docker](installation.md#docker).
-
-If you still need the legacy Julia implementation, install its last release
-explicitly. The repository's default branch is now C++, so the old unpinned
-`Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git"))`
-command fetches sources that are not a Julia package:
+Use a [release binary or Docker](installation.md); Julia is not required.
+If you need the last Julia implementation instead, pin its revision:
 
 ```julia
 using Pkg
@@ -28,66 +16,60 @@ Pkg.add(PackageSpec(url="https://github.com/kharchenkolab/Baysor.git", rev="v0.7
 Pkg.build("Baysor")
 ```
 
-See the [archived Julia v0.7.1 documentation](https://kharchenkolab.github.io/Baysor/0.7.1/)
-for that implementation.
+Follow the [archived installation guide](https://kharchenkolab.github.io/Baysor/0.7.1/installation/)
+for Julia requirements. The default branch is C++, so an unpinned Julia
+package install is no longer appropriate.
 
-## CLI
+## CLI changes
 
-The three subcommands keep their names: `baysor run`, `baysor preview`,
-`baysor segfree`.
+The subcommands remain `baysor run`, `baysor preview` and `baysor segfree`.
+Start with [Cell segmentation](run.md) for a working command.
 
-- **No more dotted config overrides.** Julia-era commands like
-  `--config.segmentation.nuclei-genes=Neat1` or
-  `--config.data.exclude-genes='Blank*'` are gone. Use the flat CLI flags
-  (`--exclude-genes`, …) or a TOML config file (`-c`).
-- **`min-molecules-per-cell` (`-m`) must be set**, on the CLI or in the
-  config; the C++ CLI does not fall back to a default for it.
-- **Scale requirement is unchanged**: provide `--scale` or a prior
-  segmentation from which the scale is estimated.
-- **Prior masks**: TIFF masks (binary or integer-labeled) are supported;
-  MATLAB `.mat` masks are not. Boundary priors can now be passed as
-  CSV/Parquet vertex tables (`vertex_x`, `vertex_y`, `label_id`/`cell_id`).
-  Column priors (`:column_name`) work as before.
-- **New options** in the C++ CLI include `--output-style legacy|parquet`,
-  `--polygon-format`, `--count-matrix-format`, `--cluster-method
-  mrf|louvain|leiden|none` with `--cluster-resolution`, `--cluster-graph-k`,
-  `--cluster-n-dims`, `--cluster-basis-sample-size`, a `--tol` convergence
-  criterion (Julia always ran exactly `--iters` iterations), `--min-qv` and
-  `--qv-column` for quality filtering, coordinate crop flags
-  (`--x-min`, …), `--force-2d`, and `--skip-ncv-color`.
-- **Not yet ported**: compartment segmentation (`--nuclei-genes` /
-  `--cyto-genes`) exists in the CLI but is not implemented in the C++ line
-  yet; setting these options makes `run` exit with an error.
+- Set a positive `-m` on the CLI or in a config; there is no fallback value.
+- For segmentation, supply `-s` / `--scale` or a usable prior. Scale is not
+  inferred from `-m` alone.
+- Replace dotted Julia-era overrides such as
+  `--config.data.exclude-genes='Blank*'` with flat flags such as
+  `--exclude-genes 'Blank*'`, or edit the TOML config passed with `-c`.
+- Use `--threads` or `OMP_NUM_THREADS`, not `JULIA_NUM_THREADS`.
+- TIFF masks and `:column_name` priors remain supported; MATLAB `.mat` masks
+  are not. CSV / Parquet [boundary tables](priors.md) are also accepted.
+- Compartment options (`--nuclei-genes` / `--cyto-genes`) are not implemented
+  in C++; setting either makes `run` exit with an error.
+
+New controls include Parquet output, molecule-clustering alternatives,
+quality filtering, coordinate crops and convergence tolerance. See the
+[CLI reference](cli.md) rather than translating old commands flag by flag.
 
 ## Config files
 
-Existing config files keep working: `[data]`, `[segmentation]`, and
-`[plotting]` keys are unchanged (`[data]` is an alias for the preferred
-`[molecules]` section). New configs should put prior settings in the
-`[prior]` section; `[segmentation].unassigned_prior_label` and
-`[segmentation].estimate_scale_from_centers` remain accepted for
-compatibility. `ncv_method` and `min_pixels_per_cell` are accepted but
-currently unused by the C++ pipeline; `max_plot_size` sets the size of the
-molecule images in the HTML reports. `max_z_slices` (default `10`) is new: it
-sets the number of z-layers used for 3D polygon estimation, which the Julia
-line fixed at 10 and exposed only as an internal keyword argument, not as a
-CLI flag or config key.
+Most existing configs can be reused, but check the
+[C++ key reference](configuration.md#config-key-reference) for behavior:
+
+- `[data]` is an alias for `[molecules]`.
+- Prefer `[prior]` for prior settings. The old
+  `[segmentation].unassigned_prior_label` and
+  `[segmentation].estimate_scale_from_centers` remain accepted.
+- `ncv_method` and `min_pixels_per_cell` are accepted but do not affect the
+  C++ pipeline. `max_plot_size` controls molecule-image size in HTML reports.
+- `max_z_slices` (default `10`) controls the layer count for 3D polygons.
+
+CLI flags still override config values. Output-directory and format choices
+are CLI-only, not config keys.
 
 ## Outputs
 
-- The default `--output` directory is `segmentation` (it was `segmentation.csv`
-  in early C++ builds and a file prefix in Julia).
-- Renamed HTML outputs: `segmentation_diagnostics.html` →
-  `diagnostic_report.html`, `segmentation_borders.html` →
-  `segmentation_plot.html`.
-- In `segmentation.csv`, unassigned molecules have cell name `0` (Julia wrote
-  an empty string), and `is_noise` is `true`/`false` for Xenium-origin inputs
-  (`1`/`0` otherwise).
-- The Loom count matrix orientation is fixed to the Loom spec: `/matrix` is
-  genes × cells.
-- A whole new `parquet` bundle (`--output-style parquet`) with
-  Parquet/GeoParquet tables and a 10x-style HDF5 feature matrix is available.
+`-o` now names a directory (default `segmentation`), not a Julia-era file
+prefix. Other changes:
 
-Everything else — file names of the `legacy` bundle, column semantics, and
-parameter meaning — matches the Julia release; see
-[Output files](output_files.md) for the exact contracts.
+- HTML reports are named `diagnostic_report.html` and `segmentation_plot.html`
+  (Julia: `segmentation_diagnostics.html` and `segmentation_borders.html`).
+- In `segmentation.csv`, noise has cell name `0`, not an empty string.
+  `is_noise` is `true` / `false` when transcript IDs are retained, and `1` / `0`
+  otherwise.
+- Loom count matrices use genes × cells orientation.
+- `--output-style parquet` writes Parquet / GeoParquet tables and a 10x-style
+  HDF5 matrix. Use legacy output for [Xenium Ranger](xenium.md).
+
+See [Outputs](outputs.md) for the file list and
+[Output file formats](output_files.md) for exact schemas.
