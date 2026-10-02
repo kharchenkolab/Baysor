@@ -1,111 +1,67 @@
 # Xenium workflow
 
-This page describes the recommended workflow for 10x Xenium data.
-
-## Recommended input
-
-Use the Xenium manifest as the main input:
+Download the preset, then run on the original Xenium output bundle:
 
 ```bash
-baysor run -c configs/xenium.toml -o out data/experiment.xenium :cell_id
+curl -fL -o xenium.toml \
+  https://raw.githubusercontent.com/kharchenkolab/Baysor/cpp-0.9.0/configs/xenium.toml
+baysor run -c xenium.toml -o out --threads 8 data/experiment.xenium :cell_id
 ```
 
-Why:
+`data/` is the directory containing `experiment.xenium` and its transcript
+table. Baysor locates the table automatically; `:cell_id` uses its existing
+cell assignments as the prior. The preset maps the Xenium columns, filters
+control genes, sets `-m` to `50`, uses prior confidence `0.5` and treats
+`UNASSIGNED` as unassigned. It does not enable quality-value filtering; add
+`--min-qv` if needed. See [Configuration](configuration.md#protocol-presets).
 
-- Baysor resolves the transcript table automatically
-- the Xenium column mapping and filtering are captured in
-  [configs/xenium.toml](https://github.com/kharchenkolab/Baysor/blob/HEAD/configs/xenium.toml)
-- Xenium `transcript_id` is preserved in `legacy` output
+Passing `transcripts.parquet` directly also works, but the manifest is the
+recommended entrypoint. Add `-p` for [HTML diagnostics](outputs.md).
 
-Passing `transcripts.parquet` directly still works, but `experiment.xenium` is
-the preferred Xenium-aware entrypoint.
+## Alternative priors
 
-## Common prior modes
-
-### Transcript-native prior (recommended)
+To use cell boundaries instead of molecule labels:
 
 ```bash
-baysor run -c configs/xenium.toml -o out data/experiment.xenium :cell_id
+baysor run -c xenium.toml -o out data/experiment.xenium data/cell_boundaries.parquet
 ```
 
-### Cell boundary prior
-
-```bash
-baysor run -c configs/xenium.toml -o out \
-  data/experiment.xenium data/cell_boundaries.parquet
-```
-
-### Nucleus boundary prior
-
-```bash
-baysor run -c configs/xenium.toml -o out \
-  data/experiment.xenium data/nucleus_boundaries.parquet
-```
-
-Boundary tables are long-format vertex tables
-([Prior segmentation](priors.md#boundary-tables-csv-parquet)).
-
-## Recommended output style
-
-For Xenium runs that may be handed off to Xenium Explorer, use `legacy`
-output (the default):
-
-```bash
-baysor run -c configs/xenium.toml \
-  --output-style legacy \
-  -o out \
-  data/experiment.xenium :cell_id
-```
-
-For Xenium-origin inputs this automatically produces Ranger-friendly
-`segmentation.csv` and `segmentation_polygons_2d.json` (see
-[Output files](output_files.md#legacy-bundle)).
-
-The two files always contain the same cells: every cell with at least one
-assigned transcript gets a polygon, and every polygon belongs to a cell with
-at least one assigned transcript. Cells whose free-form boundary estimation
-fails get a fallback rectangle so they are not lost during the import.
+Use `data/nucleus_boundaries.parquet` instead for a nucleus prior. These are
+[vertex tables](priors.md#boundary-tables-csv-parquet), assigned by x/y. For
+no prior, omit the second input and provide `-s` / `--scale` in microns. See
+[Prior segmentation](priors.md) for confidence and scale estimation.
 
 ## Very large / 5K panel runs
 
-For very large Xenium runs, particularly high-gene-panel datasets such as 5K
-panels, prefer Louvain clustering with about 10 final coarse clusters:
+For large, high-gene-panel datasets, start with Louvain and about `10` coarse
+molecule clusters:
 
 ```bash
-baysor run \
-  -c configs/xenium.toml \
-  --cluster-method louvain \
-  --n-clusters 10 \
-  -o out \
-  data/experiment.xenium :cell_id
+baysor run -c xenium.toml --cluster-method louvain --n-clusters 10 \
+  -o out --threads 8 data/experiment.xenium :cell_id
 ```
 
-The Louvain path clusters NCV basis anchors and transfers labels back to all
-molecules, which is usually a better large-run starting point than the legacy
-MRF clustering prior. Keep `--n-clusters` near `10` unless the diagnostic
-report shows clear under- or over-clustering.
+This uses a neighborhood-composition graph instead of the default MRF
+clustering prior. Inspect the diagnostic report before adjusting the cluster
+count; it describes coarse cell types, not the number of segmented cells.
 
 ## Xenium Explorer handoff
 
-The recommended Explorer path is:
+Use the full dataset and the default `legacy` output style. It writes
+`segmentation.csv` with transcript IDs and
+`segmentation_polygons_2d.json` with matching cell IDs. Cells whose boundary
+estimation fails get fallback rectangles instead of being omitted.
 
-1. run Baysor on the original Xenium bundle in `legacy` mode
-2. run `xeniumranger import-segmentation`
+Choose polygon format for the importing Xenium Ranger version:
 
-The two Baysor files used for the handoff are `segmentation.csv` and
-`segmentation_polygons_2d.json`. Pick the polygon format for the Xenium
-Ranger version that will import it:
+| Xenium Ranger | Baysor setting |
+| --- | --- |
+| 4.0 and later | Default `FeatureCollection`; no extra flag. |
+| 3.1 and earlier | Add `--polygon-format GeometryCollectionLegacy` to the Baysor command for integer polygon cell IDs. |
 
-- Xenium Ranger 4.0 and later reads the default `FeatureCollection`, so no
-  extra flag is needed.
-- Xenium Ranger 3.1 and earlier needs integer polygon cell ids; pass
-  `--polygon-format GeometryCollectionLegacy` to Baysor.
-
-Run the conversion from the directory that contains the original Xenium
-bundle, or provide an absolute bundle path:
+Then run:
 
 ```bash
-# Xenium Ranger 4.0+
 xeniumranger import-segmentation \
   --id baysor_xenium \
   --xenium-bundle data \
@@ -114,27 +70,9 @@ xeniumranger import-segmentation \
   --units microns
 ```
 
-```bash
-# Xenium Ranger 3.1: run Baysor with --polygon-format GeometryCollectionLegacy,
-# then use the same xeniumranger command as above.
-baysor run -c configs/xenium.toml \
-  --polygon-format GeometryCollectionLegacy \
-  -o out \
-  data/experiment.xenium :cell_id
-```
+`data` must point to the original bundle. Do not use cropped Baysor runs for
+this import. For Python / R analysis without Ranger, consider
+[`--output-style parquet`](outputs.md#parquet-output) instead.
 
-You can add normal Xenium Ranger execution flags such as `--localcores` and
-`--localmem`. This is the preferred route instead of direct Baysor-side Xenium
-bundle generation.
-
-## Full runs vs crops
-
-Use full runs for Xenium Ranger handoff. Cropped runs (`--x-min` and friends)
-are useful for development, debugging, visualization, and performance
-profiling, but they are not the right input to `xeniumranger
-import-segmentation`.
-
-## Example
-
-For a full runnable Xenium example, see
-[examples/Xenium_pancreas_membrane_377](https://github.com/kharchenkolab/Baysor/tree/HEAD/examples/Xenium_pancreas_membrane_377).
+For data downloads and a full example, see
+[Xenium pancreas](https://github.com/kharchenkolab/Baysor/tree/cpp-0.9.0/examples/Xenium_pancreas_membrane_377).
