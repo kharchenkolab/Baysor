@@ -9,7 +9,11 @@
 #include "baysor/processing/utils/convex_hull.h"
 #include "baysor/utils/options.h"
 
+#include <cstdint>
+#include <cstdlib>
 #include <fstream>
+#include <type_traits>
+#include <utility>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -45,7 +49,7 @@ std::string config_error(const std::string& content) {
 // from_edge_list must throw E naming `arg` on the arguments alone, before
 // allocating or touching the (null) edge arrays.
 template<class E>
-void expect_guard_throws(int n_edges, int n_verts, const char* arg) {
+void expect_guard_throws(int64_t n_edges, int n_verts, const char* arg) {
     try {
         baysor::AdjList::from_edge_list(nullptr, nullptr, nullptr, n_edges, n_verts);
         FAIL() << "expected throw for n_edges=" << n_edges << ", n_verts=" << n_verts;
@@ -72,12 +76,43 @@ double signed_area(const Eigen::MatrixXd& poly) {
 // ============================================================================
 
 TEST(Bug3_AdjListGuards, OversizedOrNegativeCountsThrow) {
-    // n_verts + 1 overflows int at INT_MAX, 2 * n_edges at 2^30 edges, and
-    // negative counts are invalid.
+    // n_verts + 1 overflows int at INT_MAX, and negative counts are invalid.
+    // (2 * n_edges is no longer limited to int: offsets are int64, see
+    // Issue187_AdjList64 below.)
     expect_guard_throws<std::length_error>(0, std::numeric_limits<int>::max(), "n_verts");
-    expect_guard_throws<std::length_error>(1 << 30, 1, "n_edges");
     expect_guard_throws<std::invalid_argument>(0, -1, "n_verts");
     expect_guard_throws<std::invalid_argument>(-1, 4, "n_edges");
+}
+
+// Issue #187: graphs with more than 2^30 undirected edges (2D Delaunay graphs of
+// more than ~358M molecules) overflowed the int32 CSR offsets.
+static_assert(std::is_same_v<decltype(baysor::AdjList::indptr)::value_type, int64_t>,
+              "AdjList row offsets must be 64-bit");
+static_assert(std::is_same_v<decltype(std::declval<baysor::AdjList>().nnz()), int64_t>,
+              "AdjList::nnz() must be 64-bit");
+
+// Builds a graph with exactly 2^30 edges (2 * n_edges == 2^31 directed edges)
+// and checks the CSR invariants. Needs ~45 GB RAM, so it only runs when
+// BAYSOR_LARGE_TESTS is set.
+TEST(Issue187_AdjList64, MoreThanInt32MaxDirectedEdges) {
+    if (std::getenv("BAYSOR_LARGE_TESTS") == nullptr)
+        GTEST_SKIP() << "set BAYSOR_LARGE_TESTS=1 to run (needs ~45 GB RAM)";
+    const int64_t n_edges = int64_t{1} << 30;
+    const int n_verts = 1000000;
+    std::vector<int> src(n_edges), dst(n_edges);
+    std::vector<double> w(n_edges, 1.0);
+    for (int64_t e = 0; e < n_edges; ++e) {
+        src[e] = static_cast<int>(e % n_verts);
+        dst[e] = (src[e] + 1) % n_verts;
+    }
+    const auto adj = baysor::AdjList::from_edge_list(src.data(), dst.data(), w.data(), n_edges, n_verts);
+    EXPECT_EQ(adj.nnz(), 2 * n_edges);
+    EXPECT_EQ(adj.indptr.back(), 2 * n_edges);
+    int64_t total = 0;
+    for (int i = 0; i < n_verts; ++i) total += adj.neighbor_count(i);
+    EXPECT_EQ(total, 2 * n_edges);
+    ASSERT_GT(adj.neighbor_count(n_verts - 1), 0);
+    EXPECT_EQ(adj.neighbor_ids(n_verts - 1)[0], 0);  // edge (n_verts-1) -- 0
 }
 
 // ============================================================================

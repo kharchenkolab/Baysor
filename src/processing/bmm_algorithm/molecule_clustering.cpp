@@ -59,12 +59,12 @@ ClusteringResult cluster_molecules_on_mrf(
     // ------------------------------------------------------------------
     std::vector<double> adj_w_conf(adj_list.nnz());
     for (int i = 0; i < n_mols; ++i) {
-        int start = adj_list.indptr[i];
-        int end   = adj_list.indptr[i + 1];
+        const int64_t start = adj_list.indptr[i];
+        const int64_t end   = adj_list.indptr[i + 1];
         const int32_t* nb  = adj_list.indices.data() + start;
         const double*  wt  = adj_list.weights.data()  + start;
         double*        out = adj_w_conf.data()         + start;
-        for (int j = 0; j < end - start; ++j) {
+        for (int64_t j = 0; j < end - start; ++j) {
             out[j] = wt[j] * confidence[nb[j]];
         }
     }
@@ -191,11 +191,11 @@ ClusteringResult cluster_molecules_on_mrf(
             int chunk_changed = 0;
             for (int i = static_cast<int>(chunk_begin); i < static_cast<int>(chunk_end); ++i) {
                 int  g0    = genes[i] - 1;  // 0-based gene (< 0 if missing)
-                int  start = adj_list.indptr[i];
-                int  end   = adj_list.indptr[i + 1];
+                const int64_t start = adj_list.indptr[i];
+                const int64_t end   = adj_list.indptr[i + 1];
                 const int32_t* nb_ids = adj_list.indices.data() + start;
                 const double*  nb_wt  = adj_w_conf.data()        + start;
-                int  n_nb  = end - start;
+                int  n_nb  = static_cast<int>(end - start);
 
                 double col_sum = 0.0;
                 for (int k = 0; k < n_clusters; ++k) {

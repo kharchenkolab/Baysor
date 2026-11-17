@@ -60,12 +60,12 @@ Eigen::MatrixXd normalize_points(const Eigen::MatrixXd& points, int* rng_draws) 
 // ============================================================================
 
 void filter_long_edges(AdjacencyResult& result, double n_mads) {
-    int n = static_cast<int>(result.edge_dists.size());
+    const size_t n = result.edge_dists.size();
     if (n == 0) return;
 
     // Compute log10 distances
     std::vector<double> log_dists(n);
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
         log_dists[i] = std::log10(std::max(result.edge_dists[i], 1e-30));
     }
 
@@ -81,7 +81,7 @@ void filter_long_edges(AdjacencyResult& result, double n_mads) {
 
     // MAD (median absolute deviation), normalized
     std::vector<double> abs_devs(n);
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
         abs_devs[i] = std::abs(log_dists[i] - median);
     }
     std::sort(abs_devs.begin(), abs_devs.end());
@@ -97,7 +97,7 @@ void filter_long_edges(AdjacencyResult& result, double n_mads) {
 
     // Filter
     AdjacencyResult filtered;
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
         if (log_dists[i] < threshold) {
             filtered.edge_src.push_back(result.edge_src[i]);
             filtered.edge_dst.push_back(result.edge_dst[i]);
