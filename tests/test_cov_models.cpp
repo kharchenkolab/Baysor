@@ -64,7 +64,7 @@ TEST(Cov2Models, FromEdgeListWithoutVerticesIgnoresEdges) {
     const double wts[] = {1.0, 1.0};
     auto empty = AdjList::from_edge_list(src, dst, wts, /*n_edges=*/2,
                                           /*n_verts=*/0);
-    EXPECT_EQ(empty.indptr, (std::vector<int32_t>{0}));
+    EXPECT_EQ(empty.indptr, (std::vector<int64_t>{0}));
     EXPECT_EQ(empty.n_molecules(), 0);
 }
 

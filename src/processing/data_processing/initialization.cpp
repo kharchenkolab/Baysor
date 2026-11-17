@@ -97,11 +97,11 @@ AdjacencyResult compute_molecule_adjacency(const MoleculeData& data) {
 }
 
 AdjList build_molecule_graph_from_edges(const AdjacencyResult& adj_result, int n) {
-    int n_edges = static_cast<int>(adj_result.edge_src.size());
+    const int64_t n_edges = static_cast<int64_t>(adj_result.edge_src.size());
     double min_edge_length = quantile_vec(adj_result.edge_dists, 0.3);
 
     std::vector<double> edge_weights(n_edges);
-    for (int i = 0; i < n_edges; ++i) {
+    for (int64_t i = 0; i < n_edges; ++i) {
         edge_weights[i] = min_edge_length / std::max(adj_result.edge_dists[i], min_edge_length);
     }
 

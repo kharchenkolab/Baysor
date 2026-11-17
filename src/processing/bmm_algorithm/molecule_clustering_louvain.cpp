@@ -276,7 +276,7 @@ static AdjList aggregate_graph(
     AdjList agg;
     agg.indptr.assign(n_comms + 1, 0);
 
-    int nnz = 0;
+    int64_t nnz = 0;
     for (const auto& kv : edge_weight) {
         int a = static_cast<int>(kv.first >> 32);
         int b = static_cast<int>(kv.first & 0xffffffffu);
@@ -294,12 +294,12 @@ static AdjList aggregate_graph(
     agg.indices.resize(nnz);
     agg.weights.resize(nnz);
 
-    std::vector<int32_t> write_pos = agg.indptr;
+    std::vector<int64_t> write_pos = agg.indptr;
     for (const auto& kv : edge_weight) {
         int a = static_cast<int>(kv.first >> 32);
         int b = static_cast<int>(kv.first & 0xffffffffu);
         double w = kv.second;
-        int pos = write_pos[a]++;
+        int64_t pos = write_pos[a]++;
         agg.indices[pos] = b;
         agg.weights[pos] = w;
         if (a != b) {
@@ -495,7 +495,7 @@ AdjList build_knn_similarity_graph(
 
     if (src.empty()) return out;
     return AdjList::from_edge_list(src.data(), dst.data(), wt.data(),
-                                   static_cast<int>(src.size()), n);
+                                   static_cast<int64_t>(src.size()), n);
 }
 
 static std::vector<int> transfer_labels_from_anchor_vectors_exact(
